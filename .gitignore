@@ -1,0 +1,10 @@
+__pycache__
+.venv*/
+.vscode/
+appendix/
+.python-version
+bin/
+temp*
+config.toml
+log/
+script/

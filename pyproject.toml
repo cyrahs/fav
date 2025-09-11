@@ -1,0 +1,36 @@
+[project]
+name = "fav"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "bilibili-api-python>=17.1.1",
+    "colorlog>=6.9.0",
+    "httpx>=0.28.1",
+    "pycryptodome>=3.21.0",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.10.1",
+    "tqdm>=4.67.1",
+]
+
+[tool.ruff]
+line-length = 140
+
+
+[tool.ruff.lint]
+select = ['ALL']
+ignore = [
+  'Q000',    # Double quotes
+  'PLC0414', # Import alias
+  'D407', # Lines for docstrings
+  'ANN401', # Any type
+  'PERF203', # try-except in loop
+  'D', # pydocstyle
+  'PLW0603', # global variable
+]
+
+[tool.ruff.format]
+quote-style = 'single'
+indent-style = 'space'
+line-ending = 'lf'
