@@ -45,4 +45,4 @@ COPY --from=builder /app/bin /app/bin
 COPY src/ src/
 COPY run.py ./
 
-CMD ["python", "main.py"]
+CMD ["python", "run.py"]
