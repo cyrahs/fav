@@ -9,7 +9,6 @@ from typing import Any
 
 import colorlog
 from tqdm import tqdm
-from tzlocal import get_localzone
 
 NOTICE = 25
 logging.addLevelName(NOTICE, 'NOTICE')
@@ -60,7 +59,7 @@ app_logger = logging.getLogger('embyx')
 log_dir = Path('./log')
 log_dir.mkdir(exist_ok=True)
 
-timestamp = datetime.now(get_localzone()).strftime('%Y%m%d')
+timestamp = datetime.now().astimezone().strftime('%Y%m%d')
 file_handler = logging.FileHandler(log_dir / f'{timestamp}.log')
 file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(file_formatter)
