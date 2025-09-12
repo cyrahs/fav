@@ -131,7 +131,9 @@ class Bilibili:
         command = [
             './bin/yt-dlp',
             '-o',
-            str(dirpath / '[%(uploader)s]%(title)s.%(ext)s'),
+            str(dirpath / '[%(uploader)s]%(title)s [%(id)s].%(ext)s'),
+                        '--trim-filenames',
+            '60',
             '--no-mtime',
             '--cookies',
             str(self.cookie_path),
