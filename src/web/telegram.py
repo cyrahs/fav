@@ -22,9 +22,10 @@ MAX_FILENAME_BYTES = 200
 
 class Telegram:
     def __init__(self) -> None:
-        self.client = TelegramClient(cfg.session_path, cfg.api_id, cfg.api_hash)
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-telegram-')
         self.cache_dir = Path(self._tmp_dir.name)
+        cfg.session_path.mkdir(parents=True, exist_ok=True)
+        self.client = TelegramClient(cfg.session_path, cfg.api_id, cfg.api_hash)
 
     def __del__(self) -> None:
         self._tmp_dir.cleanup()
