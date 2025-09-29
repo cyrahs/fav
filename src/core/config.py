@@ -32,12 +32,23 @@ class CookieCloud(BaseModel):
     password: str
 
 
+class Telegram(BaseModel):
+    channels: list[int]
+    api_id: int
+    api_hash: str
+    # Base download directory; per-channel subfolders will be created
+    path: Path
+    # Optional custom session file path (defaults to .cache/telegram/session)
+    session_path: Path
+
+
 class Config(BaseSettings):
     proxy: str
     bilibili: Bilibili
     tx: Tx
     cloudflare: Cloudflare
     cookiecloud: CookieCloud
+    telegram: Telegram
 
     model_config = SettingsConfigDict(toml_file='config.toml')
 

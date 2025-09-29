@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 
 from src.core import config, logger
-from src.web import Bilibili, Tangxin
+from src.web import Bilibili, Tangxin, Telegram
 
 log = logger.get('main')
 
@@ -50,6 +50,7 @@ subprocess.run([str(ytdlp_path), '--update-to', latest_tag], check=True, env=PRO
 async def main() -> None:
     await Tangxin().update()
     await Bilibili().update()
+    await Telegram().update()
 
 
 if __name__ == '__main__':
