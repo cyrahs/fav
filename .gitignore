@@ -2,9 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
-bin/
-.cache/
 log/
 *.log
-config.toml
 temp*
+data
+collection

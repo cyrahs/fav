@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path  # noqa: TC003
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict, TomlConfigSettingsSource
 
 from . import logger
+
+if TYPE_CHECKING:
+    from pydantic_settings.sources import PydanticBaseSettingsSource
 
 
 class Bilibili(BaseModel):
@@ -36,9 +40,7 @@ class Telegram(BaseModel):
     channels: list[int]
     api_id: int
     api_hash: str
-    # Base download directory; per-channel subfolders will be created
     path: Path
-    # Optional custom session file path (defaults to .cache/telegram/session)
     session_path: Path
 
 
@@ -50,11 +52,11 @@ class Config(BaseSettings):
     cookiecloud: CookieCloud
     telegram: Telegram
 
-    model_config = SettingsConfigDict(toml_file='config.toml')
+    model_config = SettingsConfigDict(toml_file='./data/config.toml')
 
     @classmethod
-    def settings_customise_sources(cls, s, **_):  # noqa: ANN001, ANN003, ANN206
-        return (TomlConfigSettingsSource(s),)
+    def settings_customise_sources(cls, settings_cls: type[BaseSettings], *_: Any, **__: Any) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (TomlConfigSettingsSource(settings_cls),)
 
 
 log = logger.get('config')
