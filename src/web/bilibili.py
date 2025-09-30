@@ -1,24 +1,19 @@
 """Provides functionality to interact with Bilibili API."""
 
-from __future__ import annotations
-
 import asyncio
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Coroutine
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any
 
 import bilibili_api as api
 from tqdm import tqdm
 
 from src.core import config, logger
 from src.tool import CookieCloudClient, cloudflare
-
-if TYPE_CHECKING:
-    from collections.abc import Coroutine
-    from typing import Any
 
 log = logger.get('bilibili')
 cfg = config.bilibili

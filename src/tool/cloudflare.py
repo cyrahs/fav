@@ -1,4 +1,4 @@
-from __future__ import annotations
+from typing import Any
 
 import httpx
 
@@ -25,7 +25,7 @@ client = httpx.Client(
 )
 
 
-async def query_d1(query: str, params: tuple[str, ...] = ()):
+async def query_d1(query: str, params: tuple[str, ...] = ()) -> list[dict[str, Any]]:
     url = f'https://api.cloudflare.com/client/v4/accounts/{cfg.account_id}/d1/database/{cfg.d1_id}/query'
     res = await async_client.post(url, json={'sql': query, 'params': params})
     try:

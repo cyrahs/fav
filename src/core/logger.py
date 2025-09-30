@@ -1,7 +1,5 @@
 """Color logging with tqdm progress bar."""
 
-from __future__ import annotations
-
 import logging
 from datetime import datetime
 from pathlib import Path
