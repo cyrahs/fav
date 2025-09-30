@@ -43,8 +43,6 @@ COPY src/ src/
 COPY run.py ./
 
 # Compile application code to bytecode
-RUN python -m compileall -b src/ run.py && \
-    find . -name "*.py" -not -path "./.venv/*" -delete && \
-    find . -name "*.pyc" -exec rename 's/\.pyc$/.py/' {} \;
+RUN python -m compileall src/ run.py
 
 CMD ["python", "run.py"]
