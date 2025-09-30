@@ -56,7 +56,7 @@ root.addHandler(console_handler)
 app_logger = logging.getLogger('embyx')
 
 
-log_dir = Path('./log')
+log_dir = Path('./data/log')
 log_dir.mkdir(exist_ok=True)
 
 timestamp = datetime.now().astimezone().strftime('%Y%m%d')
