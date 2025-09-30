@@ -129,7 +129,7 @@ class Bilibili:
         """Download a video from Bilibili."""
         log.info('Downloading %s', url)
         command = [
-            './bin/yt-dlp',
+            'yt-dlp',
             '-o',
             str(dirpath / '[%(uploader)s]%(title)s [%(id)s].%(ext)s'),
                         '--trim-filenames',

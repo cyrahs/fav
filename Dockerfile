@@ -2,7 +2,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Tools needed only during build to fetch yt-dlp
+# Tools needed during build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     curl \
@@ -15,13 +15,6 @@ COPY pyproject.toml uv.lock ./
 # Install Python deps using uv into a local .venv
 RUN uv sync --no-dev --frozen
 
-# Pre-fetch yt-dlp binary to the expected path (./bin/yt-dlp)
-RUN mkdir -p /app/bin \
-    && curl -fsSL \
-    https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
-    -o /app/bin/yt-dlp \
-    && chmod +x /app/bin/yt-dlp
-
 
 FROM python:3.12-slim-bookworm AS runner
 
@@ -30,16 +23,19 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Minimal runtime dependencies
+# Runtime dependencies including yt-dlp
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
+       -o /usr/local/bin/yt-dlp \
+    && chmod +x /usr/local/bin/yt-dlp
 
-# Bring in the virtualenv and yt-dlp from the builder image
+# Bring in the virtualenv from the builder image
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/bin /app/bin
 
 # Copy the application source
 COPY src/ src/

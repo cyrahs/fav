@@ -1,0 +1,75 @@
+name: Check yt-dlp Updates
+
+on:
+  schedule:
+    # Run daily at 10 AM PDT (5 PM UTC)
+    - cron: '0 17 * * *'
+  workflow_dispatch: # Allow manual triggers
+
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Restore version cache
+      id: cache
+      uses: actions/cache/restore@v3
+      with:
+        path: .yt-dlp-version
+        key: yt-dlp-version-${{ github.run_id }}
+        restore-keys: |
+          yt-dlp-version-
+    
+    - name: Get current yt-dlp version
+      id: current
+      run: |
+        if [ -f .yt-dlp-version ]; then
+          CURRENT_VERSION=$(cat .yt-dlp-version)
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        else
+          echo "version=none" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Get latest yt-dlp version
+      id: latest
+      run: |
+        LATEST_VERSION=$(curl -s https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | jq -r '.tag_name')
+        echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+        echo "Latest yt-dlp version: $LATEST_VERSION"
+    
+    - name: Compare versions and trigger rebuild
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        CURRENT="${{ steps.current.outputs.version }}"
+        LATEST="${{ steps.latest.outputs.version }}"
+        
+        echo "Current version: $CURRENT"
+        echo "Latest version: $LATEST"
+        
+        if [ "$CURRENT" != "$LATEST" ]; then
+          echo "New yt-dlp version detected! Triggering rebuild..."
+          
+          # Save version for next run
+          echo "$LATEST" > .yt-dlp-version
+          
+          # Trigger the docker build workflow
+          gh workflow run docker-build.yml \
+            -f yt-dlp-version="$LATEST" \
+            -f trigger-reason="yt-dlp-update"
+        else
+          echo "yt-dlp is up to date (${CURRENT})"
+        fi
+    
+    - name: Save version cache
+      if: steps.current.outputs.version != steps.latest.outputs.version
+      uses: actions/cache/save@v3
+      with:
+        path: .yt-dlp-version
+        key: yt-dlp-version-${{ github.run_id }}

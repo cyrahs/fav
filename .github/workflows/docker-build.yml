@@ -6,6 +6,16 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      yt-dlp-version:
+        description: 'yt-dlp version that triggered this build'
+        required: false
+        type: string
+      trigger-reason:
+        description: 'Reason for manual trigger'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -43,14 +53,23 @@ jobs:
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
           type=raw,value=latest,enable={{is_default_branch}}
+        labels: |
+          org.opencontainers.image.title=fav
+          org.opencontainers.image.description=Application with yt-dlp ${{ inputs.yt-dlp-version || 'latest' }}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         platforms: linux/amd64,linux/arm64
-        push: true
+        push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Log build trigger info
+      if: inputs.trigger-reason
+      run: |
+        echo "Build triggered by: ${{ inputs.trigger-reason }}"
+        echo "yt-dlp version: ${{ inputs.yt-dlp-version }}"

@@ -21,5 +21,8 @@ dist/
 Thumbs.db
 
 # Project artifacts/config not needed in image
-bin/yt-dlp
+bin/
+.cache/
 config.toml
+log/
+*.log
