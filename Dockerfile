@@ -12,13 +12,14 @@ RUN apt-get update \
 # Copy project metadata first for better layer caching of deps
 COPY pyproject.toml uv.lock ./
 
-# Install Python deps using uv into a local .venv
-RUN uv sync --no-dev --frozen
+# Install Python deps using uv into a local .venv and compile to bytecode
+RUN uv sync --no-dev --frozen --compile-bytecode
 
 
 FROM python:3.12-slim-bookworm AS runner
 
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
@@ -40,5 +41,10 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy the application source
 COPY src/ src/
 COPY run.py ./
+
+# Compile application code to bytecode
+RUN python -m compileall -b src/ run.py && \
+    find . -name "*.py" -not -path "./.venv/*" -delete && \
+    find . -name "*.pyc" -exec rename 's/\.pyc$/.py/' {} \;
 
 CMD ["python", "run.py"]

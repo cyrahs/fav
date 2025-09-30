@@ -1,10 +1,11 @@
 name: Check yt-dlp Updates
 
-on:
+"on":
   schedule:
-    # Run daily at 10 AM PDT (5 PM UTC)
+    # Run daily at 10 AM PDT (5 PM UTC during PDT, 6 PM UTC during PST)
+    # PDT is UTC-7, so 10 AM PDT = 5 PM UTC
     - cron: '0 17 * * *'
-  workflow_dispatch: # Allow manual triggers
+  workflow_dispatch:
 
 jobs:
   check-update:
