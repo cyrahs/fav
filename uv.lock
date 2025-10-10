@@ -153,6 +153,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "telethon" },
+    { name = "tenacity" },
     { name = "tqdm" },
 ]
 
@@ -165,6 +166,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "telethon", specifier = ">=1.41.2" },
+    { name = "tenacity", specifier = ">=8.5.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
 
@@ -603,6 +605,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/86/6a/3fc30b39eac0a8c770418c0f393d3ff040b9205938a1492d60f08934e97a/telethon-1.41.2.tar.gz", hash = "sha256:300a3441df62668378626b46cafda346573e9ac296367182510756334d2bdc5e", size = 669173, upload-time = "2025-09-04T19:08:02.026Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/e0/2fb26c432ee4259a6d4ab427196b84a2b0c81db232337b02cf2a09df1896/telethon-1.41.2-py3-none-any.whl", hash = "sha256:28b6b1023a0753a32039e6d1fda4b63cac138ce894cd5cbcac1d5ddd2f8426d8", size = 744889, upload-time = "2025-09-04T19:08:00.181Z" },
+]
+
+[[package]]
+name = "tenacity"
+version = "9.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/d4/2b0cd0fe285e14b36db076e78c93766ff1d529d70408bd1d2a5a84f1d929/tenacity-9.1.2.tar.gz", hash = "sha256:1169d376c297e7de388d18b4481760d478b0e99a777cad3a9c86e556f4b697cb", size = 48036, upload-time = "2025-04-02T08:25:09.966Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl", hash = "sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138", size = 28248, upload-time = "2025-04-02T08:25:07.678Z" },
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 """Provides functionality to interact with Bilibili API."""
 
 import asyncio
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import bilibili_api as api
+from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from src.core import config, logger
@@ -17,6 +19,10 @@ from src.tool import CookieCloudClient, cloudflare
 
 log = logger.get('bilibili')
 cfg = config.bilibili
+
+
+class DownloadError(RuntimeError):
+    """Raised when a download fails after retries."""
 
 
 class Bilibili:
@@ -120,24 +126,58 @@ class Bilibili:
         log.info('Find %d favs to download', len(result))
         return result
 
-    def download(self, url: str, dirpath: Path) -> None:
-        """Download a video from Bilibili."""
+    def _cleanup_dir(self, dirpath: Path) -> None:
+        """Clear out temporary download directory."""
+        if not dirpath.exists():
+            return
+        for entry in dirpath.iterdir():
+            if entry.is_dir():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+
+    def download(self, url: str, dirpath: Path, max_attempts: int = 3, base_delay: int = 5) -> None:
+        """Download a video from Bilibili with retries."""
         log.info('Downloading %s', url)
         command = [
             'yt-dlp',
             '-o',
             str(dirpath / '[%(uploader)s]%(title)s [%(id)s].%(ext)s'),
-                        '--trim-filenames',
+            '--trim-filenames',
             '60',
             '--no-mtime',
             '--cookies',
             str(self.cookie_path),
+            '--retries',
+            '15',
+            '--fragment-retries',
+            '15',
+            '--socket-timeout',
+            '30',
             url,
         ]
-        result = subprocess.run(command, text=True, check=True)  # noqa: S603
-        if result.returncode != 0:
-            message = f'Download failed: {result.stderr}'
-            raise ValueError(message)
+        if config.proxy:
+            command.extend(['--proxy', config.proxy])
+
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_exponential(multiplier=base_delay, min=base_delay, max=base_delay * 6),
+            retry=retry_if_exception_type(DownloadError),
+            before_sleep=before_sleep_log(log, logging.WARNING),
+        )
+        def _run_once() -> None:
+            self._cleanup_dir(dirpath)
+            result = subprocess.run(command, text=True, capture_output=True, check=False)  # noqa: S603
+            if result.returncode == 0:
+                if result.stderr:
+                    log.debug('yt-dlp stderr: %s', result.stderr.strip())
+                return
+            message = result.stderr.strip() or result.stdout.strip() or f'yt-dlp exited with code {result.returncode}'
+            msg = f'{url}: {message}'
+            raise DownloadError(msg)
+
+        _run_once()
 
     async def update_fav(self, fav_id: int, path: Path) -> None:
         path.mkdir(exist_ok=True)
@@ -156,9 +196,10 @@ class Bilibili:
             detail = await video.get_detail()
             title = detail['View']['title']
             upper = detail['Card']['card']['name']
+            url = f'https://www.bilibili.com/video/{bvid}'
             video_cache_dir = self.cache_dir / 'videos'
             video_cache_dir.mkdir(exist_ok=True)
-            self.download(f'https://www.bilibili.com/video/{bvid}', video_cache_dir)
+            self.download(url, video_cache_dir)
             for v in video_cache_dir.iterdir():
                 dst_path = path / v.name
                 while dst_path.exists():
