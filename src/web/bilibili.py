@@ -180,7 +180,7 @@ class Bilibili:
         _run_once()
 
     async def update_fav(self, fav_id: int, path: Path) -> None:
-        path.mkdir(exist_ok=True)
+        path.mkdir(parents=True,exist_ok=True)
         # for toview
         if fav_id == -1:
             videos = await self.get_toviews()
