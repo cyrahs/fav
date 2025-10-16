@@ -3,7 +3,6 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from pydantic_core.core_schema import NoneSchema
 from telethon import TelegramClient
 from telethon.tl.types import Channel, DocumentAttributeVideo, Message, PeerChannel
 from tqdm import tqdm
@@ -76,7 +75,7 @@ class Telegram:
             dst_path = (dst_dir / title).with_suffix(downloaded_path.suffix)
             shutil.move(downloaded_path, dst_path)
             return dst_path
-        return NoneSchema
+        return None
 
     async def update_channel(self, channel_id: int) -> None:
         channel = await self.client.get_entity(PeerChannel(channel_id))
