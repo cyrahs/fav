@@ -215,5 +215,17 @@ class Bilibili:
 
     async def update(self) -> None:
         """Update the favorite list of the main account."""
+        # Initialize table
+        await cloudflare.query_d1("""
+            CREATE TABLE IF NOT EXISTS bilibili (
+                bvid TEXT PRIMARY KEY,
+                fav_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                upper TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        log.debug('bilibili table initialized')
+        
         await self.update_fav(cfg.fav_id, cfg.path / 'fav')
         await self.update_fav(-1, cfg.path / 'toview')

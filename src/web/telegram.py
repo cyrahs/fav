@@ -9,6 +9,7 @@ from telethon.tl.types import Channel, DocumentAttributeVideo, Message, PeerChan
 from tqdm import tqdm
 
 from src.core import config, logger
+from src.tool import cloudflare
 
 log = logger.get('telegram')
 cfg = config.telegram
@@ -35,9 +36,9 @@ class Telegram:
         return base
 
     @staticmethod
-    def get_downloaded_ids(dst: Path) -> list[int]:
-        pattern = re.compile(r'.*?\[(\d+)\]\.[^.]+$')
-        return [int(pattern.match(p.name).group(1)) for p in dst.glob('*')]
+    async def get_downloaded_ids(channel_id: int) -> list[int]:
+        exists_ids = await cloudflare.query_d1('SELECT message_id FROM telegram WHERE channel_id = ?;', (str(channel_id),))
+        return [int(i['message_id']) for i in exists_ids]
 
     async def get_videos(self, channel: Channel) -> list[Message]:
         videos = []
@@ -77,7 +78,7 @@ class Telegram:
             return dst_path
         return NoneSchema
 
-    async def update_channel(self, channel_id: str) -> None:
+    async def update_channel(self, channel_id: int) -> None:
         channel = await self.client.get_entity(PeerChannel(channel_id))
         ch_name = getattr(channel, 'username', None) or getattr(channel, 'title', str(channel_id)) or str(channel_id)
         ch_name = self.sanitize(ch_name)
@@ -85,7 +86,8 @@ class Telegram:
         dst.mkdir(parents=True, exist_ok=True)
 
         videos = await self.get_videos(channel)
-        undownloaded = [v for v in videos if v.id not in self.get_downloaded_ids(dst)]
+        downloaded_ids = await self.get_downloaded_ids(channel_id)
+        undownloaded = [v for v in videos if v.id not in downloaded_ids]
         if not undownloaded:
             log.info('No new videos')
             return
@@ -94,10 +96,27 @@ class Telegram:
             result = await self.download(msg, dst)
             if result:
                 log.notice('Saved %s', result.name)
+                title = (msg.message or '').strip() or f'video_{msg.id}'
+                await cloudflare.query_d1(
+                    'INSERT INTO telegram (message_id, channel_id, title, channel_name) VALUES (?, ?, ?, ?);',
+                    (str(msg.id), str(channel_id), title, ch_name),
+                )
             else:
                 log.error('Failed to download message %s', msg.id)
 
     async def update(self) -> None:
+        # Initialize table
+        await cloudflare.query_d1("""
+            CREATE TABLE IF NOT EXISTS telegram (
+                message_id INTEGER PRIMARY KEY,
+                channel_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                channel_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        log.debug('telegram table initialized')
+        
         await self.client.start()
         for channel_id in cfg.channels:
             await self.update_channel(channel_id)
