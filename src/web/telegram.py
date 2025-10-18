@@ -1,4 +1,3 @@
-import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -8,14 +7,10 @@ from telethon.tl.types import Channel, DocumentAttributeVideo, Message, PeerChan
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import cloudflare
+from src.tool import cloudflare, format_video_filename, sanitize
 
 log = logger.get('telegram')
 cfg = config.telegram
-
-
-INVALID_CHARS = r'[<>:"/\\|?*\n]'
-MAX_FILENAME_BYTES = 200
 
 
 class Telegram:
@@ -26,13 +21,6 @@ class Telegram:
 
     def __del__(self) -> None:
         self._tmp_dir.cleanup()
-
-    @staticmethod
-    def sanitize(name: str) -> str:
-        base = re.sub(INVALID_CHARS, '_', name).strip()
-        while base and len(base.encode('utf-8')) > MAX_FILENAME_BYTES:
-            base = base[:-1]
-        return base
 
     @staticmethod
     async def get_downloaded_ids(channel_id: int) -> list[int]:
@@ -60,9 +48,8 @@ class Telegram:
             msg = f'{dst_dir} is a file'
             raise ValueError(msg)
         title = (msg.message or '').strip() or f'video_{msg.id}'
-        title = self.sanitize(title)
-        title = f'{title} [{msg.id}]'
-        with tqdm(total=0, unit='B', unit_scale=True, desc=title, dynamic_ncols=True) as pbar:
+        display_title = f'{sanitize(title, max_bytes=50)} [{msg.id}]'
+        with tqdm(total=0, unit='B', unit_scale=True, desc=display_title, dynamic_ncols=True) as pbar:
             tmp_path = self.cache_dir / f'{msg.id}'
 
             def _cb(current: int, total: int) -> None:
@@ -72,7 +59,13 @@ class Telegram:
             downloaded_path = await msg.download_media(file=str(tmp_path), progress_callback=_cb)
         if downloaded_path:
             downloaded_path = Path(downloaded_path)
-            dst_path = (dst_dir / title).with_suffix(downloaded_path.suffix)
+            filename = format_video_filename(
+                title=title,
+                video_id=str(msg.id),
+                uploader=None,
+                ext=downloaded_path.suffix,
+            )
+            dst_path = dst_dir / filename
             shutil.move(downloaded_path, dst_path)
             return dst_path
         return None
@@ -80,7 +73,7 @@ class Telegram:
     async def update_channel(self, channel_id: int) -> None:
         channel = await self.client.get_entity(PeerChannel(channel_id))
         ch_name = getattr(channel, 'username', None) or getattr(channel, 'title', str(channel_id)) or str(channel_id)
-        ch_name = self.sanitize(ch_name)
+        ch_name = sanitize(ch_name)
         dst = cfg.path / ch_name
         dst.mkdir(parents=True, exist_ok=True)
 

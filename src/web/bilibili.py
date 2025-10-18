@@ -15,7 +15,7 @@ from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_afte
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import CookieCloudClient, cloudflare
+from src.tool import CookieCloudClient, cloudflare, ensure_unique_path, format_video_filename
 
 log = logger.get('bilibili')
 cfg = config.bilibili
@@ -136,15 +136,14 @@ class Bilibili:
             else:
                 entry.unlink()
 
-    def download(self, url: str, dirpath: Path, max_attempts: int = 3, base_delay: int = 5) -> None:
+    def download(self, url: str, bvid: str, dirpath: Path, max_attempts: int = 3, base_delay: int = 5) -> None:
         """Download a video from Bilibili with retries."""
         log.info('Downloading %s', url)
+        # Use simple filename template with just the video ID, we'll rename it properly later
         command = [
             'yt-dlp',
             '-o',
-            str(dirpath / '[%(uploader)s]%(title)s [%(id)s].%(ext)s'),
-            '--trim-filenames',
-            '60',
+            str(dirpath / f'{bvid}.%(ext)s'),
             '--no-mtime',
             '--cookies',
             str(self.cookie_path),
@@ -199,14 +198,17 @@ class Bilibili:
             url = f'https://www.bilibili.com/video/{bvid}'
             video_cache_dir = self.cache_dir / 'videos'
             video_cache_dir.mkdir(exist_ok=True)
-            self.download(url, video_cache_dir)
+            self.download(url, bvid, video_cache_dir)
             for v in video_cache_dir.iterdir():
-                dst_path = path / v.name
-                while dst_path.exists():
-                    filename = dst_path.stem
-                    new_path = dst_path.with_name(f'{filename} {dst_path.suffix}')
-                    log.warning('File %s exists, renamed to %s', dst_path.name, new_path.name)
-                    dst_path = new_path
+                # Format the proper filename with sanitized title and uploader
+                proper_filename = format_video_filename(
+                    title=title,
+                    video_id=bvid,
+                    uploader=upper,
+                    ext=v.suffix,
+                )
+                dst_path = path / proper_filename
+                dst_path = ensure_unique_path(dst_path)
                 shutil.move(v, dst_path)
             await cloudflare.query_d1(
                 'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
