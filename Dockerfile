@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --frozen --compile-bytecode
 
 
-FROM python:3.12-slim-bookworm AS runner
+FROM python:3.12-slim-trixie AS runner
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
