@@ -138,7 +138,6 @@ class Bilibili:
 
     def download(self, url: str, bvid: str, dirpath: Path, max_attempts: int = 3, base_delay: int = 5) -> None:
         """Download a video from Bilibili with retries."""
-        log.info('Downloading %s', url)
         # Use simple filename template with just the video ID, we'll rename it properly later
         command = [
             'yt-dlp',
@@ -198,6 +197,7 @@ class Bilibili:
             url = f'https://www.bilibili.com/video/{bvid}'
             video_cache_dir = self.cache_dir / 'videos'
             video_cache_dir.mkdir(exist_ok=True)
+            log.info('Downloading [%s]%s [%s]', upper, title, bvid)
             self.download(url, bvid, video_cache_dir)
             for v in video_cache_dir.iterdir():
                 # Format the proper filename with sanitized title and uploader
