@@ -116,9 +116,7 @@ class Telegram:
 
     async def download(self, msg: Message, dst_dir: Path, title: str) -> Path | None:
         """Download a video message with specified title."""
-        if not dst_dir.exists():
-            dst_dir.mkdir(parents=True, exist_ok=True)
-        elif dst_dir.is_file():
+        if dst_dir.is_file():
             error_msg = f'{dst_dir} is a file'
             raise ValueError(error_msg)
         
@@ -140,6 +138,7 @@ class Telegram:
                 ext=downloaded_path.suffix,
             )
             dst_path = dst_dir / filename
+            dst_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(downloaded_path, dst_path)
             return dst_path
         return None
