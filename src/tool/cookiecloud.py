@@ -29,7 +29,7 @@ class CookieCloudClient:
         self.password = password
         self.user_agent = user_agent or 'CookieCloudClient/Python'
         self.client = httpx.Client(proxy=proxy, timeout=10, headers={'User-Agent': self.user_agent})
-        self.key = MD5.new(f'{self.uuid}-{self.password}'.encode()).hexdigest()[:16].encode()
+        self.key = MD5.new(f'{self.uuid}-{self.password}'.encode()).hexdigest()[:16].encode()  # noqa: S303
 
     def _decrypt_data(self, encrypted_text: str) -> str:
         # Decode the base64 encoded encrypted text
@@ -45,7 +45,7 @@ class CookieCloudClient:
         key_iv = b''
         prev = b''
         while len(key_iv) < 48:  # We need 32 bytes for key and 16 bytes for IV
-            prev = MD5.new(prev + self.key + salt).digest()
+            prev = MD5.new(prev + self.key + salt).digest()  # noqa: S303
             key_iv += prev
 
         derived_key = key_iv[:32]  # Use first 32 bytes for the key
@@ -105,7 +105,7 @@ class CookieCloudClient:
         ]
         for cookie in domain_cookies:
             secure = 'TRUE' if cookie.get('secure', False) else 'FALSE'
-            host_only = 'TRUE' if not cookie.get('hostOnly', True) else 'FALSE' # set Include Subdomains
+            host_only = 'TRUE' if not cookie.get('hostOnly', True) else 'FALSE'  # set Include Subdomains
             expiry = cookie.get('expirationDate', int(time.time() + 157680000))  # Default: now + 5 years
             line = f'{cookie.get("domain", "." + domain)}\t'
             line += f'{host_only}\t'

@@ -30,13 +30,13 @@ class Telegram:
 
     async def get_videos(self, channel: Channel) -> list[dict]:
         """Get all video messages with pre-calculated filenames.
-        
+
         Returns:
             List of dicts with 'msg' (Message) and 'filename' (str - base title without extension/ID)
         """
         videos = []
         group_captions = {}  # grouped_id -> caption
-        
+
         # Collect videos and extract captions from all messages in groups
         async for msg in self.client.iter_messages(channel, reverse=True):
             # Check if this is a video
@@ -45,73 +45,55 @@ class Telegram:
                 is_video = True
             elif getattr(msg, 'document', None) and getattr(msg.document, 'attributes', None):
                 is_video = any(isinstance(attr, DocumentAttributeVideo) for attr in msg.document.attributes)
-            
+
             if is_video:
                 videos.append(msg)
-            
+
             # Extract caption from any message in a media group
             grouped_id = getattr(msg, 'grouped_id', None)
             if grouped_id and msg.message and grouped_id not in group_captions:
                 group_captions[grouped_id] = msg.message.strip()
-        
+
         # Group videos by their grouped_id to determine indices
         video_groups = defaultdict(list)
         for msg in videos:
             grouped_id = getattr(msg, 'grouped_id', None)
             if grouped_id:
                 video_groups[grouped_id].append(msg)
-        
+
         # Build result list with pre-calculated filenames
         result = []
         processed_group_ids = set()
-        
+
         for msg in videos:
             grouped_id = getattr(msg, 'grouped_id', None)
-            
+
             if grouped_id:
                 if grouped_id not in processed_group_ids:
                     # Process all videos in this group
                     group_videos = video_groups[grouped_id]
                     group_caption = group_captions.get(grouped_id)
-                    
+
                     if group_caption:
                         # Has caption - use it as base filename with index
                         if len(group_videos) == 1:
                             # Single video in group - no index suffix
-                            result.append({
-                                'msg': group_videos[0],
-                                'filename': group_caption
-                            })
+                            result.append({'msg': group_videos[0], 'filename': group_caption})
                         else:
                             # Multiple videos - add index suffix
                             for idx, video_msg in enumerate(group_videos, start=1):
-                                result.append({
-                                    'msg': video_msg,
-                                    'filename': f'{group_caption}-{idx}'
-                                })
+                                result.append({'msg': video_msg, 'filename': f'{group_caption}-{idx}'})
                     else:
                         # No caption - each video uses its own ID
-                        for video_msg in group_videos:
-                            result.append({
-                                'msg': video_msg,
-                                'filename': f'video_{video_msg.id}'
-                            })
-                    
+                        result.extend([{'msg': video_msg, 'filename': f'video_{video_msg.id}'} for video_msg in group_videos])
                     processed_group_ids.add(grouped_id)
             else:
                 # Standalone video without group
-                if msg.message and msg.message.strip():
-                    # Has its own caption
-                    base_filename = msg.message.strip()
-                else:
-                    # No caption - use video_{id} format
-                    base_filename = f'video_{msg.id}'
-                
-                result.append({
-                    'msg': msg,
-                    'filename': base_filename
-                })
-        
+                # Has its own caption: use the caption as the base filename
+                # No caption: use video_{id} format
+                base_filename = msg.message.strip() if msg.message and msg.message.strip() else f'video_{msg.id}'
+                result.append({'msg': msg, 'filename': base_filename})
+
         return result
 
     async def download(self, msg: Message, dst_dir: Path, title: str) -> Path | None:
@@ -119,7 +101,7 @@ class Telegram:
         if dst_dir.is_file():
             error_msg = f'{dst_dir} is a file'
             raise ValueError(error_msg)
-        
+
         display_title = f'{sanitize(title, max_bytes=50)} [{msg.id}]'
         with tqdm(total=0, unit='B', unit_scale=True, desc=display_title, dynamic_ncols=True) as pbar:
             tmp_path = self.cache_dir / f'{msg.id}'
@@ -152,22 +134,22 @@ class Telegram:
 
         video_list = await self.get_videos(channel)
         downloaded_ids = await self.get_downloaded_ids(channel_id)
-        
+
         # Filter out already downloaded videos
         undownloaded = [v for v in video_list if v['msg'].id not in downloaded_ids]
-        
+
         if not undownloaded:
             log.info('No new videos')
             return
-        
+
         total_videos = len(undownloaded)
-        
+
         for idx, video_data in enumerate(undownloaded, start=1):
             msg = video_data['msg']
             filename = video_data['filename']
-            
+
             log.info('Downloading videos from %s (%d/%d)', ch_name, idx, total_videos)
-            
+
             result = await self.download(msg, dst, filename)
             if result:
                 log.notice('Saved %s', result.name)
@@ -190,7 +172,7 @@ class Telegram:
             );
         """)
         log.debug('telegram table initialized')
-        
+
         await self.client.start()
         for channel_id in cfg.channels:
             await self.update_channel(channel_id)

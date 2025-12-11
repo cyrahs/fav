@@ -117,7 +117,7 @@ class Tangxin:
             );
         """)
         log.debug('tx table initialized')
-        
+
         items = await self.get_items()
         if not items:
             log.info('No new content')
