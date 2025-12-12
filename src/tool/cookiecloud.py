@@ -44,7 +44,7 @@ class CookieCloudClient:
         # OpenSSL key derivation
         key_iv = b''
         prev = b''
-        while len(key_iv) < 48:  # We need 32 bytes for key and 16 bytes for IV
+        while len(key_iv) < 48:  # We need 32 bytes for key and 16 bytes for IV  # noqa: PLR2004
             prev = MD5.new(prev + self.key + salt).digest()  # noqa: S303
             key_iv += prev
 

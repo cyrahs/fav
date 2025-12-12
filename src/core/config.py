@@ -39,6 +39,17 @@ class Telegram(BaseModel):
     session_path: Path
 
 
+class KemonoCreator(BaseModel):
+    service: str
+    id: str
+    name: str
+
+
+class Kemono(BaseModel):
+    path: Path
+    creators: list[KemonoCreator] = []
+
+
 class Config(BaseSettings):
     proxy: str
     bilibili: Bilibili
@@ -46,6 +57,7 @@ class Config(BaseSettings):
     cloudflare: Cloudflare
     cookiecloud: CookieCloud
     telegram: Telegram
+    kemono: Kemono
 
     model_config = SettingsConfigDict(toml_file='./data/config.toml')
 
