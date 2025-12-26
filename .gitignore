@@ -7,3 +7,5 @@ log/
 temp*
 data
 collection
+
+.vscode/

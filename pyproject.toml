@@ -36,3 +36,12 @@ ignore = [
 quote-style = 'single'
 indent-style = 'space'
 line-ending = 'lf'
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
