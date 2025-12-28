@@ -59,7 +59,7 @@ class Config(BaseSettings):
     telegram: Telegram
     kemono: Kemono
 
-    model_config = SettingsConfigDict(toml_file='./data/config.toml')
+    model_config = SettingsConfigDict(toml_file='./config.toml')
 
     @classmethod
     def settings_customise_sources(cls, settings_cls: type[BaseSettings], *_: Any, **__: Any) -> tuple[PydanticBaseSettingsSource, ...]:

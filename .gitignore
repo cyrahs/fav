@@ -5,7 +5,10 @@ __pycache__/
 log/
 *.log
 temp*
-data
 collection
 
 .vscode/
+
+config.toml
+
+log
