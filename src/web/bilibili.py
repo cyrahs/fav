@@ -146,6 +146,8 @@ class Bilibili:
             '--no-mtime',
             '--cookies',
             str(self.cookie_path),
+            '-N',
+            '8',
             '--retries',
             '15',
             '--fragment-retries',
