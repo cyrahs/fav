@@ -45,7 +45,7 @@ class Bilibili:
     def update_cookie_from_cookiecloud(self, save_path: Path) -> None:
         """Update cookie from cookiecloud."""
         cc_cfg = config.cookiecloud
-        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password, proxy=config.proxy if config.proxy else None)
+        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password, proxy=config.proxy or None)
         client.save_to_netscape_format('bilibili.com', save_path)
 
     def create_credential(self, cookie_path: Path) -> api.Credential:
