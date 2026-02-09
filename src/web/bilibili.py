@@ -85,11 +85,15 @@ class Bilibili:
             await asyncio.sleep(1)
         return results
 
-    async def get_toviews(self) -> list[api.video.Video]:
-        """Get the videos in the toview list."""
+    async def get_toviews(self) -> tuple[list[api.video.Video], bool]:
+        """Get videos in the 'watch later' list.
+
+        Returns:
+            A tuple of (videos_to_download, has_any_toviews).
+        """
         toview = await api.user.get_toview_list(credential=self.credential)
         if not toview['list']:
-            return []
+            return ([], False)
         exists_ids = await cloudflare.query_d1('SELECT bvid FROM bilibili WHERE fav_id = -1;')
         exists_ids = [i['bvid'] for i in exists_ids]
         result = [api.video.Video(bvid=v['bvid'], credential=self.credential) for v in toview['list']]
@@ -98,10 +102,7 @@ class Bilibili:
             if v.get_bvid() in exists_ids:
                 result.remove(v)
         log.info('Find %d toviews to download', len(result))
-        if len(result) == 0:
-            log.info('All toviews have been downloaded, clear toview list ...')
-            await api.user.clear_toview_list(credential=self.credential)
-        return result
+        return (result, True)
 
     async def get_favs(self, fav_id: int) -> list[api.video.Video]:
         """Get the videos in the favorite list."""
@@ -181,41 +182,47 @@ class Bilibili:
 
     async def update_fav(self, fav_id: int, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
+        has_any_toviews = False
         # for toview
         if fav_id == -1:
-            videos = await self.get_toviews()
+            videos, has_any_toviews = await self.get_toviews()
         else:
             videos = await self.get_favs(fav_id)
-        if not videos:
-            log.info('No new videos')
-            return
-        valid = await asyncio.gather(*[self.check_valid(v) for v in videos])
-        videos = [v for v, vld in zip(videos, valid, strict=True) if vld]
-        for video in tqdm(videos[::-1], desc='Scanning bilibili'):
-            bvid = video.get_bvid()
-            detail = await video.get_detail()
-            title = detail['View']['title']
-            upper = detail['Card']['card']['name']
-            url = f'https://www.bilibili.com/video/{bvid}'
-            video_cache_dir = self.cache_dir / 'videos'
-            video_cache_dir.mkdir(exist_ok=True)
-            log.info('Downloading [%s]%s [%s]', upper, title, bvid)
-            self.download(url, bvid, video_cache_dir)
-            for v in video_cache_dir.iterdir():
-                # Format the proper filename with sanitized title and uploader
-                proper_filename = format_video_filename(
-                    title=title,
-                    video_id=bvid,
-                    uploader=upper,
-                    ext=v.suffix,
+        if videos:
+            valid = await asyncio.gather(*[self.check_valid(v) for v in videos])
+            videos = [v for v, vld in zip(videos, valid, strict=True) if vld]
+            for video in tqdm(videos[::-1], desc='Scanning bilibili'):
+                bvid = video.get_bvid()
+                detail = await video.get_detail()
+                title = detail['View']['title']
+                upper = detail['Card']['card']['name']
+                url = f'https://www.bilibili.com/video/{bvid}'
+                video_cache_dir = self.cache_dir / 'videos'
+                video_cache_dir.mkdir(exist_ok=True)
+                log.info('Downloading [%s]%s [%s]', upper, title, bvid)
+                self.download(url, bvid, video_cache_dir)
+                for v in video_cache_dir.iterdir():
+                    # Format the proper filename with sanitized title and uploader
+                    proper_filename = format_video_filename(
+                        title=title,
+                        video_id=bvid,
+                        uploader=upper,
+                        ext=v.suffix,
+                    )
+                    dst_path = path / proper_filename
+                    dst_path = ensure_unique_path(dst_path)
+                    shutil.move(v, dst_path)
+                await cloudflare.query_d1(
+                    'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
+                    (bvid, str(fav_id), title, upper),
                 )
-                dst_path = path / proper_filename
-                dst_path = ensure_unique_path(dst_path)
-                shutil.move(v, dst_path)
-            await cloudflare.query_d1(
-                'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
-                (bvid, str(fav_id), title, upper),
-            )
+        else:
+            log.info('No new videos')
+
+        # Clear toview list only after the download pass completes successfully.
+        if fav_id == -1 and has_any_toviews:
+            log.info('Clearing toview list ...')
+            await api.user.clear_toview_list(credential=self.credential)
 
     async def update(self) -> None:
         """Update the favorite list of the main account."""
