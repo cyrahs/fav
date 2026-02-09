@@ -19,7 +19,6 @@ from src.core.config import config as app_config
 from src.tool.cookiecloud import CookieCloudClient
 
 
-
 KEY_IV_LENGTH = 48
 KEY_LENGTH = 32
 IV_LENGTH = 16
@@ -34,7 +33,7 @@ def encrypt_payload(client: CookieCloudClient, plaintext: str, salt: bytes = b'1
         key_iv += prev
 
     derived_key = key_iv[:KEY_LENGTH]
-    iv = key_iv[KEY_LENGTH:KEY_LENGTH + IV_LENGTH]
+    iv = key_iv[KEY_LENGTH : KEY_LENGTH + IV_LENGTH]
     cipher = AES.new(derived_key, AES.MODE_CBC, iv)
     encrypted = cipher.encrypt(pad(plaintext.encode(), AES.block_size))
     return base64.b64encode(SALT_PREFIX + salt + encrypted).decode()

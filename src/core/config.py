@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 from . import logger
@@ -39,6 +39,10 @@ class Telegram(BaseModel):
     session_path: Path
 
 
+class Stellasora(BaseModel):
+    path: Path = Path('./collection/stellasora')
+
+
 class KemonoCreator(BaseModel):
     service: str
     id: str
@@ -57,6 +61,7 @@ class Config(BaseSettings):
     cloudflare: Cloudflare
     cookiecloud: CookieCloud
     telegram: Telegram
+    stellasora: Stellasora = Field(default_factory=Stellasora)
     kemono: Kemono
 
     model_config = SettingsConfigDict(toml_file='./config.toml')

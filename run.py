@@ -2,7 +2,7 @@ import asyncio
 import shutil
 
 from src.core import logger
-from src.web import Bilibili, Tangxin, Telegram
+from src.web import Bilibili, StellaSora, Tangxin, Telegram
 
 log = logger.get('main')
 
@@ -21,7 +21,7 @@ async def main() -> None:
     await Tangxin().update()
     await Bilibili().update()
     await Telegram().update()
-
+    await StellaSora().update()
 
 if __name__ == '__main__':
     asyncio.run(main())

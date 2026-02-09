@@ -68,6 +68,9 @@ api_hash = "..."
 path = "./collection/telegram"
 session_path = "./data/telethon-session"
 
+[stellasora]
+path = "./collection/stellasora"
+
 [kemono]
 path = "./collection/kemono"
 

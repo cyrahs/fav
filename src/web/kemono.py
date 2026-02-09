@@ -132,7 +132,7 @@ class Kemono:
             except httpx.HTTPError as e:
                 log.error('Failed to download %s: %s', attachment.path, e)
 
-    async def _update_creator(self, creator:    KemonoCreator) -> None:
+    async def _update_creator(self, creator: KemonoCreator) -> None:
         creator_name = creator.name or creator.id
         creator_dirname = f'{sanitize(creator_name, max_bytes=80)}_{creator.id}'
         creator_dir = self.cfg.path / creator.service / creator_dirname
