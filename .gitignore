@@ -9,6 +9,8 @@ collection
 
 .vscode/
 
+.agents/
+
 config.toml
 
 log

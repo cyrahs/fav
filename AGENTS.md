@@ -95,6 +95,7 @@ uv run python run.py
 - `src/web/tangxin.py` (`Tangxin().update()`)
 - `src/web/bilibili.py` (`Bilibili().update()`)
 - `src/web/telegram.py` (`Telegram().update()`)
+- `src/web/stellasora.py` (`StellaSora().update()`)
 
 Kemono is implemented in `src/web/kemono.py` but is not called from `run.py` in the current version.
 
@@ -109,7 +110,7 @@ Kemono is implemented in `src/web/kemono.py` but is not called from `run.py` in 
 - `src/web/*.py`: per-source downloaders; each exposes an `update()` coroutine
 - `script/bilibili.py`: manual CLI to download a single BV with `yt-dlp` using CookieCloud cookies
 - `script/tx.js`: Tampermonkey userscript to help export Tangxin favorites and capture/store m3u8 data in Cloudflare
-- `tests/`: currently focused on CookieCloud decryption/formatting
+- `tests/`: CookieCloud decryption/formatting, Bilibili update behavior, and StellaSora parsing/download helpers
 
 ## Conventions (Important for Agents)
 
