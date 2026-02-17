@@ -1,7 +1,6 @@
 """Provides functionality to interact with Bilibili API."""
 
 import asyncio
-import logging
 import shutil
 import subprocess
 import tempfile
@@ -11,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import bilibili_api as api
-from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from src.core import config, logger
@@ -175,12 +174,27 @@ class Bilibili:
         if config.proxy:
             command.extend(['--proxy', config.proxy])
 
+        def _on_retry_before_sleep(retry_state: RetryCallState) -> None:
+            # Keep retry logs at debug level to avoid alert noise from transient failures.
+            exc = retry_state.outcome.exception() if retry_state.outcome else None
+            if exc is None:
+                return
+            sleep = retry_state.next_action.sleep if retry_state.next_action else 0.0
+            log.debug(
+                'Retrying download for %s (%d/%d), next wait %.1fs: %s',
+                bvid,
+                retry_state.attempt_number,
+                max_attempts,
+                sleep,
+                exc,
+            )
+
         @retry(
             reraise=True,
             stop=stop_after_attempt(max_attempts),
             wait=wait_exponential(multiplier=base_delay, min=base_delay, max=base_delay * 6),
             retry=retry_if_exception_type(DownloadError),
-            before_sleep=before_sleep_log(log, logging.WARNING),
+            before_sleep=_on_retry_before_sleep,
         )
         def _run_once() -> None:
             self._cleanup_dir(dirpath)

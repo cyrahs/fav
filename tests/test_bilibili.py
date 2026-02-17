@@ -3,6 +3,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 import src.web.bilibili as bilibili_module
 from src.web.bilibili import Bilibili
 
@@ -196,3 +198,38 @@ def test_update_fav_does_not_clear_toview_when_list_is_empty(tmp_path, monkeypat
     asyncio.run(b.update_fav(-1, tmp_path / 'toview'))
 
     assert cleared['count'] == 0
+
+
+def test_download_retry_does_not_emit_warning_per_attempt(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    b.cookie_path = tmp_path / 'cookies.txt'
+    b.cookie_path.write_text('', encoding='utf-8')
+    calls = {'count': 0}
+    warnings: list[tuple[tuple, dict]] = []
+
+    class _FailedResult:
+        returncode = 1
+        stdout = ''
+        stderr = 'temporary network error'
+
+    def _fake_run(*_args, **_kwargs):  # noqa: ANN001
+        calls['count'] += 1
+        return _FailedResult()
+
+    def _capture_warning(*args, **kwargs):  # noqa: ANN001
+        warnings.append((args, kwargs))
+
+    monkeypatch.setattr(bilibili_module.subprocess, 'run', _fake_run)
+    monkeypatch.setattr(bilibili_module.log, 'warning', _capture_warning)
+
+    with pytest.raises(bilibili_module.DownloadError):
+        b.download(
+            url='https://www.bilibili.com/video/BV1TEST1',
+            bvid='BV1TEST1',
+            dirpath=tmp_path / 'videos',
+            max_attempts=3,
+            base_delay=0,
+        )
+
+    assert calls['count'] == 3
+    assert warnings == []
