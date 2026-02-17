@@ -39,6 +39,19 @@ class Telegram(BaseModel):
     session_path: Path
 
 
+class NotificationTelegramBot(BaseModel):
+    token: str
+    chat_id: int | str
+    api_base: str = 'https://api.telegram.org'
+    disable_notification: bool = False
+    message_thread_id: int | None = None
+
+
+class Notification(BaseModel):
+    enabled: bool = False
+    telegram_bot: NotificationTelegramBot | None = None
+
+
 class Stellasora(BaseModel):
     path: Path = Path('./collection/stellasora')
 
@@ -61,6 +74,7 @@ class Config(BaseSettings):
     cloudflare: Cloudflare
     cookiecloud: CookieCloud
     telegram: Telegram
+    notification: Notification = Field(default_factory=Notification)
     stellasora: Stellasora = Field(default_factory=Stellasora)
     kemono: Kemono
 
