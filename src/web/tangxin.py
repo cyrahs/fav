@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import cloudflare
+from src.tool import Notifier, cloudflare
 
 log = logger.get('tangxin')
 cfg = config.tx
@@ -29,7 +29,8 @@ class Item(BaseModel):
 
 
 class Tangxin:
-    def __init__(self) -> None:
+    def __init__(self, notifier: Notifier | None = None) -> None:
+        self.notifier = notifier
         self.client = httpx.AsyncClient(
             headers={
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',  # noqa: E501
@@ -37,8 +38,20 @@ class Tangxin:
             },
             timeout=60,
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=10),
-            proxy=config.proxy if config.proxy else None,
+            proxy=config.proxy or None,
         )
+
+    async def _notify_download(self, *, item: Item, dst_path: Path) -> None:
+        notifier = getattr(self, 'notifier', None)
+        if notifier is None:
+            return
+
+        message = f'Tangxin download completed\nID: {item.id}\nUploader: {item.upper}\nTitle: {item.title}\nPath: {dst_path}'
+
+        try:
+            await notifier.send(message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to send tangxin download notification for %s: %s', item.id, exc)
 
     async def get_items(self) -> list[Item]:
         results = await cloudflare.query_d1('SELECT id, title, upper FROM tx WHERE downloaded = 0 ORDER BY created_at ASC;')
@@ -87,6 +100,7 @@ class Tangxin:
 
             shutil.move(tmp_mp4_path, dst_path)
             await cloudflare.query_d1('UPDATE tx SET downloaded = 1 WHERE id = ?;', (str(item.id),))
+            await self._notify_download(item=item, dst_path=dst_path)
             tmp_dir.cleanup()
             log.notice('Finished %s', item.banner)
 

@@ -15,7 +15,7 @@ from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_afte
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import CookieCloudClient, cloudflare, ensure_unique_path, format_video_filename
+from src.tool import CookieCloudClient, Notifier, cloudflare, ensure_unique_path, format_video_filename
 
 log = logger.get('bilibili')
 cfg = config.bilibili
@@ -28,8 +28,9 @@ class DownloadError(RuntimeError):
 class Bilibili:
     """Class to interact with Bilibili API."""
 
-    def __init__(self) -> None:
+    def __init__(self, notifier: Notifier | None = None) -> None:
         """Initialize Bilibili instance with main and sub credentials."""
+        self.notifier = notifier
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-bilibili-')
         self.cache_dir = Path(self._tmp_dir.name)
         self.cookie_path = self.cache_dir / 'bilibili.txt'
@@ -41,6 +42,20 @@ class Bilibili:
 
     def __del__(self) -> None:
         self._tmp_dir.cleanup()
+
+    async def _notify_download(self, *, bvid: str, title: str, upper: str, fav_id: int) -> None:
+        notifier = getattr(self, 'notifier', None)
+        if notifier is None:
+            return
+
+        source = 'toview' if fav_id == -1 else f'fav:{fav_id}'
+        url = f'https://www.bilibili.com/video/{bvid}'
+        message = f'Bilibili download completed\nSource: {source}\nUploader: {upper}\nTitle: {title}\nBVID: {bvid}\nURL: {url}'
+
+        try:
+            await notifier.send(message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to send bilibili download notification for %s: %s', bvid, exc)
 
     def update_cookie_from_cookiecloud(self, save_path: Path) -> None:
         """Update cookie from cookiecloud."""
@@ -201,7 +216,8 @@ class Bilibili:
                 video_cache_dir.mkdir(exist_ok=True)
                 log.info('Downloading [%s]%s [%s]', upper, title, bvid)
                 self.download(url, bvid, video_cache_dir)
-                for v in video_cache_dir.iterdir():
+                saved_paths = []
+                for v in sorted(video_cache_dir.iterdir()):
                     # Format the proper filename with sanitized title and uploader
                     proper_filename = format_video_filename(
                         title=title,
@@ -212,9 +228,16 @@ class Bilibili:
                     dst_path = path / proper_filename
                     dst_path = ensure_unique_path(dst_path)
                     shutil.move(v, dst_path)
+                    saved_paths.append(dst_path)
                 await cloudflare.query_d1(
                     'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
                     (bvid, str(fav_id), title, upper),
+                )
+                await self._notify_download(
+                    bvid=bvid,
+                    title=title,
+                    upper=upper,
+                    fav_id=fav_id,
                 )
         else:
             log.info('No new videos')

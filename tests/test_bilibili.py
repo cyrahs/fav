@@ -12,6 +12,20 @@ class _DummyTmpDir:
         return None
 
 
+class _RecordingNotifier:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    async def send(self, message: str) -> None:
+        self.messages.append(message)
+
+
+class _FailingNotifier:
+    async def send(self, message: str) -> None:  # noqa: ARG002
+        msg = 'notify failed'
+        raise RuntimeError(msg)
+
+
 class _DummyVideo:
     def __init__(self, bvid: str, title: str = 'Example Title', upper: str = 'Example Uploader') -> None:
         self._bvid = bvid
@@ -33,9 +47,87 @@ def _make_bilibili(tmp_path: Path) -> Bilibili:
     b._tmp_dir = _DummyTmpDir()
     b.cache_dir = tmp_path / 'cache'
     b.cache_dir.mkdir(parents=True, exist_ok=True)
+    b.notifier = None
     b.credential = object()
     b.info_cache = {}
     return b
+
+
+def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    notifier = _RecordingNotifier()
+    b.notifier = notifier
+
+    async def _fake_get_favs(_fav_id: int) -> list[_DummyVideo]:
+        return [
+            _DummyVideo('BV1TEST1', title='Title One', upper='Uploader One'),
+            _DummyVideo('BV1TEST2', title='Title Two', upper='Uploader Two'),
+        ]
+
+    async def _always_valid(_video) -> bool:  # noqa: ANN001
+        return True
+
+    def _fake_download(_url: str, bvid: str, dirpath: Path, *_args, **_kwargs) -> None:  # noqa: ANN001
+        (dirpath / f'{bvid}.mp4').write_bytes(b'video')
+
+    queries: list[tuple[str, tuple | None]] = []
+
+    async def _fake_query_d1(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        return []
+
+    def _no_tqdm(iterable, **_kwargs):  # noqa: ANN001
+        return iterable
+
+    monkeypatch.setattr(b, 'get_favs', _fake_get_favs)
+    monkeypatch.setattr(b, 'check_valid', _always_valid)
+    monkeypatch.setattr(b, 'download', _fake_download)
+    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module, 'tqdm', _no_tqdm)
+
+    asyncio.run(b.update_fav(123, tmp_path / 'fav'))
+
+    assert len(notifier.messages) == 2
+    assert any('BV1TEST1' in message for message in notifier.messages)
+    assert any('BV1TEST2' in message for message in notifier.messages)
+    assert any('URL: https://www.bilibili.com/video/BV1TEST1' in message for message in notifier.messages)
+    assert any('URL: https://www.bilibili.com/video/BV1TEST2' in message for message in notifier.messages)
+    assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 2
+
+
+def test_update_fav_continues_when_notification_fails(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    b.notifier = _FailingNotifier()
+
+    async def _fake_get_favs(_fav_id: int) -> list[_DummyVideo]:
+        return [_DummyVideo('BV1TEST1')]
+
+    async def _always_valid(_video) -> bool:  # noqa: ANN001
+        return True
+
+    def _fake_download(_url: str, bvid: str, dirpath: Path, *_args, **_kwargs) -> None:  # noqa: ANN001
+        (dirpath / f'{bvid}.mp4').write_bytes(b'video')
+
+    queries: list[tuple[str, tuple | None]] = []
+
+    async def _fake_query_d1(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        return []
+
+    def _no_tqdm(iterable, **_kwargs):  # noqa: ANN001
+        return iterable
+
+    monkeypatch.setattr(b, 'get_favs', _fake_get_favs)
+    monkeypatch.setattr(b, 'check_valid', _always_valid)
+    monkeypatch.setattr(b, 'download', _fake_download)
+    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module, 'tqdm', _no_tqdm)
+
+    asyncio.run(b.update_fav(123, tmp_path / 'fav'))
+
+    assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 1
+    out_files = list((tmp_path / 'fav').glob('*.mp4'))
+    assert len(out_files) == 1
 
 
 def test_update_fav_clears_toview_after_download_pass(tmp_path, monkeypatch) -> None:  # noqa: ANN001
@@ -47,7 +139,7 @@ def test_update_fav_clears_toview_after_download_pass(tmp_path, monkeypatch) -> 
         cleared['count'] += 1
 
     async def _fake_get_toviews() -> tuple[list[_DummyVideo], bool]:
-        return ([ _DummyVideo('BV1TEST1') ], True)
+        return ([_DummyVideo('BV1TEST1')], True)
 
     async def _always_valid(_video) -> bool:  # noqa: ANN001
         return True

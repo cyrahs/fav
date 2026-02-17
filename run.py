@@ -31,12 +31,16 @@ async def main() -> None:
     notifier = build_notifier()
     started_at = datetime.now(tz=UTC)
     results: list[str] = []
+    tangxin = Tangxin(notifier=notifier)
+    bilibili = Bilibili(notifier=notifier)
+    telegram = Telegram(notifier=notifier)
+    stellasora = StellaSora(notifier=notifier)
 
     jobs = [
-        ('Tangxin', Tangxin().update),
-        ('Bilibili', Bilibili().update),
-        ('Telegram', Telegram().update),
-        ('StellaSora', StellaSora().update),
+        ('Tangxin', tangxin.update),
+        ('Bilibili', bilibili.update),
+        ('Telegram', telegram.update),
+        ('StellaSora', stellasora.update),
     ]
 
     try:

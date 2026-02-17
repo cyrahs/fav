@@ -8,20 +8,33 @@ from telethon.tl.types import Channel, DocumentAttributeVideo, Message, PeerChan
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import cloudflare, format_video_filename, sanitize
+from src.tool import Notifier, cloudflare, format_video_filename, sanitize
 
 log = logger.get('telegram')
 cfg = config.telegram
 
 
 class Telegram:
-    def __init__(self) -> None:
+    def __init__(self, notifier: Notifier | None = None) -> None:
+        self.notifier = notifier
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-telegram-')
         self.cache_dir = Path(self._tmp_dir.name)
         self.client = TelegramClient(cfg.session_path, cfg.api_id, cfg.api_hash)
 
     def __del__(self) -> None:
         self._tmp_dir.cleanup()
+
+    async def _notify_download(self, *, channel_name: str, message_id: int, title: str, saved_path: Path) -> None:
+        notifier = getattr(self, 'notifier', None)
+        if notifier is None:
+            return
+
+        message = f'Telegram download completed\nChannel: {channel_name}\nTitle: {title}\nMessage ID: {message_id}\nPath: {saved_path}'
+
+        try:
+            await notifier.send(message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to send telegram download notification for message %s: %s', message_id, exc)
 
     @staticmethod
     async def get_downloaded_ids(channel_id: int) -> list[int]:
@@ -156,6 +169,12 @@ class Telegram:
                 await cloudflare.query_d1(
                     'INSERT INTO telegram (message_id, channel_id, title, channel_name) VALUES (?, ?, ?, ?);',
                     (str(msg.id), str(channel_id), filename, ch_name),
+                )
+                await self._notify_download(
+                    channel_name=ch_name,
+                    message_id=msg.id,
+                    title=filename,
+                    saved_path=result,
                 )
             else:
                 log.error('Failed to download message %s', msg.id)
