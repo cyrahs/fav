@@ -17,13 +17,30 @@ class _DummyTmpDir:
 class _RecordingNotifier:
     def __init__(self) -> None:
         self.messages: list[str] = []
+        self.photos: list[tuple[str, str | None, str | None]] = []
+        self.markdown_calls: list[tuple[str, bool]] = []
 
     async def send(self, message: str) -> None:
         self.messages.append(message)
 
+    async def send_markdown(self, message: str, *, disable_web_page_preview: bool = False) -> None:
+        self.messages.append(message)
+        self.markdown_calls.append((message, disable_web_page_preview))
+
+    async def send_photo(self, *, photo: str, caption: str | None = None, parse_mode: str | None = None) -> None:
+        self.photos.append((photo, caption, parse_mode))
+
 
 class _FailingNotifier:
     async def send(self, message: str) -> None:  # noqa: ARG002
+        msg = 'notify failed'
+        raise RuntimeError(msg)
+
+    async def send_markdown(self, message: str, *, disable_web_page_preview: bool = False) -> None:  # noqa: ARG002
+        msg = 'notify failed'
+        raise RuntimeError(msg)
+
+    async def send_photo(self, *, photo: str, caption: str | None = None, parse_mode: str | None = None) -> None:  # noqa: ARG002
         msg = 'notify failed'
         raise RuntimeError(msg)
 
@@ -39,9 +56,48 @@ class _DummyVideo:
 
     async def get_detail(self) -> dict:
         return {
-            'View': {'title': self._title},
+            'View': {'title': self._title, 'pic': f'https://example.com/{self._bvid}.jpg'},
             'Card': {'card': {'name': self._upper}},
         }
+
+    async def get_info(self) -> dict:
+        return {'pic': ''}
+
+
+class _DummyVideoWithInfoCover:
+    def __init__(self, bvid: str, cover_url: str = 'https://i0.hdslb.com/test-cover.jpg') -> None:
+        self._bvid = bvid
+        self._cover_url = cover_url
+        self.info_calls = 0
+
+    def get_bvid(self) -> str:
+        return self._bvid
+
+    async def get_info(self) -> dict:
+        self.info_calls += 1
+        return {'pic': self._cover_url}
+
+
+class _DummyVideoWithoutCover:
+    def __init__(self, bvid: str) -> None:
+        self._bvid = bvid
+
+    def get_bvid(self) -> str:
+        return self._bvid
+
+    async def get_info(self) -> dict:
+        return {}
+
+
+class _DummyVideoWithTransparentCover:
+    def __init__(self, bvid: str) -> None:
+        self._bvid = bvid
+
+    def get_bvid(self) -> str:
+        return self._bvid
+
+    async def get_info(self) -> dict:
+        return {'pic': 'https://i0.hdslb.com/bfs/archive/transparent.png'}
 
 
 def _make_bilibili(tmp_path: Path) -> Bilibili:
@@ -89,12 +145,90 @@ def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> 
 
     asyncio.run(b.update_fav(123, tmp_path / 'fav'))
 
-    assert len(notifier.messages) == 2
-    assert any('BV1TEST1' in message for message in notifier.messages)
-    assert any('BV1TEST2' in message for message in notifier.messages)
-    assert any('URL: https://www.bilibili.com/video/BV1TEST1' in message for message in notifier.messages)
-    assert any('URL: https://www.bilibili.com/video/BV1TEST2' in message for message in notifier.messages)
+    assert len(notifier.photos) == 2
+    assert ('https://example.com/BV1TEST1.jpg', 'Bilibili (fav)\n*Title One*\n_Uploader One_\n[视频链接](https://www.bilibili.com/video/BV1TEST1)', 'Markdown') in notifier.photos
+    assert ('https://example.com/BV1TEST2.jpg', 'Bilibili (fav)\n*Title Two*\n_Uploader Two_\n[视频链接](https://www.bilibili.com/video/BV1TEST2)', 'Markdown') in notifier.photos
+    assert notifier.markdown_calls == []
     assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 2
+
+
+def test_update_fav_uses_markdown_without_preview_when_cover_missing(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    notifier = _RecordingNotifier()
+    b.notifier = notifier
+
+    async def _fake_get_favs(_fav_id: int) -> list[_DummyVideo]:
+        return [_DummyVideo('BV1TEST1', title='Title One', upper='Uploader One')]
+
+    async def _always_valid(_video) -> bool:  # noqa: ANN001
+        return True
+
+    async def _no_cover(_video, detail=None):  # noqa: ANN001, ARG001
+        return None
+
+    def _fake_download(_url: str, bvid: str, dirpath: Path, *_args, **_kwargs) -> None:  # noqa: ANN001
+        (dirpath / f'{bvid}.mp4').write_bytes(b'video')
+
+    async def _fake_query_d1(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:  # noqa: ARG001
+        return []
+
+    def _no_tqdm(iterable, **_kwargs):  # noqa: ANN001
+        return iterable
+
+    monkeypatch.setattr(b, 'get_favs', _fake_get_favs)
+    monkeypatch.setattr(b, 'check_valid', _always_valid)
+    monkeypatch.setattr(b, 'get_video_cover_url', _no_cover)
+    monkeypatch.setattr(b, 'download', _fake_download)
+    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module, 'tqdm', _no_tqdm)
+
+    asyncio.run(b.update_fav(123, tmp_path / 'fav'))
+
+    assert notifier.photos == []
+    assert len(notifier.markdown_calls) == 1
+    message, disable_preview = notifier.markdown_calls[0]
+    assert disable_preview is True
+    assert '[视频链接](https://www.bilibili.com/video/BV1TEST1)' in message
+
+
+def test_get_video_cover_url_from_detail_view_pic(tmp_path) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    video = _DummyVideo('BV1TEST1')
+    detail = {'View': {'pic': '//i0.hdslb.com/bfs/archive/test-cover.jpg'}}
+
+    cover_url = asyncio.run(b.get_video_cover_url(video, detail=detail))
+
+    assert cover_url == 'https://i0.hdslb.com/bfs/archive/test-cover.jpg'
+
+
+def test_get_video_cover_url_falls_back_to_get_info_and_cache(tmp_path) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    video = _DummyVideoWithInfoCover('BV1TEST1')
+
+    first = asyncio.run(b.get_video_cover_url(video))
+    second = asyncio.run(b.get_video_cover_url(video))
+
+    assert first == 'https://i0.hdslb.com/test-cover.jpg'
+    assert second == 'https://i0.hdslb.com/test-cover.jpg'
+    assert video.info_calls == 1
+
+
+def test_get_video_cover_url_returns_none_when_missing(tmp_path) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    video = _DummyVideoWithoutCover('BV1TEST1')
+
+    cover_url = asyncio.run(b.get_video_cover_url(video))
+
+    assert cover_url is None
+
+
+def test_get_video_cover_url_returns_none_for_placeholder_cover(tmp_path) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    video = _DummyVideoWithTransparentCover('BV1TEST1')
+
+    cover_url = asyncio.run(b.get_video_cover_url(video))
+
+    assert cover_url is None
 
 
 def test_update_fav_continues_when_notification_fails(tmp_path, monkeypatch) -> None:  # noqa: ANN001

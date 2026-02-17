@@ -553,19 +553,31 @@ class StellaSora:
             },
         )
 
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        escaped = text
+        for ch in ('\\', '_', '*', '`', '[', ']'):
+            escaped = escaped.replace(ch, f'\\{ch}')
+        return escaped
+
     async def _notify_download(self, *, title: str, image_url: str, saved_path: Path) -> None:
         notifier = getattr(self, 'notifier', None)
         if notifier is None:
             return
 
-        message = f'StellaSora download completed\nTitle: {title}'
+        safe_title = self._escape_markdown(title)
+        message = f'StellaSora\n*{safe_title}*'
         send_photo = getattr(notifier, 'send_photo', None)
+        send_markdown = getattr(notifier, 'send_markdown', None)
 
         try:
             if callable(send_photo):
-                await send_photo(photo=image_url, caption=message)
+                await send_photo(photo=image_url, caption=message, parse_mode='Markdown')
                 return
-            message = f'{message}\nPath: {saved_path}'
+            if callable(send_markdown):
+                safe_path = self._escape_markdown(str(saved_path))
+                await send_markdown(f'{message}\n`{safe_path}`')
+                return
             await notifier.send(message)
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to send stellasora download notification for %s: %s', title, exc)

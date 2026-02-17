@@ -120,6 +120,65 @@ def test_telegram_bot_notifier_raises_for_non_ok_response(monkeypatch) -> None: 
         asyncio.run(notifier.send('hello'))
 
 
+def test_telegram_bot_notifier_sends_markdown_payload(monkeypatch) -> None:  # noqa: ANN001
+    holder: dict[str, _DummyAsyncClient] = {}
+
+    def _factory(*args, **kwargs) -> _DummyAsyncClient:  # noqa: ANN002, ANN003
+        client = _DummyAsyncClient(*args, **kwargs)
+        holder['client'] = client
+        return client
+
+    monkeypatch.setattr(notifier_module.httpx, 'AsyncClient', _factory)
+
+    notifier = TelegramBotNotifier(token='test-token', chat_id='1001')
+    asyncio.run(notifier.send_markdown('## title\n[link](https://example.com)'))
+
+    client = holder['client']
+    assert client.calls == [
+        (
+            'https://api.telegram.org/bottest-token/sendMessage',
+            {
+                'json': {
+                    'chat_id': '1001',
+                    'disable_notification': False,
+                    'text': '## title\n[link](https://example.com)',
+                    'parse_mode': 'Markdown',
+                },
+            },
+        ),
+    ]
+
+
+def test_telegram_bot_notifier_sends_markdown_payload_with_preview_disabled(monkeypatch) -> None:  # noqa: ANN001
+    holder: dict[str, _DummyAsyncClient] = {}
+
+    def _factory(*args, **kwargs) -> _DummyAsyncClient:  # noqa: ANN002, ANN003
+        client = _DummyAsyncClient(*args, **kwargs)
+        holder['client'] = client
+        return client
+
+    monkeypatch.setattr(notifier_module.httpx, 'AsyncClient', _factory)
+
+    notifier = TelegramBotNotifier(token='test-token', chat_id='1001')
+    asyncio.run(notifier.send_markdown('[link](https://example.com)', disable_web_page_preview=True))
+
+    client = holder['client']
+    assert client.calls == [
+        (
+            'https://api.telegram.org/bottest-token/sendMessage',
+            {
+                'json': {
+                    'chat_id': '1001',
+                    'disable_notification': False,
+                    'text': '[link](https://example.com)',
+                    'parse_mode': 'Markdown',
+                    'disable_web_page_preview': True,
+                },
+            },
+        ),
+    ]
+
+
 def test_telegram_bot_notifier_sends_photo_by_url(monkeypatch) -> None:  # noqa: ANN001
     holder: dict[str, _DummyAsyncClient] = {}
 
@@ -142,6 +201,36 @@ def test_telegram_bot_notifier_sends_photo_by_url(monkeypatch) -> None:  # noqa:
                     'chat_id': '1001',
                     'disable_notification': False,
                     'caption': 'photo caption',
+                    'photo': 'https://example.com/foo.png',
+                },
+            },
+        ),
+    ]
+
+
+def test_telegram_bot_notifier_sends_photo_by_url_with_parse_mode(monkeypatch) -> None:  # noqa: ANN001
+    holder: dict[str, _DummyAsyncClient] = {}
+
+    def _factory(*args, **kwargs) -> _DummyAsyncClient:  # noqa: ANN002, ANN003
+        client = _DummyAsyncClient(*args, **kwargs)
+        holder['client'] = client
+        return client
+
+    monkeypatch.setattr(notifier_module.httpx, 'AsyncClient', _factory)
+
+    notifier = TelegramBotNotifier(token='test-token', chat_id='1001')
+    asyncio.run(notifier.send_photo(photo='https://example.com/foo.png', caption='*caption*', parse_mode='Markdown'))
+
+    client = holder['client']
+    assert client.calls == [
+        (
+            'https://api.telegram.org/bottest-token/sendPhoto',
+            {
+                'json': {
+                    'chat_id': '1001',
+                    'disable_notification': False,
+                    'caption': '*caption*',
+                    'parse_mode': 'Markdown',
                     'photo': 'https://example.com/foo.png',
                 },
             },

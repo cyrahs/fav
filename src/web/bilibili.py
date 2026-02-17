@@ -8,6 +8,7 @@ from collections.abc import Coroutine
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import bilibili_api as api
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -42,17 +43,78 @@ class Bilibili:
     def __del__(self) -> None:
         self._tmp_dir.cleanup()
 
-    async def _notify_download(self, *, bvid: str, title: str, upper: str, fav_id: int) -> None:
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        escaped = text
+        for ch in ('\\', '_', '*', '`', '[', ']'):
+            escaped = escaped.replace(ch, f'\\{ch}')
+        return escaped
+
+    @staticmethod
+    def _normalize_cover_url(url: str) -> str:
+        if url.startswith('//'):
+            return f'https:{url}'
+        return url
+
+    @staticmethod
+    def _is_placeholder_cover_url(url: str) -> bool:
+        path = urlsplit(url).path.lower()
+        return path.endswith('/transparent.png') or path.endswith('/transparent.gif') or '/archive/transparent' in path
+
+    async def get_video_cover_url(self, video: api.video.Video, detail: dict[str, Any] | None = None) -> str | None:
+        """Get a video's cover URL from Bilibili API responses."""
+        candidate: Any = None
+
+        if detail is not None:
+            view = detail.get('View')
+            if isinstance(view, dict):
+                candidate = view.get('pic')
+            if not candidate:
+                candidate = detail.get('pic')
+
+        if isinstance(candidate, str) and candidate:
+            normalized = self._normalize_cover_url(candidate)
+            if not self._is_placeholder_cover_url(normalized):
+                return normalized
+
+        info = self.info_cache.get(video)
+        if info is None:
+            try:
+                info = await video.get_info()
+                self.info_cache[video] = info
+            except Exception as exc:  # noqa: BLE001
+                log.debug('Failed to fetch cover for %s: %s', video.get_bvid(), exc)
+                return None
+
+        candidate = info.get('pic')
+        if isinstance(candidate, str) and candidate:
+            normalized = self._normalize_cover_url(candidate)
+            if not self._is_placeholder_cover_url(normalized):
+                return normalized
+
+        return None
+
+    async def _notify_download(self, *, bvid: str, title: str, upper: str, fav_id: int, cover_url: str | None = None) -> None:
         notifier = getattr(self, 'notifier', None)
         if notifier is None:
             return
 
-        source = 'toview' if fav_id == -1 else f'fav:{fav_id}'
+        source = 'toview' if fav_id == -1 else 'fav'
         url = f'https://www.bilibili.com/video/{bvid}'
-        message = f'Bilibili download completed\nSource: {source}\nUploader: {upper}\nTitle: {title}\nBVID: {bvid}\nURL: {url}'
+        safe_title = self._escape_markdown(title)
+        safe_upper = self._escape_markdown(upper)
+        message = f'Bilibili ({source})\n*{safe_title}*\n_{safe_upper}_\n[视频链接]({url})'
+        send_markdown = getattr(notifier, 'send_markdown', None)
+        send_photo = getattr(notifier, 'send_photo', None)
 
         try:
-            await notifier.send(message)
+            if callable(send_photo) and cover_url:
+                await send_photo(photo=cover_url, caption=message, parse_mode='Markdown')
+                return
+            if callable(send_markdown):
+                await send_markdown(message, disable_web_page_preview=True)
+                return
+            await notifier.send(f'Bilibili ({source})\n{title}\n{upper}\n视频链接: {url}')
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to send bilibili download notification for %s: %s', bvid, exc)
 
@@ -225,6 +287,7 @@ class Bilibili:
                 detail = await video.get_detail()
                 title = detail['View']['title']
                 upper = detail['Card']['card']['name']
+                cover_url = await self.get_video_cover_url(video, detail=detail)
                 url = f'https://www.bilibili.com/video/{bvid}'
                 video_cache_dir = self.cache_dir / 'videos'
                 video_cache_dir.mkdir(exist_ok=True)
@@ -252,6 +315,7 @@ class Bilibili:
                     title=title,
                     upper=upper,
                     fav_id=fav_id,
+                    cover_url=cover_url,
                 )
         else:
             log.info('No new videos')

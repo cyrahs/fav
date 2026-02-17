@@ -99,10 +99,22 @@ class TelegramBotNotifier:
         response = await self._client.post(self._send_message_url, json=payload)
         self._raise_for_telegram_error(response)
 
-    async def send_photo(self, *, photo: str | Path, caption: str | None = None) -> None:
+    async def send_markdown(self, message: str, *, disable_web_page_preview: bool = False) -> None:
+        text = self._fit_message(message)
+        payload = self._base_payload()
+        payload['text'] = text
+        payload['parse_mode'] = 'Markdown'
+        if disable_web_page_preview:
+            payload['disable_web_page_preview'] = True
+        response = await self._client.post(self._send_message_url, json=payload)
+        self._raise_for_telegram_error(response)
+
+    async def send_photo(self, *, photo: str | Path, caption: str | None = None, parse_mode: str | None = None) -> None:
         payload = self._base_payload()
         if caption:
             payload['caption'] = self._fit_caption(caption)
+        if parse_mode:
+            payload['parse_mode'] = parse_mode
 
         if isinstance(photo, Path):
             with photo.open('rb') as image_file:
