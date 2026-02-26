@@ -1,21 +1,40 @@
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 from . import logger
 
+_CRON_FIELDS = 5
 
-class Bilibili(BaseModel):
+
+class ScheduleJob(BaseModel):
+    cron: str
+    enabled: bool = True
+    run_on_start: bool = True
+
+    @field_validator('cron')
+    @classmethod
+    def validate_cron(cls, value: str) -> str:
+        # We use standard crontab format: minute hour day month day_of_week.
+        if len(value.split()) != _CRON_FIELDS:
+            msg = 'cron must contain exactly 5 fields'
+            raise ValueError(msg)
+        return value
+
+
+class Bilibili(ScheduleJob):
     id: int
     fav_id: int
     path: Path
+    cron: str = '*/30 * * * *'
 
 
-class Tx(BaseModel):
+class Tangxin(ScheduleJob):
     path: Path
     host: str
+    cron: str = '*/30 * * * *'
 
 
 class Cloudflare(BaseModel):
@@ -31,29 +50,30 @@ class CookieCloud(BaseModel):
     password: str
 
 
-class Telegram(BaseModel):
+class Telegram(ScheduleJob):
     channels: list[int]
     api_id: int
     api_hash: str
     path: Path
     session_path: Path
+    cron: str = '*/30 * * * *'
 
 
 class NotificationTelegramBot(BaseModel):
+    enabled: bool = False
     token: str
     chat_id: int | str
     api_base: str = 'https://api.telegram.org'
-    disable_notification: bool = False
     message_thread_id: int | None = None
 
 
 class Notification(BaseModel):
-    enabled: bool = False
     telegram_bot: NotificationTelegramBot | None = None
 
 
-class Stellasora(BaseModel):
+class Stellasora(ScheduleJob):
     path: Path = Path('./collection/stellasora')
+    cron: str = '0 */6 * * *'
 
 
 class KemonoCreator(BaseModel):
@@ -63,22 +83,41 @@ class KemonoCreator(BaseModel):
 
 
 class Kemono(BaseModel):
+    enabled: bool = False
+    cron: str = '0 */6 * * *'
     path: Path
     creators: list[KemonoCreator] = []
+
+    @field_validator('cron')
+    @classmethod
+    def validate_cron(cls, value: str) -> str:
+        if len(value.split()) != _CRON_FIELDS:
+            msg = 'cron must contain exactly 5 fields'
+            raise ValueError(msg)
+        return value
+
+
+class Web(BaseModel):
+    bilibili: Bilibili
+    tangxin: Tangxin = Field(validation_alias=AliasChoices('tangxin', 'tx'))
+    telegram: Telegram
+    stellasora: Stellasora = Field(default_factory=Stellasora)
+    kemono: Kemono
+
+    @property
+    def tx(self) -> Tangxin:
+        # Backward-compatible alias for older call sites.
+        return self.tangxin
 
 
 class Config(BaseSettings):
     proxy: str
-    bilibili: Bilibili
-    tx: Tx
+    web: Web
     cloudflare: Cloudflare
     cookiecloud: CookieCloud
-    telegram: Telegram
     notification: Notification = Field(default_factory=Notification)
-    stellasora: Stellasora = Field(default_factory=Stellasora)
-    kemono: Kemono
 
-    model_config = SettingsConfigDict(toml_file='./config.toml')
+    model_config = SettingsConfigDict(toml_file='./config.toml', extra='ignore')
 
     @classmethod
     def settings_customise_sources(cls, settings_cls: type[BaseSettings], *_: Any, **__: Any) -> tuple[PydanticBaseSettingsSource, ...]:

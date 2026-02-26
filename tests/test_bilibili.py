@@ -146,10 +146,34 @@ def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> 
     asyncio.run(b.update_fav(123, tmp_path / 'fav'))
 
     assert len(notifier.photos) == 2
-    assert ('https://example.com/BV1TEST1.jpg', 'Bilibili (fav)\n*Title One*\n_Uploader One_\n[视频链接](https://www.bilibili.com/video/BV1TEST1)', 'Markdown') in notifier.photos
-    assert ('https://example.com/BV1TEST2.jpg', 'Bilibili (fav)\n*Title Two*\n_Uploader Two_\n[视频链接](https://www.bilibili.com/video/BV1TEST2)', 'Markdown') in notifier.photos
+    assert ('https://example.com/BV1TEST1.jpg', 'Bilibili (fav)\n*Title One*\nUploader One\n[视频链接](https://www.bilibili.com/video/BV1TEST1)', 'Markdown') in notifier.photos
+    assert ('https://example.com/BV1TEST2.jpg', 'Bilibili (fav)\n*Title Two*\nUploader Two\n[视频链接](https://www.bilibili.com/video/BV1TEST2)', 'Markdown') in notifier.photos
     assert notifier.markdown_calls == []
     assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 2
+
+
+def test_notify_download_escapes_trailing_underscore_in_upper(tmp_path) -> None:  # noqa: ANN001
+    b = _make_bilibili(tmp_path)
+    notifier = _RecordingNotifier()
+    b.notifier = notifier
+
+    asyncio.run(
+        b._notify_download(
+            bvid='BV1wM4m1S7oo',
+            title='让你说话了吗？笨蛋',
+            upper='孟程程_',
+            fav_id=123,
+            cover_url='https://example.com/cover.jpg',
+        ),
+    )
+
+    assert notifier.photos == [
+        (
+            'https://example.com/cover.jpg',
+            'Bilibili (fav)\n*让你说话了吗？笨蛋*\n孟程程\\_\n[视频链接](https://www.bilibili.com/video/BV1wM4m1S7oo)',
+            'Markdown',
+        ),
+    ]
 
 
 def test_update_fav_uses_markdown_without_preview_when_cover_missing(tmp_path, monkeypatch) -> None:  # noqa: ANN001
@@ -264,7 +288,6 @@ def test_update_fav_continues_when_notification_fails(tmp_path, monkeypatch) -> 
     assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 1
     out_files = list((tmp_path / 'fav').glob('*.mp4'))
     assert len(out_files) == 1
-
 
 def test_update_fav_clears_toview_after_download_pass(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     b = _make_bilibili(tmp_path)

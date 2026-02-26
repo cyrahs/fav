@@ -132,12 +132,13 @@ class TelegramBotNotifier:
 
 def build_notifier() -> Notifier:
     notification_cfg = config.notification
-    if not notification_cfg.enabled:
-        return NullNotifier()
-
     tg_cfg = notification_cfg.telegram_bot
     if tg_cfg is None:
-        log.warning('notification.enabled is true but notification.telegram_bot is missing; notifications are disabled')
+        log.debug('notification.telegram_bot is missing; notifications are disabled')
+        return NullNotifier()
+
+    if not tg_cfg.enabled:
+        log.debug('notification.telegram_bot.enabled is false; notifications are disabled')
         return NullNotifier()
 
     log.debug('Telegram bot notifier enabled')
@@ -145,7 +146,6 @@ def build_notifier() -> Notifier:
         token=tg_cfg.token,
         chat_id=tg_cfg.chat_id,
         api_base=tg_cfg.api_base,
-        disable_notification=tg_cfg.disable_notification,
         message_thread_id=tg_cfg.message_thread_id,
         proxy=config.proxy or None,
     )

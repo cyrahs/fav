@@ -26,7 +26,7 @@ from src.core import config, logger
 from src.tool import Notifier, sanitize
 
 log = logger.get('stellasora')
-cfg = config.stellasora
+cfg = config.web.stellasora
 
 BASE_URL = 'https://stellasora.miraheze.org'
 API_PATH = '/w/api.php'
@@ -553,30 +553,31 @@ class StellaSora:
             },
         )
 
-    @staticmethod
-    def _escape_markdown(text: str) -> str:
-        escaped = text
-        for ch in ('\\', '_', '*', '`', '[', ']'):
-            escaped = escaped.replace(ch, f'\\{ch}')
-        return escaped
+    async def aclose(self) -> None:
+        await self.client.aclose()
+
+    def _notify_relpath(self, saved_path: Path) -> str:
+        base_path = getattr(self, 'path', None)
+        if not isinstance(base_path, Path):
+            return saved_path.as_posix()
+        try:
+            relpath = saved_path.resolve().relative_to(base_path.resolve())
+        except ValueError:
+            relpath = saved_path
+        return relpath.as_posix()
 
     async def _notify_download(self, *, title: str, image_url: str, saved_path: Path) -> None:
         notifier = getattr(self, 'notifier', None)
         if notifier is None:
             return
 
-        safe_title = self._escape_markdown(title)
-        message = f'StellaSora\n*{safe_title}*'
+        relpath = self._notify_relpath(saved_path)
+        message = f'StellaSora\n{relpath}'
         send_photo = getattr(notifier, 'send_photo', None)
-        send_markdown = getattr(notifier, 'send_markdown', None)
 
         try:
             if callable(send_photo):
-                await send_photo(photo=image_url, caption=message, parse_mode='Markdown')
-                return
-            if callable(send_markdown):
-                safe_path = self._escape_markdown(str(saved_path))
-                await send_markdown(f'{message}\n`{safe_path}`')
+                await send_photo(photo=image_url, caption=message)
                 return
             await notifier.send(message)
         except Exception as exc:  # noqa: BLE001
@@ -924,7 +925,4 @@ class StellaSora:
 
     async def update(self) -> None:
         """Update job: download Stella Sora images (characters + discs) to disk."""
-        try:
-            await self.download_targets()
-        finally:
-            await self.client.aclose()
+        await self.download_targets()

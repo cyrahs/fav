@@ -11,7 +11,7 @@ from src.core import config, logger
 from src.tool import Notifier, cloudflare, format_video_filename, sanitize
 
 log = logger.get('telegram')
-cfg = config.telegram
+cfg = config.web.telegram
 
 
 class Telegram:
@@ -22,6 +22,11 @@ class Telegram:
         self.client = TelegramClient(cfg.session_path, cfg.api_id, cfg.api_hash)
 
     def __del__(self) -> None:
+        self._tmp_dir.cleanup()
+
+    async def aclose(self) -> None:
+        if self.client.is_connected():
+            await self.client.disconnect()
         self._tmp_dir.cleanup()
 
     async def _notify_download(self, *, channel_name: str, message_id: int, title: str, saved_path: Path) -> None:

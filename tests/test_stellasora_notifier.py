@@ -28,27 +28,24 @@ class _FailingNotifier:
         raise RuntimeError(msg)
 
 
-class _MarkdownOnlyNotifier:
+class _TextOnlyNotifier:
     def __init__(self) -> None:
         self.messages: list[str] = []
 
-    async def send_markdown(self, message: str) -> None:
+    async def send(self, message: str) -> None:
         self.messages.append(message)
 
-    async def send(self, message: str) -> None:  # noqa: ARG002
-        msg = 'send() should not be called when send_markdown exists'
-        raise AssertionError(msg)
 
-
-def _make_stellasora(notifier: object) -> StellaSora:
+def _make_stellasora(notifier: object, *, path: Path) -> StellaSora:
     ss = StellaSora.__new__(StellaSora)
     ss.notifier = notifier
+    ss.path = path
     return ss
 
 
 def test_download_resolved_files_sends_notification(tmp_path, monkeypatch) -> None:
     recorder = _RecordingNotifier()
-    ss = _make_stellasora(recorder)
+    ss = _make_stellasora(recorder, path=tmp_path)
 
     async def _fake_download_file(url: str, dst_path: Path, *, desc: str, max_attempts: int = 3) -> None:  # noqa: ARG001
         dst_path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,14 +75,12 @@ def test_download_resolved_files_sends_notification(tmp_path, monkeypatch) -> No
     assert len(recorder.photos) == 1
     photo, caption, parse_mode = recorder.photos[0]
     assert photo == 'https://example.com/Foo.png'
-    assert caption is not None
-    assert 'StellaSora' in caption
-    assert '*File:Foo.png*' in caption
-    assert parse_mode == 'Markdown'
+    assert caption == 'StellaSora\ndisc/Foo.png'
+    assert parse_mode is None
 
 
 def test_download_resolved_files_continues_when_notification_fails(tmp_path, monkeypatch) -> None:
-    ss = _make_stellasora(_FailingNotifier())
+    ss = _make_stellasora(_FailingNotifier(), path=tmp_path)
 
     async def _fake_download_file(url: str, dst_path: Path, *, desc: str, max_attempts: int = 3) -> None:  # noqa: ARG001
         dst_path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,9 +109,9 @@ def test_download_resolved_files_continues_when_notification_fails(tmp_path, mon
     assert stats.downloaded == 1
 
 
-def test_download_resolved_files_uses_markdown_fallback_when_photo_not_supported(tmp_path, monkeypatch) -> None:
-    notifier = _MarkdownOnlyNotifier()
-    ss = _make_stellasora(notifier)
+def test_download_resolved_files_uses_plain_text_fallback_when_photo_not_supported(tmp_path, monkeypatch) -> None:
+    notifier = _TextOnlyNotifier()
+    ss = _make_stellasora(notifier, path=tmp_path)
 
     async def _fake_download_file(url: str, dst_path: Path, *, desc: str, max_attempts: int = 3) -> None:  # noqa: ARG001
         dst_path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,6 +138,20 @@ def test_download_resolved_files_uses_markdown_fallback_when_photo_not_supported
     )
 
     assert stats.downloaded == 1
-    assert len(notifier.messages) == 1
-    assert 'StellaSora' in notifier.messages[0]
-    assert '*File:Foo.png*' in notifier.messages[0]
+    assert notifier.messages == ['StellaSora\ndisc/Foo.png']
+
+
+def test_notify_download_uses_relative_path_from_stellasora_root(tmp_path) -> None:
+    notifier = _TextOnlyNotifier()
+    ss = _make_stellasora(notifier, path=tmp_path)
+    saved_path = tmp_path / 'Wraith' / 'Wraith_awakened_02.png'
+
+    asyncio.run(
+        ss._notify_download(
+            title='File:Wraith_awakened_02.png',
+            image_url='https://example.com/Wraith_awakened_02.png',
+            saved_path=saved_path,
+        ),
+    )
+
+    assert notifier.messages == ['StellaSora\nWraith/Wraith_awakened_02.png']

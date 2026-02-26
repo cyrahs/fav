@@ -18,7 +18,7 @@ from src.core import config, logger
 from src.tool import CookieCloudClient, Notifier, cloudflare, ensure_unique_path, format_video_filename
 
 log = logger.get('bilibili')
-cfg = config.bilibili
+cfg = config.web.bilibili
 
 
 class DownloadError(RuntimeError):
@@ -41,6 +41,9 @@ class Bilibili:
         log.debug('cache_dir: %s', self.cache_dir)
 
     def __del__(self) -> None:
+        self._tmp_dir.cleanup()
+
+    async def aclose(self) -> None:
         self._tmp_dir.cleanup()
 
     @staticmethod
@@ -103,7 +106,7 @@ class Bilibili:
         url = f'https://www.bilibili.com/video/{bvid}'
         safe_title = self._escape_markdown(title)
         safe_upper = self._escape_markdown(upper)
-        message = f'Bilibili ({source})\n*{safe_title}*\n_{safe_upper}_\n[视频链接]({url})'
+        message = f'Bilibili ({source})\n*{safe_title}*\n{safe_upper}\n[视频链接]({url})'
         send_markdown = getattr(notifier, 'send_markdown', None)
         send_photo = getattr(notifier, 'send_photo', None)
 

@@ -42,14 +42,18 @@ server_url = "https://your-cookiecloud.example"
 uuid = "..."
 password = "..."
 
-[bilibili]
+[web.bilibili]
 id = 123
 fav_id = 456
 path = "./collection/bilibili"
+enabled = true
+cron = "*/30 * * * *"
 
-[tx]
+[web.tangxin]
 host = "https://example.txh*.com"
 path = "./collection/tangxin"
+enabled = true
+cron = "*/30 * * * *"
 
 [cloudflare]
 api_key = "..."
@@ -61,20 +65,26 @@ d1_id = "..."
 tangxin = "..."
 cookie = "..."
 
-[telegram]
+[web.telegram]
 channels = [1234567890]
 api_id = 123
 api_hash = "..."
 path = "./collection/telegram"
 session_path = "./data/telethon-session"
+enabled = true
+cron = "*/30 * * * *"
 
-[stellasora]
+[web.stellasora]
 path = "./collection/stellasora"
+enabled = true
+cron = "0 */6 * * *"
 
-[kemono]
+[web.kemono]
+enabled = false
+cron = "0 */6 * * *"
 path = "./collection/kemono"
 
-[[kemono.creators]]
+[[web.kemono.creators]]
 service = "fanbox"
 id = "..."
 name = "..."
@@ -91,17 +101,18 @@ Notes:
 uv run python run.py
 ```
 
-`run.py` currently runs:
-- `src/web/tangxin.py` (`Tangxin().update()`)
-- `src/web/bilibili.py` (`Bilibili().update()`)
-- `src/web/telegram.py` (`Telegram().update()`)
-- `src/web/stellasora.py` (`StellaSora().update()`)
+`run.py` is a long-running scheduler process intended for Deployment.
+It schedules jobs using cron expressions from `config.toml`:
+- `web.tangxin.cron` -> `src/web/tangxin.py` (`Tangxin().update()`)
+- `web.bilibili.cron` -> `src/web/bilibili.py` (`Bilibili().update()`)
+- `web.telegram.cron` -> `src/web/telegram.py` (`Telegram().update()`)
+- `web.stellasora.cron` -> `src/web/stellasora.py` (`StellaSora().update()`)
 
 Kemono is implemented in `src/web/kemono.py` but is not called from `run.py` in the current version.
 
 ## Project Layout
 
-- `run.py`: orchestrates the update jobs
+- `run.py`: long-running scheduler for update jobs
 - `src/core/config.py`: typed config models; loads `config.toml` at import time
 - `src/core/logger.py`: tqdm-friendly logging (avoid `print()`)
 - `src/tool/cookiecloud.py`: fetch + decrypt CookieCloud cookies (used for Bilibili)

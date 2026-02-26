@@ -10,7 +10,7 @@ from src.core.config import KemonoCreator
 from src.tool import cloudflare, sanitize
 
 log = logger.get('kemono')
-cfg = config.kemono
+cfg = config.web.kemono
 
 BASE_URL = 'https://kemono.cr'
 API_PREFIX = '/api/v1'

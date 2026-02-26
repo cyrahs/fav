@@ -13,7 +13,7 @@ from src.core import config, logger
 from src.tool import Notifier, cloudflare
 
 log = logger.get('tangxin')
-cfg = config.tx
+cfg = config.web.tangxin
 cf_cfg = config.cloudflare
 
 
@@ -40,6 +40,9 @@ class Tangxin:
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=10),
             proxy=config.proxy or None,
         )
+
+    async def aclose(self) -> None:
+        await self.client.aclose()
 
     async def _notify_download(self, *, item: Item, dst_path: Path) -> None:
         notifier = getattr(self, 'notifier', None)

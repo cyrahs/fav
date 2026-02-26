@@ -146,6 +146,7 @@ name = "fav"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "apscheduler" },
     { name = "bilibili-api-python" },
     { name = "colorlog" },
     { name = "httpx" },
@@ -164,6 +165,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "apscheduler", specifier = ">=3.11.0" },
     { name = "bilibili-api-python", specifier = ">=17.1.1" },
     { name = "colorlog", specifier = ">=6.9.0" },
     { name = "httpx", specifier = ">=0.28.1" },
