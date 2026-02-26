@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Coroutine
+from datetime import UTC, datetime
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,77 @@ class Bilibili:
         return escaped
 
     @staticmethod
+    def _format_file_size(size_bytes: int | None) -> str | None:
+        if size_bytes is None or size_bytes < 0:
+            return None
+        if size_bytes < 1024:
+            return f'{size_bytes} B'
+
+        size = float(size_bytes)
+        units = ('KB', 'MB', 'GB', 'TB')
+        for unit in units:
+            size /= 1024
+            if size < 1024 or unit == units[-1]:
+                return f'{size:.1f} {unit}'
+        return None
+
+    @staticmethod
+    def _to_positive_int(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            ivalue = int(value)
+            return ivalue if ivalue > 0 else None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.isdigit():
+                ivalue = int(stripped)
+                return ivalue if ivalue > 0 else None
+        return None
+
+    @classmethod
+    def _extract_resolution_label(cls, detail: dict[str, Any]) -> str | None:
+        view = detail.get('View')
+        if not isinstance(view, dict):
+            return None
+
+        dimension = view.get('dimension')
+        if isinstance(dimension, dict):
+            height = cls._to_positive_int(dimension.get('height'))
+            if height is not None:
+                return f'{height}p'
+
+        pages = view.get('pages')
+        if not isinstance(pages, list):
+            return None
+        page_heights: list[int] = []
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            page_dimension = page.get('dimension')
+            if not isinstance(page_dimension, dict):
+                continue
+            height = cls._to_positive_int(page_dimension.get('height'))
+            if height is not None:
+                page_heights.append(height)
+        if not page_heights:
+            return None
+        return f'{max(page_heights)}p'
+
+    @classmethod
+    def _extract_release_date(cls, detail: dict[str, Any]) -> str | None:
+        view = detail.get('View')
+        if not isinstance(view, dict):
+            return None
+
+        for key in ('pubdate', 'ctime'):
+            ts = cls._to_positive_int(view.get(key))
+            if ts is None:
+                continue
+            return datetime.fromtimestamp(ts, tz=UTC).strftime('%Y-%m-%d')
+        return None
+
+    @staticmethod
     def _normalize_cover_url(url: str) -> str:
         if url.startswith('//'):
             return f'https:{url}'
@@ -97,7 +169,18 @@ class Bilibili:
 
         return None
 
-    async def _notify_download(self, *, bvid: str, title: str, upper: str, fav_id: int, cover_url: str | None = None) -> None:
+    async def _notify_download(  # noqa: PLR0913
+        self,
+        *,
+        bvid: str,
+        title: str,
+        upper: str,
+        fav_id: int,
+        resolution: str | None = None,
+        file_size_bytes: int | None = None,
+        release_date: str | None = None,
+        cover_url: str | None = None,
+    ) -> None:
         notifier = getattr(self, 'notifier', None)
         if notifier is None:
             return
@@ -106,7 +189,18 @@ class Bilibili:
         url = f'https://www.bilibili.com/video/{bvid}'
         safe_title = self._escape_markdown(title)
         safe_upper = self._escape_markdown(upper)
-        message = f'Bilibili ({source})\n*{safe_title}*\n{safe_upper}\n[视频链接]({url})'
+        resolution_label = resolution or 'unknown'
+        file_size_label = self._format_file_size(file_size_bytes) or 'unknown'
+        release_date_label = (release_date or 'unknown').strip() or 'unknown'
+        safe_resolution = self._escape_markdown(resolution_label)
+        safe_file_size = self._escape_markdown(file_size_label)
+        safe_release_date = self._escape_markdown(release_date_label)
+        message = (
+            f'Bilibili ({source})\n'
+            f'*{safe_title}*\n'
+            f'{safe_upper}\n'
+            f'[视频链接]({url}) | {safe_resolution} | {safe_file_size} | {safe_release_date}'
+        )
         send_markdown = getattr(notifier, 'send_markdown', None)
         send_photo = getattr(notifier, 'send_photo', None)
 
@@ -117,7 +211,7 @@ class Bilibili:
             if callable(send_markdown):
                 await send_markdown(message, disable_web_page_preview=True)
                 return
-            await notifier.send(f'Bilibili ({source})\n{title}\n{upper}\n视频链接: {url}')
+            await notifier.send(f'Bilibili ({source})\n{title}\n{upper}\n视频链接({url}) | {resolution_label} | {file_size_label} | {release_date_label}')
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to send bilibili download notification for %s: %s', bvid, exc)
 
@@ -309,6 +403,17 @@ class Bilibili:
                     dst_path = ensure_unique_path(dst_path)
                     shutil.move(v, dst_path)
                     saved_paths.append(dst_path)
+                resolution = self._extract_resolution_label(detail)
+                file_size_bytes: int | None = None
+                for saved_path in saved_paths:
+                    try:
+                        size_bytes = saved_path.stat().st_size
+                    except OSError as exc:
+                        log.debug('Failed to read file size for %s: %s', saved_path, exc)
+                        continue
+                    if file_size_bytes is None or size_bytes > file_size_bytes:
+                        file_size_bytes = size_bytes
+                release_date = self._extract_release_date(detail)
                 await cloudflare.query_d1(
                     'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
                     (bvid, str(fav_id), title, upper),
@@ -318,6 +423,9 @@ class Bilibili:
                     title=title,
                     upper=upper,
                     fav_id=fav_id,
+                    resolution=resolution,
+                    file_size_bytes=file_size_bytes,
+                    release_date=release_date,
                     cover_url=cover_url,
                 )
         else:

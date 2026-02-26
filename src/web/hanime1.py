@@ -242,6 +242,21 @@ class Hanime1:
         return f'{quality}p'
 
     @staticmethod
+    def _format_file_size(size_bytes: int | None) -> str | None:
+        if size_bytes is None or size_bytes < 0:
+            return None
+        if size_bytes < 1024:
+            return f'{size_bytes} B'
+
+        size = float(size_bytes)
+        units = ('KB', 'MB', 'GB', 'TB')
+        for unit in units:
+            size /= 1024
+            if size < 1024 or unit == units[-1]:
+                return f'{size:.1f} {unit}'
+        return None
+
+    @staticmethod
     def extract_download_urls(page_html: str) -> list[str]:
         """Extract direct download URLs from Hanime1 download page HTML."""
         normalized_html = html.unescape(page_html).replace('\\/', '/').replace('\\u0026', '&')
@@ -655,6 +670,8 @@ class Hanime1:
         *,
         item: HanimeRecord,
         resolution: str | None = None,
+        file_size_bytes: int | None = None,
+        release_date: str | None = None,
         cover_url: str | None = None,
     ) -> None:
         notifier = getattr(self, 'notifier', None)
@@ -665,10 +682,13 @@ class Hanime1:
         watch_url = self._build_watch_page_url(item)
         safe_title = self._escape_markdown(title)
         resolution_label = resolution or 'unknown'
+        file_size_label = self._format_file_size(file_size_bytes) or 'unknown'
+        release_date_label = (release_date or 'unknown').strip() or 'unknown'
         safe_resolution = self._escape_markdown(resolution_label)
+        safe_file_size = self._escape_markdown(file_size_label)
+        safe_release_date = self._escape_markdown(release_date_label)
         markdown_lines = ['Hanime1', f'*{safe_title}*']
-        markdown_lines.append(safe_resolution)
-        markdown_lines.append(f'[视频链接]({watch_url})')
+        markdown_lines.append(f'[视频链接]({watch_url}) | {safe_resolution} | {safe_file_size} | {safe_release_date}')
         markdown_message = '\n'.join(markdown_lines)
 
         send_markdown = getattr(notifier, 'send_markdown', None)
@@ -683,8 +703,7 @@ class Hanime1:
                 await send_markdown(markdown_message, disable_web_page_preview=True)
                 return
 
-            plain_lines = ['Hanime1', title, resolution_label]
-            plain_lines.append(f'视频链接: {watch_url}')
+            plain_lines = ['Hanime1', title, f'视频链接({watch_url}) | {resolution_label} | {file_size_label} | {release_date_label}']
             await notifier.send('\n'.join(plain_lines))
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to send hanime1 download notification for %s: %s', item.id, exc)
@@ -897,5 +916,16 @@ class Hanime1:
 
             item.title = result.title
             item.uploader = result.uploader or item.uploader
-            await self._notify_download(item=item, resolution=result.resolution, cover_url=result.cover_url)
+            file_size_bytes: int | None = None
+            try:
+                file_size_bytes = result.final_path.stat().st_size
+            except OSError as exc:
+                log.debug('Failed to read file size for %s: %s', result.final_path, exc)
+            await self._notify_download(
+                item=item,
+                resolution=result.resolution,
+                file_size_bytes=file_size_bytes,
+                release_date=result.release_date,
+                cover_url=result.cover_url,
+            )
             log.notice('Saved %s', result.final_path.name)

@@ -321,9 +321,13 @@ def test_update_inserts_item_after_download(monkeypatch, tmp_path) -> None:
         *,
         item: HanimeRecord,
         resolution: str | None = None,
+        file_size_bytes: int | None = None,
+        release_date: str | None = None,
         cover_url: str | None = None,
     ) -> None:
         assert resolution is None
+        assert file_size_bytes == 5
+        assert release_date is None
         assert cover_url is None
         notify_calls.append(item.id)
 
@@ -369,12 +373,12 @@ def test_notify_download_prefers_markdown_and_omits_id_path_page(tmp_path) -> No
         stream_url=None,
     )
 
-    asyncio.run(h._notify_download(item=item, resolution='720p'))
+    asyncio.run(h._notify_download(item=item, resolution='720p', file_size_bytes=1024 * 1024, release_date='2020-01-01'))
 
     assert len(markdown_calls) == 1
     message, disable_preview = markdown_calls[0]
     assert disable_preview is True
-    assert message == 'Hanime1\n*公開便所 2*\n720p\n[视频链接](https://hanime1.me/watch?v=12345)'
+    assert message == 'Hanime1\n*公開便所 2*\n[视频链接](https://hanime1.me/watch?v=12345) | 720p | 1.0 MB | 2020-01-01'
     assert 'ID:' not in message
     assert 'Path:' not in message
     assert 'Page:' not in message
@@ -406,12 +410,20 @@ def test_notify_download_prefers_photo_when_cover_available(tmp_path) -> None:
         stream_url=None,
     )
 
-    asyncio.run(h._notify_download(item=item, resolution='720p', cover_url='https://cdn.example.com/covers/12345.jpg'))
+    asyncio.run(
+        h._notify_download(
+            item=item,
+            resolution='720p',
+            file_size_bytes=1024 * 1024,
+            release_date='2020-01-01',
+            cover_url='https://cdn.example.com/covers/12345.jpg',
+        ),
+    )
 
     assert photo_calls == [
         (
             'https://cdn.example.com/covers/12345.jpg',
-            'Hanime1\n*公開便所 2*\n720p\n[视频链接](https://hanime1.me/watch?v=12345)',
+            'Hanime1\n*公開便所 2*\n[视频链接](https://hanime1.me/watch?v=12345) | 720p | 1.0 MB | 2020-01-01',
             'Markdown',
         ),
     ]
@@ -436,12 +448,20 @@ def test_notify_download_falls_back_to_plain_text(tmp_path) -> None:
         stream_url=None,
     )
 
-    asyncio.run(h._notify_download(item=item, resolution='720p'))
+    asyncio.run(h._notify_download(item=item, resolution='720p', file_size_bytes=1024 * 1024, release_date='2020-01-01'))
 
-    assert send_calls == ['Hanime1\n公開便所 2\n720p\n视频链接: https://hanime1.me/watch?v=12345']
+    assert send_calls == ['Hanime1\n公開便所 2\n视频链接(https://hanime1.me/watch?v=12345) | 720p | 1.0 MB | 2020-01-01']
 
 
 def test_stream_resolution_label_parses_quality() -> None:
     assert Hanime1._stream_resolution_label('https://video.example.com/18580-sc-720p.mp4') == '720p'
     assert Hanime1._stream_resolution_label('https://video.example.com/18580-sc-4k.mp4?token=1') == '2160p'
     assert Hanime1._stream_resolution_label('https://video.example.com/master.m3u8') is None
+
+
+def test_format_file_size_human_readable() -> None:
+    assert Hanime1._format_file_size(999) == '999 B'
+    assert Hanime1._format_file_size(1024) == '1.0 KB'
+    assert Hanime1._format_file_size(1024 * 1024) == '1.0 MB'
+    assert Hanime1._format_file_size(-1) is None
+    assert Hanime1._format_file_size(None) is None

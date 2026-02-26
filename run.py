@@ -137,8 +137,9 @@ def _build_runtime_config_bot(
 def _build_trigger_controls(
     runners: list[tuple[ScheduledJob, Callable[[], object]]],
 ) -> tuple[list[tuple[str, str]], TriggerCallback]:
-    trigger_targets = [(job.key, job.name) for job, _runner in runners]
-    runner_map = {job.key: runner for job, runner in runners}
+    enabled_runners = [(job, runner) for job, runner in runners if job.enabled]
+    trigger_targets = [(job.key, job.name) for job, _runner in enabled_runners]
+    runner_map = {job.key: runner for job, runner in enabled_runners}
     manual_tasks: set[asyncio.Task[None]] = set()
 
     def _spawn_manual_task(*, key: str, runner: Callable[[], object]) -> None:
@@ -251,7 +252,7 @@ async def main() -> None:  # noqa: C901
             runner_by_key[job.key] = runner
 
             if not job.enabled:
-                log.info('%s is disabled in schedule, manual trigger only', job.name)
+                log.info('%s is disabled; skipping schedule and /trigger target', job.name)
                 continue
 
             try:
