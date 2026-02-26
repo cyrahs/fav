@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,7 @@ class Kemono:
             timeout=60,
             follow_redirects=True,
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=10),
-            proxy=config.proxy if config.proxy else None,
+            proxy=config.proxy or None,
         )
 
     async def _ensure_table(self) -> None:
@@ -108,7 +109,7 @@ class Kemono:
             log.debug('File already exists, skip %s', dst_path.name)
             return
 
-        dst_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(dst_dir.mkdir, parents=True, exist_ok=True)
         desc = f'{post_id}-{idx}'
         with tqdm(total=0, unit='B', unit_scale=True, desc=desc, dynamic_ncols=True) as pbar:
             async with self.client.stream('GET', src_url) as res:
@@ -129,8 +130,8 @@ class Kemono:
         for idx, attachment in enumerate(post.attachments, start=1):
             try:
                 await self._download_attachment(attachment, post_dir, post.id, idx)
-            except httpx.HTTPError as e:
-                log.error('Failed to download %s: %s', attachment.path, e)
+            except httpx.HTTPError:
+                log.exception('Failed to download %s', attachment.path)
 
     async def _update_creator(self, creator: KemonoCreator) -> None:
         creator_name = creator.name or creator.id

@@ -12,7 +12,7 @@ async_client = httpx.AsyncClient(
     headers={
         'Authorization': f'Bearer {cfg.api_key}',
     },
-    proxy=config.proxy if config.proxy else None,
+    proxy=config.proxy or None,
     timeout=30,
 )
 
@@ -20,7 +20,7 @@ client = httpx.Client(
     headers={
         'Authorization': f'Bearer {cfg.api_key}',
     },
-    proxy=config.proxy if config.proxy else None,
+    proxy=config.proxy or None,
     timeout=30,
 )
 

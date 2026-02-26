@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import tempfile
 from collections import defaultdict
@@ -46,77 +47,81 @@ class Telegram:
         exists_ids = await cloudflare.query_d1('SELECT message_id FROM telegram WHERE channel_id = ?;', (str(channel_id),))
         return [int(i['message_id']) for i in exists_ids]
 
-    async def get_videos(self, channel: Channel) -> list[dict]:
+    @staticmethod
+    def _is_video_message(msg: Message) -> bool:
+        if getattr(msg, 'video', None):
+            return True
+        attrs = getattr(getattr(msg, 'document', None), 'attributes', None)
+        if not attrs:
+            return False
+        return any(isinstance(attr, DocumentAttributeVideo) for attr in attrs)
+
+    async def _collect_videos_and_group_captions(self, channel: Channel) -> tuple[list[Message], dict[int, str]]:
+        videos: list[Message] = []
+        group_captions: dict[int, str] = {}
+
+        async for msg in self.client.iter_messages(channel, reverse=True):
+            if self._is_video_message(msg):
+                videos.append(msg)
+
+            grouped_id = getattr(msg, 'grouped_id', None)
+            caption = (msg.message or '').strip()
+            if grouped_id and caption and grouped_id not in group_captions:
+                group_captions[grouped_id] = caption
+
+        return videos, group_captions
+
+    @staticmethod
+    def _group_videos(videos: list[Message]) -> dict[int, list[Message]]:
+        video_groups: dict[int, list[Message]] = defaultdict(list)
+        for msg in videos:
+            grouped_id = getattr(msg, 'grouped_id', None)
+            if grouped_id:
+                video_groups[grouped_id].append(msg)
+        return video_groups
+
+    @staticmethod
+    def _build_group_entries(group_videos: list[Message], group_caption: str | None) -> list[dict[str, Message | str]]:
+        if not group_caption:
+            return [{'msg': video_msg, 'filename': f'video_{video_msg.id}'} for video_msg in group_videos]
+        if len(group_videos) == 1:
+            return [{'msg': group_videos[0], 'filename': group_caption}]
+        return [{'msg': video_msg, 'filename': f'{group_caption}-{idx}'} for idx, video_msg in enumerate(group_videos, start=1)]
+
+    @staticmethod
+    def _build_standalone_entry(msg: Message) -> dict[str, Message | str]:
+        caption = (msg.message or '').strip()
+        filename = caption or f'video_{msg.id}'
+        return {'msg': msg, 'filename': filename}
+
+    async def get_videos(self, channel: Channel) -> list[dict[str, Message | str]]:
         """Get all video messages with pre-calculated filenames.
 
         Returns:
             List of dicts with 'msg' (Message) and 'filename' (str - base title without extension/ID)
         """
-        videos = []
-        group_captions = {}  # grouped_id -> caption
-
-        # Collect videos and extract captions from all messages in groups
-        async for msg in self.client.iter_messages(channel, reverse=True):
-            # Check if this is a video
-            is_video = False
-            if getattr(msg, 'video', None):
-                is_video = True
-            elif getattr(msg, 'document', None) and getattr(msg.document, 'attributes', None):
-                is_video = any(isinstance(attr, DocumentAttributeVideo) for attr in msg.document.attributes)
-
-            if is_video:
-                videos.append(msg)
-
-            # Extract caption from any message in a media group
-            grouped_id = getattr(msg, 'grouped_id', None)
-            if grouped_id and msg.message and grouped_id not in group_captions:
-                group_captions[grouped_id] = msg.message.strip()
-
-        # Group videos by their grouped_id to determine indices
-        video_groups = defaultdict(list)
-        for msg in videos:
-            grouped_id = getattr(msg, 'grouped_id', None)
-            if grouped_id:
-                video_groups[grouped_id].append(msg)
-
-        # Build result list with pre-calculated filenames
-        result = []
-        processed_group_ids = set()
+        videos, group_captions = await self._collect_videos_and_group_captions(channel)
+        video_groups = self._group_videos(videos)
+        result: list[dict[str, Message | str]] = []
+        processed_group_ids: set[int] = set()
 
         for msg in videos:
             grouped_id = getattr(msg, 'grouped_id', None)
-
-            if grouped_id:
-                if grouped_id not in processed_group_ids:
-                    # Process all videos in this group
-                    group_videos = video_groups[grouped_id]
-                    group_caption = group_captions.get(grouped_id)
-
-                    if group_caption:
-                        # Has caption - use it as base filename with index
-                        if len(group_videos) == 1:
-                            # Single video in group - no index suffix
-                            result.append({'msg': group_videos[0], 'filename': group_caption})
-                        else:
-                            # Multiple videos - add index suffix
-                            for idx, video_msg in enumerate(group_videos, start=1):
-                                result.append({'msg': video_msg, 'filename': f'{group_caption}-{idx}'})
-                    else:
-                        # No caption - each video uses its own ID
-                        result.extend([{'msg': video_msg, 'filename': f'video_{video_msg.id}'} for video_msg in group_videos])
-                    processed_group_ids.add(grouped_id)
-            else:
-                # Standalone video without group
-                # Has its own caption: use the caption as the base filename
-                # No caption: use video_{id} format
-                base_filename = msg.message.strip() if msg.message and msg.message.strip() else f'video_{msg.id}'
-                result.append({'msg': msg, 'filename': base_filename})
+            if not grouped_id:
+                result.append(self._build_standalone_entry(msg))
+                continue
+            if grouped_id in processed_group_ids:
+                continue
+            group_videos = video_groups[grouped_id]
+            group_caption = group_captions.get(grouped_id)
+            result.extend(self._build_group_entries(group_videos, group_caption))
+            processed_group_ids.add(grouped_id)
 
         return result
 
     async def download(self, msg: Message, dst_dir: Path, title: str) -> Path | None:
         """Download a video message with specified title."""
-        if dst_dir.is_file():
+        if await asyncio.to_thread(dst_dir.is_file):
             error_msg = f'{dst_dir} is a file'
             raise ValueError(error_msg)
 
@@ -138,7 +143,7 @@ class Telegram:
                 ext=downloaded_path.suffix,
             )
             dst_path = dst_dir / filename
-            dst_dir.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(dst_dir.mkdir, parents=True, exist_ok=True)
             shutil.move(downloaded_path, dst_path)
             return dst_path
         return None

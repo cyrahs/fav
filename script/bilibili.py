@@ -8,8 +8,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from src.core import config
+import httpx
+
+from src.core import config, logger
 from src.tool import CookieCloudClient
+
+log = logger.get('script.bilibili')
 
 
 def main() -> None:
@@ -24,7 +28,7 @@ def main() -> None:
 
     # Verify yt-dlp is available
     if not shutil.which('yt-dlp'):
-        print('Error: yt-dlp command not found in PATH. Please install yt-dlp.', file=sys.stderr)
+        log.error('yt-dlp command not found in PATH. Please install yt-dlp.')
         sys.exit(1)
 
     # Normalize BV format (add BV prefix if not present)
@@ -42,10 +46,10 @@ def main() -> None:
         # Get cookies from CookieCloud
         try:
             cc_cfg = config.cookiecloud
-            client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password, proxy=config.proxy if config.proxy else None)
+            client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password, proxy=config.proxy or None)
             client.save_to_netscape_format('bilibili.com', cookie_path)
-        except Exception as e:
-            print(f'Error fetching cookies from CookieCloud: {e}', file=sys.stderr)
+        except (ConnectionError, httpx.HTTPError, KeyError, OSError, ValueError):
+            log.exception('Error fetching cookies from CookieCloud')
             sys.exit(1)
 
         # Ensure output directory exists
@@ -81,14 +85,14 @@ def main() -> None:
         command.append(url)
 
         # Run yt-dlp
-        print(f'Downloading {bv} to {args.output}...')
-        result = subprocess.run(command, text=True)  # noqa: S603
+        log.info('Downloading %s to %s...', bv, args.output)
+        result = subprocess.run(command, text=True, check=False)  # noqa: S603
 
         if result.returncode != 0:
-            print(f'Error: yt-dlp exited with code {result.returncode}', file=sys.stderr)
+            log.error('yt-dlp exited with code %d', result.returncode)
             sys.exit(result.returncode)
 
-        print(f'Successfully downloaded {bv} to {args.output}')
+        log.notice('Successfully downloaded %s to %s', bv, args.output)
 
 
 if __name__ == '__main__':

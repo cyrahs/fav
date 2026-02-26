@@ -62,7 +62,7 @@ class Bilibili:
     @staticmethod
     def _is_placeholder_cover_url(url: str) -> bool:
         path = urlsplit(url).path.lower()
-        return path.endswith('/transparent.png') or path.endswith('/transparent.gif') or '/archive/transparent' in path
+        return path.endswith(('/transparent.png', '/transparent.gif')) or '/archive/transparent' in path
 
     async def get_video_cover_url(self, video: api.video.Video, detail: dict[str, Any] | None = None) -> str | None:
         """Get a video's cover URL from Bilibili API responses."""
@@ -275,7 +275,7 @@ class Bilibili:
         _run_once()
 
     async def update_fav(self, fav_id: int, path: Path) -> None:
-        path.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(path.mkdir, parents=True, exist_ok=True)
         has_any_toviews = False
         # for toview
         if fav_id == -1:
@@ -293,7 +293,7 @@ class Bilibili:
                 cover_url = await self.get_video_cover_url(video, detail=detail)
                 url = f'https://www.bilibili.com/video/{bvid}'
                 video_cache_dir = self.cache_dir / 'videos'
-                video_cache_dir.mkdir(exist_ok=True)
+                await asyncio.to_thread(video_cache_dir.mkdir, exist_ok=True)
                 log.info('Downloading [%s]%s [%s]', upper, title, bvid)
                 self.download(url, bvid, video_cache_dir)
                 saved_paths = []
