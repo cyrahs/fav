@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
@@ -12,7 +12,7 @@ _CRON_FIELDS = 5
 class ScheduleJob(BaseModel):
     cron: str
     enabled: bool = True
-    run_on_start: bool = True
+    run_on_start: bool = False
 
     @field_validator('cron')
     @classmethod
@@ -59,21 +59,23 @@ class Telegram(ScheduleJob):
     cron: str = '*/30 * * * *'
 
 
-class NotificationTelegramBot(BaseModel):
-    enabled: bool = False
+class TelegramBot(BaseModel):
     token: str
     chat_id: int | str
     api_base: str = 'https://api.telegram.org'
     message_thread_id: int | None = None
 
 
-class Notification(BaseModel):
-    telegram_bot: NotificationTelegramBot | None = None
-
-
 class Stellasora(ScheduleJob):
     path: Path = Path('./collection/stellasora')
     cron: str = '0 */6 * * *'
+
+
+class Hanime1(ScheduleJob):
+    path: Path = Path('./collection/hanime1')
+    host: str = 'https://hanime1.me'
+    cron: str = '0 */6 * * *'
+    user_lang: Literal['zhs', 'zht'] = 'zhs'
 
 
 class KemonoCreator(BaseModel):
@@ -102,6 +104,7 @@ class Web(BaseModel):
     tangxin: Tangxin = Field(validation_alias=AliasChoices('tangxin', 'tx'))
     telegram: Telegram
     stellasora: Stellasora = Field(default_factory=Stellasora)
+    hanime1: Hanime1 = Field(default_factory=Hanime1)
     kemono: Kemono
 
     @property
@@ -112,10 +115,11 @@ class Web(BaseModel):
 
 class Config(BaseSettings):
     proxy: str
+    run_config: Path = Path('./data/config.json')
     web: Web
     cloudflare: Cloudflare
     cookiecloud: CookieCloud
-    notification: Notification = Field(default_factory=Notification)
+    telegram_bot: TelegramBot
 
     model_config = SettingsConfigDict(toml_file='./config.toml', extra='ignore')
 

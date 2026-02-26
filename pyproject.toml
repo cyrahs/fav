@@ -15,6 +15,7 @@ dependencies = [
     "telethon>=1.41.2",
     "tqdm>=4.67.1",
     "tenacity>=8.5.0",
+    "opencc-python-reimplemented>=0.1.7",
 ]
 
 [tool.ruff]

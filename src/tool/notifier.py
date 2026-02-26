@@ -21,14 +21,6 @@ class Notifier(Protocol):
         """Release notifier resources."""
 
 
-class NullNotifier:
-    async def send(self, message: str) -> None:  # noqa: ARG002
-        return
-
-    async def aclose(self) -> None:
-        return
-
-
 class TelegramBotNotifier:
     def __init__(  # noqa: PLR0913
         self,
@@ -131,16 +123,7 @@ class TelegramBotNotifier:
 
 
 def build_notifier() -> Notifier:
-    notification_cfg = config.notification
-    tg_cfg = notification_cfg.telegram_bot
-    if tg_cfg is None:
-        log.debug('notification.telegram_bot is missing; notifications are disabled')
-        return NullNotifier()
-
-    if not tg_cfg.enabled:
-        log.debug('notification.telegram_bot.enabled is false; notifications are disabled')
-        return NullNotifier()
-
+    tg_cfg = config.telegram_bot
     log.debug('Telegram bot notifier enabled')
     return TelegramBotNotifier(
         token=tg_cfg.token,

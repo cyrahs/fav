@@ -11,7 +11,7 @@ def test_schedule_job_accepts_five_field_cron() -> None:
 
     assert job.cron == '*/5 * * * *'
     assert job.enabled is True
-    assert job.run_on_start is True
+    assert job.run_on_start is False
 
 
 def test_schedule_job_rejects_non_five_field_cron() -> None:
