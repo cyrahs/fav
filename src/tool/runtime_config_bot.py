@@ -146,7 +146,7 @@ class TelegramRuntimeConfigBot:
                 row = []
         if row:
             rows.append(row)
-        rows.append([{'text': 'all', 'callback_data': f'{_CALLBACK_TRIGGER_PREFIX}all'}])
+        rows.append([{'text': 'All', 'callback_data': f'{_CALLBACK_TRIGGER_PREFIX}all'}])
         return {'inline_keyboard': rows}
 
     def _state_key(self, *, chat_id: str, message_thread_id: int | None) -> str:

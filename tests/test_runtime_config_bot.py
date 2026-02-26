@@ -159,7 +159,7 @@ def test_trigger_command_sends_target_buttons(tmp_path) -> None:
     labels = [btn['text'] for row in keyboard for btn in row]
     assert 'Bilibili' in labels
     assert 'Hanime1' in labels
-    assert 'all' in labels
+    assert 'All' in labels
 
 
 def test_trigger_callback_invokes_trigger_handler(tmp_path) -> None:

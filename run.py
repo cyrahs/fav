@@ -3,6 +3,7 @@ import contextlib
 import inspect
 import os
 import shutil
+import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
@@ -18,6 +19,7 @@ from src.tool import Notifier, TelegramRuntimeConfigBot, build_notifier
 from src.web import Bilibili, Hanime1, StellaSora, Tangxin, Telegram
 
 log = logger.get('main')
+_SHUTDOWN_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,10 +171,73 @@ async def _shutdown_runtime_config_bot(
 ) -> None:
     if task is not None:
         task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        try:
+            await asyncio.wait_for(task, timeout=_SHUTDOWN_TIMEOUT_SECONDS)
+        except TimeoutError:
+            log.warning('Timed out while waiting runtime config bot task to stop')
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Runtime config bot task stop failed: %s', exc)
     if bot is not None:
-        await bot.aclose()
+        try:
+            await asyncio.wait_for(bot.aclose(), timeout=_SHUTDOWN_TIMEOUT_SECONDS)
+        except TimeoutError:
+            log.warning('Timed out while closing runtime config bot client')
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Runtime config bot close failed: %s', exc)
+
+
+async def _shutdown_notifier(notifier: Notifier) -> None:
+    try:
+        await asyncio.wait_for(notifier.aclose(), timeout=_SHUTDOWN_TIMEOUT_SECONDS)
+    except TimeoutError:
+        log.warning('Timed out while closing notifier client')
+    except Exception as exc:  # noqa: BLE001
+        log.warning('Notifier close failed: %s', exc)
+
+
+def _install_signal_handlers(  # noqa: C901
+    *,
+    stop_event: asyncio.Event,
+    main_task: asyncio.Task[None],
+) -> Callable[[], None]:
+    restored_handlers: dict[signal.Signals, object] = {}
+
+    def _request_shutdown(signal_name: str) -> None:
+        if stop_event.is_set():
+            log.info('Received %s again, shutdown already in progress', signal_name)
+            return
+
+        log.info('Received %s, starting graceful shutdown', signal_name)
+        stop_event.set()
+        if not main_task.done():
+            main_task.cancel()
+
+    def _signal_handler(signum: int, _frame: object) -> None:
+        is_first_signal = not stop_event.is_set()
+        try:
+            signal_name = signal.Signals(signum).name
+        except ValueError:
+            signal_name = f'SIGNAL-{signum}'
+
+        _request_shutdown(signal_name)
+        if is_first_signal:
+            raise KeyboardInterrupt
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            restored_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, _signal_handler)
+        except ValueError as exc:
+            log.warning('Failed to install %s handler: %s', sig.name, exc)
+
+    def _remove_handlers() -> None:
+        for sig, previous in restored_handlers.items():
+            with contextlib.suppress(Exception):
+                signal.signal(sig, previous)
+
+    return _remove_handlers
 
 
 async def _safe_notify(notifier: Notifier, message: str) -> None:
@@ -223,10 +288,16 @@ async def _run_job(*, job: ScheduledJob, notifier: Notifier) -> None:
         await _safe_close(job.name, worker)
 
 
-async def main() -> None:  # noqa: C901
+async def main() -> None:  # noqa: C901, PLR0912, PLR0915
     notifier = build_notifier()
     runtime_config_bot: TelegramRuntimeConfigBot | None = None
     runtime_config_task: asyncio.Task[None] | None = None
+    stop_event = asyncio.Event()
+    main_task = asyncio.current_task()
+    if main_task is None:
+        msg = 'Failed to resolve main task for signal handling'
+        raise RuntimeError(msg)
+    remove_signal_handlers = _install_signal_handlers(stop_event=stop_event, main_task=main_task)
     all_jobs = _build_jobs()
     jobs = [job for job in all_jobs if job.enabled]
     timezone = _resolve_scheduler_timezone()
@@ -289,14 +360,21 @@ async def main() -> None:  # noqa: C901
                 log.info('Run-on-start enabled for %s', job.name)
                 await runner_by_key[job.key]()
 
-        await asyncio.Event().wait()
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        log.info('Shutdown signal received')
+        await stop_event.wait()
+    except KeyboardInterrupt:
+        if not stop_event.is_set():
+            stop_event.set()
+            log.info('Shutdown signal received')
+    except asyncio.CancelledError:
+        if not stop_event.is_set():
+            stop_event.set()
+            log.info('Main task cancelled; shutdown signal received')
     finally:
+        remove_signal_handlers()
         await _shutdown_runtime_config_bot(runtime_config_bot, runtime_config_task)
         if scheduler.running:
             scheduler.shutdown(wait=False)
-        await notifier.aclose()
+        await _shutdown_notifier(notifier)
 
 
 if __name__ == '__main__':
