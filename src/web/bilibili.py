@@ -20,6 +20,7 @@ from src.tool import CookieCloudClient, Notifier, database, ensure_unique_path, 
 
 log = logger.get('bilibili')
 cfg = config.web.bilibili
+_KIBIBYTE = 1024
 
 
 class DownloadError(RuntimeError):
@@ -58,14 +59,14 @@ class Bilibili:
     def _format_file_size(size_bytes: int | None) -> str | None:
         if size_bytes is None or size_bytes < 0:
             return None
-        if size_bytes < 1024:
+        if size_bytes < _KIBIBYTE:
             return f'{size_bytes} B'
 
         size = float(size_bytes)
         units = ('KB', 'MB', 'GB', 'TB')
         for unit in units:
-            size /= 1024
-            if size < 1024 or unit == units[-1]:
+            size /= _KIBIBYTE
+            if size < _KIBIBYTE or unit == units[-1]:
                 return f'{size:.1f} {unit}'
         return None
 
@@ -212,7 +213,7 @@ class Bilibili:
                 await send_markdown(message, disable_web_page_preview=True)
                 return
             await notifier.send(
-                f'Bilibili ({source})\n{title}\n{upper}\n视频链接({url}) | {resolution_label} | {file_size_label} | {release_date_label}'
+                f'Bilibili ({source})\n{title}\n{upper}\n视频链接({url}) | {resolution_label} | {file_size_label} | {release_date_label}',
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to send bilibili download notification for %s: %s', bvid, exc)
@@ -269,7 +270,7 @@ class Bilibili:
         toview = await api.user.get_toview_list(credential=self.credential)
         if not toview['list']:
             return ([], False)
-        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = -1;')
+        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = ?;', (-1,))
         exists_ids = [i['bvid'] for i in exists_ids]
         result = [api.video.Video(bvid=v['bvid'], credential=self.credential) for v in toview['list']]
         log.info('Find %d toviews in total', len(result))
@@ -281,7 +282,7 @@ class Bilibili:
 
     async def get_favs(self, fav_id: int) -> list[api.video.Video]:
         """Get the videos in the favorite list."""
-        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = ?;', (str(fav_id),))
+        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = ?;', (fav_id,))
         exists_ids = [i['bvid'] for i in exists_ids]
         favlist = api.favorite_list.FavoriteList(media_id=fav_id, credential=self.credential)
         page = 1
@@ -418,7 +419,7 @@ class Bilibili:
                 release_date = self._extract_release_date(detail)
                 await database.query_db(
                     'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
-                    (bvid, str(fav_id), title, upper),
+                    (bvid, fav_id, title, upper),
                 )
                 await self._notify_download(
                     bvid=bvid,
@@ -444,12 +445,25 @@ class Bilibili:
         await database.query_db("""
             CREATE TABLE IF NOT EXISTS bilibili (
                 bvid TEXT PRIMARY KEY,
-                fav_id INTEGER NOT NULL,
+                fav_id BIGINT NOT NULL,
                 title TEXT NOT NULL,
                 upper TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        type_rows = await database.query_db("""
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_schema = ANY(current_schemas(false))
+                AND table_name = 'bilibili'
+                AND column_name = 'fav_id'
+            LIMIT 1;
+        """)
+        if type_rows:
+            data_type = type_rows[0]['data_type']
+            if data_type != 'bigint':
+                log.warning('Migrating bilibili.fav_id from %s to bigint', data_type)
+                await database.query_db('ALTER TABLE bilibili ALTER COLUMN fav_id TYPE BIGINT USING fav_id::BIGINT;')
         log.debug('bilibili table initialized')
 
         await self.update_fav(cfg.fav_id, cfg.path / 'fav')
