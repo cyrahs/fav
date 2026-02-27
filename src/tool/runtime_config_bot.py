@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -10,6 +9,7 @@ import httpx
 from src.core import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from pathlib import Path
 
 log = logger.get('runtime-config-bot')
@@ -17,16 +17,17 @@ log = logger.get('runtime-config-bot')
 _LONG_POLL_TIMEOUT = 30
 _REQUEST_TIMEOUT = 40
 _RETRY_DELAY_SECONDS = 3
+_CALLBACK_CONFIG_PREFIX = 'config:'
+_CALLBACK_CONFIG_HANIME1 = 'config:hanime1'
 _CALLBACK_ADD = 'hanime1:add'
 _CALLBACK_DELETE = 'hanime1:delete'
 _CALLBACK_TRIGGER_PREFIX = 'trigger:'
 _STATE_WAIT_ADD = 'wait_add'
 _STATE_WAIT_DELETE = 'wait_delete'
-_BOT_COMMANDS = (
-    {'command': 'hanime1', 'description': 'Manage Hanime1 keywords'},
-    {'command': 'trigger', 'description': 'Trigger web jobs now'},
-    {'command': 'cancel', 'description': 'Cancel current action'},
-)
+_COMMAND_CONFIG = {'command': 'config', 'description': 'Manage runtime config'}
+_COMMAND_TRIGGER = {'command': 'trigger', 'description': 'Trigger web jobs now'}
+_COMMAND_CANCEL = {'command': 'cancel', 'description': 'Cancel current action'}
+_TRIGGER_KEYBOARD_COLUMNS = 2
 
 
 class TelegramRuntimeConfigBot:
@@ -74,6 +75,9 @@ class TelegramRuntimeConfigBot:
             seen.add(key)
             keywords.append(keyword)
         return keywords
+
+    def _build_bot_commands(self) -> list[dict[str, str]]:
+        return [_COMMAND_CONFIG, _COMMAND_TRIGGER, _COMMAND_CANCEL]
 
     def _read_runtime_config(self) -> dict[str, Any]:
         if not self._run_config.exists():
@@ -133,6 +137,10 @@ class TelegramRuntimeConfigBot:
             ],
         }
 
+    @staticmethod
+    def _config_keyboard() -> dict[str, list[list[dict[str, str]]]]:
+        return {'inline_keyboard': [[{'text': 'Hanime1 keywords', 'callback_data': _CALLBACK_CONFIG_HANIME1}]]}
+
     def _trigger_keyboard(self) -> dict[str, list[list[dict[str, str]]]] | None:
         if not self._trigger_targets:
             return None
@@ -141,7 +149,7 @@ class TelegramRuntimeConfigBot:
         row: list[dict[str, str]] = []
         for key, label in self._trigger_targets:
             row.append({'text': label, 'callback_data': f'{_CALLBACK_TRIGGER_PREFIX}{key}'})
-            if len(row) == 2:
+            if len(row) == _TRIGGER_KEYBOARD_COLUMNS:
                 rows.append(row)
                 row = []
         if row:
@@ -199,8 +207,9 @@ class TelegramRuntimeConfigBot:
             None,
             {'type': 'chat', 'chat_id': self._allowed_chat_id},
         )
+        commands = self._build_bot_commands()
         for scope in scopes:
-            payload: dict[str, Any] = {'commands': list(_BOT_COMMANDS)}
+            payload: dict[str, Any] = {'commands': commands}
             if scope is not None:
                 payload['scope'] = scope
             response = await self._client.post(self._set_my_commands_url, json=payload)
@@ -209,6 +218,14 @@ class TelegramRuntimeConfigBot:
             if not data.get('ok'):
                 msg = f'Failed to set bot commands: {data.get("description", "unknown")}'
                 raise RuntimeError(msg)
+
+    async def _send_config_panel(self, *, chat_id: str, message_thread_id: int | None) -> None:
+        await self._send_message(
+            chat_id=chat_id,
+            message_thread_id=message_thread_id,
+            text='Choose a config option:',
+            reply_markup=self._config_keyboard(),
+        )
 
     async def _send_trigger_panel(self, *, chat_id: str, message_thread_id: int | None) -> None:
         keyboard = self._trigger_keyboard()
@@ -335,23 +352,126 @@ class TelegramRuntimeConfigBot:
         state_key = self._state_key(chat_id=chat_id, message_thread_id=message_thread_id)
         command = text.strip()
         command_token = command.split(maxsplit=1)[0]
-        if command_token.startswith('/hanime1'):
+        if command_token.startswith('/config'):
             self._states.pop(state_key, None)
-            await self._send_hanime1_panel(chat_id=chat_id, message_thread_id=message_thread_id)
-            return
-        if command_token.startswith('/trigger'):
+            await self._send_config_panel(chat_id=chat_id, message_thread_id=message_thread_id)
+        elif command_token.startswith('/trigger'):
             self._states.pop(state_key, None)
             await self._send_trigger_panel(chat_id=chat_id, message_thread_id=message_thread_id)
-            return
-        if command_token.startswith('/cancel'):
+        elif command_token.startswith('/cancel'):
             self._states.pop(state_key, None)
             await self._send_message(
                 chat_id=chat_id,
                 message_thread_id=message_thread_id,
                 text='Cancelled.',
             )
+        else:
+            await self._handle_waiting_state(
+                state_key=state_key,
+                chat_id=chat_id,
+                message_thread_id=message_thread_id,
+                command=command,
+            )
+
+    async def _handle_trigger_callback(
+        self,
+        *,
+        chat_id: str,
+        message_thread_id: int | None,
+        callback_query_id: str,
+        data: str,
+    ) -> None:
+        await self._answer_callback_query(callback_query_id)
+        if self._trigger_callback is None:
+            await self._send_message(
+                chat_id=chat_id,
+                message_thread_id=message_thread_id,
+                text='Trigger callback is unavailable.',
+            )
             return
 
+        target = data.removeprefix(_CALLBACK_TRIGGER_PREFIX)
+        try:
+            result_text = await self._trigger_callback(target)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to trigger %r: %s', target, exc)
+            result_text = f'Trigger failed for {target}: {exc}'
+
+        await self._send_message(
+            chat_id=chat_id,
+            message_thread_id=message_thread_id,
+            text=result_text,
+        )
+
+    async def _handle_config_callback(
+        self,
+        *,
+        chat_id: str,
+        message_thread_id: int | None,
+        callback_query_id: str,
+        data: str,
+    ) -> None:
+        await self._answer_callback_query(callback_query_id)
+        option = data.removeprefix(_CALLBACK_CONFIG_PREFIX)
+        if option == 'hanime1':
+            await self._send_hanime1_panel(chat_id=chat_id, message_thread_id=message_thread_id)
+        else:
+            await self._send_message(
+                chat_id=chat_id,
+                message_thread_id=message_thread_id,
+                text=f'Unknown config option: {option}',
+            )
+
+    async def _handle_hanime1_callback(
+        self,
+        *,
+        state_key: str,
+        chat_id: str,
+        message_thread_id: int | None,
+        callback_query_id: str,
+        data: str,
+    ) -> None:
+        if data == _CALLBACK_ADD:
+            self._states[state_key] = _STATE_WAIT_ADD
+            await self._answer_callback_query(callback_query_id)
+            await self._send_message(
+                chat_id=chat_id,
+                message_thread_id=message_thread_id,
+                text='Send the keyword to add. Send /cancel to abort.',
+            )
+            return
+
+        if data != _CALLBACK_DELETE:
+            await self._answer_callback_query(callback_query_id)
+            return
+
+        keywords = self._read_hanime1_keywords()
+        if not keywords:
+            self._states.pop(state_key, None)
+            await self._answer_callback_query(callback_query_id)
+            await self._send_message(
+                chat_id=chat_id,
+                message_thread_id=message_thread_id,
+                text='No keywords to delete.',
+            )
+            return
+
+        self._states[state_key] = _STATE_WAIT_DELETE
+        await self._answer_callback_query(callback_query_id)
+        await self._send_message(
+            chat_id=chat_id,
+            message_thread_id=message_thread_id,
+            text=f'{self._render_hanime1_keywords(keywords)}\nSend the number to delete.',
+        )
+
+    async def _handle_waiting_state(
+        self,
+        *,
+        state_key: str,
+        chat_id: str,
+        message_thread_id: int | None,
+        command: str,
+    ) -> None:
         state = self._states.get(state_key)
         if state == _STATE_WAIT_ADD:
             await self._handle_wait_add(
@@ -360,8 +480,7 @@ class TelegramRuntimeConfigBot:
                 message_thread_id=message_thread_id,
                 text=command,
             )
-            return
-        if state == _STATE_WAIT_DELETE:
+        elif state == _STATE_WAIT_DELETE:
             await self._handle_wait_delete(
                 state_key=state_key,
                 chat_id=chat_id,
@@ -377,69 +496,41 @@ class TelegramRuntimeConfigBot:
             return
         if not isinstance(message, dict):
             await self._answer_callback_query(callback_query_id)
-            return
-        chat = message.get('chat')
-        if not isinstance(chat, dict):
-            await self._answer_callback_query(callback_query_id)
-            return
-
-        chat_id = str(chat.get('id', ''))
-        message_thread_id = message.get('message_thread_id')
-        if not self._is_allowed_context(chat_id=chat_id, message_thread_id=message_thread_id):
-            await self._answer_callback_query(callback_query_id, text='Not allowed in this chat.')
-            return
-
-        state_key = self._state_key(chat_id=chat_id, message_thread_id=message_thread_id)
-        if data.startswith(_CALLBACK_TRIGGER_PREFIX):
-            await self._answer_callback_query(callback_query_id)
-            if self._trigger_callback is None:
-                await self._send_message(
-                    chat_id=chat_id,
-                    message_thread_id=message_thread_id,
-                    text='Trigger callback is unavailable.',
-                )
-                return
-
-            target = data.removeprefix(_CALLBACK_TRIGGER_PREFIX)
-            try:
-                result_text = await self._trigger_callback(target)
-            except Exception as exc:  # noqa: BLE001
-                log.warning('Failed to trigger %r: %s', target, exc)
-                result_text = f'Trigger failed for {target}: {exc}'
-
-            await self._send_message(
-                chat_id=chat_id,
-                message_thread_id=message_thread_id,
-                text=result_text,
-            )
-        elif data == _CALLBACK_ADD:
-            self._states[state_key] = _STATE_WAIT_ADD
-            await self._answer_callback_query(callback_query_id)
-            await self._send_message(
-                chat_id=chat_id,
-                message_thread_id=message_thread_id,
-                text='Send the keyword to add. Send /cancel to abort.',
-            )
-        elif data == _CALLBACK_DELETE:
-            keywords = self._read_hanime1_keywords()
-            if not keywords:
-                self._states.pop(state_key, None)
-                await self._answer_callback_query(callback_query_id)
-                await self._send_message(
-                    chat_id=chat_id,
-                    message_thread_id=message_thread_id,
-                    text='No keywords to delete.',
-                )
-                return
-            self._states[state_key] = _STATE_WAIT_DELETE
-            await self._answer_callback_query(callback_query_id)
-            await self._send_message(
-                chat_id=chat_id,
-                message_thread_id=message_thread_id,
-                text=f'{self._render_hanime1_keywords(keywords)}\nSend the number to delete.',
-            )
         else:
-            await self._answer_callback_query(callback_query_id)
+            chat = message.get('chat')
+            if not isinstance(chat, dict):
+                await self._answer_callback_query(callback_query_id)
+            else:
+                chat_id = str(chat.get('id', ''))
+                message_thread_id = message.get('message_thread_id')
+                if not self._is_allowed_context(chat_id=chat_id, message_thread_id=message_thread_id):
+                    await self._answer_callback_query(callback_query_id, text='Not allowed in this chat.')
+                else:
+                    state_key = self._state_key(chat_id=chat_id, message_thread_id=message_thread_id)
+                    if data.startswith(_CALLBACK_CONFIG_PREFIX):
+                        await self._handle_config_callback(
+                            chat_id=chat_id,
+                            message_thread_id=message_thread_id,
+                            callback_query_id=callback_query_id,
+                            data=data,
+                        )
+                    elif data.startswith(_CALLBACK_TRIGGER_PREFIX):
+                        await self._handle_trigger_callback(
+                            chat_id=chat_id,
+                            message_thread_id=message_thread_id,
+                            callback_query_id=callback_query_id,
+                            data=data,
+                        )
+                    elif data in {_CALLBACK_ADD, _CALLBACK_DELETE}:
+                        await self._handle_hanime1_callback(
+                            state_key=state_key,
+                            chat_id=chat_id,
+                            message_thread_id=message_thread_id,
+                            callback_query_id=callback_query_id,
+                            data=data,
+                        )
+                    else:
+                        await self._answer_callback_query(callback_query_id)
 
     async def _handle_update(self, update: dict[str, Any]) -> None:
         message = update.get('message')

@@ -54,7 +54,16 @@ def test_hanime1_add_keyword_flow(tmp_path) -> None:
     bot._answer_callback_query = _fake_answer_callback_query
 
     async def _run() -> None:
-        await bot._handle_message({'text': '/hanime1', 'chat': {'id': '123'}})
+        await bot._handle_message({'text': '/config', 'chat': {'id': '123'}})
+        await bot._handle_callback_query(
+            {
+                'id': 'cb0',
+                'data': 'config:hanime1',
+                'message': {
+                    'chat': {'id': '123'},
+                },
+            },
+        )
         await bot._handle_callback_query(
             {
                 'id': 'cb1',
@@ -135,9 +144,43 @@ def test_set_my_commands_registers_default_and_chat_scope(tmp_path) -> None:
     expected_calls = 2
     assert len(dummy_client.posts) == expected_calls
     assert dummy_client.posts[0][0] == bot._set_my_commands_url
-    assert dummy_client.posts[0][1]['commands'][0]['command'] == 'hanime1'
+    assert dummy_client.posts[0][1]['commands'][0]['command'] == 'config'
     assert dummy_client.posts[0][1]['commands'][1]['command'] == 'trigger'
     assert dummy_client.posts[1][1]['scope'] == {'type': 'chat', 'chat_id': '123'}
+
+
+def test_config_command_sends_config_panel(tmp_path) -> None:
+    bot = _make_bot(tmp_path)
+    sent_payloads: list[tuple[str, dict[str, object] | None]] = []
+
+    async def _fake_send_message(*, chat_id, text, message_thread_id, reply_markup=None) -> None:  # noqa: ARG001
+        sent_payloads.append((text, reply_markup))
+
+    bot._send_message = _fake_send_message
+
+    asyncio.run(bot._handle_message({'text': '/config', 'chat': {'id': '123'}}))
+
+    assert sent_payloads
+    text, reply_markup = sent_payloads[0]
+    assert text == 'Choose a config option:'
+    assert reply_markup is not None
+    keyboard = reply_markup['inline_keyboard']
+    labels = [btn['text'] for row in keyboard for btn in row]
+    assert 'Hanime1 keywords' in labels
+
+
+def test_unknown_command_is_ignored(tmp_path) -> None:
+    bot = _make_bot(tmp_path)
+    sent_texts: list[str] = []
+
+    async def _fake_send_message(*, chat_id, text, message_thread_id, reply_markup=None) -> None:  # noqa: ARG001
+        sent_texts.append(text)
+
+    bot._send_message = _fake_send_message
+
+    asyncio.run(bot._handle_message({'text': '/unknown-command', 'chat': {'id': '123'}}))
+
+    assert sent_texts == []
 
 
 def test_trigger_command_sends_target_buttons(tmp_path) -> None:
