@@ -7,6 +7,7 @@ from src.core import config, logger
 
 cfg = config.cloudflare
 log = logger.get('cloudflare')
+_DEFAULT_D1_MAX_BIND_PARAMS = 90
 
 
 async_client = httpx.AsyncClient(
@@ -83,15 +84,48 @@ async def query_d1_batch(
     statements: Sequence[tuple[str, tuple[str, ...]]],
     *,
     chunk_size: int = 50,
+    max_bind_params: int = _DEFAULT_D1_MAX_BIND_PARAMS,
 ) -> list[list[dict[str, Any]]]:
     if chunk_size <= 0:
         msg = 'chunk_size must be greater than 0'
         raise ValueError(msg)
+    if max_bind_params <= 0:
+        msg = 'max_bind_params must be greater than 0'
+        raise ValueError(msg)
 
     all_results: list[list[dict[str, Any]]] = []
     normalized_statements = [(sql.strip().rstrip(';'), params) for sql, params in statements if sql.strip()]
-    for index in range(0, len(normalized_statements), chunk_size):
-        chunk = normalized_statements[index : index + chunk_size]
+    chunk: list[tuple[str, tuple[str, ...]]] = []
+    chunk_params_count = 0
+
+    for sql, params in normalized_statements:
+        statement_params_count = len(params)
+        if statement_params_count > max_bind_params:
+            msg = (
+                f'Statement has {statement_params_count} bind params, '
+                f'exceeds max_bind_params={max_bind_params}'
+            )
+            raise ValueError(msg)
+
+        should_flush = chunk and (
+            len(chunk) >= chunk_size
+            or chunk_params_count + statement_params_count > max_bind_params
+        )
+        if should_flush:
+            sql_batch = ';'.join(chunk_sql for chunk_sql, _params in chunk)
+            params_batch = tuple(param for _sql, chunk_params in chunk for param in chunk_params)
+            chunk_results = await query_d1_multi(f'{sql_batch};', params_batch)
+            if len(chunk_results) != len(chunk):
+                msg = f'D1 batch result mismatch: expected {len(chunk)} statements, got {len(chunk_results)}'
+                raise ValueError(msg)
+            all_results.extend(chunk_results)
+            chunk = []
+            chunk_params_count = 0
+
+        chunk.append((sql, params))
+        chunk_params_count += statement_params_count
+
+    if chunk:
         sql_batch = ';'.join(sql for sql, _params in chunk)
         params_batch = tuple(param for _sql, params in chunk for param in params)
         chunk_results = await query_d1_multi(f'{sql_batch};', params_batch)
@@ -118,18 +152,32 @@ async def insert_d1_batch(
     if chunk_size <= 0:
         msg = 'chunk_size must be greater than 0'
         raise ValueError(msg)
+    max_bind_params = _DEFAULT_D1_MAX_BIND_PARAMS
+    if max_bind_params <= 0:
+        msg = 'default max_bind_params must be greater than 0'
+        raise ValueError(msg)
 
     expected_col_count = len(columns)
     if any(len(row) != expected_col_count for row in rows):
         msg = 'all rows must have the same length as columns'
         raise ValueError(msg)
 
+    max_rows_by_bind_params = max_bind_params // expected_col_count
+    if max_rows_by_bind_params <= 0:
+        msg = (
+            f'columns count ({expected_col_count}) exceeds max_bind_params={max_bind_params}; '
+            'cannot build insert statement'
+        )
+        raise ValueError(msg)
+
+    effective_chunk_size = min(chunk_size, max_rows_by_bind_params)
+
     columns_sql = ', '.join(columns)
     row_placeholder = f'({", ".join(["?"] * expected_col_count)})'
     conflict_sql = f' ON CONFLICT {on_conflict}' if on_conflict else ''
 
-    for index in range(0, len(rows), chunk_size):
-        chunk = rows[index : index + chunk_size]
+    for index in range(0, len(rows), effective_chunk_size):
+        chunk = rows[index : index + effective_chunk_size]
         values_sql = ', '.join(row_placeholder for _ in chunk)
         sql = f'INSERT INTO {table} ({columns_sql}) VALUES {values_sql}{conflict_sql};'  # noqa: S608
         params = tuple(param for row in chunk for param in row)
