@@ -47,6 +47,11 @@ _UNAVAILABLE_STATUS_CODES = {404, 410}
 _LARGE_VARIANT_HOST_SUFFIXES = ('sinaimg.cn', 'wangmoyu.com')
 _MW_VARIANT_SEGMENT_RE = re.compile(r'/mw\d+/')
 _FULL_HIT_STOP_PAGES = 2
+_FAV_LIST_KEYS_BY_TYPE: dict[int, tuple[str, ...]] = {
+    1: ('pics',),
+    2: ('girls',),
+    6: ('nzs',),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +217,25 @@ def extract_pic_images(*, fav_type: int, pics: list[dict[str, Any]]) -> list[Jan
                 ),
             )
     return images
+
+
+def extract_fav_items(*, fav_type: int, fav: dict[str, Any]) -> list[dict[str, Any]]:
+    list_keys: list[str] = []
+    for key in _FAV_LIST_KEYS_BY_TYPE.get(fav_type, ()):
+        if key not in list_keys:
+            list_keys.append(key)
+    if 'pics' not in list_keys:
+        list_keys.append('pics')
+
+    for key in list_keys:
+        items = fav.get(key)
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+
+    for items in fav.values():
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+    return []
 
 
 def detect_deleted_placeholder(response: httpx.Response) -> tuple[bool, str | None]:
@@ -557,10 +581,7 @@ class Jandan:
         fav = parsed.get('fav')
         if not isinstance(fav, dict):
             return []
-        pics = fav.get('pics')
-        if not isinstance(pics, list):
-            return []
-        return [pic for pic in pics if isinstance(pic, dict)]
+        return extract_fav_items(fav_type=fav_type, fav=fav)
 
     async def _download_image(self, image: JandanImage) -> Path:
         dst_path = self._build_output_path(image)

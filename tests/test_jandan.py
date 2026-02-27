@@ -10,6 +10,7 @@ from src.web.jandan import (
     decrypt_data_field,
     detect_deleted_placeholder,
     encrypt_data_field,
+    extract_fav_items,
     extract_last_pic_date,
     extract_pic_images,
     infer_image_extension,
@@ -108,6 +109,27 @@ def test_extract_last_pic_date_returns_last_valid_date() -> None:
     ]
 
     assert extract_last_pic_date(pics) == '2026-02-14T02:06:39.000Z'
+
+
+def test_extract_fav_items_by_fav_type_key() -> None:
+    fav = {
+        'nzs': [{'id': 1}, {'id': 2}],
+    }
+
+    items = extract_fav_items(fav_type=6, fav=fav)
+
+    assert items == [{'id': 1}, {'id': 2}]
+
+
+def test_extract_fav_items_fallbacks_to_any_list() -> None:
+    fav = {
+        'unexpected_key': [{'id': 10}, {'id': 20}],
+        'meta': {'foo': 'bar'},
+    }
+
+    items = extract_fav_items(fav_type=1, fav=fav)
+
+    assert items == [{'id': 10}, {'id': 20}]
 
 
 def test_infer_image_extension_prefers_image_type_then_url_suffix() -> None:
