@@ -135,7 +135,7 @@ def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> 
 
     queries: list[tuple[str, tuple | None]] = []
 
-    async def _fake_query_d1(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
+    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
@@ -145,7 +145,7 @@ def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(b, 'get_favs', _fake_get_favs)
     monkeypatch.setattr(b, 'check_valid', _always_valid)
     monkeypatch.setattr(b, 'download', _fake_download)
-    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module.database, 'query_db', _fake_query_db)
     monkeypatch.setattr(bilibili_module, 'tqdm', _no_tqdm)
 
     asyncio.run(b.update_fav(123, tmp_path / 'fav'))
@@ -209,7 +209,7 @@ def test_update_fav_uses_markdown_without_preview_when_cover_missing(tmp_path, m
     def _fake_download(_url: str, bvid: str, dirpath: Path, *_args, **_kwargs) -> None:  # noqa: ANN001
         (dirpath / f'{bvid}.mp4').write_bytes(b'video')
 
-    async def _fake_query_d1(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:  # noqa: ARG001
+    async def _fake_query_db(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:  # noqa: ARG001
         return []
 
     def _no_tqdm(iterable, **_kwargs):  # noqa: ANN001
@@ -219,7 +219,7 @@ def test_update_fav_uses_markdown_without_preview_when_cover_missing(tmp_path, m
     monkeypatch.setattr(b, 'check_valid', _always_valid)
     monkeypatch.setattr(b, 'get_video_cover_url', _no_cover)
     monkeypatch.setattr(b, 'download', _fake_download)
-    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module.database, 'query_db', _fake_query_db)
     monkeypatch.setattr(bilibili_module, 'tqdm', _no_tqdm)
 
     asyncio.run(b.update_fav(123, tmp_path / 'fav'))
@@ -286,7 +286,7 @@ def test_update_fav_continues_when_notification_fails(tmp_path, monkeypatch) -> 
 
     queries: list[tuple[str, tuple | None]] = []
 
-    async def _fake_query_d1(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
+    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
@@ -296,7 +296,7 @@ def test_update_fav_continues_when_notification_fails(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(b, 'get_favs', _fake_get_favs)
     monkeypatch.setattr(b, 'check_valid', _always_valid)
     monkeypatch.setattr(b, 'download', _fake_download)
-    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module.database, 'query_db', _fake_query_db)
     monkeypatch.setattr(bilibili_module, 'tqdm', _no_tqdm)
 
     asyncio.run(b.update_fav(123, tmp_path / 'fav'))
@@ -304,6 +304,7 @@ def test_update_fav_continues_when_notification_fails(tmp_path, monkeypatch) -> 
     assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 1
     out_files = list((tmp_path / 'fav').glob('*.mp4'))
     assert len(out_files) == 1
+
 
 def test_update_fav_clears_toview_after_download_pass(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     b = _make_bilibili(tmp_path)
@@ -324,7 +325,7 @@ def test_update_fav_clears_toview_after_download_pass(tmp_path, monkeypatch) -> 
 
     queries: list[tuple[str, tuple | None]] = []
 
-    async def _fake_query_d1(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
+    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
@@ -335,7 +336,7 @@ def test_update_fav_clears_toview_after_download_pass(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(b, 'get_toviews', _fake_get_toviews)
     monkeypatch.setattr(b, 'check_valid', _always_valid)
     monkeypatch.setattr(b, 'download', _fake_download)
-    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module.database, 'query_db', _fake_query_db)
     monkeypatch.setattr(bilibili_module, 'tqdm', _no_tqdm)
 
     asyncio.run(b.update_fav(-1, tmp_path / 'toview'))
@@ -361,12 +362,12 @@ def test_update_fav_does_not_clear_toview_when_list_is_empty(tmp_path, monkeypat
     async def _fake_get_toviews() -> tuple[list[_DummyVideo], bool]:
         return ([], False)
 
-    async def _fake_query_d1(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:  # noqa: ARG001
-        raise AssertionError('query_d1 should not be called when there are no downloads')
+    async def _fake_query_db(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:  # noqa: ARG001
+        raise AssertionError('query_db should not be called when there are no downloads')
 
     monkeypatch.setattr(bilibili_module.api.user, 'clear_toview_list', _fake_clear_toview_list)
     monkeypatch.setattr(b, 'get_toviews', _fake_get_toviews)
-    monkeypatch.setattr(bilibili_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(bilibili_module.database, 'query_db', _fake_query_db)
 
     asyncio.run(b.update_fav(-1, tmp_path / 'toview'))
 

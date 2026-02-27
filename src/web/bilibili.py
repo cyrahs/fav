@@ -16,7 +16,7 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import CookieCloudClient, Notifier, cloudflare, ensure_unique_path, format_video_filename
+from src.tool import CookieCloudClient, Notifier, database, ensure_unique_path, format_video_filename
 
 log = logger.get('bilibili')
 cfg = config.web.bilibili
@@ -211,7 +211,9 @@ class Bilibili:
             if callable(send_markdown):
                 await send_markdown(message, disable_web_page_preview=True)
                 return
-            await notifier.send(f'Bilibili ({source})\n{title}\n{upper}\n视频链接({url}) | {resolution_label} | {file_size_label} | {release_date_label}')
+            await notifier.send(
+                f'Bilibili ({source})\n{title}\n{upper}\n视频链接({url}) | {resolution_label} | {file_size_label} | {release_date_label}'
+            )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to send bilibili download notification for %s: %s', bvid, exc)
 
@@ -267,7 +269,7 @@ class Bilibili:
         toview = await api.user.get_toview_list(credential=self.credential)
         if not toview['list']:
             return ([], False)
-        exists_ids = await cloudflare.query_d1('SELECT bvid FROM bilibili WHERE fav_id = -1;')
+        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = -1;')
         exists_ids = [i['bvid'] for i in exists_ids]
         result = [api.video.Video(bvid=v['bvid'], credential=self.credential) for v in toview['list']]
         log.info('Find %d toviews in total', len(result))
@@ -279,7 +281,7 @@ class Bilibili:
 
     async def get_favs(self, fav_id: int) -> list[api.video.Video]:
         """Get the videos in the favorite list."""
-        exists_ids = await cloudflare.query_d1('SELECT bvid FROM bilibili WHERE fav_id = ?;', (str(fav_id),))
+        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = ?;', (str(fav_id),))
         exists_ids = [i['bvid'] for i in exists_ids]
         favlist = api.favorite_list.FavoriteList(media_id=fav_id, credential=self.credential)
         page = 1
@@ -414,7 +416,7 @@ class Bilibili:
                     if file_size_bytes is None or size_bytes > file_size_bytes:
                         file_size_bytes = size_bytes
                 release_date = self._extract_release_date(detail)
-                await cloudflare.query_d1(
+                await database.query_db(
                     'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
                     (bvid, str(fav_id), title, upper),
                 )
@@ -439,7 +441,7 @@ class Bilibili:
     async def update(self) -> None:
         """Update the favorite list of the main account."""
         # Initialize table
-        await cloudflare.query_d1("""
+        await database.query_db("""
             CREATE TABLE IF NOT EXISTS bilibili (
                 bvid TEXT PRIMARY KEY,
                 fav_id INTEGER NOT NULL,

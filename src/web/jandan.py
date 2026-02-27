@@ -16,7 +16,7 @@ import httpx
 from Crypto.Cipher import AES
 
 from src.core import config, logger
-from src.tool import Notifier, cloudflare, format_video_filename
+from src.tool import Notifier, database, format_video_filename
 
 log = logger.get('jandan')
 cfg = config.web.jandan
@@ -295,7 +295,7 @@ class Jandan:
             log.warning('Failed to send jandan summary notification: %s', exc)
 
     async def _ensure_table(self) -> None:
-        await cloudflare.query_d1("""
+        await database.query_db("""
             CREATE TABLE IF NOT EXISTS jandan (
                 fav_type INTEGER NOT NULL,
                 pic_id INTEGER NOT NULL,
@@ -313,7 +313,7 @@ class Jandan:
                 PRIMARY KEY (fav_type, pic_id, content_index)
             );
         """)
-        columns = await cloudflare.query_d1('PRAGMA table_info(jandan);')
+        columns = await database.query_db('PRAGMA table_info(jandan);')
         column_names = {str(col.get('name') or '') for col in columns}
         alter_statements: list[tuple[str, tuple[str, ...]]] = []
         if 'unavailable' not in column_names:
@@ -323,7 +323,7 @@ class Jandan:
         if 'last_error' not in column_names:
             alter_statements.append(("ALTER TABLE jandan ADD COLUMN last_error TEXT NOT NULL DEFAULT '';", ()))
         if alter_statements:
-            await cloudflare.query_d1_batch(alter_statements)
+            await database.query_db_batch(alter_statements)
 
     @staticmethod
     def _build_output_path(image: JandanImage) -> Path:
@@ -341,7 +341,7 @@ class Jandan:
         return cfg.path / folder / filename
 
     async def _state_for_image(self, image: JandanImage) -> tuple[bool, bool]:
-        rows = await cloudflare.query_d1(
+        rows = await database.query_db(
             """
             SELECT downloaded, unavailable
             FROM jandan
@@ -371,7 +371,7 @@ class Jandan:
         return False
 
     async def _mark_downloaded(self, image: JandanImage, dst_path: Path) -> None:
-        await cloudflare.query_d1(
+        await database.query_db(
             """
             UPDATE jandan
             SET downloaded = 1, local_path = ?, unavailable = 0, failed_count = 0, last_error = ''
@@ -386,7 +386,7 @@ class Jandan:
         )
 
     async def _mark_unavailable(self, image: JandanImage, reason: str) -> None:
-        await cloudflare.query_d1(
+        await database.query_db(
             """
             UPDATE jandan
             SET unavailable = 1, failed_count = failed_count + 1, last_error = ?
@@ -401,7 +401,7 @@ class Jandan:
         )
 
     async def _mark_failed(self, image: JandanImage, reason: str) -> None:
-        await cloudflare.query_d1(
+        await database.query_db(
             """
             UPDATE jandan
             SET failed_count = failed_count + 1, last_error = ?
@@ -428,7 +428,7 @@ class Jandan:
             )
             for image in images
         ]
-        await cloudflare.insert_d1_batch(
+        await database.insert_db_batch(
             table='jandan',
             columns=(
                 'fav_type',
@@ -449,8 +449,8 @@ class Jandan:
             ),
         )
 
-    async def _recent_processed_keys_from_d1(self, *, fav_type: int) -> set[tuple[int, int, int]]:
-        rows = await cloudflare.query_d1(
+    async def _recent_processed_keys_from_db(self, *, fav_type: int) -> set[tuple[int, int, int]]:
+        rows = await database.query_db(
             """
             SELECT fav_type, pic_id, content_index
             FROM jandan
@@ -470,8 +470,8 @@ class Jandan:
             keys.add((row_fav_type, pic_id, content_index))
         return keys
 
-    async def _pending_images_from_d1(self, *, fav_type: int) -> list[JandanImage]:
-        rows = await cloudflare.query_d1(
+    async def _pending_images_from_db(self, *, fav_type: int) -> list[JandanImage]:
+        rows = await database.query_db(
             """
             SELECT fav_type, pic_id, content_index, content_url, content_md5, author, post_date
             FROM jandan
@@ -689,7 +689,7 @@ class Jandan:
         seen_cursors: set[str] = set()
         page_index = 0
         api_total_images = 0
-        processed_keys = await self._recent_processed_keys_from_d1(fav_type=fav_type)
+        processed_keys = await self._recent_processed_keys_from_db(fav_type=fav_type)
         full_hit_pages = 0
         collected_images: list[JandanImage] = []
         collected_keys: set[tuple[int, int, int]] = set()
@@ -752,7 +752,7 @@ class Jandan:
         if collected_images:
             await self._upsert_images(collected_images)
 
-        pending_images = await self._pending_images_from_d1(fav_type=fav_type)
+        pending_images = await self._pending_images_from_db(fav_type=fav_type)
         downloaded_count = await self._download_pending_images(pending_images)
         return downloaded_count, page_count, api_total_images, len(collected_images), len(pending_images)
 

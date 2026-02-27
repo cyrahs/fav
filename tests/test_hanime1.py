@@ -333,14 +333,14 @@ def test_update_inserts_item_after_download(monkeypatch, tmp_path) -> None:
 
     queries: list[tuple[str, tuple[str, ...]]] = []
 
-    async def _fake_query_d1(sql: str, params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+    async def _fake_query_db(sql: str, params: tuple[str, ...] = ()) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
     monkeypatch.setattr(h, 'get_items', _fake_get_items)
     monkeypatch.setattr(h, 'download_item', _fake_download_item)
     monkeypatch.setattr(h, '_notify_download', _fake_notify_download)
-    monkeypatch.setattr(hanime1_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
 
     asyncio.run(h.update())
 

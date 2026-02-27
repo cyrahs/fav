@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
@@ -29,19 +29,6 @@ class Bilibili(ScheduleJob):
     fav_id: int
     path: Path
     cron: str = '*/30 * * * *'
-
-
-class Tangxin(ScheduleJob):
-    path: Path
-    host: str
-    cron: str = '*/30 * * * *'
-
-
-class Cloudflare(BaseModel):
-    account_id: str
-    api_key: str
-    d1_id: str
-    kv_id: dict[str, str]
 
 
 class CookieCloud(BaseModel):
@@ -127,32 +114,57 @@ class Kemono(BaseModel):
 
 class Web(BaseModel):
     bilibili: Bilibili
-    tangxin: Tangxin = Field(validation_alias=AliasChoices('tangxin', 'tx'))
     telegram: Telegram
     stellasora: Stellasora = Field(default_factory=Stellasora)
     hanime1: Hanime1 = Field(default_factory=Hanime1)
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono
 
-    @property
-    def tx(self) -> Tangxin:
-        # Backward-compatible alias for older call sites.
-        return self.tangxin
+
+class Database(BaseModel):
+    postgres_dsn: str = Field(validation_alias=AliasChoices('postgres_dsn', 'dsn', 'url'))
+
+    @field_validator('postgres_dsn')
+    @classmethod
+    def normalize_postgres_dsn(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'database.postgres_dsn cannot be empty'
+            raise ValueError(msg)
+        return normalized
 
 
 class Config(BaseSettings):
     proxy: str
     run_config: Path = Path('./data/config.json')
     web: Web
-    cloudflare: Cloudflare
+    database: Database
     cookiecloud: CookieCloud
     telegram_bot: TelegramBot
 
-    model_config = SettingsConfigDict(toml_file='./config.toml', extra='ignore')
+    model_config = SettingsConfigDict(
+        toml_file='./config.toml',
+        env_file='.env',
+        env_nested_delimiter='__',
+        extra='ignore',
+    )
 
     @classmethod
-    def settings_customise_sources(cls, settings_cls: type[BaseSettings], *_: Any, **__: Any) -> tuple[PydanticBaseSettingsSource, ...]:
-        return (TomlConfigSettingsSource(settings_cls),)
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            TomlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
 
 log = logger.get('config')

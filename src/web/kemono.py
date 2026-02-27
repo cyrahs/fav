@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from src.core import config, logger
 from src.core.config import KemonoCreator
-from src.tool import cloudflare, sanitize
+from src.tool import database, sanitize
 
 log = logger.get('kemono')
 cfg = config.web.kemono
@@ -51,7 +51,7 @@ class Kemono:
         )
 
     async def _ensure_table(self) -> None:
-        await cloudflare.query_d1("""
+        await database.query_db("""
             CREATE TABLE IF NOT EXISTS kemono (
                 id TEXT NOT NULL,
                 service TEXT NOT NULL,
@@ -65,7 +65,7 @@ class Kemono:
         """)
 
     async def _get_downloaded_ids(self, service: str, user_id: str) -> set[str]:
-        rows = await cloudflare.query_d1(
+        rows = await database.query_db(
             'SELECT id FROM kemono WHERE service = ? AND user_id = ?;',
             (service, user_id),
         )
@@ -158,7 +158,7 @@ class Kemono:
         for idx, post in enumerate(reversed(new_posts), start=1):
             log.info('Downloading post %s (%d/%d)', post.id, idx, len(new_posts))
             await self._download_post(post, creator_dir)
-            await cloudflare.query_d1(
+            await database.query_db(
                 'INSERT INTO kemono (id, service, user_id, title, creator, published_at) VALUES (?, ?, ?, ?, ?, ?);',
                 (post.id, post.service, post.user, post.title, creator_name, post.published or ''),
             )

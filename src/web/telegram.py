@@ -9,7 +9,7 @@ from telethon.tl.types import Channel, DocumentAttributeVideo, Message, PeerChan
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import Notifier, cloudflare, format_video_filename, sanitize
+from src.tool import Notifier, database, format_video_filename, sanitize
 
 log = logger.get('telegram')
 cfg = config.web.telegram
@@ -44,7 +44,7 @@ class Telegram:
 
     @staticmethod
     async def get_downloaded_ids(channel_id: int) -> list[int]:
-        exists_ids = await cloudflare.query_d1('SELECT message_id FROM telegram WHERE channel_id = ?;', (str(channel_id),))
+        exists_ids = await database.query_db('SELECT message_id FROM telegram WHERE channel_id = ?;', (str(channel_id),))
         return [int(i['message_id']) for i in exists_ids]
 
     @staticmethod
@@ -176,7 +176,7 @@ class Telegram:
             result = await self.download(msg, dst, filename)
             if result:
                 log.notice('Saved %s', result.name)
-                await cloudflare.query_d1(
+                await database.query_db(
                     'INSERT INTO telegram (message_id, channel_id, title, channel_name) VALUES (?, ?, ?, ?);',
                     (str(msg.id), str(channel_id), filename, ch_name),
                 )
@@ -191,7 +191,7 @@ class Telegram:
 
     async def update(self) -> None:
         # Initialize table
-        await cloudflare.query_d1("""
+        await database.query_db("""
             CREATE TABLE IF NOT EXISTS telegram (
                 message_id INTEGER PRIMARY KEY,
                 channel_id INTEGER NOT NULL,

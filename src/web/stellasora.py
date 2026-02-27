@@ -5,7 +5,7 @@ This module is intentionally interface-first:
 - Provide helpers to extract character artwork and gallery assets (CGs, Memory Snapshot, Awakened sprites).
 - Provide a MediaWiki API helper to resolve file titles to direct image URLs.
 
-Download and dedupe (D1) can be built on top of these interfaces.
+Download and dedupe can be built on top of these interfaces.
 """
 
 from __future__ import annotations

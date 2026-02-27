@@ -1,4 +1,4 @@
-from . import cloudflare
+from . import database
 from .cookiecloud import CookieCloudClient
 from .filename import ensure_unique_path, format_video_filename, sanitize
 from .notifier import Notifier, build_notifier
@@ -9,7 +9,7 @@ __all__ = [
     'Notifier',
     'TelegramRuntimeConfigBot',
     'build_notifier',
-    'cloudflare',
+    'database',
     'ensure_unique_path',
     'format_video_filename',
     'sanitize',

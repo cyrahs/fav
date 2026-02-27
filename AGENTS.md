@@ -1,6 +1,6 @@
 # Agent Guide (fav)
 
-This repository is a small Python 3.12+ automation tool that downloads and archives content from several sources (Bilibili favorites + "watch later", a "Tangxin" site using m3u8 parts, Telegram channels, and Kemono). It tracks what has been downloaded using Cloudflare D1 (SQLite) and stores some raw artifacts (for Tangxin) in Cloudflare KV.
+This repository is a small Python 3.12+ automation tool that downloads and archives content from several sources (Bilibili favorites + "watch later", Telegram channels, and Kemono). It tracks what has been downloaded using self-hosted PostgreSQL.
 
 The main entrypoint is `run.py`.
 
@@ -16,7 +16,6 @@ The main entrypoint is `run.py`.
 
 - Python `>=3.12` (see `pyproject.toml`)
 - `uv` (required; repo contains `uv.lock`)
-- `ffmpeg` on `PATH` (required for Tangxin merge)
 - `yt-dlp` on `PATH` (required for Bilibili downloads)
 
 ### Install deps
@@ -49,21 +48,8 @@ path = "./collection/bilibili"
 enabled = true
 cron = "*/30 * * * *"
 
-[web.tangxin]
-host = "https://example.txh*.com"
-path = "./collection/tangxin"
-enabled = true
-cron = "*/30 * * * *"
-
-[cloudflare]
-api_key = "..."
-account_id = "..."
-d1_id = "..."
-
-# Namespaces used by the code
-[cloudflare.kv_id]
-tangxin = "..."
-cookie = "..."
+[database]
+postgres_dsn = "postgresql://user:password@127.0.0.1:5432/fav"
 
 [web.telegram]
 channels = [1234567890]
@@ -92,8 +78,7 @@ name = "..."
 
 Notes:
 - Config is loaded in `src/core/config.py` via `pydantic-settings` from `./config.toml` only.
-- Cloudflare D1 is used to dedupe downloads and store metadata.
-- Tangxin expects the m3u8 text to be stored in Cloudflare KV under the configured namespace.
+- PostgreSQL is used to dedupe downloads and store metadata.
 
 ### Run
 
@@ -103,7 +88,6 @@ uv run python run.py
 
 `run.py` is a long-running scheduler process intended for Deployment.
 It schedules jobs using cron expressions from `config.toml`:
-- `web.tangxin.cron` -> `src/web/tangxin.py` (`Tangxin().update()`)
 - `web.bilibili.cron` -> `src/web/bilibili.py` (`Bilibili().update()`)
 - `web.telegram.cron` -> `src/web/telegram.py` (`Telegram().update()`)
 - `web.stellasora.cron` -> `src/web/stellasora.py` (`StellaSora().update()`)
@@ -116,11 +100,10 @@ Kemono is implemented in `src/web/kemono.py` but is not called from `run.py` in 
 - `src/core/config.py`: typed config models; loads `config.toml` at import time
 - `src/core/logger.py`: tqdm-friendly logging (avoid `print()`)
 - `src/tool/cookiecloud.py`: fetch + decrypt CookieCloud cookies (used for Bilibili)
-- `src/tool/cloudflare.py`: Cloudflare D1/KV client helpers
+- `src/tool/database.py`: PostgreSQL database helpers
 - `src/tool/filename.py`: filename sanitization and `[uploader]title [id].ext` formatting helpers
 - `src/web/*.py`: per-source downloaders; each exposes an `update()` coroutine
 - `script/bilibili.py`: manual CLI to download a single BV with `yt-dlp` using CookieCloud cookies
-- `script/tx.js`: Tampermonkey userscript to help export Tangxin favorites and capture/store m3u8 data in Cloudflare
 - `tests/`: CookieCloud decryption/formatting, Bilibili update behavior, and StellaSora parsing/download helpers
 
 ## Conventions (Important for Agents)
@@ -165,7 +148,7 @@ Use `from src.core import logger` and `logger.get('name')`. The logging handler 
 ### Network + external services
 
 Most modules talk to real external services:
-- Cloudflare API (D1 + KV)
+- PostgreSQL database
 - CookieCloud server
 - Bilibili API
 - Telegram API (Telethon)
@@ -175,7 +158,7 @@ When adding tests, prefer dependency injection / fakes to avoid live calls. If y
 
 ## Docker
 
-`Dockerfile` builds a runtime image that includes `ffmpeg` and downloads a `yt-dlp` binary at build time. It does **not** bake in `config.toml`; you should mount it.
+`Dockerfile` builds a runtime image and downloads a `yt-dlp` binary at build time. It does **not** bake in `config.toml`; you should mount it.
 
 Example:
 
@@ -190,11 +173,11 @@ docker run --rm \
 
 ## Making Changes Safely
 
-- Avoid logging secrets (CookieCloud password, Cloudflare API tokens, Telegram API hash).
+- Avoid logging secrets (CookieCloud password, PostgreSQL credentials, Telegram API hash).
 - Keep `config.toml` out of git history (it is gitignored; do not override that).
-- If you change database schemas (D1 `CREATE TABLE ...` blocks), preserve backward compatibility or provide a migration strategy.
+- If you change database schemas (`CREATE TABLE ...` blocks), preserve backward compatibility or provide a migration strategy.
 
 Any new source should:
 - Have a dedicated `src/web/<source>.py` with an `update()` coroutine.
-- Store dedupe state in D1 (like existing sources do).
+- Store dedupe state in PostgreSQL (like existing sources do).
 - Write files using the filename utilities and config-defined paths.

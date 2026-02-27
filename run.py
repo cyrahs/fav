@@ -17,7 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 from src.core import logger
 from src.core.config import config
 from src.tool import Notifier, TelegramRuntimeConfigBot, build_notifier
-from src.web import Bilibili, Hanime1, Jandan, StellaSora, Tangxin, Telegram
+from src.web import Bilibili, Hanime1, Jandan, StellaSora, Telegram
 
 log = logger.get('main')
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
@@ -48,22 +48,12 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _build_jobs() -> list[ScheduledJob]:
-    tangxin_cfg = config.web.tangxin
     bilibili_cfg = config.web.bilibili
     jandan_cfg = config.web.jandan
     telegram_cfg = config.web.telegram
     stellasora_cfg = config.web.stellasora
     hanime1_cfg = config.web.hanime1
     return [
-        ScheduledJob(
-            key='tangxin',
-            name='Tangxin',
-            cron=tangxin_cfg.cron,
-            enabled=tangxin_cfg.enabled,
-            run_on_start=tangxin_cfg.run_on_start,
-            required_commands=('ffmpeg',),
-            factory=lambda notifier: Tangxin(notifier=notifier),
-        ),
         ScheduledJob(
             key='bilibili',
             name='Bilibili',

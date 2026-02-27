@@ -58,14 +58,14 @@ def test_update_channel_sends_notification(tmp_path, monkeypatch) -> None:
     async def _fake_download(_msg: object, _dst: Path, _title: str) -> Path:
         return tmp_path / 'demo_channel' / 'My Video [456].mp4'
 
-    async def _fake_query_d1(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
+    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
     monkeypatch.setattr(tg, 'get_videos', _fake_get_videos)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
     monkeypatch.setattr(tg, 'download', _fake_download)
-    monkeypatch.setattr(telegram_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
 
     asyncio.run(tg.update_channel(123))
 
@@ -92,14 +92,14 @@ def test_update_channel_continues_when_notification_fails(tmp_path, monkeypatch)
     async def _fake_download(_msg: object, _dst: Path, _title: str) -> Path:
         return tmp_path / 'demo_channel' / 'My Video [456].mp4'
 
-    async def _fake_query_d1(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
+    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
     monkeypatch.setattr(tg, 'get_videos', _fake_get_videos)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
     monkeypatch.setattr(tg, 'download', _fake_download)
-    monkeypatch.setattr(telegram_module.cloudflare, 'query_d1', _fake_query_d1)
+    monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
 
     asyncio.run(tg.update_channel(123))
 

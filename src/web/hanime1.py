@@ -25,7 +25,7 @@ from opencc import OpenCC
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.core import config, logger
-from src.tool import Notifier, cloudflare, ensure_unique_path, format_video_filename, sanitize
+from src.tool import Notifier, database, ensure_unique_path, format_video_filename, sanitize
 
 log = logger.get('hanime1')
 cfg = config.web.hanime1
@@ -748,7 +748,7 @@ class Hanime1:
         return self._parse_runtime_keywords(payload)
 
     async def _get_downloaded_ids(self) -> set[str]:
-        rows = await cloudflare.query_d1('SELECT id FROM hanime1;')
+        rows = await database.query_db('SELECT id FROM hanime1;')
         downloaded_ids: set[str] = set()
         for row in rows:
             item_id = str(row.get('id') or '').strip()
@@ -859,7 +859,7 @@ class Hanime1:
         )
 
     async def _ensure_table(self) -> None:
-        await cloudflare.query_d1("""
+        await database.query_db("""
             CREATE TABLE IF NOT EXISTS hanime1 (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL DEFAULT '',
@@ -869,16 +869,16 @@ class Hanime1:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        columns = await cloudflare.query_d1('PRAGMA table_info(hanime1);')
+        columns = await database.query_db('PRAGMA table_info(hanime1);')
         column_names = {str(col.get('name') or '') for col in columns}
         if 'release_date' not in column_names:
-            await cloudflare.query_d1('ALTER TABLE hanime1 ADD COLUMN release_date TEXT;')
+            await database.query_db('ALTER TABLE hanime1 ADD COLUMN release_date TEXT;')
         if 'plot' not in column_names:
-            await cloudflare.query_d1('ALTER TABLE hanime1 ADD COLUMN plot TEXT;')
+            await database.query_db('ALTER TABLE hanime1 ADD COLUMN plot TEXT;')
         if 'title' not in column_names:
-            await cloudflare.query_d1("ALTER TABLE hanime1 ADD COLUMN title TEXT NOT NULL DEFAULT '';")
+            await database.query_db("ALTER TABLE hanime1 ADD COLUMN title TEXT NOT NULL DEFAULT '';")
         if 'uploader' not in column_names:
-            await cloudflare.query_d1('ALTER TABLE hanime1 ADD COLUMN uploader TEXT;')
+            await database.query_db('ALTER TABLE hanime1 ADD COLUMN uploader TEXT;')
 
     async def update(self) -> None:
         await self._ensure_table()
@@ -903,7 +903,7 @@ class Hanime1:
                 log.exception('Failed to download Hanime1 item %s', item.id)
                 continue
 
-            await cloudflare.query_d1(
+            await database.query_db(
                 'INSERT OR IGNORE INTO hanime1 (id, title, uploader, release_date, plot) VALUES (?, ?, ?, ?, ?);',
                 (
                     result.item_id,
