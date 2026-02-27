@@ -607,23 +607,33 @@ class Jandan:
         msg = f'Failed to download image from all candidates: {image.content_url}'
         raise RuntimeError(msg)
 
-    async def _process_image(self, image: JandanImage) -> bool:
+    async def _process_image(self, image: JandanImage) -> Path:
         dst_path = await self._download_image(image)
         await self._mark_downloaded(image, dst_path)
-        log.notice('Saved %s', dst_path.name)
-        return True
+        return dst_path
 
     async def _download_pending_images(self, images: list[JandanImage]) -> int:
         downloaded_count = 0
-        for image in images:
+        total_count = len(images)
+        for current_index, image in enumerate(images, start=1):
+            log.info(
+                'Jandan downloading favType=%s progress=%s/%s pic=%s index=%s',
+                image.fav_type,
+                current_index,
+                total_count,
+                image.pic_id,
+                image.content_index,
+            )
             try:
-                downloaded = await self._process_image(image)
+                dst_path = await self._process_image(image)
             except UnavailableImageError as exc:
                 reason = str(exc).strip() or 'confirmed unavailable'
                 await self._mark_unavailable(image, reason)
                 log.info(
-                    'Marked unavailable Jandan item favType=%s pic=%s index=%s: %s',
+                    'Marked unavailable Jandan item favType=%s progress=%s/%s pic=%s index=%s: %s',
                     image.fav_type,
+                    current_index,
+                    total_count,
                     image.pic_id,
                     image.content_index,
                     reason,
@@ -635,8 +645,10 @@ class Jandan:
                     reason = f'http {status_code}'
                     await self._mark_unavailable(image, reason)
                     log.info(
-                        'Marked unavailable Jandan item favType=%s pic=%s index=%s: %s',
+                        'Marked unavailable Jandan item favType=%s progress=%s/%s pic=%s index=%s: %s',
                         image.fav_type,
+                        current_index,
+                        total_count,
                         image.pic_id,
                         image.content_index,
                         reason,
@@ -644,8 +656,10 @@ class Jandan:
                     continue
                 await self._mark_failed(image, f'http {status_code}')
                 log.warning(
-                    'Failed to process Jandan item favType=%s pic=%s index=%s: http %s',
+                    'Failed to process Jandan item favType=%s progress=%s/%s pic=%s index=%s: http %s',
                     image.fav_type,
+                    current_index,
+                    total_count,
                     image.pic_id,
                     image.content_index,
                     status_code,
@@ -654,15 +668,23 @@ class Jandan:
             except Exception as exc:  # noqa: BLE001
                 await self._mark_failed(image, f'{exc.__class__.__name__}: {exc}')
                 log.warning(
-                    'Failed to process Jandan item favType=%s pic=%s index=%s: %s',
+                    'Failed to process Jandan item favType=%s progress=%s/%s pic=%s index=%s: %s',
                     image.fav_type,
+                    current_index,
+                    total_count,
                     image.pic_id,
                     image.content_index,
                     exc,
                 )
                 continue
-            if downloaded:
-                downloaded_count += 1
+            downloaded_count += 1
+            log.notice(
+                'Jandan downloaded favType=%s progress=%s/%s file=%s',
+                image.fav_type,
+                current_index,
+                total_count,
+                dst_path.name,
+            )
         return downloaded_count
 
     @staticmethod
