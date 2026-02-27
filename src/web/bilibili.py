@@ -451,19 +451,6 @@ class Bilibili:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        type_rows = await database.query_db("""
-            SELECT data_type
-            FROM information_schema.columns
-            WHERE table_schema = ANY(current_schemas(false))
-                AND table_name = 'bilibili'
-                AND column_name = 'fav_id'
-            LIMIT 1;
-        """)
-        if type_rows:
-            data_type = type_rows[0]['data_type']
-            if data_type != 'bigint':
-                log.warning('Migrating bilibili.fav_id from %s to bigint', data_type)
-                await database.query_db('ALTER TABLE bilibili ALTER COLUMN fav_id TYPE BIGINT USING fav_id::BIGINT;')
         log.debug('bilibili table initialized')
 
         await self.update_fav(cfg.fav_id, cfg.path / 'fav')

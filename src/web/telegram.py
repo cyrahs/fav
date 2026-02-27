@@ -44,7 +44,7 @@ class Telegram:
 
     @staticmethod
     async def get_downloaded_ids(channel_id: int) -> list[int]:
-        exists_ids = await database.query_db('SELECT message_id FROM telegram WHERE channel_id = ?;', (str(channel_id),))
+        exists_ids = await database.query_db('SELECT message_id FROM telegram WHERE channel_id = ?;', (channel_id,))
         return [int(i['message_id']) for i in exists_ids]
 
     @staticmethod
@@ -178,7 +178,7 @@ class Telegram:
                 log.notice('Saved %s', result.name)
                 await database.query_db(
                     'INSERT INTO telegram (message_id, channel_id, title, channel_name) VALUES (?, ?, ?, ?);',
-                    (str(msg.id), str(channel_id), filename, ch_name),
+                    (msg.id, channel_id, filename, ch_name),
                 )
                 await self._notify_download(
                     channel_name=ch_name,
@@ -193,8 +193,8 @@ class Telegram:
         # Initialize table
         await database.query_db("""
             CREATE TABLE IF NOT EXISTS telegram (
-                message_id INTEGER PRIMARY KEY,
-                channel_id INTEGER NOT NULL,
+                message_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
                 title TEXT NOT NULL,
                 channel_name TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
