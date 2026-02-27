@@ -14,6 +14,7 @@ from src.web.jandan import (
     extract_last_pic_date,
     extract_pic_images,
     infer_image_extension,
+    should_mark_unavailable_http,
     zulu_to_offset,
 )
 
@@ -175,6 +176,14 @@ def test_detect_deleted_placeholder_returns_false_for_normal_image() -> None:
 
     assert is_deleted is False
     assert reason is None
+
+
+def test_should_mark_unavailable_http_supports_sinaimg_403() -> None:
+    assert should_mark_unavailable_http(status_code=404, url_host='example.com') is True
+    assert should_mark_unavailable_http(status_code=410, url_host='example.com') is True
+    assert should_mark_unavailable_http(status_code=403, url_host='tva4.sinaimg.cn') is True
+    assert should_mark_unavailable_http(status_code=403, url_host='img.wangmoyu.com') is False
+    assert should_mark_unavailable_http(status_code=429, url_host='tva4.sinaimg.cn') is False
 
 
 def test_build_image_download_candidates_prefers_large_for_sinaimg_mw600() -> None:

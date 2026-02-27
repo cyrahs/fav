@@ -44,6 +44,7 @@ _EXT_ALIASES = {
 }
 _PLACEHOLDER_IMAGE_PATH_MARKER = '/images/default_'
 _UNAVAILABLE_STATUS_CODES = {404, 410}
+_SINAIMG_FORBIDDEN_STATUS = 403
 _LARGE_VARIANT_HOST_SUFFIXES = ('sinaimg.cn', 'wangmoyu.com')
 _MW_VARIANT_SEGMENT_RE = re.compile(r'/mw\d+/')
 _FULL_HIT_STOP_PAGES = 2
@@ -254,6 +255,14 @@ def detect_deleted_placeholder(response: httpx.Response) -> tuple[bool, str | No
             return True, reason
 
     return False, None
+
+
+def should_mark_unavailable_http(*, status_code: int, url_host: str | None) -> bool:
+    if status_code in _UNAVAILABLE_STATUS_CODES:
+        return True
+
+    normalized_host = (url_host or '').strip().lower()
+    return status_code == _SINAIMG_FORBIDDEN_STATUS and normalized_host.endswith('sinaimg.cn')
 
 
 def build_image_download_candidates(content_url: str) -> list[str]:
@@ -662,8 +671,11 @@ class Jandan:
                 continue
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code
-                if status_code in _UNAVAILABLE_STATUS_CODES:
+                request_host = exc.request.url.host if exc.request and exc.request.url else None
+                if should_mark_unavailable_http(status_code=status_code, url_host=request_host):
                     reason = f'http {status_code}'
+                    if status_code == _SINAIMG_FORBIDDEN_STATUS and request_host:
+                        reason = f'{reason} on {request_host}'
                     await self._mark_unavailable(image, reason)
                     log.info(
                         'Marked unavailable Jandan item favType=%s progress=%s/%s pic=%s index=%s: %s',
