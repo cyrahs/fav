@@ -46,7 +46,6 @@ _PLACEHOLDER_IMAGE_PATH_MARKER = '/images/default_'
 _UNAVAILABLE_STATUS_CODES = {404, 410}
 _LARGE_VARIANT_HOST_SUFFIXES = ('sinaimg.cn', 'wangmoyu.com')
 _MW_VARIANT_SEGMENT_RE = re.compile(r'/mw\d+/')
-_PROCESSED_KEY_WINDOW_SIZE = 500
 _FULL_HIT_STOP_PAGES = 2
 
 
@@ -449,26 +448,40 @@ class Jandan:
             ),
         )
 
-    async def _recent_processed_keys_from_db(self, *, fav_type: int) -> set[tuple[int, int, int]]:
-        rows = await database.query_db(
-            """
-            SELECT fav_type, pic_id, content_index
-            FROM jandan
-            WHERE fav_type = ? AND (downloaded = 1 OR unavailable = 1)
-            ORDER BY created_at DESC
-            LIMIT ?;
-            """,
-            (str(fav_type), str(_PROCESSED_KEY_WINDOW_SIZE)),
-        )
+    async def _processed_keys_for_page(self, *, page_keys: list[tuple[int, int, int]]) -> set[tuple[int, int, int]]:
+        if not page_keys:
+            return set()
+
+        statements = [
+            (
+                """
+                SELECT fav_type, pic_id, content_index
+                FROM jandan
+                WHERE fav_type = ? AND pic_id = ? AND content_index = ?
+                  AND (downloaded = 1 OR unavailable = 1)
+                LIMIT 1;
+                """,
+                (str(fav_type), str(pic_id), str(content_index)),
+            )
+            for fav_type, pic_id, content_index in page_keys
+        ]
+        statement_results = await database.query_db_batch(statements)
         keys: set[tuple[int, int, int]] = set()
-        for row in rows:
-            row_fav_type = _to_int(row.get('fav_type'))
-            pic_id = _to_int(row.get('pic_id'))
-            content_index = _to_int(row.get('content_index'))
-            if row_fav_type is None or pic_id is None or content_index is None:
+        for key, rows in zip(page_keys, statement_results, strict=True):
+            if not rows:
                 continue
-            keys.add((row_fav_type, pic_id, content_index))
+            keys.add(key)
         return keys
+
+    async def _is_page_fully_processed(self, images: list[JandanImage]) -> tuple[bool, int, int]:
+        page_keys = list({self._image_key(image) for image in images})
+        if not page_keys:
+            return False, 0, 0
+
+        processed_keys = await self._processed_keys_for_page(page_keys=page_keys)
+        processed_count = len(processed_keys.intersection(page_keys))
+        total_count = len(page_keys)
+        return processed_count == total_count, processed_count, total_count
 
     async def _pending_images_from_db(self, *, fav_type: int) -> list[JandanImage]:
         rows = await database.query_db(
@@ -664,11 +677,6 @@ class Jandan:
         seen_cursors.add(next_cursor)
         return next_cursor
 
-    def _is_page_in_processed_window(self, images: list[JandanImage], *, processed_keys: set[tuple[int, int, int]]) -> bool:
-        if not images:
-            return False
-        return all(self._image_key(image) in processed_keys for image in images)
-
     def _append_page_images(
         self,
         images: list[JandanImage],
@@ -689,15 +697,13 @@ class Jandan:
         seen_cursors: set[str] = set()
         page_index = 0
         api_total_images = 0
-        processed_keys = await self._recent_processed_keys_from_db(fav_type=fav_type)
         full_hit_pages = 0
         collected_images: list[JandanImage] = []
         collected_keys: set[tuple[int, int, int]] = set()
 
         log.info(
-            'Jandan processed window favType=%s size=%s stop_after_full_hit_pages=%s',
+            'Jandan stop rule favType=%s stop_after_full_hit_pages=%s',
             fav_type,
-            len(processed_keys),
             _FULL_HIT_STOP_PAGES,
         )
 
@@ -723,13 +729,15 @@ class Jandan:
                 api_total_images,
             )
 
-            page_in_processed_window = self._is_page_in_processed_window(images, processed_keys=processed_keys)
-            if page_in_processed_window:
+            page_fully_processed, processed_count, total_count = await self._is_page_fully_processed(images)
+            if page_fully_processed:
                 full_hit_pages += 1
                 log.info(
-                    'Jandan API full-hit favType=%s page=%s consecutive_full_hits=%s/%s',
+                    'Jandan API full-hit favType=%s page=%s matched=%s/%s consecutive_full_hits=%s/%s',
                     fav_type,
                     page_index,
+                    processed_count,
+                    total_count,
                     full_hit_pages,
                     _FULL_HIT_STOP_PAGES,
                 )
