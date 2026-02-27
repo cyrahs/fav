@@ -78,6 +78,32 @@ class Hanime1(ScheduleJob):
     user_lang: Literal['zhs', 'zht'] = 'zhs'
 
 
+class Jandan(ScheduleJob):
+    path: Path = Path('./collection/jandan')
+    api_url: str = 'https://joiningss.com/jd/api'
+    user_id: int = 0
+    fav_types: list[int] = Field(default_factory=lambda: [1, 2, 6])
+    fav_num_limit: int = 45
+    cron: str = '0 */6 * * *'
+
+    @field_validator('fav_types')
+    @classmethod
+    def validate_fav_types(cls, value: list[int]) -> list[int]:
+        allowed = {1, 2, 6}
+        if not value:
+            msg = 'fav_types cannot be empty'
+            raise ValueError(msg)
+        if any(fav_type not in allowed for fav_type in value):
+            msg = f'fav_types must be in {sorted(allowed)}'
+            raise ValueError(msg)
+        deduped: list[int] = []
+        for fav_type in value:
+            if fav_type in deduped:
+                continue
+            deduped.append(fav_type)
+        return deduped
+
+
 class KemonoCreator(BaseModel):
     service: str
     id: str
@@ -105,6 +131,7 @@ class Web(BaseModel):
     telegram: Telegram
     stellasora: Stellasora = Field(default_factory=Stellasora)
     hanime1: Hanime1 = Field(default_factory=Hanime1)
+    jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono
 
     @property

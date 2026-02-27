@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import contextlib
 import inspect
@@ -16,7 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 from src.core import logger
 from src.core.config import config
 from src.tool import Notifier, TelegramRuntimeConfigBot, build_notifier
-from src.web import Bilibili, Hanime1, StellaSora, Tangxin, Telegram
+from src.web import Bilibili, Hanime1, Jandan, StellaSora, Tangxin, Telegram
 
 log = logger.get('main')
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
@@ -36,9 +37,20 @@ class ScheduledJob:
 type TriggerCallback = Callable[[str], Awaitable[str]]
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='fav scheduler')
+    parser.add_argument(
+        '--trigger',
+        metavar='TARGET',
+        help='Run one job immediately and exit. Use a job key or "all".',
+    )
+    return parser.parse_args()
+
+
 def _build_jobs() -> list[ScheduledJob]:
     tangxin_cfg = config.web.tangxin
     bilibili_cfg = config.web.bilibili
+    jandan_cfg = config.web.jandan
     telegram_cfg = config.web.telegram
     stellasora_cfg = config.web.stellasora
     hanime1_cfg = config.web.hanime1
@@ -71,6 +83,15 @@ def _build_jobs() -> list[ScheduledJob]:
             factory=lambda notifier: Hanime1(notifier=notifier),
         ),
         ScheduledJob(
+            key='jandan',
+            name='Jandan',
+            cron=jandan_cfg.cron,
+            enabled=jandan_cfg.enabled,
+            run_on_start=jandan_cfg.run_on_start,
+            required_commands=(),
+            factory=lambda notifier: Jandan(notifier=notifier),
+        ),
+        ScheduledJob(
             key='telegram',
             name='Telegram',
             cron=telegram_cfg.cron,
@@ -91,10 +112,10 @@ def _build_jobs() -> list[ScheduledJob]:
     ]
 
 
-def _validate_commands(jobs: list[ScheduledJob]) -> None:
+def _validate_commands(jobs: list[ScheduledJob], *, respect_enabled: bool = True) -> None:
     missing: list[tuple[str, str]] = []
     for job in jobs:
-        if not job.enabled:
+        if respect_enabled and not job.enabled:
             continue
         for cmd in job.required_commands:
             if shutil.which(cmd):
@@ -107,6 +128,29 @@ def _validate_commands(jobs: list[ScheduledJob]) -> None:
     for job_name, cmd in missing:
         log.error('%s requires command %r in PATH', job_name, cmd)
     raise SystemExit(1)
+
+
+def _resolve_trigger_jobs(trigger_target: str, all_jobs: list[ScheduledJob]) -> list[ScheduledJob]:
+    normalized = trigger_target.strip().lower()
+    if not normalized:
+        msg = 'Trigger target cannot be empty'
+        raise SystemExit(msg)
+
+    if normalized == 'all':
+        selected_jobs = [job for job in all_jobs if job.enabled]
+        if selected_jobs:
+            return selected_jobs
+        msg = 'No enabled jobs available for --trigger all'
+        raise SystemExit(msg)
+
+    job_by_key = {job.key: job for job in all_jobs}
+    selected_job = job_by_key.get(normalized)
+    if selected_job is not None:
+        return [selected_job]
+
+    valid_targets = ', '.join(['all', *sorted(job_by_key)])
+    msg = f'Unknown --trigger target: {trigger_target!r}. Valid targets: {valid_targets}'
+    raise SystemExit(msg)
 
 
 def _resolve_scheduler_timezone() -> tzinfo:
@@ -288,7 +332,7 @@ async def _run_job(*, job: ScheduledJob, notifier: Notifier) -> None:
         await _safe_close(job.name, worker)
 
 
-async def main() -> None:  # noqa: C901, PLR0912, PLR0915
+async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
     notifier = build_notifier()
     runtime_config_bot: TelegramRuntimeConfigBot | None = None
     runtime_config_task: asyncio.Task[None] | None = None
@@ -302,8 +346,9 @@ async def main() -> None:  # noqa: C901, PLR0912, PLR0915
     jobs = [job for job in all_jobs if job.enabled]
     timezone = _resolve_scheduler_timezone()
     scheduler = AsyncIOScheduler(timezone=timezone)
-    _validate_commands(jobs)
-    log.info('Scheduler timezone: %s', getattr(timezone, 'key', str(timezone)))
+    if trigger_target is None:
+        _validate_commands(jobs)
+        log.info('Scheduler timezone: %s', getattr(timezone, 'key', str(timezone)))
 
     runners: list[tuple[ScheduledJob, Callable[[], object]]] = []
     runner_by_key: dict[str, Callable[[], object]] = {}
@@ -321,6 +366,9 @@ async def main() -> None:  # noqa: C901, PLR0912, PLR0915
 
             runners.append((job, runner))
             runner_by_key[job.key] = runner
+
+            if trigger_target is not None:
+                continue
 
             if not job.enabled:
                 log.info('%s is disabled; skipping schedule and /trigger target', job.name)
@@ -342,6 +390,15 @@ async def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 misfire_grace_time=300,
             )
             log.info('Scheduled %s with cron %r', job.name, job.cron)
+
+        if trigger_target is not None:
+            trigger_jobs = _resolve_trigger_jobs(trigger_target, all_jobs)
+            _validate_commands(trigger_jobs, respect_enabled=False)
+            for job in trigger_jobs:
+                if not job.enabled:
+                    log.warning('%s is disabled in config; running once due to --trigger', job.name)
+                await runner_by_key[job.key]()
+            return
 
         if not jobs:
             log.warning('No jobs enabled. Waiting indefinitely.')
@@ -378,4 +435,5 @@ async def main() -> None:  # noqa: C901, PLR0912, PLR0915
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    args = _parse_args()
+    asyncio.run(main(trigger_target=args.trigger))
