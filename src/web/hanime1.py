@@ -59,6 +59,10 @@ _SEARCH_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
     re.IGNORECASE,
 )
+_SEARCH_ALLOWED_GENRES = (
+    ('裏番', '里番'),
+    ('泡麵番', '泡面番'),
+)
 _K_LABEL_TO_P = {
     2: 1440,
     4: 2160,
@@ -544,7 +548,6 @@ class Hanime1:
         if not query:
             return []
 
-        search_url = f'{cfg.host.rstrip("/")}/search?query={quote_plus(query)}'
         headers = {
             'Referer': cfg.host.rstrip('/') + '/',
             'User-Agent': USER_AGENT,
@@ -555,13 +558,42 @@ class Hanime1:
         if cookie_header:
             headers['Cookie'] = cookie_header
 
-        res = await self.client.get(search_url, headers=headers)
-        res.raise_for_status()
-        page_html = res.text
-        if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
-            msg = f'Blocked by Cloudflare while searching Hanime1 keyword: {query}'
+        collected_ids: list[str] = []
+        seen_ids: set[str] = set()
+        successful_genres = 0
+        failures: list[str] = []
+
+        for genre_value, genre_name in _SEARCH_ALLOWED_GENRES:
+            search_url = f'{cfg.host.rstrip("/")}/search?query={quote_plus(query)}&genre={quote_plus(genre_value)}'
+            try:
+                res = await self.client.get(search_url, headers=headers)
+                res.raise_for_status()
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f'{genre_name}: {exc}')
+                log.warning('Failed to search Hanime1 keyword %r in genre %s: %s', query, genre_name, exc)
+                continue
+
+            page_html = res.text
+            if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
+                failures.append(f'{genre_name}: blocked by Cloudflare')
+                log.warning('Blocked by Cloudflare while searching Hanime1 keyword %r in genre %s', query, genre_name)
+                continue
+
+            successful_genres += 1
+            genre_ids = self.extract_search_video_ids(page_html)
+            log.debug('Keyword %r genre %s matched %d videos', query, genre_name, len(genre_ids))
+            for video_id in genre_ids:
+                key = video_id.casefold()
+                if key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                collected_ids.append(video_id)
+
+        if successful_genres == 0 and failures:
+            msg = f'Failed to search Hanime1 keyword: {query}. Details: {"; ".join(failures)}'
             raise ValueError(msg)
-        return self.extract_search_video_ids(page_html)
+
+        return collected_ids
 
     async def resolve_metadata_from_watch_page(self, item: HanimeRecord) -> WatchMetadata:
         watch_page_url = self._build_watch_page_url(item)

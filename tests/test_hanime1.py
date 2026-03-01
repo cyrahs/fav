@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import src.web.hanime1 as hanime1_module
 from src.web.hanime1 import DownloadResult, Hanime1, HanimeRecord, WatchMetadata
@@ -92,6 +93,68 @@ def test_extract_search_video_ids_dedupes_watch_links() -> None:
     ids = Hanime1.extract_search_video_ids(page_html)
 
     assert ids == ['18580', '20000', '30000']
+
+
+def test_search_video_ids_limits_to_allowed_genres_and_dedupes(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: 'user_lang=zhs')
+
+    class _Response:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def raise_for_status(self) -> None:
+            return None
+
+    calls: list[str] = []
+
+    class _Client:
+        async def get(self, url: str, *, headers: dict[str, str]) -> _Response:
+            calls.append(url)
+            genre = parse_qs(urlsplit(url).query).get('genre', [''])[0]
+            assert headers.get('Cookie') == 'user_lang=zhs'
+            if genre == '裏番':
+                return _Response('<a href="/watch?v=10001">a</a><a href="/watch?v=10002">b</a>')
+            if genre == '泡麵番':
+                return _Response('<a href="/watch?v=10002">dup</a><a href="/watch?v=10003">c</a>')
+            msg = f'unexpected genre: {genre}'
+            raise AssertionError(msg)
+
+    h.client = _Client()
+
+    ids = asyncio.run(h.search_video_ids('催眠性指導'))
+
+    assert ids == ['10001', '10002', '10003']
+    assert len(calls) == 2
+
+
+def test_search_video_ids_returns_partial_results_when_a_genre_fails(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: None)
+
+    class _Response:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _Client:
+        async def get(self, url: str, *, headers: dict[str, str]) -> _Response:
+            genre = parse_qs(urlsplit(url).query).get('genre', [''])[0]
+            if genre == '裏番':
+                return _Response('<a href="/watch?v=20001">a</a>')
+            if genre == '泡麵番':
+                msg = 'network error'
+                raise RuntimeError(msg)
+            msg = f'unexpected genre: {genre}'
+            raise AssertionError(msg)
+
+    h.client = _Client()
+
+    ids = asyncio.run(h.search_video_ids('keyword'))
+
+    assert ids == ['20001']
 
 
 def test_extract_watch_metadata_parses_title_release_date_and_plot() -> None:
