@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hanime1 Downloaded Marker
 // @namespace    fav
-// @version      0.1.0
+// @version      0.1.4
 // @description  Mark downloaded Hanime1 videos with data from a remote API.
 // @match        https://hanime1.me/*
 // @grant        GM_addStyle
@@ -17,7 +17,6 @@
 
   const API_PATH = '/api/v1/hanime1/downloaded-ids';
   const ANCHOR_SELECTOR = 'a[href*="/watch?v="]';
-  const BADGE_TEXT = '已下载';
   const SYNC_INTERVAL_MS = 120_000;
   const OBSERVER_DEBOUNCE_MS = 300;
   const REQUEST_TIMEOUT_MS = 15_000;
@@ -28,8 +27,9 @@
   const KEY_ETAG = 'hanime1_marker_etag';
   const KEY_LAST_SUCCESS_AT = 'hanime1_marker_last_success_at';
 
-  const BADGE_CLASS = 'hanime1-marker-badge';
-  const CARD_CLASS = 'hanime1-marker-card';
+  const TITLE_CLASS = 'hanime1-marker-title-downloaded';
+  const LEGACY_BADGE_CLASS = 'hanime1-marker-badge';
+  const LEGACY_HOST_CLASS = 'hanime1-marker-host';
   const BANNER_ID = 'hanime1-marker-stale-banner';
 
   let downloadedIdSet = new Set(loadCachedIds().map((itemId) => normalizeId(itemId)));
@@ -38,25 +38,11 @@
   let syncInFlight = false;
 
   GM_addStyle(`
-    .${CARD_CLASS} {
-      position: relative !important;
+    .${TITLE_CLASS} {
+      color: #22c55e !important;
     }
-
-    .${BADGE_CLASS} {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      z-index: 1000;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 12px;
-      line-height: 18px;
-      font-weight: 700;
-      color: #fff;
-      background: rgba(18, 184, 134, 0.92);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-      pointer-events: none;
-      user-select: none;
+    .${TITLE_CLASS} * {
+      color: #22c55e !important;
     }
 
     #${BANNER_ID} {
@@ -219,34 +205,26 @@
     });
   }
 
-  function applyDownloadedBadge(anchor) {
-    if (!(anchor instanceof HTMLAnchorElement)) {
-      return;
+  function clearLegacyBadgeMarks(root = document) {
+    const scope = root instanceof Element || root instanceof Document ? root : document;
+    for (const badge of scope.querySelectorAll(`.${LEGACY_BADGE_CLASS}`)) {
+      badge.remove();
     }
-    if (anchor.querySelector(`.${BADGE_CLASS}`)) {
-      return;
+    for (const host of scope.querySelectorAll(`.${LEGACY_HOST_CLASS}`)) {
+      host.classList.remove(LEGACY_HOST_CLASS);
     }
-    anchor.classList.add(CARD_CLASS);
-    const badge = document.createElement('span');
-    badge.className = BADGE_CLASS;
-    badge.textContent = BADGE_TEXT;
-    anchor.appendChild(badge);
   }
 
   function markDownloadedCards(root = document) {
+    clearLegacyBadgeMarks(root);
     const anchors = root.querySelectorAll(ANCHOR_SELECTOR);
     for (const anchor of anchors) {
       if (!(anchor instanceof HTMLAnchorElement)) {
         continue;
       }
-      if (!anchor.querySelector('img')) {
-        continue;
-      }
       const itemId = parseWatchVideoId(anchor.getAttribute('href') || anchor.href);
-      if (!itemId || !downloadedIdSet.has(itemId)) {
-        continue;
-      }
-      applyDownloadedBadge(anchor);
+      const shouldMark = Boolean(itemId && downloadedIdSet.has(itemId));
+      anchor.classList.toggle(TITLE_CLASS, shouldMark);
     }
   }
 
