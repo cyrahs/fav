@@ -167,6 +167,8 @@ def _build_runtime_config_bot(
         trigger_targets=trigger_targets,
         trigger_callback=trigger_callback,
         proxy=config.proxy or None,
+        hanime1_host=config.web.hanime1.host,
+        hanime1_user_lang=config.web.hanime1.user_lang,
     )
 
 

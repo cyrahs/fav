@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import src.web.hanime1 as hanime1_module
-from src.web.hanime1 import DownloadResult, Hanime1, HanimeRecord, WatchMetadata
+from src.web.hanime1 import DownloadResult, Hanime1, HanimeRecord, RuntimeSeriesSeed, WatchMetadata
 
 
 class _DummyTmpDir:
@@ -93,6 +93,35 @@ def test_extract_search_video_ids_dedupes_watch_links() -> None:
     ids = Hanime1.extract_search_video_ids(page_html)
 
     assert ids == ['18580', '20000', '30000']
+
+
+def test_extract_watch_series_reads_playlist_ids_and_title() -> None:
+    page_html = """
+    <div id="video-playlist-wrapper">
+      <h4>屈辱</h4>
+      <a class="overlay" href="https://hanime1.me/watch?v=13253"></a>
+      <a class="overlay" href="/watch?v=12488"></a>
+      <a style="text-decoration: none;" href="https://hanime1.me/search?query=%E5%B1%88%E8%BE%B1">
+        <div class="load-more-related-link related-watch-wrap">更多 屈辱 的视频</div>
+      </a>
+    </div>
+    <div id="video-playlist-wrapper">
+      <h4>屈辱</h4>
+      <a class="overlay" href="https://hanime1.me/watch?v=12488"></a>
+      <a class="overlay" href="https://hanime1.me/watch?v=12496"></a>
+    </div>
+    """
+
+    series = Hanime1.extract_watch_series(page_html)
+
+    assert series is not None
+    assert series.name == '屈辱'
+    assert list(series.video_ids) == ['13253', '12488', '12496']
+    assert series.search_url == 'https://hanime1.me/search?query=%E5%B1%88%E8%BE%B1'
+
+
+def test_extract_watch_series_returns_none_when_playlist_not_found() -> None:
+    assert Hanime1.extract_watch_series('<div>no playlist</div>') is None
 
 
 def test_search_video_ids_limits_to_allowed_genres_and_dedupes(tmp_path, monkeypatch) -> None:
@@ -211,41 +240,56 @@ def test_get_cookie_header_uses_user_lang_only(tmp_path) -> None:
     assert cookie_header == 'user_lang=zhs'
 
 
-def test_get_items_from_keywords_filters_downloaded_ids(monkeypatch, tmp_path) -> None:
+def test_get_items_from_series_seeds_filters_downloaded_ids(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
-    monkeypatch.setattr(h, '_load_runtime_keywords', lambda: ['key-a', 'key-b'])
+    seeds = [
+        RuntimeSeriesSeed(video_id='12488', title='屈辱'),
+    ]
+    monkeypatch.setattr(h, '_load_runtime_series_seeds', lambda: seeds)
 
     async def _fake_downloaded_ids() -> set[str]:
-        return {'18580'}
+        return {'13253'}
 
-    async def _fake_search(keyword: str) -> list[str]:
-        if keyword == 'key-a':
-            return ['18580', '20000']
-        return ['20000', '30000']
+    async def _fake_collect(_seeds: list[RuntimeSeriesSeed]) -> dict[str, tuple[str, str]]:
+        assert _seeds == seeds
+        return {
+            '13253': ('13253', '屈辱'),
+            '12488': ('12488', '屈辱'),
+        }
 
     monkeypatch.setattr(h, '_get_downloaded_ids', _fake_downloaded_ids)
-    monkeypatch.setattr(h, 'search_video_ids', _fake_search)
+    monkeypatch.setattr(h, '_collect_ids_from_watch_series', _fake_collect)
 
     items = asyncio.run(h.get_items())
 
-    assert [item.id for item in items] == ['20000', '30000']
-    assert [item.keyword for item in items] == ['key-a', 'key-b']
+    assert [item.id for item in items] == ['12488']
+    assert [item.keyword for item in items] == ['屈辱']
     assert all(item.page_url == f'{hanime1_module.cfg.host.rstrip("/")}/watch?v={item.id}' for item in items)
 
 
-def test_load_runtime_keywords_reads_data_config_json(monkeypatch, tmp_path) -> None:
+def test_load_runtime_series_seeds_reads_data_config_json(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
     runtime_config_path = tmp_path / 'data' / 'config.json'
     runtime_config_path.parent.mkdir(parents=True, exist_ok=True)
     runtime_config_path.write_text(
-        '{"hanime1":{"keywords":["  key-a  ","","KEY-A",123,"key-b"]}}',
+        '{"hanime1":{"keywords":["屈辱 {id-12488}","12496","{id-12488}","bad-seed"]}}',
         encoding='utf-8',
     )
     monkeypatch.setattr(hanime1_module.config, 'run_config', runtime_config_path)
 
-    keywords = h._load_runtime_keywords()
+    seeds = h._load_runtime_series_seeds()
 
-    assert keywords == ['key-a', 'key-b']
+    assert seeds == [
+        RuntimeSeriesSeed(video_id='12488', title='屈辱'),
+    ]
+
+
+def test_parse_runtime_seed_supports_id_and_title_id_formats() -> None:
+    seed1 = Hanime1._parse_runtime_seed('12488')
+    seed2 = Hanime1._parse_runtime_seed('屈辱 {id-12488}')
+
+    assert seed1 is None
+    assert seed2 == RuntimeSeriesSeed(video_id='12488', title='屈辱')
 
 
 def test_download_item_renames_and_moves_file(tmp_path, monkeypatch) -> None:

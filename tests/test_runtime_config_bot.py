@@ -25,12 +25,12 @@ def test_hanime1_keywords_read_write_preserves_other_fields(tmp_path) -> None:
     bot._write_runtime_config(
         {
             'other': {'enabled': True},
-            'hanime1': {'keywords': ['  key-a ', 'KEY-A', '', 'key-b', 123]},
+            'hanime1': {'keywords': ['{id-12488}', '屈辱 {id-12488}', '', '12345', 'bad-seed', 123]},
         },
     )
 
     keywords = bot._read_hanime1_keywords()
-    assert keywords == ['key-a', 'key-b']
+    assert keywords == ['屈辱 {id-12488}']
 
     bot._write_hanime1_keywords(['k1', 'k2'])
     payload = json.loads(bot._run_config.read_text(encoding='utf-8'))
@@ -40,7 +40,7 @@ def test_hanime1_keywords_read_write_preserves_other_fields(tmp_path) -> None:
 
 def test_hanime1_add_keyword_flow(tmp_path) -> None:
     bot = _make_bot(tmp_path)
-    bot._write_hanime1_keywords(['old'])
+    bot._write_hanime1_keywords(['旧系列 {id-100}'])
 
     sent_texts: list[str] = []
 
@@ -50,8 +50,14 @@ def test_hanime1_add_keyword_flow(tmp_path) -> None:
     async def _fake_answer_callback_query(callback_query_id, *, text=None) -> None:  # noqa: ARG001
         return None
 
+    async def _fake_resolve(seed_id: str) -> tuple[str, list[str]] | None:
+        if seed_id == '12488':
+            return ('屈辱', ['12488', '12496'])
+        return None
+
     bot._send_message = _fake_send_message
     bot._answer_callback_query = _fake_answer_callback_query
+    bot._resolve_hanime1_series = _fake_resolve
 
     async def _run() -> None:
         await bot._handle_message({'text': '/config', 'chat': {'id': '123'}})
@@ -73,18 +79,170 @@ def test_hanime1_add_keyword_flow(tmp_path) -> None:
                 },
             },
         )
-        await bot._handle_message({'text': 'new-key', 'chat': {'id': '123'}})
+        await bot._handle_message({'text': '12488', 'chat': {'id': '123'}})
 
     asyncio.run(_run())
 
-    assert bot._read_hanime1_keywords() == ['old', 'new-key']
-    assert any('Hanime1 keywords' in text for text in sent_texts)
-    assert any('Added keyword: new-key' in text for text in sent_texts)
+    assert bot._read_hanime1_keywords() == ['旧系列 {id-100}', '屈辱 {id-12488}']
+    assert any('Hanime1 series seeds' in text for text in sent_texts)
+    assert any('Added seed: 屈辱 {id-12488}' in text for text in sent_texts)
+
+
+def test_hanime1_add_seed_resolves_title_immediately(tmp_path) -> None:
+    bot = _make_bot(tmp_path)
+    bot._write_hanime1_keywords([])
+
+    sent_texts: list[str] = []
+
+    async def _fake_send_message(*, chat_id, text, message_thread_id, reply_markup=None) -> None:  # noqa: ARG001
+        sent_texts.append(text)
+
+    async def _fake_answer_callback_query(callback_query_id, *, text=None) -> None:  # noqa: ARG001
+        return None
+
+    async def _fake_resolve(seed_id: str) -> tuple[str, list[str]] | None:
+        assert seed_id == '12488'
+        return ('屈辱', ['12488', '12496'])
+
+    bot._send_message = _fake_send_message
+    bot._answer_callback_query = _fake_answer_callback_query
+    bot._resolve_hanime1_series = _fake_resolve
+
+    async def _run() -> None:
+        await bot._handle_callback_query(
+            {
+                'id': 'cb-title-1',
+                'data': 'hanime1:add',
+                'message': {
+                    'chat': {'id': '123'},
+                },
+            },
+        )
+        await bot._handle_message({'text': '12488', 'chat': {'id': '123'}})
+
+    asyncio.run(_run())
+
+    assert bot._read_hanime1_keywords() == ['屈辱 {id-12488}']
+    assert any('Added seed: 屈辱 {id-12488}' in text for text in sent_texts)
+
+
+def test_hanime1_add_seed_selects_min_id_from_series_list(tmp_path) -> None:
+    bot = _make_bot(tmp_path)
+    bot._write_hanime1_keywords([])
+
+    sent_texts: list[str] = []
+
+    async def _fake_send_message(*, chat_id, text, message_thread_id, reply_markup=None) -> None:  # noqa: ARG001
+        sent_texts.append(text)
+
+    async def _fake_answer_callback_query(callback_query_id, *, text=None) -> None:  # noqa: ARG001
+        return None
+
+    async def _fake_resolve(seed_id: str) -> tuple[str, list[str]] | None:
+        assert seed_id == '36345'
+        return ('屈辱', ['39311', '39310', '36345', '36344'])
+
+    bot._send_message = _fake_send_message
+    bot._answer_callback_query = _fake_answer_callback_query
+    bot._resolve_hanime1_series = _fake_resolve
+
+    async def _run() -> None:
+        await bot._handle_callback_query(
+            {
+                'id': 'cb-min-id',
+                'data': 'hanime1:add',
+                'message': {
+                    'chat': {'id': '123'},
+                },
+            },
+        )
+        await bot._handle_message({'text': '36345', 'chat': {'id': '123'}})
+
+    asyncio.run(_run())
+
+    assert bot._read_hanime1_keywords() == ['屈辱 {id-36344}']
+    assert any('Added seed: 屈辱 {id-36344}' in text for text in sent_texts)
+
+
+def test_hanime1_add_seed_fails_when_title_resolve_fails(tmp_path) -> None:
+    bot = _make_bot(tmp_path)
+    bot._write_hanime1_keywords([])
+
+    sent_texts: list[str] = []
+
+    async def _fake_send_message(*, chat_id, text, message_thread_id, reply_markup=None) -> None:  # noqa: ARG001
+        sent_texts.append(text)
+
+    async def _fake_answer_callback_query(callback_query_id, *, text=None) -> None:  # noqa: ARG001
+        return None
+
+    async def _fake_resolve(seed_id: str) -> tuple[str, list[str]] | None:
+        assert seed_id == '12488'
+        return None
+
+    bot._send_message = _fake_send_message
+    bot._answer_callback_query = _fake_answer_callback_query
+    bot._resolve_hanime1_series = _fake_resolve
+
+    async def _run() -> None:
+        await bot._handle_callback_query(
+            {
+                'id': 'cb-title-fail',
+                'data': 'hanime1:add',
+                'message': {
+                    'chat': {'id': '123'},
+                },
+            },
+        )
+        await bot._handle_message({'text': '12488', 'chat': {'id': '123'}})
+
+    asyncio.run(_run())
+
+    assert bot._read_hanime1_keywords() == []
+    assert any('Seed not added.' in text for text in sent_texts)
+
+
+def test_hanime1_add_seed_rejects_duplicate_series_by_canonical_id(tmp_path) -> None:
+    bot = _make_bot(tmp_path)
+    bot._write_hanime1_keywords(['屈辱 {id-36344}'])
+
+    sent_texts: list[str] = []
+
+    async def _fake_send_message(*, chat_id, text, message_thread_id, reply_markup=None) -> None:  # noqa: ARG001
+        sent_texts.append(text)
+
+    async def _fake_answer_callback_query(callback_query_id, *, text=None) -> None:  # noqa: ARG001
+        return None
+
+    async def _fake_resolve(seed_id: str) -> tuple[str, list[str]] | None:
+        assert seed_id == '39310'
+        return ('屈辱', ['39311', '39310', '36345', '36344'])
+
+    bot._send_message = _fake_send_message
+    bot._answer_callback_query = _fake_answer_callback_query
+    bot._resolve_hanime1_series = _fake_resolve
+
+    async def _run() -> None:
+        await bot._handle_callback_query(
+            {
+                'id': 'cb-dup-series',
+                'data': 'hanime1:add',
+                'message': {
+                    'chat': {'id': '123'},
+                },
+            },
+        )
+        await bot._handle_message({'text': '39310', 'chat': {'id': '123'}})
+
+    asyncio.run(_run())
+
+    assert bot._read_hanime1_keywords() == ['屈辱 {id-36344}']
+    assert any('Duplicate seed:' in text for text in sent_texts)
 
 
 def test_hanime1_delete_keyword_by_number_flow(tmp_path) -> None:
     bot = _make_bot(tmp_path)
-    bot._write_hanime1_keywords(['key-1', 'key-2', 'key-3'])
+    bot._write_hanime1_keywords(['A {id-1}', 'B {id-2}', 'C {id-3}'])
 
     sent_texts: list[str] = []
 
@@ -111,9 +269,9 @@ def test_hanime1_delete_keyword_by_number_flow(tmp_path) -> None:
 
     asyncio.run(_run())
 
-    assert bot._read_hanime1_keywords() == ['key-1', 'key-3']
+    assert bot._read_hanime1_keywords() == ['A {id-1}', 'C {id-3}']
     assert any('Send the number to delete.' in text for text in sent_texts)
-    assert any('Deleted keyword: key-2' in text for text in sent_texts)
+    assert any('Deleted seed: B {id-2}' in text for text in sent_texts)
 
 
 def test_set_my_commands_registers_default_and_chat_scope(tmp_path) -> None:
@@ -166,7 +324,7 @@ def test_config_command_sends_config_panel(tmp_path) -> None:
     assert reply_markup is not None
     keyboard = reply_markup['inline_keyboard']
     labels = [btn['text'] for row in keyboard for btn in row]
-    assert 'Hanime1 keywords' in labels
+    assert 'Hanime1 series seeds' in labels
 
 
 def test_unknown_command_is_ignored(tmp_path) -> None:

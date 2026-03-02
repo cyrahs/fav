@@ -1,7 +1,7 @@
 """Hanime1 downloader.
 
 This module focuses on the downloader workflow:
-- Discover candidate IDs from Hanime1 search keywords.
+- Discover candidate IDs from watch-page series playlists using configured seed IDs.
 - Resolve stream URLs from page HTML when a direct stream URL is missing.
 - Download with `yt-dlp`, then rename using filename helpers.
 """
@@ -18,7 +18,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote_plus, urlsplit
+from urllib.parse import parse_qs, quote_plus, unquote_plus, urlsplit
 
 import httpx
 from opencc import OpenCC
@@ -59,6 +59,13 @@ _SEARCH_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
     re.IGNORECASE,
 )
+_PLAYLIST_TITLE_RE = re.compile(r'<h4[^>]*>(?P<title>.*?)</h4>', re.IGNORECASE | re.DOTALL)
+_PLAYLIST_LOAD_MORE_LINK_RE = re.compile(
+    r'<a[^>]+href=["\'](?P<url>(?:https?:)?//[^"\']+/search\?query=[^"\'>\s]+|/search\?query=[^"\'>\s]+|search\?query=[^"\'>\s]+)["\'][^>]*>\s*'
+    r'<div[^>]+class=["\'][^"\']*load-more-related-link[^"\']*',
+    re.IGNORECASE | re.DOTALL,
+)
+_RUNTIME_SEED_RE = re.compile(r'^(?:(?P<title>.*?)\s*)?\{id-(?P<id>\d+)\}\s*$', re.IGNORECASE)
 _SEARCH_ALLOWED_GENRES = (
     ('裏番', '里番'),
     ('泡麵番', '泡面番'),
@@ -108,6 +115,19 @@ class WatchMetadata:
     release_date: str | None = None
     plot: str | None = None
     cover_url: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class WatchSeries:
+    name: str | None = None
+    video_ids: tuple[str, ...] = ()
+    search_url: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class RuntimeSeriesSeed:
+    video_id: str
+    title: str
 
 
 @dataclass(slots=True, frozen=True)
@@ -342,6 +362,95 @@ class Hanime1:
         return ids
 
     @staticmethod
+    def _extract_div_blocks_by_id(page_html: str, *, block_id: str) -> list[str]:
+        pattern = re.compile(rf'<div[^>]+id=["\']{re.escape(block_id)}["\'][^>]*>', re.IGNORECASE)
+        tag_pattern = re.compile(r'</?div\b[^>]*>', re.IGNORECASE)
+        blocks: list[str] = []
+        search_pos = 0
+        while True:
+            start_match = pattern.search(page_html, search_pos)
+            if not start_match:
+                break
+
+            depth = 1
+            end_pos: int | None = None
+            for tag_match in tag_pattern.finditer(page_html, start_match.end()):
+                tag = tag_match.group(0).lstrip().lower()
+                if tag.startswith('</div'):
+                    depth -= 1
+                else:
+                    depth += 1
+                if depth == 0:
+                    end_pos = tag_match.end()
+                    break
+
+            if end_pos is None:
+                break
+
+            blocks.append(page_html[start_match.start() : end_pos])
+            search_pos = end_pos
+        return blocks
+
+    @staticmethod
+    def _extract_playlist_title(playlist_html: str) -> str | None:
+        match = _PLAYLIST_TITLE_RE.search(playlist_html)
+        if not match:
+            return None
+        text = html.unescape(match.group('title'))
+        text = re.sub(r'<[^>]+>', '', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        if not text:
+            return None
+        return Hanime1._to_simplified_chinese(text)
+
+    @staticmethod
+    def _extract_playlist_search_url(playlist_html: str) -> str | None:
+        match = _PLAYLIST_LOAD_MORE_LINK_RE.search(playlist_html)
+        if not match:
+            return None
+        return Hanime1._normalize_page_url(match.group('url'))
+
+    @staticmethod
+    def extract_watch_series(page_html: str) -> WatchSeries | None:
+        playlist_blocks = Hanime1._extract_div_blocks_by_id(page_html, block_id='video-playlist-wrapper')
+        if not playlist_blocks:
+            return None
+
+        series_name: str | None = None
+        search_url: str | None = None
+        ids: list[str] = []
+        seen_ids: set[str] = set()
+
+        for playlist_html in playlist_blocks:
+            if not series_name:
+                series_name = Hanime1._extract_playlist_title(playlist_html)
+            if not search_url:
+                search_url = Hanime1._extract_playlist_search_url(playlist_html)
+            for video_id in Hanime1.extract_search_video_ids(playlist_html):
+                key = video_id.casefold()
+                if key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                ids.append(video_id)
+
+        if not ids and not search_url:
+            return None
+        return WatchSeries(name=series_name, video_ids=tuple(ids), search_url=search_url)
+
+    @staticmethod
+    def _extract_series_name_from_search_url(search_url: str | None) -> str | None:
+        if not search_url:
+            return None
+        query = parse_qs(urlsplit(search_url).query)
+        raw_values = query.get('query')
+        if not raw_values:
+            return None
+        decoded = unquote_plus(raw_values[0]).strip()
+        if not decoded:
+            return None
+        return Hanime1._to_simplified_chinese(decoded)
+
+    @staticmethod
     def _extract_release_date_from_watch_html(page_html: str) -> str | None:
         normalized = html.unescape(page_html).replace('&nbsp;', ' ')
         for marker in ('觀看次數', '观看次数'):
@@ -543,13 +652,9 @@ class Hanime1:
         title = self._normalize_download_title(self.parse_title(page_html))
         return stream_urls[0], self._to_simplified_chinese(title)
 
-    async def search_video_ids(self, keyword: str) -> list[str]:
-        query = keyword.strip()
-        if not query:
-            return []
-
+    async def _build_page_headers(self, *, referer: str) -> dict[str, str]:
         headers = {
-            'Referer': cfg.host.rstrip('/') + '/',
+            'Referer': referer,
             'User-Agent': USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -557,6 +662,35 @@ class Hanime1:
         cookie_header = await asyncio.to_thread(self._get_cookie_header)
         if cookie_header:
             headers['Cookie'] = cookie_header
+        return headers
+
+    async def _request_watch_page_html(self, item: HanimeRecord) -> str:
+        watch_page_url = self._build_watch_page_url(item)
+        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
+        res = await self.client.get(watch_page_url, headers=headers)
+        res.raise_for_status()
+        page_html = res.text
+        if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
+            msg = 'Blocked by Cloudflare while resolving Hanime1 watch page.'
+            raise ValueError(msg)
+        return page_html
+
+    async def _search_video_ids_from_search_url(self, search_url: str) -> list[str]:
+        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
+        res = await self.client.get(search_url, headers=headers)
+        res.raise_for_status()
+        page_html = res.text
+        if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
+            msg = f'Blocked by Cloudflare while resolving Hanime1 search page: {search_url}'
+            raise ValueError(msg)
+        return self.extract_search_video_ids(page_html)
+
+    async def search_video_ids(self, keyword: str) -> list[str]:
+        query = keyword.strip()
+        if not query:
+            return []
+
+        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
 
         collected_ids: list[str] = []
         seen_ids: set[str] = set()
@@ -596,24 +730,32 @@ class Hanime1:
         return collected_ids
 
     async def resolve_metadata_from_watch_page(self, item: HanimeRecord) -> WatchMetadata:
-        watch_page_url = self._build_watch_page_url(item)
-        headers = {
-            'Referer': cfg.host.rstrip('/') + '/',
-            'User-Agent': USER_AGENT,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        }
-        cookie_header = await asyncio.to_thread(self._get_cookie_header)
-        if cookie_header:
-            headers['Cookie'] = cookie_header
-
-        res = await self.client.get(watch_page_url, headers=headers)
-        res.raise_for_status()
-        page_html = res.text
-        if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
-            msg = 'Blocked by Cloudflare while resolving Hanime1 watch page.'
-            raise ValueError(msg)
+        page_html = await self._request_watch_page_html(item)
         return self.extract_watch_metadata(page_html)
+
+    async def resolve_series_from_watch_page(self, item: HanimeRecord) -> WatchSeries | None:
+        page_html = await self._request_watch_page_html(item)
+        series = self.extract_watch_series(page_html)
+        if series is None:
+            return None
+
+        if series.video_ids:
+            return series
+
+        if not series.search_url:
+            return series
+
+        try:
+            search_ids = await self._search_video_ids_from_search_url(series.search_url)
+        except Exception as exc:  # noqa: BLE001
+            log.debug('Failed to resolve Hanime1 series search URL %s: %s', series.search_url, exc)
+            return series
+
+        return WatchSeries(
+            name=series.name or self._extract_series_name_from_search_url(series.search_url),
+            video_ids=tuple(search_ids),
+            search_url=series.search_url,
+        )
 
     async def resolve_stream_from_page(self, page_url: str) -> tuple[str, str | None]:
         headers = {
@@ -741,9 +883,64 @@ class Hanime1:
             log.warning('Failed to send hanime1 download notification for %s: %s', item.id, exc)
 
     @staticmethod
-    def _parse_runtime_keywords(payload: Any) -> list[str]:
+    def _normalize_runtime_video_id(raw: Any) -> str | None:
+        if isinstance(raw, bool):
+            return None
+        if isinstance(raw, int):
+            if raw <= 0:
+                return None
+            text = str(raw).strip()
+        elif isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return None
+            text = Hanime1._extract_video_code(text) or text
+        else:
+            return None
+
+        normalized = sanitize(text, max_bytes=80)
+        if not normalized or not normalized.isdecimal():
+            return None
+        if int(normalized) <= 0:
+            return None
+        return normalized
+
+    @staticmethod
+    def _parse_runtime_seed(raw: Any) -> RuntimeSeriesSeed | None:
+        if not isinstance(raw, str):
+            return None
+        text = raw.strip()
+        if not text:
+            return None
+
+        match = _RUNTIME_SEED_RE.fullmatch(text)
+        if not match:
+            return None
+
+        video_id = Hanime1._normalize_runtime_video_id(match.group('id'))
+        if not video_id:
+            return None
+
+        title = Hanime1._to_simplified_chinese((match.group('title') or '').strip() or None)
+        if not title:
+            return None
+        return RuntimeSeriesSeed(video_id=video_id, title=title)
+
+    def _load_runtime_payload(self) -> dict[str, Any]:
+        runtime_config_path = config.run_config
+        if not runtime_config_path.exists():
+            return {}
+        try:
+            payload = json.loads(runtime_config_path.read_text(encoding='utf-8'))
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to read Hanime1 runtime config %s: %s', runtime_config_path, exc)
+            return {}
         if not isinstance(payload, dict):
-            return []
+            return {}
+        return payload
+
+    def _load_runtime_series_seeds(self) -> list[RuntimeSeriesSeed]:
+        payload = self._load_runtime_payload()
         hanime1_config = payload.get('hanime1')
         if not isinstance(hanime1_config, dict):
             return []
@@ -752,32 +949,67 @@ class Hanime1:
         if not isinstance(raw_keywords, list):
             return []
 
-        keywords: list[str] = []
-        seen: set[str] = set()
+        deduped: list[RuntimeSeriesSeed] = []
+        seen_ids: set[str] = set()
         for raw in raw_keywords:
-            if not isinstance(raw, str):
+            seed = self._parse_runtime_seed(raw)
+            if seed is None:
                 continue
-            keyword = raw.strip()
-            if not keyword:
-                continue
-            key = keyword.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            keywords.append(keyword)
-        return keywords
 
-    def _load_runtime_keywords(self) -> list[str]:
-        runtime_config_path = config.run_config
-        if not runtime_config_path.exists():
-            return []
+            key = seed.video_id.casefold()
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            deduped.append(seed)
 
-        try:
-            payload = json.loads(runtime_config_path.read_text(encoding='utf-8'))
-        except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to read Hanime1 runtime config %s: %s', runtime_config_path, exc)
-            return []
-        return self._parse_runtime_keywords(payload)
+        return deduped
+
+    async def _collect_ids_from_watch_series(
+        self,
+        seeds: list[RuntimeSeriesSeed],
+    ) -> dict[str, tuple[str, str]]:
+        collected: dict[str, tuple[str, str]] = {}
+
+        for seed in seeds:
+            seed_item = HanimeRecord(
+                id=seed.video_id,
+                title='',
+                page_url=f'{cfg.host.rstrip("/")}/watch?v={seed.video_id}',
+                stream_url=None,
+            )
+
+            try:
+                series = await self.resolve_series_from_watch_page(seed_item)
+            except Exception:
+                log.exception('Failed to resolve Hanime1 watch series from seed id %s', seed.video_id)
+                continue
+
+            series_name = seed.title
+            candidate_ids: list[str] = [seed.video_id]
+            if series is not None:
+                inferred_name = series.name or self._extract_series_name_from_search_url(series.search_url)
+                if inferred_name:
+                    series_name = inferred_name
+                if series.video_ids:
+                    candidate_ids = list(series.video_ids)
+
+            source_name = self._to_simplified_chinese(series_name) or f'id-{seed.video_id}'
+            new_count = 0
+            for video_id in candidate_ids:
+                key = video_id.casefold()
+                if key in collected:
+                    continue
+                collected[key] = (video_id, source_name)
+                new_count += 1
+            log.info(
+                'Seed %s resolved %d series videos (%d unique) as %r',
+                seed.video_id,
+                len(candidate_ids),
+                new_count,
+                source_name,
+            )
+
+        return collected
 
     async def _get_downloaded_ids(self) -> set[str]:
         rows = await database.query_db('SELECT id FROM hanime1;')
@@ -790,40 +1022,32 @@ class Hanime1:
         return downloaded_ids
 
     async def get_items(self) -> list[HanimeRecord]:
-        keywords = self._load_runtime_keywords()
-        if not keywords:
+        seeds = self._load_runtime_series_seeds()
+        if not seeds:
+            return []
+
+        candidate_map = await self._collect_ids_from_watch_series(seeds)
+        if not candidate_map:
             return []
 
         downloaded_ids = await self._get_downloaded_ids()
         records: list[HanimeRecord] = []
         seen_ids = set(downloaded_ids)
-
-        for keyword in keywords:
-            try:
-                candidate_ids = await self.search_video_ids(keyword)
-            except Exception:
-                log.exception('Failed to search Hanime1 keyword %r', keyword)
+        for key, (video_id, source_name) in candidate_map.items():
+            if key in seen_ids:
                 continue
-
-            new_count = 0
-            for video_id in candidate_ids:
-                key = video_id.casefold()
-                if key in seen_ids:
-                    continue
-                seen_ids.add(key)
-                records.append(
-                    HanimeRecord(
-                        id=video_id,
-                        title='',
-                        keyword=keyword,
-                        uploader=None,
-                        page_url=f'{cfg.host.rstrip("/")}/watch?v={video_id}',
-                        stream_url=None,
-                    ),
-                )
-                new_count += 1
-            log.info('Keyword %r matched %d new videos', keyword, new_count)
-
+            seen_ids.add(key)
+            records.append(
+                HanimeRecord(
+                    id=video_id,
+                    title='',
+                    keyword=source_name,
+                    uploader=None,
+                    page_url=f'{cfg.host.rstrip("/")}/watch?v={video_id}',
+                    stream_url=None,
+                ),
+            )
+        log.info('Hanime1 discovery path watch-series(ids) produced %d new videos', len(records))
         return records
 
     async def download_item(self, item: HanimeRecord) -> DownloadResult:
@@ -918,8 +1142,8 @@ class Hanime1:
 
         items = await self.get_items()
         if not items:
-            if not self._load_runtime_keywords():
-                log.info('No Hanime1 keywords configured in %s', config.run_config)
+            if not self._load_runtime_series_seeds():
+                log.info('No Hanime1 series seeds configured in %s', config.run_config)
             else:
                 log.info('No new videos')
             return
