@@ -45,4 +45,4 @@ COPY run.py ./
 # Compile application code to bytecode
 RUN python -m compileall src/ run.py
 
-CMD ["python", "run.py"]
+CMD ["python", "-m", "src.service"]

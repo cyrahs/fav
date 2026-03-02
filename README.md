@@ -55,6 +55,17 @@ bind = "127.0.0.1"
 port = 8091
 ```
 
+### Container startup (k3s)
+
+Docker image default command now starts both:
+
+- scheduler worker (`run.py`)
+- API server (`python -m src.api`)
+
+So in k3s, deploying the image without overriding command will auto-start API.
+
+No mode switching is supported. The container always starts both services.
+
 ### Reverse proxy examples
 
 Nginx:
