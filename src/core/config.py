@@ -134,11 +134,38 @@ class Database(BaseModel):
         return normalized
 
 
+class Api(BaseModel):
+    token: str = ''
+    bind: str = '127.0.0.1'
+    port: int = 8091
+
+    @field_validator('token')
+    @classmethod
+    def normalize_token(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('bind')
+    @classmethod
+    def normalize_bind(cls, value: str) -> str:
+        normalized = value.strip()
+        return normalized or '127.0.0.1'
+
+    @field_validator('port')
+    @classmethod
+    def validate_port(cls, value: int) -> int:
+        max_port = 65535
+        if not (0 < value <= max_port):
+            msg = f'api.port must be between 1 and {max_port}'
+            raise ValueError(msg)
+        return value
+
+
 class Config(BaseSettings):
     proxy: str
     run_config: Path = Path('./data/config.json')
     web: Web
     database: Database
+    api: Api = Field(default_factory=Api)
     cookiecloud: CookieCloud
     telegram_bot: TelegramBot
 

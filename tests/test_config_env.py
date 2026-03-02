@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101
+# ruff: noqa: INP001, S101, S105
 
 from pathlib import Path
 
@@ -12,3 +12,11 @@ def test_env_nested_override_web_bilibili_path(monkeypatch, tmp_path) -> None:  
     cfg = Config()
 
     assert cfg.web.bilibili.path == Path(overridden_path)
+
+
+def test_env_nested_override_api_token(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv('API__TOKEN', 'token-from-env')
+
+    cfg = Config()
+
+    assert cfg.api.token == 'token-from-env'
