@@ -84,8 +84,9 @@ def test_hanime1_add_keyword_flow(tmp_path) -> None:
     asyncio.run(_run())
 
     assert bot._read_hanime1_keywords() == ['旧系列 {id-100}', '屈辱 {id-12488}']
-    assert any('Hanime1 series seeds' in text for text in sent_texts)
+    assert any('Choose a Hanime1 action:' in text for text in sent_texts)
     assert any('Added seed: 屈辱 {id-12488}' in text for text in sent_texts)
+    assert not any(text.startswith('Hanime1 series seeds:') for text in sent_texts)
 
 
 def test_hanime1_add_seed_resolves_title_immediately(tmp_path) -> None:
@@ -124,6 +125,7 @@ def test_hanime1_add_seed_resolves_title_immediately(tmp_path) -> None:
 
     assert bot._read_hanime1_keywords() == ['屈辱 {id-12488}']
     assert any('Added seed: 屈辱 {id-12488}' in text for text in sent_texts)
+    assert not any(text.startswith('Hanime1 series seeds:') for text in sent_texts)
 
 
 def test_hanime1_add_seed_selects_min_id_from_series_list(tmp_path) -> None:
@@ -272,6 +274,7 @@ def test_hanime1_delete_keyword_by_number_flow(tmp_path) -> None:
     assert bot._read_hanime1_keywords() == ['A {id-1}', 'C {id-3}']
     assert any('Send the number to delete.' in text for text in sent_texts)
     assert any('Deleted seed: B {id-2}' in text for text in sent_texts)
+    assert any(text == 'Hanime1 series seeds:\n1. A {id-1}\n2. C {id-3}' for text in sent_texts)
 
 
 def test_set_my_commands_registers_default_and_chat_scope(tmp_path) -> None:
@@ -325,6 +328,41 @@ def test_config_command_sends_config_panel(tmp_path) -> None:
     keyboard = reply_markup['inline_keyboard']
     labels = [btn['text'] for row in keyboard for btn in row]
     assert 'Hanime1 series seeds' in labels
+
+
+def test_hanime1_config_callback_sends_action_panel_without_keywords(tmp_path) -> None:
+    bot = _make_bot(tmp_path)
+    bot._write_hanime1_keywords(['A {id-1}', 'B {id-2}'])
+    sent_payloads: list[tuple[str, dict[str, object] | None]] = []
+
+    async def _fake_send_message(*, chat_id, text, message_thread_id, reply_markup=None) -> None:  # noqa: ARG001
+        sent_payloads.append((text, reply_markup))
+
+    async def _fake_answer_callback_query(callback_query_id, *, text=None) -> None:  # noqa: ARG001
+        return None
+
+    bot._send_message = _fake_send_message
+    bot._answer_callback_query = _fake_answer_callback_query
+
+    asyncio.run(
+        bot._handle_callback_query(
+            {
+                'id': 'cb-config-hanime1',
+                'data': 'config:hanime1',
+                'message': {
+                    'chat': {'id': '123'},
+                },
+            },
+        ),
+    )
+
+    assert sent_payloads
+    text, reply_markup = sent_payloads[0]
+    assert text == 'Choose a Hanime1 action:'
+    assert reply_markup is not None
+    labels = [btn['text'] for row in reply_markup['inline_keyboard'] for btn in row]
+    assert 'Add seed' in labels
+    assert 'Delete seed' in labels
 
 
 def test_unknown_command_is_ignored(tmp_path) -> None:

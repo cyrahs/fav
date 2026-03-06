@@ -435,6 +435,14 @@ class TelegramRuntimeConfigBot:
         )
 
     async def _send_hanime1_panel(self, *, chat_id: str, message_thread_id: int | None) -> None:
+        await self._send_message(
+            chat_id=chat_id,
+            text='Choose a Hanime1 action:',
+            message_thread_id=message_thread_id,
+            reply_markup=self._hanime1_keyboard(),
+        )
+
+    async def _send_hanime1_keywords_panel(self, *, chat_id: str, message_thread_id: int | None) -> None:
         keywords = self._read_hanime1_keywords()
         await self._send_message(
             chat_id=chat_id,
@@ -564,7 +572,7 @@ class TelegramRuntimeConfigBot:
             message_thread_id=message_thread_id,
             text=f'Deleted seed: {removed}',
         )
-        await self._send_hanime1_panel(chat_id=chat_id, message_thread_id=message_thread_id)
+        await self._send_hanime1_keywords_panel(chat_id=chat_id, message_thread_id=message_thread_id)
 
     async def _handle_message(self, message: dict[str, Any]) -> None:
         text = message.get('text')
