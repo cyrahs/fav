@@ -16,7 +16,8 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import CookieCloudClient, Notifier, database, ensure_unique_path, format_video_filename
+from src.tool import CookieCloudClient, database, ensure_unique_path, format_video_filename
+from src.tool.notifications import enqueue_notification
 
 log = logger.get('bilibili')
 cfg = config.web.bilibili
@@ -30,9 +31,8 @@ class DownloadError(RuntimeError):
 class Bilibili:
     """Class to interact with Bilibili API."""
 
-    def __init__(self, notifier: Notifier | None = None) -> None:
+    def __init__(self) -> None:
         """Initialize Bilibili instance with main and sub credentials."""
-        self.notifier = notifier
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-bilibili-')
         self.cache_dir = Path(self._tmp_dir.name)
         self.cookie_path = self.cache_dir / 'bilibili.txt'
@@ -47,13 +47,6 @@ class Bilibili:
 
     async def aclose(self) -> None:
         self._tmp_dir.cleanup()
-
-    @staticmethod
-    def _escape_markdown(text: str) -> str:
-        escaped = text
-        for ch in ('\\', '_', '*', '`', '[', ']'):
-            escaped = escaped.replace(ch, f'\\{ch}')
-        return escaped
 
     @staticmethod
     def _format_file_size(size_bytes: int | None) -> str | None:
@@ -182,41 +175,32 @@ class Bilibili:
         release_date: str | None = None,
         cover_url: str | None = None,
     ) -> None:
-        notifier = getattr(self, 'notifier', None)
-        if notifier is None:
-            return
-
         source = 'toview' if fav_id == -1 else 'fav'
         url = f'https://www.bilibili.com/video/{bvid}'
-        safe_title = self._escape_markdown(title)
-        safe_upper = self._escape_markdown(upper)
         resolution_label = resolution or 'unknown'
         file_size_label = self._format_file_size(file_size_bytes) or 'unknown'
         release_date_label = (release_date or 'unknown').strip() or 'unknown'
-        safe_resolution = self._escape_markdown(resolution_label)
-        safe_file_size = self._escape_markdown(file_size_label)
-        safe_release_date = self._escape_markdown(release_date_label)
-        message = (
-            f'Bilibili ({source})\n'
-            f'*{safe_title}*\n'
-            f'{safe_upper}\n'
-            f'[视频链接]({url}) | {safe_resolution} | {safe_file_size} | {safe_release_date}'
-        )
-        send_markdown = getattr(notifier, 'send_markdown', None)
-        send_photo = getattr(notifier, 'send_photo', None)
+        body = f'{upper} | {resolution_label} | {file_size_label} | {release_date_label}'
 
         try:
-            if callable(send_photo) and cover_url:
-                await send_photo(photo=cover_url, caption=message, parse_mode='Markdown')
-                return
-            if callable(send_markdown):
-                await send_markdown(message, disable_web_page_preview=True)
-                return
-            await notifier.send(
-                f'Bilibili ({source})\n{title}\n{upper}\n视频链接({url}) | {resolution_label} | {file_size_label} | {release_date_label}',
+            await enqueue_notification(
+                kind='download_completed',
+                source='bilibili',
+                title=f'Bilibili ({source}): {title}',
+                body=body,
+                link_url=url,
+                image_url=cover_url or '',
+                payload={
+                    'bvid': bvid,
+                    'fav_id': fav_id,
+                    'upper': upper,
+                    'resolution': resolution,
+                    'file_size_bytes': file_size_bytes,
+                    'release_date': release_date,
+                },
             )
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to send bilibili download notification for %s: %s', bvid, exc)
+            log.warning('Failed to enqueue bilibili download notification for %s: %s', bvid, exc)
 
     def update_cookie_from_cookiecloud(self, save_path: Path) -> None:
         """Update cookie from cookiecloud."""

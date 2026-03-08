@@ -9,15 +9,15 @@ from telethon.tl.types import Channel, DocumentAttributeVideo, Message, PeerChan
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import Notifier, database, format_video_filename, sanitize
+from src.tool import database, format_video_filename, sanitize
+from src.tool.notifications import enqueue_notification
 
 log = logger.get('telegram')
 cfg = config.web.telegram
 
 
 class Telegram:
-    def __init__(self, notifier: Notifier | None = None) -> None:
-        self.notifier = notifier
+    def __init__(self) -> None:
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-telegram-')
         self.cache_dir = Path(self._tmp_dir.name)
         self.client = TelegramClient(cfg.session_path, cfg.api_id, cfg.api_hash)
@@ -31,16 +31,20 @@ class Telegram:
         self._tmp_dir.cleanup()
 
     async def _notify_download(self, *, channel_name: str, message_id: int, title: str, saved_path: Path) -> None:
-        notifier = getattr(self, 'notifier', None)
-        if notifier is None:
-            return
-
-        message = f'Telegram download completed\nChannel: {channel_name}\nTitle: {title}\nMessage ID: {message_id}\nPath: {saved_path}'
-
         try:
-            await notifier.send(message)
+            await enqueue_notification(
+                kind='download_completed',
+                source='telegram',
+                title=f'Telegram: {title}',
+                body=f'Channel {channel_name} | Message ID {message_id}',
+                payload={
+                    'channel_name': channel_name,
+                    'message_id': message_id,
+                    'saved_path': str(saved_path),
+                },
+            )
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to send telegram download notification for message %s: %s', message_id, exc)
+            log.warning('Failed to enqueue telegram download notification for message %s: %s', message_id, exc)
 
     @staticmethod
     async def get_downloaded_ids(channel_id: int) -> list[int]:

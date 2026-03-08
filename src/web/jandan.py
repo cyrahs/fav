@@ -16,7 +16,8 @@ import httpx
 from Crypto.Cipher import AES
 
 from src.core import config, logger
-from src.tool import Notifier, database, format_video_filename
+from src.tool import database, format_video_filename
+from src.tool.notifications import enqueue_notification
 
 log = logger.get('jandan')
 cfg = config.web.jandan
@@ -283,8 +284,7 @@ def build_image_download_candidates(content_url: str) -> list[str]:
 
 
 class Jandan:
-    def __init__(self, notifier: Notifier | None = None) -> None:
-        self.notifier = notifier
+    def __init__(self) -> None:
         self.client = httpx.AsyncClient(
             headers={
                 'User-Agent': _USER_AGENT,
@@ -306,25 +306,30 @@ class Jandan:
         total_api_images: int,
         fav_type_stats: list[tuple[int, int, int, int, int]],
     ) -> None:
-        notifier = getattr(self, 'notifier', None)
-        if notifier is None:
-            return
-
-        lines = [
-            'Jandan update completed',
-            f'Total downloaded: {total_downloaded}',
-            f'API total images: {total_api_images}',
+        payload_stats = [
+            {
+                'fav_type': fav_type,
+                'page_count': page_count,
+                'api_total_count': api_total_count,
+                'collected_count': collected_count,
+                'downloaded_count': downloaded_count,
+            }
+            for fav_type, page_count, api_total_count, collected_count, downloaded_count in fav_type_stats
         ]
-        for fav_type, page_count, api_total_count, collected_count, downloaded_count in fav_type_stats:
-            lines.append(
-                f'favType {fav_type}: pages={page_count}, api_total={api_total_count}, '
-                f'collected={collected_count}, downloaded={downloaded_count}',
-            )
-        message = '\n'.join(lines)
         try:
-            await notifier.send(message)
+            await enqueue_notification(
+                kind='summary',
+                source='jandan',
+                title='Jandan update completed',
+                body=f'Downloaded {total_downloaded} images from {total_api_images} API images.',
+                payload={
+                    'total_downloaded': total_downloaded,
+                    'total_api_images': total_api_images,
+                    'fav_type_stats': payload_stats,
+                },
+            )
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to send jandan summary notification: %s', exc)
+            log.warning('Failed to enqueue jandan summary notification: %s', exc)
 
     async def _ensure_table(self) -> None:
         await database.query_db("""

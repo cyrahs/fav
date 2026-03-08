@@ -3,25 +3,8 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
-
 import src.web.telegram as telegram_module
 from src.web.telegram import Telegram
-
-
-class _RecordingNotifier:
-    def __init__(self) -> None:
-        self.messages: list[str] = []
-
-    async def send(self, message: str) -> None:
-        self.messages.append(message)
-
-
-class _FailingNotifier:
-    async def send(self, message: str) -> None:  # noqa: ARG002
-        msg = 'notify failed'
-        raise RuntimeError(msg)
-
 
 class _DummyClient:
     async def get_entity(self, _peer: object) -> SimpleNamespace:
@@ -33,17 +16,16 @@ class _DummyTmpDir:
         return None
 
 
-def _make_telegram(notifier: Any) -> Telegram:
+def _make_telegram() -> Telegram:
     tg = Telegram.__new__(Telegram)
-    tg.notifier = notifier
     tg._tmp_dir = _DummyTmpDir()
     tg.client = _DummyClient()
     return tg
 
 
 def test_update_channel_sends_notification(tmp_path, monkeypatch) -> None:
-    notifier = _RecordingNotifier()
-    tg = _make_telegram(notifier)
+    tg = _make_telegram()
+    notifications: list[dict[str, object]] = []
     monkeypatch.setattr(telegram_module.cfg, 'path', tmp_path)
 
     msg = SimpleNamespace(id=456)
@@ -67,17 +49,31 @@ def test_update_channel_sends_notification(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(tg, 'download', _fake_download)
     monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
 
+    async def _fake_enqueue_notification(**payload) -> None:  # noqa: ANN003
+        notifications.append(payload)
+
+    monkeypatch.setattr(telegram_module, 'enqueue_notification', _fake_enqueue_notification)
+
     asyncio.run(tg.update_channel(123))
 
-    assert len(notifier.messages) == 1
-    assert 'Telegram download completed' in notifier.messages[0]
-    assert 'Channel: demo_channel' in notifier.messages[0]
-    assert 'Message ID: 456' in notifier.messages[0]
+    assert notifications == [
+        {
+            'kind': 'download_completed',
+            'source': 'telegram',
+            'title': 'Telegram: My Video',
+            'body': 'Channel demo_channel | Message ID 456',
+            'payload': {
+                'channel_name': 'demo_channel',
+                'message_id': 456,
+                'saved_path': str(tmp_path / 'demo_channel' / 'My Video [456].mp4'),
+            },
+        },
+    ]
     assert sum('INSERT INTO telegram' in sql for sql, _ in queries) == 1
 
 
 def test_update_channel_continues_when_notification_fails(tmp_path, monkeypatch) -> None:
-    tg = _make_telegram(_FailingNotifier())
+    tg = _make_telegram()
     monkeypatch.setattr(telegram_module.cfg, 'path', tmp_path)
 
     msg = SimpleNamespace(id=456)
@@ -100,6 +96,12 @@ def test_update_channel_continues_when_notification_fails(tmp_path, monkeypatch)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
     monkeypatch.setattr(tg, 'download', _fake_download)
     monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
+
+    async def _failing_enqueue_notification(**_payload) -> None:  # noqa: ANN003
+        msg = 'notify failed'
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(telegram_module, 'enqueue_notification', _failing_enqueue_notification)
 
     asyncio.run(tg.update_channel(123))
 

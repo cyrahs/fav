@@ -1,10 +1,13 @@
 # ruff: noqa: INP001, S101
 
 import json
+import asyncio
 
 import httpx
 
+import src.web.jandan as jandan_module
 from src.web.jandan import (
+    Jandan,
     build_fav_request,
     build_image_download_candidates,
     decrypt_data_field,
@@ -232,3 +235,43 @@ def test_build_image_download_candidates_keeps_single_for_unknown_host() -> None
     candidates = build_image_download_candidates('https://cdn.example.com/mw600/abc.jpg')
 
     assert candidates == ['https://cdn.example.com/mw600/abc.jpg']
+
+
+def test_notify_summary_enqueues_structured_payload(monkeypatch) -> None:
+    notifications: list[dict[str, object]] = []
+
+    async def _fake_enqueue_notification(**payload) -> None:  # noqa: ANN003
+        notifications.append(payload)
+
+    monkeypatch.setattr(jandan_module, 'enqueue_notification', _fake_enqueue_notification)
+
+    job = Jandan.__new__(Jandan)
+    asyncio.run(
+        job._notify_summary(
+            total_downloaded=3,
+            total_api_images=8,
+            fav_type_stats=[(1, 2, 5, 4, 3)],
+        ),
+    )
+
+    assert notifications == [
+        {
+            'kind': 'summary',
+            'source': 'jandan',
+            'title': 'Jandan update completed',
+            'body': 'Downloaded 3 images from 8 API images.',
+            'payload': {
+                'total_downloaded': 3,
+                'total_api_images': 8,
+                'fav_type_stats': [
+                    {
+                        'fav_type': 1,
+                        'page_count': 2,
+                        'api_total_count': 5,
+                        'collected_count': 4,
+                        'downloaded_count': 3,
+                    },
+                ],
+            },
+        },
+    ]

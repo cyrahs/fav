@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hanime1 Downloaded Marker
 // @namespace    fav
-// @version      0.1.4
+// @version      0.1.5
 // @description  Mark downloaded Hanime1 videos with data from a remote API.
 // @match        https://hanime1.me/*
 // @grant        GM_addStyle
@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  const API_PATH = '/api/v1/hanime1/downloaded-ids';
+  const API_PATH = '/api/v1/runtime/hanime1/downloaded-ids';
   const ANCHOR_SELECTOR = 'a[href*="/watch?v="]';
   const SYNC_INTERVAL_MS = 120_000;
   const OBSERVER_DEBOUNCE_MS = 300;

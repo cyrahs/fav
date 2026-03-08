@@ -46,13 +46,6 @@ class Telegram(ScheduleJob):
     cron: str = '*/30 * * * *'
 
 
-class TelegramBot(BaseModel):
-    token: str
-    chat_id: int | str
-    api_base: str = 'https://api.telegram.org'
-    message_thread_id: int | None = None
-
-
 class Stellasora(ScheduleJob):
     path: Path = Path('./collection/stellasora')
     cron: str = '0 */6 * * *'
@@ -167,7 +160,6 @@ class Config(BaseSettings):
     database: Database
     api: Api = Field(default_factory=Api)
     cookiecloud: CookieCloud
-    telegram_bot: TelegramBot
 
     model_config = SettingsConfigDict(
         toml_file='./config.toml',

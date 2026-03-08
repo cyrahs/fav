@@ -2,9 +2,55 @@
 
 Automation toolkit for collecting content from multiple sources and deduplicating with PostgreSQL.
 
+## API Backend
+
+This repository now exposes a control/read API backend instead of running an in-process Telegram interactive bot.
+
+- `run.py` remains the only worker/scheduler process that executes jobs.
+- `src/api/server.py` exposes authenticated control and notification endpoints for external clients.
+- Download/job notifications are stored in PostgreSQL and can be polled by a frontend.
+
+### Control endpoints
+
+- `GET /api/v1/control/jobs`
+  - Returns visible job metadata: `key`, `name`, `enabled`, `run_on_start`
+- `POST /api/v1/control/requests`
+  - JSON body: `{"kind":"trigger_job","target":"bilibili|hanime1|jandan|telegram|stellasora|all"}`
+  - Returns `202` with request state
+- `GET /api/v1/control/requests/{id}`
+  - Returns request status: `pending|running|succeeded|failed|rejected`
+- `GET /api/v1/control/runtime/hanime1/seeds`
+  - Returns normalized Hanime1 runtime seeds
+- `POST /api/v1/control/runtime/hanime1/seeds`
+  - JSON body: `{"seed":"12488"}` or `{"seed":"屈辱 {id-12488}"}`
+- `DELETE /api/v1/control/runtime/hanime1/seeds/{video_id}`
+  - Deletes a normalized seed by canonical video ID
+
+All control endpoints require:
+
+- `Authorization: Bearer <api.token>`
+
+Worker-trigger requests are stored in PostgreSQL and consumed by the worker process, so manual triggers reuse the same runner and locking path as scheduled jobs.
+
+### Notification endpoints
+
+- `GET /api/v1/notifications`
+  - Query params:
+    - `status=unread|all` (default `unread`)
+    - `limit` (default `50`, max `200`)
+    - `after_id` (optional, returns `id > after_id`)
+  - Returns notifications ordered by `id ASC`
+- `POST /api/v1/notifications/ack`
+  - JSON body: `{"ids":[1,2,3]}`
+  - Marks unread notifications as read
+
+Notification polling also uses:
+
+- `Authorization: Bearer <api.token>`
+
 ## Hanime1 Marker (Tampermonkey + Remote Read-Only API)
 
-This repository now includes:
+This repository includes:
 
 1. `src/api/server.py`: read-only API backend for fav, including Hanime1 downloaded-ID endpoint.
 2. `script/hanime1_downloaded_marker.user.js`: Tampermonkey userscript that marks Hanime1 cards as downloaded.
@@ -12,7 +58,7 @@ This repository now includes:
 ### API endpoint
 
 - Method: `GET`
-- Path: `/api/v1/hanime1/downloaded-ids`
+- Path: `/api/v1/runtime/hanime1/downloaded-ids`
 - Auth: `Authorization: Bearer <token>`
 - Optional request header: `If-None-Match: "<etag>"`
 - Response:
@@ -75,7 +121,7 @@ server {
     listen 443 ssl http2;
     server_name marker.example.com;
 
-    location /api/v1/hanime1/downloaded-ids {
+    location /api/v1/runtime/hanime1/downloaded-ids {
         limit_req zone=api burst=20 nodelay;
         proxy_pass http://127.0.0.1:8091;
         proxy_set_header Host $host;

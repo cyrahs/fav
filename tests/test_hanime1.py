@@ -15,7 +15,6 @@ class _DummyTmpDir:
 
 def _make_hanime1(tmp_path: Path) -> Hanime1:
     h = Hanime1.__new__(Hanime1)
-    h.notifier = None
     h._tmp_dir = _DummyTmpDir()
     h.cache_dir = tmp_path / 'cache'
     h.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -459,19 +458,14 @@ def test_update_inserts_item_after_download(monkeypatch, tmp_path) -> None:
     assert notify_calls == ['video-123']
 
 
-def test_notify_download_prefers_markdown_and_omits_id_path_page(tmp_path) -> None:
+def test_notify_download_enqueues_structured_payload(tmp_path, monkeypatch) -> None:
     h = _make_hanime1(tmp_path)
-    markdown_calls: list[tuple[str, bool]] = []
-    send_calls: list[str] = []
+    notifications: list[dict[str, object]] = []
 
-    class _Notifier:
-        async def send_markdown(self, message: str, *, disable_web_page_preview: bool = False) -> None:
-            markdown_calls.append((message, disable_web_page_preview))
+    async def _fake_enqueue_notification(**payload) -> None:  # noqa: ANN003
+        notifications.append(payload)
 
-        async def send(self, message: str) -> None:
-            send_calls.append(message)
-
-    h.notifier = _Notifier()
+    monkeypatch.setattr(hanime1_module, 'enqueue_notification', _fake_enqueue_notification)
     item = HanimeRecord(
         id='12345',
         title='公開便所 2',
@@ -482,33 +476,32 @@ def test_notify_download_prefers_markdown_and_omits_id_path_page(tmp_path) -> No
 
     asyncio.run(h._notify_download(item=item, resolution='720p', file_size_bytes=1024 * 1024, release_date='2020-01-01'))
 
-    assert len(markdown_calls) == 1
-    message, disable_preview = markdown_calls[0]
-    assert disable_preview is True
-    assert message == 'Hanime1\n*公開便所 2*\n[视频链接](https://hanime1.me/watch?v=12345) | 720p | 1.0 MB | 2020-01-01'
-    assert 'ID:' not in message
-    assert 'Path:' not in message
-    assert 'Page:' not in message
-    assert not send_calls
+    assert notifications == [
+        {
+            'kind': 'download_completed',
+            'source': 'hanime1',
+            'title': 'Hanime1: 公開便所 2',
+            'body': '720p | 1.0 MB | 2020-01-01',
+            'link_url': 'https://hanime1.me/watch?v=12345',
+            'image_url': '',
+            'payload': {
+                'video_id': '12345',
+                'resolution': '720p',
+                'file_size_bytes': 1048576,
+                'release_date': '2020-01-01',
+            },
+        },
+    ]
 
 
-def test_notify_download_prefers_photo_when_cover_available(tmp_path) -> None:
+def test_notify_download_keeps_cover_url_when_available(tmp_path, monkeypatch) -> None:
     h = _make_hanime1(tmp_path)
-    photo_calls: list[tuple[str, str, str]] = []
-    markdown_calls: list[str] = []
-    send_calls: list[str] = []
+    notifications: list[dict[str, object]] = []
 
-    class _Notifier:
-        async def send_photo(self, *, photo: str, caption: str | None = None, parse_mode: str | None = None) -> None:
-            photo_calls.append((photo, caption or '', parse_mode or ''))
+    async def _fake_enqueue_notification(**payload) -> None:  # noqa: ANN003
+        notifications.append(payload)
 
-        async def send_markdown(self, message: str, *, disable_web_page_preview: bool = False) -> None:
-            markdown_calls.append(message)
-
-        async def send(self, message: str) -> None:
-            send_calls.append(message)
-
-    h.notifier = _Notifier()
+    monkeypatch.setattr(hanime1_module, 'enqueue_notification', _fake_enqueue_notification)
     item = HanimeRecord(
         id='12345',
         title='公開便所 2',
@@ -527,37 +520,7 @@ def test_notify_download_prefers_photo_when_cover_available(tmp_path) -> None:
         ),
     )
 
-    assert photo_calls == [
-        (
-            'https://cdn.example.com/covers/12345.jpg',
-            'Hanime1\n*公開便所 2*\n[视频链接](https://hanime1.me/watch?v=12345) | 720p | 1.0 MB | 2020-01-01',
-            'Markdown',
-        ),
-    ]
-    assert not markdown_calls
-    assert not send_calls
-
-
-def test_notify_download_falls_back_to_plain_text(tmp_path) -> None:
-    h = _make_hanime1(tmp_path)
-    send_calls: list[str] = []
-
-    class _Notifier:
-        async def send(self, message: str) -> None:
-            send_calls.append(message)
-
-    h.notifier = _Notifier()
-    item = HanimeRecord(
-        id='12345',
-        title='公開便所 2',
-        uploader='Uploader One',
-        page_url='https://hanime1.me/watch?v=12345',
-        stream_url=None,
-    )
-
-    asyncio.run(h._notify_download(item=item, resolution='720p', file_size_bytes=1024 * 1024, release_date='2020-01-01'))
-
-    assert send_calls == ['Hanime1\n公開便所 2\n视频链接(https://hanime1.me/watch?v=12345) | 720p | 1.0 MB | 2020-01-01']
+    assert notifications[0]['image_url'] == 'https://cdn.example.com/covers/12345.jpg'
 
 
 def test_stream_resolution_label_parses_quality() -> None:

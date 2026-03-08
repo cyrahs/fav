@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import json
 import re
 import shutil
 import subprocess
@@ -25,7 +24,9 @@ from opencc import OpenCC
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.core import config, logger
-from src.tool import Notifier, database, ensure_unique_path, format_video_filename, sanitize
+from src.tool import database, ensure_unique_path, format_video_filename, sanitize
+from src.tool.notifications import enqueue_notification
+from src.tool.runtime_config import Hanime1RuntimeConfigStore, RuntimeSeriesSeed, parse_runtime_series_seed
 
 log = logger.get('hanime1')
 cfg = config.web.hanime1
@@ -65,7 +66,6 @@ _PLAYLIST_LOAD_MORE_LINK_RE = re.compile(
     r'<div[^>]+class=["\'][^"\']*load-more-related-link[^"\']*',
     re.IGNORECASE | re.DOTALL,
 )
-_RUNTIME_SEED_RE = re.compile(r'^(?:(?P<title>.*?)\s*)?\{id-(?P<id>\d+)\}\s*$', re.IGNORECASE)
 _SEARCH_ALLOWED_GENRES = (
     ('裏番', '里番'),
     ('泡麵番', '泡面番'),
@@ -125,12 +125,6 @@ class WatchSeries:
 
 
 @dataclass(slots=True, frozen=True)
-class RuntimeSeriesSeed:
-    video_id: str
-    title: str
-
-
-@dataclass(slots=True, frozen=True)
 class StreamDownloadTask:
     stream_url: str
     video_id: str
@@ -139,8 +133,7 @@ class StreamDownloadTask:
 
 
 class Hanime1:
-    def __init__(self, notifier: Notifier | None = None) -> None:
-        self.notifier = notifier
+    def __init__(self) -> None:
         self.client = httpx.AsyncClient(
             headers={
                 'User-Agent': USER_AGENT,
@@ -235,13 +228,6 @@ class Hanime1:
             return None
         converted = _T2S_CONVERTER.convert(text).strip()
         return converted or None
-
-    @staticmethod
-    def _escape_markdown(text: str) -> str:
-        escaped = text
-        for ch in ('\\', '_', '*', '`', '[', ']'):
-            escaped = escaped.replace(ch, f'\\{ch}')
-        return escaped
 
     @staticmethod
     def _stream_quality(url: str) -> int:
@@ -848,39 +834,30 @@ class Hanime1:
         release_date: str | None = None,
         cover_url: str | None = None,
     ) -> None:
-        notifier = getattr(self, 'notifier', None)
-        if notifier is None:
-            return
-
         title = item.title.strip() or item.id
         watch_url = self._build_watch_page_url(item)
-        safe_title = self._escape_markdown(title)
         resolution_label = resolution or 'unknown'
         file_size_label = self._format_file_size(file_size_bytes) or 'unknown'
         release_date_label = (release_date or 'unknown').strip() or 'unknown'
-        safe_resolution = self._escape_markdown(resolution_label)
-        safe_file_size = self._escape_markdown(file_size_label)
-        safe_release_date = self._escape_markdown(release_date_label)
-        markdown_lines = ['Hanime1', f'*{safe_title}*']
-        markdown_lines.append(f'[视频链接]({watch_url}) | {safe_resolution} | {safe_file_size} | {safe_release_date}')
-        markdown_message = '\n'.join(markdown_lines)
-
-        send_markdown = getattr(notifier, 'send_markdown', None)
-        send_photo = getattr(notifier, 'send_photo', None)
+        body = f'{resolution_label} | {file_size_label} | {release_date_label}'
 
         try:
-            if callable(send_photo) and cover_url:
-                await send_photo(photo=cover_url, caption=markdown_message, parse_mode='Markdown')
-                return
-
-            if callable(send_markdown):
-                await send_markdown(markdown_message, disable_web_page_preview=True)
-                return
-
-            plain_lines = ['Hanime1', title, f'视频链接({watch_url}) | {resolution_label} | {file_size_label} | {release_date_label}']
-            await notifier.send('\n'.join(plain_lines))
+            await enqueue_notification(
+                kind='download_completed',
+                source='hanime1',
+                title=f'Hanime1: {title}',
+                body=body,
+                link_url=watch_url,
+                image_url=cover_url or '',
+                payload={
+                    'video_id': item.id,
+                    'resolution': resolution,
+                    'file_size_bytes': file_size_bytes,
+                    'release_date': release_date,
+                },
+            )
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to send hanime1 download notification for %s: %s', item.id, exc)
+            log.warning('Failed to enqueue hanime1 download notification for %s: %s', item.id, exc)
 
     @staticmethod
     def _normalize_runtime_video_id(raw: Any) -> str | None:
@@ -907,62 +884,11 @@ class Hanime1:
 
     @staticmethod
     def _parse_runtime_seed(raw: Any) -> RuntimeSeriesSeed | None:
-        if not isinstance(raw, str):
-            return None
-        text = raw.strip()
-        if not text:
-            return None
-
-        match = _RUNTIME_SEED_RE.fullmatch(text)
-        if not match:
-            return None
-
-        video_id = Hanime1._normalize_runtime_video_id(match.group('id'))
-        if not video_id:
-            return None
-
-        title = Hanime1._to_simplified_chinese((match.group('title') or '').strip() or None)
-        if not title:
-            return None
-        return RuntimeSeriesSeed(video_id=video_id, title=title)
-
-    def _load_runtime_payload(self) -> dict[str, Any]:
-        runtime_config_path = config.run_config
-        if not runtime_config_path.exists():
-            return {}
-        try:
-            payload = json.loads(runtime_config_path.read_text(encoding='utf-8'))
-        except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to read Hanime1 runtime config %s: %s', runtime_config_path, exc)
-            return {}
-        if not isinstance(payload, dict):
-            return {}
-        return payload
+        return parse_runtime_series_seed(raw)
 
     def _load_runtime_series_seeds(self) -> list[RuntimeSeriesSeed]:
-        payload = self._load_runtime_payload()
-        hanime1_config = payload.get('hanime1')
-        if not isinstance(hanime1_config, dict):
-            return []
-
-        raw_keywords = hanime1_config.get('keywords')
-        if not isinstance(raw_keywords, list):
-            return []
-
-        deduped: list[RuntimeSeriesSeed] = []
-        seen_ids: set[str] = set()
-        for raw in raw_keywords:
-            seed = self._parse_runtime_seed(raw)
-            if seed is None:
-                continue
-
-            key = seed.video_id.casefold()
-            if key in seen_ids:
-                continue
-            seen_ids.add(key)
-            deduped.append(seed)
-
-        return deduped
+        store = Hanime1RuntimeConfigStore(config.run_config)
+        return store.read_hanime1_seeds()
 
     async def _collect_ids_from_watch_series(
         self,

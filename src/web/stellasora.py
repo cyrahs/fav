@@ -23,7 +23,8 @@ import httpx
 from tqdm import tqdm
 
 from src.core import config, logger
-from src.tool import Notifier, sanitize
+from src.tool import sanitize
+from src.tool.notifications import enqueue_notification
 
 log = logger.get('stellasora')
 cfg = config.web.stellasora
@@ -537,11 +538,10 @@ def _chunked(items: list[str], size: int) -> list[list[str]]:
 class StellaSora:
     """Scraper for the Stella Sora Wiki."""
 
-    def __init__(self, *, base_url: str = BASE_URL, notifier: Notifier | None = None) -> None:
+    def __init__(self, *, base_url: str = BASE_URL) -> None:
         self.cfg = cfg
         self.path = self.cfg.path
         self.base_url = base_url.rstrip('/')
-        self.notifier = notifier
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=60,
@@ -566,22 +566,21 @@ class StellaSora:
             relpath = saved_path
         return relpath.as_posix()
 
-    async def _notify_download(self, *, title: str, image_url: str, saved_path: Path) -> None:
-        notifier = getattr(self, 'notifier', None)
-        if notifier is None:
-            return
-
+    async def _notify_download(self, *, title: str, image_url: str, saved_path: Path, link_url: str = '') -> None:
         relpath = self._notify_relpath(saved_path)
-        message = f'StellaSora\n{relpath}'
-        send_photo = getattr(notifier, 'send_photo', None)
 
         try:
-            if callable(send_photo):
-                await send_photo(photo=image_url, caption=message)
-                return
-            await notifier.send(message)
+            await enqueue_notification(
+                kind='download_completed',
+                source='stellasora',
+                title=f'StellaSora: {title.removeprefix("File:")}',
+                body=relpath,
+                link_url=link_url,
+                image_url=image_url,
+                payload={'saved_path': str(saved_path)},
+            )
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to send stellasora download notification for %s: %s', title, exc)
+            log.warning('Failed to enqueue stellasora download notification for %s: %s', title, exc)
 
     def _disc_dir(self) -> Path:
         return self.path / 'disc'
@@ -867,7 +866,12 @@ class StellaSora:
             await self._download_file(item.url, dst_path, desc=desc)
             stats.downloaded += 1
             existing_index.setdefault(local_name.casefold(), []).append(dst_path)
-            await self._notify_download(title=title, image_url=item.url, saved_path=dst_path)
+            await self._notify_download(
+                title=title,
+                image_url=item.url,
+                saved_path=dst_path,
+                link_url=item.description_url or '',
+            )
 
     async def download_targets(self) -> None:
         """Download all target images to disk according to the destination rules."""
