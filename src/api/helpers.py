@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.service.jobs import ScheduledJob
     from src.tool.control_queue import ControlRequest
-    from src.tool.notifications import NotificationRecord
     from src.tool.runtime_config import RuntimeSeriesSeed
 
 
@@ -48,20 +47,4 @@ def serialize_seed(seed: RuntimeSeriesSeed) -> dict[str, str]:
         'video_id': seed.video_id,
         'title': seed.title,
         'label': seed.label,
-    }
-
-
-def serialize_notification(notification: NotificationRecord) -> dict[str, object]:
-    return {
-        'id': notification.notification_id,
-        'kind': notification.kind,
-        'source': notification.source,
-        'title': notification.title,
-        'body': notification.body,
-        'link_url': notification.link_url,
-        'image_url': notification.image_url,
-        'payload': notification.payload_json,
-        'status': notification.status,
-        'created_at': serialize_datetime(notification.created_at),
-        'read_at': serialize_datetime(notification.read_at),
     }

@@ -20,3 +20,13 @@ def test_env_nested_override_api_token(monkeypatch) -> None:  # noqa: ANN001
     cfg = Config()
 
     assert cfg.api.token == 'token-from-env'
+
+
+def test_env_nested_override_notifications_settings(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv('NOTIFICATIONS__WEBHOOK_BASE_URL', 'https://hooks.example.com/base/')
+    monkeypatch.setenv('NOTIFICATIONS__WEBHOOK_TOKEN', 'webhook-token')
+
+    cfg = Config()
+
+    assert cfg.notifications.webhook_base_url == 'https://hooks.example.com/base'
+    assert cfg.notifications.webhook_token == 'webhook-token'

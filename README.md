@@ -4,7 +4,7 @@ Automation toolkit for collecting content from multiple sources and deduplicatin
 
 ## API Backend
 
-This repository exposes an internal FastAPI backend for control, runtime configuration, and notifications.
+This repository exposes an internal FastAPI backend for control and runtime configuration.
 
 - `run.py` remains the worker and scheduler process.
 - `python -m src.api` starts the FastAPI server with OpenAPI support.
@@ -25,8 +25,6 @@ Protected endpoints:
 - `GET /api/v2/jobs`
 - `POST /api/v2/job-requests`
 - `GET /api/v2/job-requests/{id}`
-- `GET /api/v2/notifications`
-- `POST /api/v2/notifications/ack`
 - `GET /api/v2/hanime1/seeds`
 - `POST /api/v2/hanime1/seeds`
 - `DELETE /api/v2/hanime1/seeds/{video_id}`
@@ -45,6 +43,8 @@ The API reads runtime settings from `config.toml`:
 - `api.token` (required)
 - `api.bind` (optional, default `127.0.0.1`)
 - `api.port` (optional, default `8091`)
+- `notifications.webhook_base_url` (required for worker delivery)
+- `notifications.webhook_token` (required for worker delivery)
 
 Example:
 
@@ -56,6 +56,10 @@ postgres_dsn = "postgresql://user:password@127.0.0.1:5432/fav"
 token = "replace-with-strong-random-token"
 bind = "127.0.0.1"
 port = 8091
+
+[notifications]
+webhook_base_url = "https://internal.example.com"
+webhook_token = "replace-with-webhook-bearer-token"
 ```
 
 ### Run

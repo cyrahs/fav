@@ -153,12 +153,28 @@ class Api(BaseModel):
         return value
 
 
+class Notifications(BaseModel):
+    webhook_base_url: str = ''
+    webhook_token: str = ''
+
+    @field_validator('webhook_base_url')
+    @classmethod
+    def normalize_webhook_base_url(cls, value: str) -> str:
+        return value.strip().rstrip('/')
+
+    @field_validator('webhook_token')
+    @classmethod
+    def normalize_webhook_token(cls, value: str) -> str:
+        return value.strip()
+
+
 class Config(BaseSettings):
     proxy: str
     run_config: Path = Path('./data/config.json')
     web: Web
     database: Database
     api: Api = Field(default_factory=Api)
+    notifications: Notifications = Field(default_factory=Notifications)
     cookiecloud: CookieCloud
 
     model_config = SettingsConfigDict(

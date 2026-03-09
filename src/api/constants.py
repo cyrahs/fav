@@ -1,4 +1,4 @@
-API_DESCRIPTION = 'Internal control and notification API for fav.'
+API_DESCRIPTION = 'Internal control and runtime configuration API for fav.'
 API_TITLE = 'fav API'
 API_V2_PREFIX = '/api/v2'
 APP_VERSION = '2.0.0'
@@ -13,6 +13,5 @@ MAX_PORT = 65535
 OPENAPI_URL = '/openapi.json'
 TAG_HANIME1 = 'hanime1'
 TAG_JOBS = 'jobs'
-TAG_NOTIFICATIONS = 'notifications'
 TAG_SYSTEM = 'system'
 WWW_AUTHENTICATE_BEARER = 'Bearer realm="fav-api"'

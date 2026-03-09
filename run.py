@@ -11,10 +11,12 @@ from datetime import UTC, datetime, tzinfo
 from time import perf_counter
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.core import logger
+from src.core.config import config as app_config
 from src.service.jobs import ScheduledJob, build_jobs, resolve_trigger_jobs
 from src.tool.control_queue import (
     STATUS_FAILED,
@@ -25,11 +27,25 @@ from src.tool.control_queue import (
     ensure_control_requests_table,
     update_control_request,
 )
-from src.tool.notifications import enqueue_notification
+from src.tool.notifications import (
+    NotificationRecord,
+    claim_next_pending_notification,
+    enqueue_notification,
+    mark_notification_delivered,
+    mark_notification_failed,
+    mark_notification_retry,
+)
 
 log = logger.get('main')
 _CONTROL_REQUEST_POLL_INTERVAL_SECONDS = 1.0
+_NOTIFICATION_DELIVERY_POLL_INTERVAL_SECONDS = 1.0
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
+_WEBHOOK_TIMEOUT_SECONDS = 10.0
+_NOTIFICATION_WEBHOOK_PATH = '/api/v2/notifications/webhook'
+_HTTP_STATUS_SUCCESS_MIN = 200
+_HTTP_STATUS_SUCCESS_MAX = 299
+_HTTP_STATUS_SERVER_ERROR_MIN = 500
+_HTTP_STATUS_SERVER_ERROR_MAX = 599
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +54,12 @@ class JobRunResult:
     job_name: str
     success: bool
     error: str = ''
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationWebhookConfig:
+    url: str
+    token: str
 
 
 def _parse_args() -> argparse.Namespace:
@@ -75,6 +97,18 @@ def _resolve_scheduler_timezone() -> tzinfo:
     except ZoneInfoNotFoundError:
         log.warning('Invalid TZ %r, fallback to UTC', tz_name)
         return UTC
+
+
+def _load_notification_webhook_config() -> NotificationWebhookConfig:
+    base_url = str(app_config.notifications.webhook_base_url).strip().rstrip('/')
+    token = str(app_config.notifications.webhook_token).strip()
+    if not base_url:
+        msg = 'notifications.webhook_base_url is required'
+        raise ValueError(msg)
+    if not token:
+        msg = 'notifications.webhook_token is required'
+        raise ValueError(msg)
+    return NotificationWebhookConfig(url=f'{base_url}{_NOTIFICATION_WEBHOOK_PATH}', token=token)
 
 
 async def _shutdown_task(task: asyncio.Task[None] | None, *, name: str) -> None:
@@ -177,6 +211,116 @@ async def _enqueue_job_failed_notification(
         log.warning('Failed to enqueue job_failed notification for %s: %s', job.key, notify_exc)
 
 
+def _notification_webhook_headers(token: str) -> dict[str, str]:
+    return {'Authorization': f'Bearer {token}'}
+
+
+def _notification_error_message(*, status_code: int, response_text: str) -> str:
+    detail = response_text.strip()
+    if detail:
+        return f'Webhook responded with HTTP {status_code}: {detail[:200]}'
+    return f'Webhook responded with HTTP {status_code}'
+
+
+def _is_retryable_status_code(status_code: int) -> bool:
+    return status_code in {408, 429} or _HTTP_STATUS_SERVER_ERROR_MIN <= status_code <= _HTTP_STATUS_SERVER_ERROR_MAX
+
+
+async def _deliver_notification_via_webhook(
+    *,
+    notification: NotificationRecord,
+    client: httpx.AsyncClient,
+    webhook_config: NotificationWebhookConfig,
+) -> None:
+    response = await client.post(
+        webhook_config.url,
+        headers=_notification_webhook_headers(webhook_config.token),
+        json=notification.webhook_payload,
+    )
+    if _HTTP_STATUS_SUCCESS_MIN <= response.status_code <= _HTTP_STATUS_SUCCESS_MAX:
+        await mark_notification_delivered(notification.notification_id)
+        log.info('Delivered notification %s', notification.notification_id)
+        return
+
+    attempt_count = notification.attempt_count + 1
+    error_message = _notification_error_message(status_code=response.status_code, response_text=response.text)
+    if _is_retryable_status_code(response.status_code):
+        await mark_notification_retry(
+            notification.notification_id,
+            attempt_count=attempt_count,
+            error_message=error_message,
+        )
+        log.warning('Webhook delivery retry scheduled for notification %s: %s', notification.notification_id, error_message)
+        return
+
+    await mark_notification_failed(
+        notification.notification_id,
+        attempt_count=attempt_count,
+        error_message=error_message,
+    )
+    log.warning('Webhook delivery permanently failed for notification %s: %s', notification.notification_id, error_message)
+
+
+async def _deliver_next_notification(
+    *,
+    client: httpx.AsyncClient,
+    webhook_config: NotificationWebhookConfig,
+) -> bool:
+    notification = await claim_next_pending_notification()
+    if notification is None:
+        return False
+
+    attempt_count = notification.attempt_count + 1
+    try:
+        await _deliver_notification_via_webhook(
+            notification=notification,
+            client=client,
+            webhook_config=webhook_config,
+        )
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        error_message = f'{exc.__class__.__name__}: {exc}'
+        await mark_notification_retry(
+            notification.notification_id,
+            attempt_count=attempt_count,
+            error_message=error_message,
+        )
+        log.warning('Webhook request failed for notification %s: %s', notification.notification_id, error_message)
+    return True
+
+
+async def _drain_pending_notifications(
+    *,
+    client: httpx.AsyncClient,
+    webhook_config: NotificationWebhookConfig,
+) -> int:
+    delivered = 0
+    while await _deliver_next_notification(client=client, webhook_config=webhook_config):
+        delivered += 1
+    return delivered
+
+
+async def _consume_notification_deliveries(
+    *,
+    client: httpx.AsyncClient,
+    webhook_config: NotificationWebhookConfig,
+    stop_event: asyncio.Event,
+) -> None:
+    while not stop_event.is_set():
+        try:
+            processed = await _deliver_next_notification(client=client, webhook_config=webhook_config)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Notification delivery loop failed: %s', exc)
+            processed = False
+
+        if processed:
+            continue
+
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=_NOTIFICATION_DELIVERY_POLL_INTERVAL_SECONDS)
+        except TimeoutError:
+            continue
+
+
 async def _run_job(*, job: ScheduledJob) -> JobRunResult:
     started_at = datetime.now(tz=UTC)
     started_perf = perf_counter()
@@ -204,7 +348,7 @@ async def _run_job(*, job: ScheduledJob) -> JobRunResult:
         await _safe_close(job.name, worker)
 
 
-async def _execute_control_request(
+async def _execute_control_request(  # noqa: C901, PLR0911
     request: ControlRequest,
     *,
     all_jobs: list[ScheduledJob],
@@ -300,12 +444,15 @@ async def _consume_control_requests(
 
 async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
     control_request_task: asyncio.Task[None] | None = None
+    notification_delivery_task: asyncio.Task[None] | None = None
     stop_event = asyncio.Event()
     main_task = asyncio.current_task()
     if main_task is None:
         msg = 'Failed to resolve main task for signal handling'
         raise RuntimeError(msg)
     remove_signal_handlers = _install_signal_handlers(stop_event=stop_event, main_task=main_task)
+    webhook_config = _load_notification_webhook_config()
+    notification_client = httpx.AsyncClient(timeout=_WEBHOOK_TIMEOUT_SECONDS)
     all_jobs = build_jobs()
     jobs = [job for job in all_jobs if job.enabled]
     timezone = _resolve_scheduler_timezone()
@@ -360,6 +507,7 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
                 if not job.enabled:
                     log.warning('%s is disabled in config; running once due to --trigger', job.name)
                 await runner_by_key[job.key]()
+            await _drain_pending_notifications(client=notification_client, webhook_config=webhook_config)
             return
 
         if not jobs:
@@ -369,7 +517,12 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
             _consume_control_requests(all_jobs=all_jobs, runner_by_key=runner_by_key, stop_event=stop_event),
             name='control-request-consumer',
         )
+        notification_delivery_task = asyncio.create_task(
+            _consume_notification_deliveries(client=notification_client, webhook_config=webhook_config, stop_event=stop_event),
+            name='notification-delivery-consumer',
+        )
         log.info('Control request consumer enabled')
+        log.info('Notification delivery consumer enabled')
 
         scheduler.start()
         for job in jobs:
@@ -389,6 +542,8 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
     finally:
         remove_signal_handlers()
         await _shutdown_task(control_request_task, name='control request consumer')
+        await _shutdown_task(notification_delivery_task, name='notification delivery consumer')
+        await notification_client.aclose()
         if scheduler.running:
             scheduler.shutdown(wait=False)
 

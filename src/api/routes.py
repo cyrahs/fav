@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Path, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Response, status
 
-from .constants import API_V2_PREFIX, TAG_HANIME1, TAG_JOBS, TAG_NOTIFICATIONS
+from .constants import API_V2_PREFIX, TAG_HANIME1, TAG_JOBS
 from .dependencies import get_api_service, require_api_token
 from .schemas import (
     Hanime1ListResponse,
@@ -14,10 +14,6 @@ from .schemas import (
     JobListResponse,
     JobRequest,
     JobRequestCreate,
-    NotificationAckRequest,
-    NotificationAckResponse,
-    NotificationListResponse,
-    NotificationListStatus,
 )
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
@@ -60,35 +56,6 @@ def get_job_request(
     service: ApiServiceDep,
 ) -> JobRequest:
     return service.model_job_request(service.get_job_request(request_id))
-
-
-@router.get(
-    '/notifications',
-    operation_id='listNotifications',
-    response_model=NotificationListResponse,
-    tags=[TAG_NOTIFICATIONS],
-)
-def list_notifications(
-    service: ApiServiceDep,
-    status_filter: Annotated[NotificationListStatus, Query(alias='status')] = NotificationListStatus.UNREAD,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    after_id: Annotated[int | None, Query(ge=0)] = None,
-) -> NotificationListResponse:
-    items = [service.model_notification(item) for item in service.list_notifications(status_filter.value, limit, after_id)]
-    return NotificationListResponse(items=items, total=len(items))
-
-
-@router.post(
-    '/notifications/ack',
-    operation_id='ackNotifications',
-    response_model=NotificationAckResponse,
-    tags=[TAG_NOTIFICATIONS],
-)
-def ack_notifications(
-    payload: NotificationAckRequest,
-    service: ApiServiceDep,
-) -> NotificationAckResponse:
-    return NotificationAckResponse(updated=service.ack_notifications(payload.ids))
 
 
 @router.get(

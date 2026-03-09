@@ -8,14 +8,13 @@ from src.core import logger
 from src.core.config import config as app_config
 from src.service.jobs import ScheduledJob, build_jobs
 from src.tool.control_queue import ControlRequest, create_control_request_sync, get_control_request_sync
-from src.tool.notifications import NotificationRecord, ack_notifications_sync, list_notifications_sync
 from src.tool.runtime_config import Hanime1RuntimeConfigService
 
 from .config import fetch_hanime1_videos_from_db
 from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
 from .errors import ApiError
-from .helpers import serialize_control_request, serialize_job, serialize_notification, serialize_seed, utc_now_iso_z
-from .schemas import Hanime1Seed, Hanime1Video, HealthResponse, JobRequest, JobSummary, Notification
+from .helpers import serialize_control_request, serialize_job, serialize_seed, utc_now_iso_z
+from .schemas import Hanime1Seed, Hanime1Video, HealthResponse, JobRequest, JobSummary
 
 log = logger.get('fav-api')
 
@@ -24,8 +23,6 @@ type Hanime1VideoFetcher = Callable[[str], list[dict[str, str | None]]]
 type JobProvider = Callable[[], list[ScheduledJob]]
 type ControlRequestCreator = Callable[[str, str], ControlRequest]
 type ControlRequestGetter = Callable[[int], ControlRequest | None]
-type NotificationLister = Callable[[str, int, int | None], list[NotificationRecord]]
-type NotificationAcker = Callable[[list[int]], int]
 
 
 class FavApiService:
@@ -40,8 +37,6 @@ class FavApiService:
         control_request_creator: ControlRequestCreator | None = None,
         control_request_getter: ControlRequestGetter | None = None,
         runtime_service: Hanime1RuntimeConfigService | None = None,
-        notification_lister: NotificationLister | None = None,
-        notification_acker: NotificationAcker | None = None,
     ) -> None:
         self._dsn = dsn
         self._token = token
@@ -54,10 +49,6 @@ class FavApiService:
             lambda kind, target: create_control_request_sync(self._dsn, kind=kind, target=target)
         )
         self._control_request_getter = control_request_getter or (lambda request_id: get_control_request_sync(self._dsn, request_id))
-        self._notification_lister = notification_lister or (
-            lambda status, limit, after_id: list_notifications_sync(self._dsn, status=status, limit=limit, after_id=after_id)
-        )
-        self._notification_acker = notification_acker or (lambda ids: ack_notifications_sync(self._dsn, ids))
         self._runtime_service = runtime_service or Hanime1RuntimeConfigService(
             run_config=app_config.run_config,
             host=app_config.web.hanime1.host,
@@ -131,28 +122,6 @@ class FavApiService:
             raise ApiError(status_code=404, code='not_found', message='Job request not found.')
         return serialize_control_request(request)
 
-    def list_notifications(self, status: str, limit: int, after_id: int | None) -> list[dict[str, object]]:
-        try:
-            notifications = self._notification_lister(status, limit, after_id)
-        except Exception:
-            log.exception('Failed to list notifications')
-            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
-        return [serialize_notification(notification) for notification in notifications]
-
-    def ack_notifications(self, ids: list[int]) -> int:
-        normalized_ids: list[int] = []
-        seen_ids: set[int] = set()
-        for notification_id in ids:
-            if notification_id in seen_ids:
-                continue
-            seen_ids.add(notification_id)
-            normalized_ids.append(notification_id)
-        try:
-            return self._notification_acker(normalized_ids)
-        except Exception:
-            log.exception('Failed to ack notifications')
-            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
-
     def list_hanime1_seeds(self) -> list[dict[str, str]]:
         return [serialize_seed(seed) for seed in self._runtime_service.list_seeds()]
 
@@ -197,10 +166,6 @@ class FavApiService:
     @staticmethod
     def model_job_request(payload: dict[str, object]) -> JobRequest:
         return JobRequest.model_validate(payload)
-
-    @staticmethod
-    def model_notification(payload: dict[str, object]) -> Notification:
-        return Notification.model_validate(payload)
 
     @staticmethod
     def model_hanime1_seed(payload: dict[str, str]) -> Hanime1Seed:

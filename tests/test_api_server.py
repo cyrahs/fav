@@ -10,7 +10,6 @@ import src.api.server as api_server
 from src.api.app import create_app
 from src.service.jobs import ScheduledJob
 from src.tool.control_queue import ControlRequest
-from src.tool.notifications import NotificationRecord
 from src.tool.runtime_config import RuntimeSeriesSeed
 
 _FIXED_NOW = datetime(2026, 3, 2, 0, 0, tzinfo=UTC)
@@ -44,22 +43,6 @@ class _RuntimeService:
 
     def close(self) -> None:
         return None
-
-
-def _notification(*, notification_id: int, status: str = 'unread') -> NotificationRecord:
-    return NotificationRecord(
-        notification_id=notification_id,
-        kind='download_completed',
-        source='bilibili',
-        title=f'Notification {notification_id}',
-        body='body',
-        link_url='https://example.com',
-        image_url='https://example.com/image.jpg',
-        payload='{"bvid":"BV1TEST"}',
-        status=status,
-        created_at=_FIXED_NOW,
-        read_at=_FIXED_NOW if status == 'read' else None,
-    )
 
 
 def _job(*, key: str, enabled: bool = True, run_on_start: bool = False) -> ScheduledJob:
@@ -102,8 +85,6 @@ def _build_service(
     request_creator=None,
     request_getter=None,
     runtime_service: _RuntimeService | None = None,
-    notification_lister=None,
-    notification_acker=None,
 ) -> api_server.FavApiService:
     runtime = runtime_service or _RuntimeService()
     return api_server.FavApiService(
@@ -115,8 +96,6 @@ def _build_service(
         control_request_creator=request_creator,
         control_request_getter=request_getter,
         runtime_service=runtime,
-        notification_lister=notification_lister,
-        notification_acker=notification_acker,
     )
 
 
@@ -154,6 +133,8 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     payload = openapi_response.json()
     assert '/api/v2/jobs' in payload['paths']
     assert '/api/v2/hanime1/videos' in payload['paths']
+    assert '/api/v2/notifications' not in payload['paths']
+    assert '/api/v2/notifications/ack' not in payload['paths']
     assert '/api/v1/health' not in payload['paths']
     assert payload['paths']['/api/v2/jobs']['get']['operationId'] == 'listJobs'
     assert v1_response.status_code == 404
@@ -413,94 +394,15 @@ def test_delete_hanime1_seed_returns_not_found() -> None:
     }
 
 
-def test_list_notifications_defaults_to_unread() -> None:
-    captured: dict[str, object] = {}
-
-    def _fake_lister(status: str, limit: int, after_id: int | None) -> list[NotificationRecord]:
-        captured.update({'status': status, 'limit': limit, 'after_id': after_id})
-        return [_notification(notification_id=101)]
-
-    service = _build_service(token=_VALID_TOKEN, notification_lister=_fake_lister)
-
-    with TestClient(create_app(service=service)) as client:
-        response = client.get('/api/v2/notifications', headers=_auth_headers())
-
-    assert response.status_code == 200
-    assert captured == {'status': 'unread', 'limit': 50, 'after_id': None}
-    assert response.json() == {
-        'items': [
-            {
-                'id': 101,
-                'kind': 'download_completed',
-                'source': 'bilibili',
-                'title': 'Notification 101',
-                'body': 'body',
-                'link_url': 'https://example.com',
-                'image_url': 'https://example.com/image.jpg',
-                'payload': {'bvid': 'BV1TEST'},
-                'status': 'unread',
-                'created_at': '2026-03-02T00:00:00Z',
-                'read_at': None,
-            },
-        ],
-        'total': 1,
-    }
-
-
-def test_list_notifications_supports_status_limit_and_after_id() -> None:
-    captured: dict[str, object] = {}
-
-    def _fake_lister(status: str, limit: int, after_id: int | None) -> list[NotificationRecord]:
-        captured.update({'status': status, 'limit': limit, 'after_id': after_id})
-        return [_notification(notification_id=102, status='read')]
-
-    service = _build_service(token=_VALID_TOKEN, notification_lister=_fake_lister)
-
-    with TestClient(create_app(service=service)) as client:
-        response = client.get('/api/v2/notifications?status=all&limit=25&after_id=100', headers=_auth_headers())
-
-    assert response.status_code == 200
-    assert captured == {'status': 'all', 'limit': 25, 'after_id': 100}
-    assert response.json()['items'][0]['status'] == 'read'
-
-
-def test_list_notifications_invalid_limit_is_validation_error() -> None:
+def test_notifications_endpoints_are_removed() -> None:
     service = _build_service(token=_VALID_TOKEN)
 
     with TestClient(create_app(service=service)) as client:
-        response = client.get('/api/v2/notifications?limit=201', headers=_auth_headers())
+        list_response = client.get('/api/v2/notifications', headers=_auth_headers())
+        ack_response = client.post('/api/v2/notifications/ack', headers=_auth_headers(), json={'ids': [1]})
 
-    assert response.status_code == 422
-    payload = response.json()
-    assert payload['error']['code'] == 'validation_error'
-    assert payload['error']['message'] == 'Request validation failed.'
-
-
-def test_ack_notifications_marks_ids_as_read() -> None:
-    captured: list[int] = []
-
-    def _fake_acker(ids: list[int]) -> int:
-        captured.extend(ids)
-        return 2
-
-    service = _build_service(token=_VALID_TOKEN, notification_acker=_fake_acker)
-
-    with TestClient(create_app(service=service)) as client:
-        response = client.post('/api/v2/notifications/ack', headers=_auth_headers(), json={'ids': [1, 2, 2, 3]})
-
-    assert response.status_code == 200
-    assert captured == [1, 2, 3]
-    assert response.json() == {'updated': 2}
-
-
-def test_ack_notifications_invalid_ids_is_validation_error() -> None:
-    service = _build_service(token=_VALID_TOKEN)
-
-    with TestClient(create_app(service=service)) as client:
-        response = client.post('/api/v2/notifications/ack', headers=_auth_headers(), json={'ids': [1, '2']})
-
-    assert response.status_code == 422
-    assert response.json()['error']['code'] == 'validation_error'
+    assert list_response.status_code == 404
+    assert ack_response.status_code == 404
 
 
 def test_load_config_from_settings_reads_database_postgres_dsn_and_api_fields(monkeypatch) -> None:

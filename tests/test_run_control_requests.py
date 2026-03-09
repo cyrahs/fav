@@ -1,10 +1,16 @@
-# ruff: noqa: INP001, S101, SLF001, ANN001
+# ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, S106, EM101
 
 import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
+import httpx
+import pytest
 
 import run as run_module
 from src.service.jobs import ScheduledJob
 from src.tool.control_queue import STATUS_FAILED, STATUS_REJECTED, STATUS_SUCCEEDED, ControlRequest
+from src.tool.notifications import NotificationRecord
 
 
 def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
@@ -27,6 +33,28 @@ def _request(*, target: str, kind: str = 'trigger_job') -> ControlRequest:
         payload='{}',
         status='running',
         requested_at=run_module.datetime.now(run_module.UTC),
+    )
+
+
+def _notification(*, notification_id: int = 7, attempt_count: int = 0) -> NotificationRecord:
+    now = datetime(2026, 3, 2, tzinfo=UTC)
+    return NotificationRecord(
+        notification_id=notification_id,
+        kind='job_failed',
+        source='worker',
+        title='Job failed: Bilibili',
+        body='RuntimeError: boom',
+        link_url='',
+        image_url='',
+        payload='{"job":"bilibili"}',
+        status='unread',
+        markdown='*Job failed: Bilibili*\nRuntimeError: boom',
+        disable_web_page_preview=True,
+        disable_notification=False,
+        delivery_status='sending',
+        attempt_count=attempt_count,
+        next_attempt_at=now,
+        created_at=now,
     )
 
 
@@ -114,7 +142,7 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
             msg = 'boom'
             raise RuntimeError(msg)
 
-    async def _fake_enqueue_notification(**payload) -> None:  # noqa: ANN003
+    async def _fake_enqueue_notification(**payload) -> None:
         captured.update(payload)
 
     monkeypatch.setattr(run_module, 'enqueue_notification', _fake_enqueue_notification)
@@ -142,3 +170,118 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert captured['payload']['job'] == 'bilibili'
     assert captured['payload']['error_class'] == 'RuntimeError'
     assert captured['payload']['error_message'] == 'boom'
+
+
+def test_load_notification_webhook_config_requires_values(monkeypatch) -> None:
+    monkeypatch.setattr(run_module, 'app_config', SimpleNamespace(notifications=SimpleNamespace(webhook_base_url='', webhook_token='')))
+
+    with pytest.raises(ValueError, match=r'notifications\.webhook_base_url is required'):
+        run_module._load_notification_webhook_config()
+
+
+def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
+    delivered: list[int] = []
+
+    async def _fake_claim() -> NotificationRecord | None:
+        return _notification()
+
+    async def _fake_mark_delivered(notification_id: int) -> None:
+        delivered.append(notification_id)
+
+    class _FakeClient:
+        async def post(self, *_args, **_kwargs):
+            return SimpleNamespace(status_code=204, text='')
+
+    monkeypatch.setattr(run_module, 'claim_next_pending_notification', _fake_claim)
+    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
+
+    processed = asyncio.run(
+        run_module._deliver_next_notification(
+            client=_FakeClient(),
+            webhook_config=run_module.NotificationWebhookConfig(
+                url='https://hooks.example.com/api/v2/notifications/webhook',
+                token='token',
+            ),
+        ),
+    )
+
+    assert processed is True
+    assert delivered == [7]
+
+
+def test_deliver_next_notification_retries_request_error(monkeypatch) -> None:
+    retried: list[tuple[int, int, str]] = []
+
+    async def _fake_claim() -> NotificationRecord | None:
+        return _notification(attempt_count=2)
+
+    async def _fake_mark_retry(notification_id: int, *, attempt_count: int, error_message: str) -> None:
+        retried.append((notification_id, attempt_count, error_message))
+
+    class _FakeClient:
+        async def post(self, *_args, **_kwargs):
+            request = httpx.Request('POST', 'https://hooks.example.com/api/v2/notifications/webhook')
+            raise httpx.RequestError('boom', request=request)
+
+    monkeypatch.setattr(run_module, 'claim_next_pending_notification', _fake_claim)
+    monkeypatch.setattr(run_module, 'mark_notification_retry', _fake_mark_retry)
+
+    processed = asyncio.run(
+        run_module._deliver_next_notification(
+            client=_FakeClient(),
+            webhook_config=run_module.NotificationWebhookConfig(
+                url='https://hooks.example.com/api/v2/notifications/webhook',
+                token='token',
+            ),
+        ),
+    )
+
+    assert processed is True
+    assert retried == [(7, 3, 'RequestError: boom')]
+
+
+def test_main_starts_notification_consumer_and_closes_client(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _FakeScheduler:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.running = False
+
+        def start(self) -> None:
+            self.running = True
+
+        def shutdown(self, *, wait: bool = False) -> None:
+            calls.append(f'shutdown:{wait}')
+            self.running = False
+
+    class _FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+            calls.append('client_closed')
+
+    async def _fake_consume_control_requests(*, stop_event, **_kwargs) -> None:
+        await stop_event.wait()
+
+    async def _fake_consume_notifications(*, stop_event, **_kwargs) -> None:
+        calls.append('notification_consumer_started')
+        stop_event.set()
+
+    monkeypatch.setattr(run_module, 'build_jobs', list)
+    monkeypatch.setattr(
+        run_module,
+        '_load_notification_webhook_config',
+        lambda: run_module.NotificationWebhookConfig(url='https://hooks.example.com/api/v2/notifications/webhook', token='token'),
+    )
+    monkeypatch.setattr(run_module, '_validate_commands', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(run_module, 'AsyncIOScheduler', _FakeScheduler)
+    monkeypatch.setattr(run_module, '_consume_control_requests', _fake_consume_control_requests)
+    monkeypatch.setattr(run_module, '_consume_notification_deliveries', _fake_consume_notifications)
+    monkeypatch.setattr(run_module.httpx, 'AsyncClient', _FakeClient)
+
+    asyncio.run(run_module.main())
+
+    assert 'notification_consumer_started' in calls
+    assert 'client_closed' in calls

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ApiSchema(BaseModel):
@@ -68,43 +68,6 @@ class JobRequest(ApiSchema):
     finished_at: str | None = None
     result: str = ''
     error: str = ''
-
-
-class NotificationListStatus(StrEnum):
-    ALL = 'all'
-    UNREAD = 'unread'
-
-
-class NotificationStatus(StrEnum):
-    READ = 'read'
-    UNREAD = 'unread'
-
-
-class Notification(ApiSchema):
-    id: int
-    kind: str
-    source: str
-    title: str
-    body: str
-    link_url: str
-    image_url: str
-    payload: dict[str, Any]
-    status: NotificationStatus
-    created_at: str
-    read_at: str | None = None
-
-
-class NotificationListResponse(ApiSchema):
-    items: list[Notification]
-    total: int
-
-
-class NotificationAckRequest(ApiSchema):
-    ids: list[Annotated[StrictInt, Field(gt=0)]] = Field(default_factory=list)
-
-
-class NotificationAckResponse(ApiSchema):
-    updated: int
 
 
 class Hanime1Seed(ApiSchema):
