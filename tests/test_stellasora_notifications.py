@@ -32,7 +32,9 @@ def test_download_resolved_files_enqueues_notification(tmp_path, monkeypatch) ->
     monkeypatch.setattr(stellasora_module, 'enqueue_notification', _fake_enqueue_notification)
 
     stats = DownloadStats()
-    resolved_by_key = {'File:Foo.png': WikiFile(title='File:Foo.png', url='https://example.com/Foo.png', description_url='https://wiki.example.com/Foo')}
+    resolved_by_key = {
+        'File:Foo.png': WikiFile(title='File:Foo.png', url='https://example.com/Foo.png', description_url='https://wiki.example.com/Foo')
+    }
     title_to_dir = {'File:Foo.png': tmp_path / 'disc'}
     existing_index: dict[str, list[Path]] = {}
 

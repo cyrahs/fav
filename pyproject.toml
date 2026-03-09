@@ -8,15 +8,17 @@ dependencies = [
     "apscheduler>=3.11.0",
     "bilibili-api-python>=17.1.1",
     "colorlog>=6.9.0",
+    "fastapi>=0.116.0",
     "httpx>=0.28.1",
+    "opencc-python-reimplemented>=0.1.7",
     "psycopg[binary]>=3.2.10",
     "pycryptodome>=3.21.0",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
     "telethon>=1.41.2",
-    "tqdm>=4.67.1",
     "tenacity>=8.5.0",
-    "opencc-python-reimplemented>=0.1.7",
+    "tqdm>=4.67.1",
+    "uvicorn>=0.35.0",
 ]
 
 [tool.ruff]
@@ -43,6 +45,7 @@ line-ending = 'lf'
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.15.5",
 ]
 
 [tool.pytest.ini_options]

@@ -124,10 +124,7 @@ def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> 
 
     assert len(notifications) == 2
     assert {notification['payload']['bvid'] for notification in notifications} == {'BV1TEST1', 'BV1TEST2'}
-    assert {
-        notification['title']
-        for notification in notifications
-    } == {'Bilibili (fav): Title One', 'Bilibili (fav): Title Two'}
+    assert {notification['title'] for notification in notifications} == {'Bilibili (fav): Title One', 'Bilibili (fav): Title Two'}
     assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 2
 
 

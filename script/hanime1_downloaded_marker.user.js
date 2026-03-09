@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Hanime1 Downloaded Marker
 // @namespace    fav
-// @version      0.1.5
-// @description  Mark downloaded Hanime1 videos with data from a remote API.
+// @version      0.1.7
+// @description  Mark downloaded Hanime1 videos with data from the fav FastAPI backend.
 // @match        https://hanime1.me/*
 // @grant        GM_addStyle
 // @grant        GM_getValue
@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  const API_PATH = '/api/v1/runtime/hanime1/downloaded-ids';
+  const API_PATH = '/api/v2/hanime1/videos';
   const ANCHOR_SELECTOR = 'a[href*="/watch?v="]';
   const SYNC_INTERVAL_MS = 120_000;
   const OBSERVER_DEBOUNCE_MS = 300;
@@ -23,7 +23,8 @@
 
   const KEY_API_BASE_URL = 'hanime1_marker_api_base_url';
   const KEY_API_TOKEN = 'hanime1_marker_api_token';
-  const KEY_IDS_CACHE = 'hanime1_marker_ids_cache';
+  const KEY_VIDEOS_CACHE = 'hanime1_marker_videos_cache';
+  const KEY_LEGACY_IDS_CACHE = 'hanime1_marker_ids_cache';
   const KEY_ETAG = 'hanime1_marker_etag';
   const KEY_LAST_SUCCESS_AT = 'hanime1_marker_last_success_at';
 
@@ -32,7 +33,11 @@
   const LEGACY_HOST_CLASS = 'hanime1-marker-host';
   const BANNER_ID = 'hanime1-marker-stale-banner';
 
-  let downloadedIdSet = new Set(loadCachedIds().map((itemId) => normalizeId(itemId)));
+  let downloadedIdSet = new Set(
+    loadCachedVideos()
+      .filter((video) => video.downloaded)
+      .map((video) => normalizeId(video.video_id))
+  );
   let observer = null;
   let syncTimer = null;
   let syncInFlight = false;
@@ -77,17 +82,72 @@
     return typeof value === 'string' ? value : '';
   }
 
-  function loadCachedIds() {
-    const raw = getStoredString(KEY_IDS_CACHE);
+  function normalizeVideo(rawVideo) {
+    if (typeof rawVideo === 'string') {
+      const videoId = normalizeId(rawVideo);
+      if (!videoId) {
+        return null;
+      }
+      return {
+        video_id: videoId,
+        title: '',
+        downloaded: true,
+        uploader: null,
+        release_date: null,
+        plot: null,
+        watch_url: '',
+      };
+    }
+
+    if (!rawVideo || typeof rawVideo !== 'object') {
+      return null;
+    }
+
+    const videoId = normalizeId(rawVideo.video_id || rawVideo.id);
+    if (!videoId) {
+      return null;
+    }
+
+    return {
+      video_id: videoId,
+      title: typeof rawVideo.title === 'string' ? rawVideo.title : '',
+      downloaded: rawVideo.downloaded !== false,
+      uploader: typeof rawVideo.uploader === 'string' && rawVideo.uploader.trim() ? rawVideo.uploader : null,
+      release_date: typeof rawVideo.release_date === 'string' && rawVideo.release_date.trim() ? rawVideo.release_date : null,
+      plot: typeof rawVideo.plot === 'string' && rawVideo.plot.trim() ? rawVideo.plot : null,
+      watch_url: typeof rawVideo.watch_url === 'string' ? rawVideo.watch_url : '',
+    };
+  }
+
+  function normalizeVideos(rawVideos) {
+    if (!Array.isArray(rawVideos)) {
+      return [];
+    }
+
+    const output = [];
+    const seen = new Set();
+    for (const rawVideo of rawVideos) {
+      const video = normalizeVideo(rawVideo);
+      if (!video) {
+        continue;
+      }
+      if (seen.has(video.video_id)) {
+        continue;
+      }
+      seen.add(video.video_id);
+      output.push(video);
+    }
+    return output;
+  }
+
+  function loadCachedVideos() {
+    const raw = getStoredString(KEY_VIDEOS_CACHE) || getStoredString(KEY_LEGACY_IDS_CACHE);
     if (!raw) {
       return [];
     }
     try {
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed.filter((item) => typeof item === 'string');
+      return normalizeVideos(parsed);
     } catch (_error) {
       return [];
     }
@@ -137,24 +197,7 @@
     return '';
   }
 
-  function sanitizePayloadIds(rawIds) {
-    if (!Array.isArray(rawIds)) {
-      return [];
-    }
-    const output = [];
-    const seen = new Set();
-    for (const item of rawIds) {
-      const itemId = normalizeId(item);
-      if (!itemId || seen.has(itemId)) {
-        continue;
-      }
-      seen.add(itemId);
-      output.push(itemId);
-    }
-    return output;
-  }
-
-  function requestDownloadedIds({ apiBaseUrl, apiToken, etag }) {
+  function requestDownloadedVideos({ apiBaseUrl, apiToken, etag }) {
     return new Promise((resolve, reject) => {
       const headers = {
         Authorization: `Bearer ${apiToken}`,
@@ -191,7 +234,7 @@
           }
           resolve({
             status: 200,
-            ids: sanitizePayloadIds(payload.ids),
+            videos: normalizeVideos(payload.items || payload.ids),
             etag: nextEtag || '',
           });
         },
@@ -349,7 +392,7 @@
     syncInFlight = true;
     try {
       const currentEtag = getStoredString(KEY_ETAG);
-      const response = await requestDownloadedIds({
+      const response = await requestDownloadedVideos({
         apiBaseUrl: config.apiBaseUrl,
         apiToken: config.apiToken,
         etag: currentEtag,
@@ -360,9 +403,13 @@
         return;
       }
 
-      const ids = response.ids || [];
-      downloadedIdSet = new Set(ids);
-      GM_setValue(KEY_IDS_CACHE, JSON.stringify(ids));
+      const videos = response.videos || [];
+      downloadedIdSet = new Set(
+        videos
+          .filter((video) => video.downloaded)
+          .map((video) => normalizeId(video.video_id))
+      );
+      GM_setValue(KEY_VIDEOS_CACHE, JSON.stringify(videos));
       GM_setValue(KEY_ETAG, response.etag || '');
       GM_setValue(KEY_LAST_SUCCESS_AT, new Date().toISOString());
       clearStaleBanner();

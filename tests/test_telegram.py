@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import src.web.telegram as telegram_module
 from src.web.telegram import Telegram
 
+
 class _DummyClient:
     async def get_entity(self, _peer: object) -> SimpleNamespace:
         return SimpleNamespace(username='demo_channel')

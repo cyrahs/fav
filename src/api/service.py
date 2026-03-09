@@ -1,49 +1,26 @@
 from __future__ import annotations
 
-import json
-import logging
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import UTC, datetime
-from http import HTTPStatus
-from urllib.parse import parse_qs, urlsplit
 
+from src.core import logger
 from src.core.config import config as app_config
 from src.service.jobs import ScheduledJob, build_jobs
 from src.tool.control_queue import ControlRequest, create_control_request_sync, get_control_request_sync
 from src.tool.notifications import NotificationRecord, ack_notifications_sync, list_notifications_sync
 from src.tool.runtime_config import Hanime1RuntimeConfigService
 
-from .config import fetch_hanime1_downloaded_ids_from_db
-from .constants import (
-    _AUTH_PREFIX,
-    _CACHE_CONTROL,
-    _CONTENT_TYPE_JSON,
-    _ENDPOINT_CONTROL_JOBS,
-    _ENDPOINT_CONTROL_REQUESTS,
-    _ENDPOINT_HEALTH,
-    _ENDPOINT_NOTIFICATIONS,
-    _ENDPOINT_NOTIFICATIONS_ACK,
-    _HEADER_ALLOW,
-    _HEADER_AUTHORIZATION,
-    _HEADER_CACHE_CONTROL,
-    _HEADER_CONTENT_TYPE,
-    _HEADER_ETAG,
-    _HEADER_IF_NONE_MATCH,
-    _HEADER_WWW_AUTHENTICATE,
-)
-from .hanime1 import Hanime1ApiResource, Hanime1IdFetcher
-from .helpers import (
-    _header_value,
-    _serialize_control_request,
-    _serialize_notification,
-    _utc_now_iso_z,
-)
-from .models import ApiResponse
+from .config import fetch_hanime1_videos_from_db
+from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
+from .errors import ApiError
+from .helpers import serialize_control_request, serialize_job, serialize_notification, serialize_seed, utc_now_iso_z
+from .schemas import Hanime1Seed, Hanime1Video, HealthResponse, JobRequest, JobSummary, Notification
 
-log = logging.getLogger('fav-api')
+log = logger.get('fav-api')
 
 type DatetimeProvider = Callable[[], datetime]
+type Hanime1VideoFetcher = Callable[[str], list[dict[str, str | None]]]
 type JobProvider = Callable[[], list[ScheduledJob]]
 type ControlRequestCreator = Callable[[str, str], ControlRequest]
 type ControlRequestGetter = Callable[[int], ControlRequest | None]
@@ -52,12 +29,12 @@ type NotificationAcker = Callable[[list[int]], int]
 
 
 class FavApiService:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         dsn: str,
         token: str,
-        hanime1_fetcher: Hanime1IdFetcher | None = None,
+        hanime1_video_fetcher: Hanime1VideoFetcher | None = None,
         now_provider: DatetimeProvider | None = None,
         job_provider: JobProvider | None = None,
         control_request_creator: ControlRequestCreator | None = None,
@@ -68,7 +45,9 @@ class FavApiService:
     ) -> None:
         self._dsn = dsn
         self._token = token
-        self._hanime1_fetcher = hanime1_fetcher or fetch_hanime1_downloaded_ids_from_db
+        self._hanime1_video_fetcher = hanime1_video_fetcher or (
+            lambda dsn: fetch_hanime1_videos_from_db(dsn, host=app_config.web.hanime1.host)
+        )
         self._now_provider = now_provider or (lambda: datetime.now(UTC))
         self._job_provider = job_provider or build_jobs
         self._control_request_creator = control_request_creator or (
@@ -85,267 +64,148 @@ class FavApiService:
             user_lang=app_config.web.hanime1.user_lang,
             proxy=app_config.proxy or None,
         )
-        self._hanime1_api = Hanime1ApiResource(
-            dsn=self._dsn,
-            id_fetcher=self._hanime1_fetcher,
-            now_provider=self._now_provider,
-            runtime_service=self._runtime_service,
-            authenticate=self._authenticate,
-            decode_json_body=self._decode_json_body,
-            json_response=self._json_response,
-        )
-
-    @staticmethod
-    def _json_response(
-        *,
-        status: HTTPStatus,
-        payload: Mapping[str, object],
-        headers: Mapping[str, str] | None = None,
-    ) -> ApiResponse:
-        body = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
-        merged_headers = {
-            _HEADER_CONTENT_TYPE: _CONTENT_TYPE_JSON,
-            _HEADER_CACHE_CONTROL: _CACHE_CONTROL,
-        }
-        if headers:
-            merged_headers.update(headers)
-        return ApiResponse(status=status, headers=merged_headers, body=body)
 
     def close(self) -> None:
         close = getattr(self._runtime_service, 'close', None)
         if callable(close):
             close()
 
-    def _authenticate(self, headers: Mapping[str, str]) -> ApiResponse | None:
-        authorization = _header_value(headers, _HEADER_AUTHORIZATION)
+    def authenticate(self, authorization: str | None) -> None:
         if not authorization:
-            return self._json_response(
-                status=HTTPStatus.UNAUTHORIZED,
-                payload={'error': 'missing_authorization'},
-                headers={_HEADER_WWW_AUTHENTICATE: 'Bearer realm="fav-api"'},
+            raise ApiError(
+                status_code=401,
+                code='missing_authorization',
+                message='Authorization header is required.',
+                headers={'WWW-Authenticate': WWW_AUTHENTICATE_BEARER},
             )
-        if not authorization.startswith(_AUTH_PREFIX):
-            return self._json_response(
-                status=HTTPStatus.UNAUTHORIZED,
-                payload={'error': 'invalid_authorization_scheme'},
-                headers={_HEADER_WWW_AUTHENTICATE: 'Bearer realm="fav-api"'},
+        if not authorization.startswith(AUTH_PREFIX):
+            raise ApiError(
+                status_code=401,
+                code='invalid_authorization_scheme',
+                message='Authorization scheme must be Bearer.',
+                headers={'WWW-Authenticate': WWW_AUTHENTICATE_BEARER},
             )
-        provided_token = authorization[len(_AUTH_PREFIX) :].strip()
+        provided_token = authorization[len(AUTH_PREFIX) :].strip()
         if not provided_token:
-            return self._json_response(
-                status=HTTPStatus.UNAUTHORIZED,
-                payload={'error': 'missing_bearer_token'},
-                headers={_HEADER_WWW_AUTHENTICATE: 'Bearer realm="fav-api"'},
+            raise ApiError(
+                status_code=401,
+                code='missing_bearer_token',
+                message='Bearer token is required.',
+                headers={'WWW-Authenticate': WWW_AUTHENTICATE_BEARER},
             )
         if not secrets.compare_digest(provided_token, self._token):
-            return self._json_response(
-                status=HTTPStatus.FORBIDDEN,
-                payload={'error': 'invalid_token'},
+            raise ApiError(
+                status_code=403,
+                code='invalid_token',
+                message='Bearer token is invalid.',
             )
-        return None
 
-    def _decode_json_body(self, body: bytes | None) -> tuple[dict[str, object] | None, ApiResponse | None]:
-        if not body:
-            return None, self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'missing_json_body'})
-        try:
-            payload = json.loads(body.decode('utf-8'))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return None, self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_json'})
-        if not isinstance(payload, dict):
-            return None, self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_json'})
-        return payload, None
+    def get_health(self) -> dict[str, str]:
+        return {'status': 'ok', 'generated_at': utc_now_iso_z(self._now_provider)}
 
-    def _handle_health(self) -> ApiResponse:
-        return self._json_response(
-            status=HTTPStatus.OK,
-            payload={'status': 'ok', 'generated_at': _utc_now_iso_z(self._now_provider)},
-        )
+    def list_jobs(self) -> list[dict[str, str | bool]]:
+        return [serialize_job(job) for job in self._job_provider()]
 
-    def _handle_control_jobs(self, headers: Mapping[str, str]) -> ApiResponse:
-        auth_error = self._authenticate(headers)
-        if auth_error is not None:
-            return auth_error
-        jobs = [job.as_public_dict() for job in self._job_provider()]
-        return self._json_response(status=HTTPStatus.OK, payload={'jobs': jobs, 'count': len(jobs)})
-
-    def _handle_create_control_request(self, headers: Mapping[str, str], body: bytes | None) -> ApiResponse:
-        auth_error = self._authenticate(headers)
-        if auth_error is not None:
-            return auth_error
-
-        payload, error_response = self._decode_json_body(body)
-        if error_response is not None:
-            return error_response
-        assert payload is not None
-
-        kind = str(payload.get('kind') or '').strip()
-        target = str(payload.get('target') or '').strip().lower()
-        if not kind:
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'missing_kind'})
-        if kind != 'trigger_job':
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_kind'})
-        if not target:
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'missing_target'})
-
+    def create_job_request(self, target: str) -> dict[str, object]:
+        normalized_target = target.strip().lower()
         valid_targets = {job.key for job in self._job_provider()}
         valid_targets.add('all')
-        if target not in valid_targets:
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_target'})
+        if normalized_target not in valid_targets:
+            raise ApiError(
+                status_code=400,
+                code='invalid_target',
+                message='Unsupported job target.',
+                details={'allowed_values': sorted(valid_targets)},
+            )
 
         try:
-            request = self._control_request_creator(kind, target)
+            request = self._control_request_creator('trigger_job', normalized_target)
         except Exception:
-            log.exception('Failed to create control request kind=%s target=%s', kind, target)
-            return self._json_response(status=HTTPStatus.INTERNAL_SERVER_ERROR, payload={'error': 'internal_server_error'})
-        return self._json_response(status=HTTPStatus.ACCEPTED, payload=_serialize_control_request(request))
+            log.exception('Failed to create control request target=%s', normalized_target)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return serialize_control_request(request)
 
-    def _handle_get_control_request(self, headers: Mapping[str, str], request_id: str) -> ApiResponse:
-        auth_error = self._authenticate(headers)
-        if auth_error is not None:
-            return auth_error
-        if not request_id.isdecimal():
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_request_id'})
-
-        request = self._control_request_getter(int(request_id))
+    def get_job_request(self, request_id: int) -> dict[str, object]:
+        request = self._control_request_getter(request_id)
         if request is None:
-            return self._json_response(status=HTTPStatus.NOT_FOUND, payload={'error': 'not_found'})
-        return self._json_response(status=HTTPStatus.OK, payload=_serialize_control_request(request))
+            raise ApiError(status_code=404, code='not_found', message='Job request not found.')
+        return serialize_control_request(request)
 
-    def _handle_list_notifications(self, headers: Mapping[str, str], query_params: Mapping[str, list[str]]) -> ApiResponse:
-        auth_error = self._authenticate(headers)
-        if auth_error is not None:
-            return auth_error
-
-        status = str(query_params.get('status', ['unread'])[0] or 'unread').strip().lower()
-        if status not in {'unread', 'all'}:
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_status'})
-
-        raw_limit = str(query_params.get('limit', ['50'])[0] or '50').strip()
-        if not raw_limit.isdecimal():
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_limit'})
-        limit = int(raw_limit)
-        if not (0 < limit <= 200):
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_limit'})
-
-        after_id: int | None = None
-        raw_after_id = str(query_params.get('after_id', [''])[0] or '').strip()
-        if raw_after_id:
-            if not raw_after_id.isdecimal():
-                return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_after_id'})
-            after_id = int(raw_after_id)
-
+    def list_notifications(self, status: str, limit: int, after_id: int | None) -> list[dict[str, object]]:
         try:
             notifications = self._notification_lister(status, limit, after_id)
         except Exception:
             log.exception('Failed to list notifications')
-            return self._json_response(status=HTTPStatus.INTERNAL_SERVER_ERROR, payload={'error': 'internal_server_error'})
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return [serialize_notification(notification) for notification in notifications]
 
-        payload = [_serialize_notification(notification) for notification in notifications]
-        return self._json_response(status=HTTPStatus.OK, payload={'notifications': payload, 'count': len(payload)})
-
-    def _handle_ack_notifications(self, headers: Mapping[str, str], body: bytes | None) -> ApiResponse:
-        auth_error = self._authenticate(headers)
-        if auth_error is not None:
-            return auth_error
-
-        payload, error_response = self._decode_json_body(body)
-        if error_response is not None:
-            return error_response
-        assert payload is not None
-
-        ids = payload.get('ids')
-        if not isinstance(ids, list):
-            return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_ids'})
-
+    def ack_notifications(self, ids: list[int]) -> int:
         normalized_ids: list[int] = []
         seen_ids: set[int] = set()
-        for raw_id in ids:
-            if isinstance(raw_id, bool) or not isinstance(raw_id, int) or raw_id <= 0:
-                return self._json_response(status=HTTPStatus.BAD_REQUEST, payload={'error': 'invalid_ids'})
-            if raw_id in seen_ids:
+        for notification_id in ids:
+            if notification_id in seen_ids:
                 continue
-            seen_ids.add(raw_id)
-            normalized_ids.append(raw_id)
-
+            seen_ids.add(notification_id)
+            normalized_ids.append(notification_id)
         try:
-            updated = self._notification_acker(normalized_ids)
+            return self._notification_acker(normalized_ids)
         except Exception:
             log.exception('Failed to ack notifications')
-            return self._json_response(status=HTTPStatus.INTERNAL_SERVER_ERROR, payload={'error': 'internal_server_error'})
-        return self._json_response(status=HTTPStatus.OK, payload={'updated': updated})
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
-    def handle_request(
-        self,
-        *,
-        method: str,
-        path: str,
-        headers: Mapping[str, str],
-        body: bytes | None = None,
-    ) -> ApiResponse:
-        request_parts = urlsplit(path)
-        request_path = request_parts.path.rstrip('/') or '/'
-        query_params = parse_qs(request_parts.query, keep_blank_values=True)
+    def list_hanime1_seeds(self) -> list[dict[str, str]]:
+        return [serialize_seed(seed) for seed in self._runtime_service.list_seeds()]
 
-        if request_path == _ENDPOINT_HEALTH:
-            if method != 'GET':
-                return self._json_response(
-                    status=HTTPStatus.METHOD_NOT_ALLOWED,
-                    payload={'error': 'method_not_allowed'},
-                    headers={_HEADER_ALLOW: 'GET'},
-                )
-            return self._handle_health()
+    def list_hanime1_videos(self) -> list[dict[str, str | None]]:
+        try:
+            return self._hanime1_video_fetcher(self._dsn)
+        except Exception:
+            log.exception('Failed to list Hanime1 videos')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
-        hanime1_response = self._hanime1_api.handle_request(method=method, path=request_path, headers=headers, body=body)
-        if hanime1_response is not None:
-            return hanime1_response
+    def add_hanime1_seed(self, seed: str) -> dict[str, str]:
+        try:
+            created_seed = self._runtime_service.add_seed(seed)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_seed', message='Seed format is invalid.') from None
+        except FileExistsError:
+            raise ApiError(status_code=409, code='duplicate_seed', message='Hanime1 seed already exists.') from None
+        except LookupError:
+            raise ApiError(status_code=422, code='seed_resolve_failed', message='Unable to resolve Hanime1 seed.') from None
+        except Exception:
+            log.exception('Failed to add Hanime1 runtime seed')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return serialize_seed(created_seed)
 
-        if request_path == _ENDPOINT_CONTROL_JOBS:
-            if method != 'GET':
-                return self._json_response(
-                    status=HTTPStatus.METHOD_NOT_ALLOWED,
-                    payload={'error': 'method_not_allowed'},
-                    headers={_HEADER_ALLOW: 'GET'},
-                )
-            return self._handle_control_jobs(headers)
+    def delete_hanime1_seed(self, video_id: str) -> None:
+        try:
+            removed_seed = self._runtime_service.delete_seed(video_id)
+        except Exception:
+            log.exception('Failed to delete Hanime1 runtime seed %s', video_id)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        if removed_seed is None:
+            raise ApiError(status_code=404, code='not_found', message='Hanime1 seed not found.')
 
-        if request_path == _ENDPOINT_CONTROL_REQUESTS:
-            if method != 'POST':
-                return self._json_response(
-                    status=HTTPStatus.METHOD_NOT_ALLOWED,
-                    payload={'error': 'method_not_allowed'},
-                    headers={_HEADER_ALLOW: 'POST'},
-                )
-            return self._handle_create_control_request(headers, body)
+    @staticmethod
+    def model_health(payload: dict[str, str]) -> HealthResponse:
+        return HealthResponse.model_validate(payload)
 
-        if request_path.startswith(f'{_ENDPOINT_CONTROL_REQUESTS}/'):
-            if method != 'GET':
-                return self._json_response(
-                    status=HTTPStatus.METHOD_NOT_ALLOWED,
-                    payload={'error': 'method_not_allowed'},
-                    headers={_HEADER_ALLOW: 'GET'},
-                )
-            request_id = request_path.removeprefix(f'{_ENDPOINT_CONTROL_REQUESTS}/')
-            return self._handle_get_control_request(headers, request_id)
+    @staticmethod
+    def model_job(payload: dict[str, str | bool]) -> JobSummary:
+        return JobSummary.model_validate(payload)
 
-        if request_path == _ENDPOINT_NOTIFICATIONS:
-            if method != 'GET':
-                return self._json_response(
-                    status=HTTPStatus.METHOD_NOT_ALLOWED,
-                    payload={'error': 'method_not_allowed'},
-                    headers={_HEADER_ALLOW: 'GET'},
-                )
-            return self._handle_list_notifications(headers, query_params)
+    @staticmethod
+    def model_job_request(payload: dict[str, object]) -> JobRequest:
+        return JobRequest.model_validate(payload)
 
-        if request_path == _ENDPOINT_NOTIFICATIONS_ACK:
-            if method != 'POST':
-                return self._json_response(
-                    status=HTTPStatus.METHOD_NOT_ALLOWED,
-                    payload={'error': 'method_not_allowed'},
-                    headers={_HEADER_ALLOW: 'POST'},
-                )
-            return self._handle_ack_notifications(headers, body)
+    @staticmethod
+    def model_notification(payload: dict[str, object]) -> Notification:
+        return Notification.model_validate(payload)
 
-        return self._json_response(
-            status=HTTPStatus.NOT_FOUND,
-            payload={'error': 'not_found'},
-        )
+    @staticmethod
+    def model_hanime1_seed(payload: dict[str, str]) -> Hanime1Seed:
+        return Hanime1Seed.model_validate(payload)
+
+    @staticmethod
+    def model_hanime1_video(payload: dict[str, str | None]) -> Hanime1Video:
+        return Hanime1Video.model_validate(payload)

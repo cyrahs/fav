@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-import logging
-from http.server import ThreadingHTTPServer
+import uvicorn
 
+from src.core import logger
 from src.core.config import config as app_config
 
-from .config import fetch_hanime1_downloaded_ids_from_db, load_config_from_settings as _load_config_from_settings
-from .http import FavApiRequestHandler, build_handler
-from .models import ApiConfig, ApiResponse
+from .app import create_app
+from .config import (
+    fetch_hanime1_downloaded_ids_from_db,
+    fetch_hanime1_videos_from_db,
+)
+from .config import (
+    load_config_from_settings as _load_config_from_settings,
+)
+from .models import ApiConfig
 from .service import FavApiService
 
-log = logging.getLogger('fav-api')
+log = logger.get('fav-api')
 
 
 def load_config_from_settings() -> ApiConfig:
@@ -18,28 +24,18 @@ def load_config_from_settings() -> ApiConfig:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
     config = load_config_from_settings()
-    service = FavApiService(dsn=config.dsn, token=config.token)
-    server = ThreadingHTTPServer((config.bind, config.port), build_handler(service))
     log.info('Starting fav API on %s:%d', config.bind, config.port)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        log.info('Stopping fav API')
-    finally:
-        server.server_close()
-        service.close()
+    uvicorn.run(create_app(config=config), host=config.bind, port=config.port, log_level='info')
 
 
 __all__ = [
     'ApiConfig',
-    'ApiResponse',
-    'FavApiRequestHandler',
     'FavApiService',
     'app_config',
-    'build_handler',
+    'create_app',
     'fetch_hanime1_downloaded_ids_from_db',
+    'fetch_hanime1_videos_from_db',
     'load_config_from_settings',
     'main',
 ]
