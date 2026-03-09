@@ -124,6 +124,7 @@ class NotificationRecord:
     def webhook_payload(self) -> dict[str, Any]:
         return {
             'markdown': self.markdown,
+            'image_url': self.image_url,
             'disable_web_page_preview': self.disable_web_page_preview,
             'disable_notification': self.disable_notification,
         }

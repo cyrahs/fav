@@ -141,6 +141,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
     assert created.payload_json == {'message_id': 456}
     assert created.webhook_payload == {
         'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
+        'image_url': '',
         'disable_web_page_preview': False,
         'disable_notification': False,
     }
