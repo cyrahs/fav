@@ -158,15 +158,16 @@ def _notification_delivery_fields(
     parts: list[str] = []
     normalized_title = title.strip()
     normalized_body = body.strip()
+    normalized_preview_url = preview_url.strip()
 
     if normalized_title:
         parts.append(f'*{_escape_markdown_v2(normalized_title)}*')
     if normalized_body:
         parts.append(_escape_markdown_v2(normalized_body))
-    if preview_url:
-        parts.append(preview_url)
+    if normalized_preview_url:
+        parts.append(_escape_markdown_v2(normalized_preview_url))
 
-    return '\n'.join(parts), not bool(preview_url), kind != 'job_failed'
+    return '\n'.join(parts), not bool(normalized_preview_url), kind != 'job_failed'
 
 
 def _from_row(row: Mapping[str, Any]) -> NotificationRecord:

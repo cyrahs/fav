@@ -109,7 +109,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
                 'image_url': '',
                 'payload': '{"message_id":456}',
                 'status': 'unread',
-                'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example.com/watch?v=1',
+                'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
                 'disable_web_page_preview': False,
                 'disable_notification': False,
                 'delivery_status': 'pending',
@@ -140,7 +140,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
     assert created.notification_id == 7
     assert created.payload_json == {'message_id': 456}
     assert created.webhook_payload == {
-        'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example.com/watch?v=1',
+        'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
         'disable_web_page_preview': False,
         'disable_notification': False,
     }
@@ -153,7 +153,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
         '',
         '{"message_id":456}',
         'unread',
-        '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example.com/watch?v=1',
+        '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
         False,
         False,
         'pending',
@@ -222,7 +222,7 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
                 'status': 'unread',
                 'created_at': _NOW,
                 'read_at': None,
-                'markdown': '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example.com/video',
+                'markdown': '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example\\.com/video',
                 'disable_web_page_preview': False,
                 'disable_notification': True,
                 'delivery_status': 'sending',
@@ -248,11 +248,11 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
     assert claimed is not None
     assert claimed.notification_id == 10
     assert claimed.delivery_status == DELIVERY_SENDING
-    assert claimed.markdown == '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example.com/video'
+    assert claimed.markdown == '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example\\.com/video'
     assert 'FOR UPDATE SKIP LOCKED' in cursor.executed[0][0]
     assert cursor.executed[1][1] == (
         DELIVERY_SENDING,
-        '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example.com/video',
+        '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example\\.com/video',
         False,
         True,
         10,
