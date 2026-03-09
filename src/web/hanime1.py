@@ -70,6 +70,11 @@ _SEARCH_ALLOWED_GENRES = (
     ('裏番', '里番'),
     ('泡麵番', '泡面番'),
 )
+_IGNORED_TITLE_MARKERS = (
+    '[新番预告]',
+    '[中字后补]',
+)
+_FILE_SIZE_UNIT = 1024
 _K_LABEL_TO_P = {
     2: 1440,
     4: 2160,
@@ -83,6 +88,17 @@ _T2S_CONVERTER = OpenCC('t2s')
 
 class DownloadError(RuntimeError):
     """Raised when a download fails after retries."""
+
+
+class IgnoredVideoError(RuntimeError):
+    """Raised when a Hanime1 item is intentionally skipped."""
+
+    def __init__(self, item_id: str, *, marker: str, title: str, source: str) -> None:
+        super().__init__(f'Skipping Hanime1 item {item_id} because {source} title contains ignored marker {marker}: {title}')
+        self.item_id = item_id
+        self.marker = marker
+        self.title = title
+        self.source = source
 
 
 @dataclass(slots=True)
@@ -255,14 +271,14 @@ class Hanime1:
     def _format_file_size(size_bytes: int | None) -> str | None:
         if size_bytes is None or size_bytes < 0:
             return None
-        if size_bytes < 1024:
+        if size_bytes < _FILE_SIZE_UNIT:
             return f'{size_bytes} B'
 
         size = float(size_bytes)
         units = ('KB', 'MB', 'GB', 'TB')
         for unit in units:
-            size /= 1024
-            if size < 1024 or unit == units[-1]:
+            size /= _FILE_SIZE_UNIT
+            if size < _FILE_SIZE_UNIT or unit == units[-1]:
                 return f'{size:.1f} {unit}'
         return None
 
@@ -435,6 +451,23 @@ class Hanime1:
         if not decoded:
             return None
         return Hanime1._to_simplified_chinese(decoded)
+
+    @staticmethod
+    def _ignored_title_marker(title: str | None) -> str | None:
+        normalized = Hanime1._to_simplified_chinese(title)
+        if not normalized:
+            return None
+        for marker in _IGNORED_TITLE_MARKERS:
+            if marker in normalized:
+                return marker
+        return None
+
+    def _raise_if_ignored_title(self, *, item_id: str, title: str | None, source: str) -> None:
+        marker = self._ignored_title_marker(title)
+        if marker is None:
+            return
+        normalized = self._to_simplified_chinese(title) or title or item_id
+        raise IgnoredVideoError(item_id=item_id, marker=marker, title=normalized, source=source)
 
     @staticmethod
     def _extract_release_date_from_watch_html(page_html: str) -> str | None:
@@ -861,6 +894,7 @@ class Hanime1:
 
     @staticmethod
     def _normalize_runtime_video_id(raw: Any) -> str | None:
+        text: str | None = None
         if isinstance(raw, bool):
             return None
         if isinstance(raw, int):
@@ -869,12 +903,11 @@ class Hanime1:
             text = str(raw).strip()
         elif isinstance(raw, str):
             text = raw.strip()
-            if not text:
-                return None
-            text = Hanime1._extract_video_code(text) or text
-        else:
-            return None
+            if text:
+                text = Hanime1._extract_video_code(text) or text
 
+        if not text:
+            return None
         normalized = sanitize(text, max_bytes=80)
         if not normalized or not normalized.isdecimal():
             return None
@@ -962,17 +995,35 @@ class Hanime1:
         for key, (video_id, source_name) in candidate_map.items():
             if key in seen_ids:
                 continue
-            seen_ids.add(key)
-            records.append(
-                HanimeRecord(
-                    id=video_id,
-                    title='',
-                    keyword=source_name,
-                    uploader=None,
-                    page_url=f'{cfg.host.rstrip("/")}/watch?v={video_id}',
-                    stream_url=None,
-                ),
+            item = HanimeRecord(
+                id=video_id,
+                title='',
+                keyword=source_name,
+                uploader=None,
+                page_url=f'{cfg.host.rstrip("/")}/watch?v={video_id}',
+                stream_url=None,
             )
+            try:
+                watch_metadata = await self.resolve_metadata_from_watch_page(item)
+            except Exception as exc:  # noqa: BLE001
+                log.debug('Failed to resolve Hanime1 watch metadata for discovery item %s: %s', video_id, exc)
+                watch_metadata = WatchMetadata()
+
+            marker = self._ignored_title_marker(watch_metadata.title)
+            if marker is not None:
+                normalized_title = self._to_simplified_chinese(watch_metadata.title) or watch_metadata.title or video_id
+                log.info(
+                    'Skipping Hanime1 discovery item %s because watch title contains ignored marker %s: %s',
+                    video_id,
+                    marker,
+                    normalized_title,
+                )
+                continue
+
+            seen_ids.add(key)
+            if watch_metadata.title:
+                item.title = watch_metadata.title
+            records.append(item)
         log.info('Hanime1 discovery path watch-series(ids) produced %d new videos', len(records))
         return records
 
@@ -982,6 +1033,7 @@ class Hanime1:
         uploader = self._to_simplified_chinese(item.uploader)
         watch_metadata = WatchMetadata()
         stream_url = item.stream_url
+        self._raise_if_ignored_title(item_id=item_id, title=item.title, source='item')
         if not stream_url:
             try:
                 stream_url, parsed_title = await self.resolve_stream_from_download_page(item)
@@ -991,12 +1043,14 @@ class Hanime1:
                     msg = f'Item {item_id} has neither valid download page nor page_url'
                     raise ValueError(msg) from exc
                 stream_url, parsed_title = await self.resolve_stream_from_page(item.page_url)
+            self._raise_if_ignored_title(item_id=item_id, title=parsed_title, source='page')
             if parsed_title:
                 title = parsed_title
         try:
             watch_metadata = await self.resolve_metadata_from_watch_page(item)
         except Exception as exc:  # noqa: BLE001
             log.debug('Failed to resolve watch metadata for %s: %s', item_id, exc)
+        self._raise_if_ignored_title(item_id=item_id, title=watch_metadata.title, source='watch metadata')
         if watch_metadata.title:
             title = watch_metadata.title
         if not uploader and watch_metadata.uploader:
@@ -1081,6 +1135,9 @@ class Hanime1:
             log.info('Downloading Hanime1 %s (%d/%d)', item.id, idx, total)
             try:
                 result = await self.download_item(item)
+            except IgnoredVideoError as exc:
+                log.info(str(exc))
+                continue
             except Exception:
                 log.exception('Failed to download Hanime1 item %s', item.id)
                 continue
