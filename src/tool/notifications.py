@@ -43,6 +43,7 @@ _SELECT_FIELDS = """
     markdown,
     disable_web_page_preview,
     disable_notification,
+    pin,
     delivery_status,
     attempt_count,
     next_attempt_at,
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     markdown TEXT NOT NULL DEFAULT '',
     disable_web_page_preview BOOLEAN NOT NULL DEFAULT TRUE,
     disable_notification BOOLEAN NOT NULL DEFAULT TRUE,
+    pin BOOLEAN NOT NULL DEFAULT FALSE,
     delivery_status TEXT NOT NULL DEFAULT 'pending',
     attempt_count INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -76,6 +78,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS markdown TEXT NOT NULL DEFAULT '';
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS disable_web_page_preview BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS disable_notification BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS pin BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS delivery_status TEXT NOT NULL DEFAULT 'pending';
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
@@ -111,6 +114,7 @@ class NotificationRecord:
     read_at: datetime | None = None
     delivered_at: datetime | None = None
     last_error: str = ''
+    pin: bool = False
 
     @property
     def payload_json(self) -> dict[str, Any]:
@@ -127,6 +131,7 @@ class NotificationRecord:
             'image_url': self.image_url,
             'disable_web_page_preview': self.disable_web_page_preview,
             'disable_notification': self.disable_notification,
+            'pin': self.pin,
         }
 
 
@@ -154,12 +159,13 @@ def _notification_delivery_fields(
     body: str,
     link_url: str,
     image_url: str,
-) -> tuple[str, bool, bool]:
+) -> tuple[str, bool, bool, bool]:
     preview_url = link_url.strip() or image_url.strip()
     parts: list[str] = []
     normalized_title = title.strip()
     normalized_body = body.strip()
     normalized_preview_url = preview_url.strip()
+    is_job_failed = kind == 'job_failed'
 
     if normalized_title:
         parts.append(f'*{_escape_markdown_v2(normalized_title)}*')
@@ -168,7 +174,7 @@ def _notification_delivery_fields(
     if normalized_preview_url:
         parts.append(_escape_markdown_v2(normalized_preview_url))
 
-    return '\n'.join(parts), not bool(normalized_preview_url), kind != 'job_failed'
+    return '\n'.join(parts), not bool(normalized_preview_url), not is_job_failed, is_job_failed
 
 
 def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
@@ -185,6 +191,7 @@ def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
         markdown=str(row.get('markdown') or ''),
         disable_web_page_preview=bool(row.get('disable_web_page_preview', True)),
         disable_notification=bool(row.get('disable_notification', True)),
+        pin=bool(row.get('pin', False)),
         delivery_status=str(row.get('delivery_status') or DELIVERY_PENDING),
         attempt_count=int(row.get('attempt_count') or 0),
         next_attempt_at=row['next_attempt_at'],
@@ -219,7 +226,7 @@ async def enqueue_notification(
 ) -> NotificationRecord:
     await ensure_notifications_table()
     payload_text = json.dumps(payload or {}, ensure_ascii=False, separators=(',', ':'))
-    markdown, disable_web_page_preview, disable_notification = _notification_delivery_fields(
+    markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
         kind=kind,
         title=title,
         body=body,
@@ -240,12 +247,13 @@ async def enqueue_notification(
             markdown,
             disable_web_page_preview,
             disable_notification,
+            pin,
             delivery_status,
             attempt_count,
             next_attempt_at,
             last_error
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
         RETURNING {_SELECT_FIELDS};
         """,
         (
@@ -260,6 +268,7 @@ async def enqueue_notification(
             markdown,
             disable_web_page_preview,
             disable_notification,
+            pin,
             DELIVERY_PENDING,
             0,
             '',
@@ -296,7 +305,7 @@ async def claim_next_pending_notification() -> NotificationRecord | None:
             return None
 
         notification = _from_row(row)
-        markdown, disable_web_page_preview, disable_notification = _notification_delivery_fields(
+        markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
             kind=notification.kind,
             title=notification.title,
             body=notification.body,
@@ -310,7 +319,8 @@ async def claim_next_pending_notification() -> NotificationRecord | None:
             SET delivery_status = %s,
                 markdown = %s,
                 disable_web_page_preview = %s,
-                disable_notification = %s
+                disable_notification = %s,
+                pin = %s
             WHERE id = %s
             RETURNING {_SELECT_FIELDS};
             """,
@@ -319,6 +329,7 @@ async def claim_next_pending_notification() -> NotificationRecord | None:
                 markdown,
                 disable_web_page_preview,
                 disable_notification,
+                pin,
                 notification.notification_id,
             ),
         )

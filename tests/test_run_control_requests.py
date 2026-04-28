@@ -51,6 +51,7 @@ def _notification(*, notification_id: int = 7, attempt_count: int = 0) -> Notifi
         markdown='*Job failed: Bilibili*\nRuntimeError: boom',
         disable_web_page_preview=True,
         disable_notification=False,
+        pin=True,
         delivery_status='sending',
         attempt_count=attempt_count,
         next_attempt_at=now,
@@ -181,6 +182,7 @@ def test_load_notification_webhook_config_requires_values(monkeypatch) -> None:
 
 def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
     delivered: list[int] = []
+    posted_payloads: list[dict[str, object]] = []
 
     async def _fake_claim() -> NotificationRecord | None:
         return _notification()
@@ -189,7 +191,8 @@ def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
         delivered.append(notification_id)
 
     class _FakeClient:
-        async def post(self, *_args, **_kwargs):
+        async def post(self, *_args, **kwargs):
+            posted_payloads.append(kwargs['json'])
             return SimpleNamespace(status_code=204, text='')
 
     monkeypatch.setattr(run_module, 'claim_next_pending_notification', _fake_claim)
@@ -207,6 +210,7 @@ def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
 
     assert processed is True
     assert delivered == [7]
+    assert posted_payloads[0]['pin'] is True
 
 
 def test_deliver_next_notification_retries_request_error(monkeypatch) -> None:

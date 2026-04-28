@@ -84,6 +84,7 @@ def test_ensure_notifications_table_runs_schema_migration(monkeypatch) -> None:
     asyncio.run(ensure_notifications_table())
 
     assert len(captured) == 1
+    assert 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS pin BOOLEAN NOT NULL DEFAULT FALSE' in captured[0]
     assert "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS delivery_status TEXT NOT NULL DEFAULT 'pending'" in captured[0]
     assert "WHERE status = 'read'" in captured[0]
 
@@ -112,6 +113,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
                 'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
                 'disable_web_page_preview': False,
                 'disable_notification': False,
+                'pin': True,
                 'delivery_status': 'pending',
                 'attempt_count': 0,
                 'next_attempt_at': _NOW,
@@ -144,6 +146,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
         'image_url': '',
         'disable_web_page_preview': False,
         'disable_notification': False,
+        'pin': True,
     }
     assert captured['params'] == (
         'job_failed',
@@ -157,6 +160,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
         '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
         False,
         False,
+        True,
         'pending',
         0,
         '',
@@ -205,6 +209,7 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
                 'markdown': '',
                 'disable_web_page_preview': True,
                 'disable_notification': True,
+                'pin': False,
                 'delivery_status': 'pending',
                 'attempt_count': 0,
                 'next_attempt_at': _NOW,
@@ -226,6 +231,7 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
                 'markdown': '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example\\.com/video',
                 'disable_web_page_preview': False,
                 'disable_notification': True,
+                'pin': False,
                 'delivery_status': 'sending',
                 'attempt_count': 0,
                 'next_attempt_at': _NOW,
@@ -256,6 +262,7 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
         '*Video \\[01\\]*\nUploader\\_\\(name\\)\nhttps://example\\.com/video',
         False,
         True,
+        False,
         10,
     )
 
