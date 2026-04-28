@@ -66,6 +66,18 @@ webhook_token = "replace-with-webhook-bearer-token"
 uv run python -m src.api
 ```
 
+## Hanime1 Ranking Discovery
+
+Hanime1 can auto-add series targets from the configured weekly and monthly adult anime ranking pages before each downloader run.
+This is disabled by default and starts with the first ranking page.
+
+```toml
+[web.hanime1.ranking]
+enabled = true
+periods = ["weekly", "monthly"]
+pages = 1
+```
+
 ### Container startup
 
 Docker image default command starts both:

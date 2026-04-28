@@ -27,7 +27,7 @@ from src.core import config, logger
 from src.tool import database, ensure_unique_path, format_video_filename, sanitize
 from src.tool.hanime1_series import ensure_hanime1_series_tables
 from src.tool.notifications import enqueue_notification
-from src.tool.runtime_config import RuntimeSeriesSeed, parse_runtime_series_seed
+from src.tool.runtime_config import RuntimeSeriesSeed, parse_runtime_series_seed, select_hanime1_canonical_id
 
 log = logger.get('hanime1')
 cfg = config.web.hanime1
@@ -66,6 +66,11 @@ _SEARCH_ALLOWED_GENRES = (
     ('裏番', '里番'),
     ('泡麵番', '泡面番'),
 )
+_RANKING_GENRE = '裏番'
+_RANKING_SORT_BY_PERIOD = {
+    'weekly': '本週排行',
+    'monthly': '本月排行',
+}
 _IGNORED_TITLE_MARKERS = (
     '[新番预告]',
     '[中字后补]',
@@ -710,6 +715,29 @@ class Hanime1:
 
         return collected_ids
 
+    @staticmethod
+    def _build_ranking_page_url(*, period: str, page: int) -> str:
+        sort_value = _RANKING_SORT_BY_PERIOD.get(period)
+        if sort_value is None:
+            msg = f'Unsupported Hanime1 ranking period: {period}'
+            raise ValueError(msg)
+
+        params = f'genre={quote_plus(_RANKING_GENRE)}&sort={quote_plus(sort_value)}'
+        if page > 1:
+            params = f'{params}&page={page}'
+        return f'{cfg.host.rstrip("/")}/search?{params}'
+
+    async def fetch_ranking_video_ids(self, *, period: str, page: int = 1) -> list[str]:
+        ranking_url = self._build_ranking_page_url(period=period, page=page)
+        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
+        res = await self.client.get(ranking_url, headers=headers)
+        res.raise_for_status()
+        page_html = res.text
+        if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
+            msg = f'Blocked by Cloudflare while fetching Hanime1 ranking page: {ranking_url}'
+            raise ValueError(msg)
+        return self.extract_search_video_ids(page_html)
+
     async def resolve_metadata_from_watch_page(self, item: HanimeRecord) -> WatchMetadata:
         page_html = await self._request_watch_page_html(item)
         return self.extract_watch_metadata(page_html)
@@ -871,6 +899,148 @@ class Hanime1:
                 continue
             seeds.append(RuntimeSeriesSeed(video_id=video_id, title=title))
         return seeds
+
+    async def _collect_ranking_video_ids(self) -> list[str]:
+        ranking_cfg = cfg.ranking
+        collected_ids: list[str] = []
+        seen_ids: set[str] = set()
+
+        for period in ranking_cfg.periods:
+            for page in range(1, ranking_cfg.pages + 1):
+                try:
+                    ranking_ids = await self.fetch_ranking_video_ids(period=period, page=page)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning('Failed to fetch Hanime1 %s ranking page %d: %s', period, page, exc)
+                    continue
+
+                log.info('Hanime1 %s ranking page %d returned %d videos', period, page, len(ranking_ids))
+                for video_id in ranking_ids:
+                    key = video_id.casefold()
+                    if key in seen_ids:
+                        continue
+                    seen_ids.add(key)
+                    collected_ids.append(video_id)
+
+        return collected_ids
+
+    async def _get_known_series_video_ids(self, video_ids: list[str]) -> set[str]:
+        if not video_ids:
+            return set()
+
+        rows = await database.query_db(
+            """
+            SELECT video_id
+            FROM hanime1_series_video
+            WHERE video_id = ANY(?);
+            """,
+            (video_ids,),
+        )
+        known_ids: set[str] = set()
+        for row in rows:
+            video_id = str(row.get('video_id') or '').strip()
+            if not video_id:
+                continue
+            known_ids.add(video_id.casefold())
+        return known_ids
+
+    @staticmethod
+    def _series_member_ids_from_watch_series(*, seed_video_id: str, series: WatchSeries) -> list[str]:
+        member_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for raw_id in (seed_video_id, *series.video_ids):
+            video_id = Hanime1._normalize_runtime_video_id(raw_id)
+            if video_id is None:
+                continue
+            key = video_id.casefold()
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            member_ids.append(video_id)
+        return member_ids
+
+    async def _insert_ranking_series_seed(
+        self,
+        *,
+        added_from_video_id: str,
+        series: WatchSeries,
+    ) -> tuple[RuntimeSeriesSeed | None, list[str]]:
+        member_ids = self._series_member_ids_from_watch_series(seed_video_id=added_from_video_id, series=series)
+        canonical_id = select_hanime1_canonical_id(member_ids)
+        title = self._to_simplified_chinese(series.name) or series.name
+        if canonical_id is None or not title:
+            return None, member_ids
+
+        known_member_ids = await self._get_known_series_video_ids(member_ids)
+        if known_member_ids:
+            return None, member_ids
+
+        seed = RuntimeSeriesSeed(video_id=canonical_id, title=title)
+        await database.query_db(
+            """
+            INSERT INTO hanime1_series (canonical_video_id, title, added_from_video_id)
+            VALUES (?, ?, ?)
+            ON CONFLICT (canonical_video_id) DO NOTHING;
+            """,
+            (seed.video_id, seed.title, added_from_video_id),
+        )
+        await self._upsert_series_members(canonical_video_id=seed.video_id, member_ids=member_ids)
+        return seed, member_ids
+
+    async def discover_ranking_series(self) -> list[RuntimeSeriesSeed]:
+        if not cfg.ranking.enabled:
+            return []
+
+        ranking_video_ids = await self._collect_ranking_video_ids()
+        if not ranking_video_ids:
+            log.info('Hanime1 ranking discovery found no ranking videos')
+            return []
+
+        known_video_ids = await self._get_known_series_video_ids(ranking_video_ids)
+        added_seeds: list[RuntimeSeriesSeed] = []
+        skipped_known_count = 0
+
+        for video_id in ranking_video_ids:
+            if video_id.casefold() in known_video_ids:
+                skipped_known_count += 1
+                continue
+
+            item = HanimeRecord(
+                id=video_id,
+                title='',
+                page_url=f'{cfg.host.rstrip("/")}/watch?v={video_id}',
+                stream_url=None,
+            )
+            try:
+                series = await self.resolve_series_from_watch_page(item)
+                if series is None or not series.name:
+                    log.warning('Hanime1 ranking video %s did not expose a resolvable watch series', video_id)
+                    continue
+
+                seed, member_ids = await self._insert_ranking_series_seed(added_from_video_id=video_id, series=series)
+            except Exception:
+                log.exception('Failed to add Hanime1 ranking video %s as a series target', video_id)
+                continue
+
+            known_video_ids.update(member_id.casefold() for member_id in member_ids)
+            if seed is None:
+                skipped_known_count += 1
+                continue
+
+            added_seeds.append(seed)
+            log.info(
+                'Added Hanime1 ranking series target %s from ranking video %s: %s',
+                seed.video_id,
+                video_id,
+                seed.title,
+            )
+
+        log.info(
+            'Hanime1 ranking discovery added %d new series from %d ranking videos (%d already known)',
+            len(added_seeds),
+            len(ranking_video_ids),
+            skipped_known_count,
+        )
+        return added_seeds
 
     @staticmethod
     def _format_scan_error(exc: Exception) -> str:
@@ -1114,6 +1284,7 @@ class Hanime1:
     async def update(self) -> None:
         await self._ensure_table()
         log.debug('hanime1 table initialized')
+        await self.discover_ranking_series()
 
         items = await self.get_items()
         if not items:

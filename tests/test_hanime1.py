@@ -209,6 +209,129 @@ def test_search_video_ids_returns_partial_results_when_a_genre_fails(tmp_path, m
     assert ids == ['20001']
 
 
+def test_build_ranking_page_url_uses_traditional_query_values() -> None:
+    weekly_url = Hanime1._build_ranking_page_url(period='weekly', page=1)
+    weekly_query = parse_qs(urlsplit(weekly_url).query)
+
+    assert weekly_url.startswith(f'{hanime1_module.cfg.host.rstrip("/")}/search?')
+    assert weekly_query == {
+        'genre': ['裏番'],
+        'sort': ['本週排行'],
+    }
+
+    monthly_url = Hanime1._build_ranking_page_url(period='monthly', page=2)
+    monthly_query = parse_qs(urlsplit(monthly_url).query)
+
+    assert monthly_query == {
+        'genre': ['裏番'],
+        'sort': ['本月排行'],
+        'page': ['2'],
+    }
+
+
+def test_fetch_ranking_video_ids_reads_search_page(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: 'user_lang=zhs')
+
+    class _Response:
+        text = """
+        <a href="https://hanime1.me/watch?v=10001">a</a>
+        <a href="/watch?v=10002">b</a>
+        <a href="/watch?v=10001">dup</a>
+        """
+
+        def raise_for_status(self) -> None:
+            return None
+
+    calls: list[str] = []
+
+    class _Client:
+        async def get(self, url: str, *, headers: dict[str, str]) -> _Response:
+            calls.append(url)
+            assert headers.get('Cookie') == 'user_lang=zhs'
+            query = parse_qs(urlsplit(url).query)
+            assert query['genre'] == ['裏番']
+            assert query['sort'] == ['本週排行']
+            return _Response()
+
+    h.client = _Client()
+
+    ids = asyncio.run(h.fetch_ranking_video_ids(period='weekly'))
+
+    assert ids == ['10001', '10002']
+    assert len(calls) == 1
+
+
+def test_discover_ranking_series_adds_new_series_targets(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(hanime1_module.cfg.ranking, 'enabled', True)
+    monkeypatch.setattr(hanime1_module.cfg.ranking, 'periods', ['weekly', 'monthly'])
+    monkeypatch.setattr(hanime1_module.cfg.ranking, 'pages', 1)
+
+    async def _fake_collect_ranking_video_ids() -> list[str]:
+        return ['100', '200', '300']
+
+    async def _fake_resolve_series(item: HanimeRecord) -> WatchSeries | None:
+        if item.id == '100':
+            return WatchSeries(name='測試系列', video_ids=('100', '101'))
+        if item.id == '300':
+            return WatchSeries(name='既存系列', video_ids=('200', '300'))
+        msg = f'unexpected item: {item.id}'
+        raise AssertionError(msg)
+
+    known_video_ids = {'200'}
+    queries: list[tuple[str, tuple[str, ...]]] = []
+
+    async def _fake_query_db(sql: str, params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        if 'SELECT video_id' in sql:
+            requested_ids = {str(video_id) for video_id in params[0]}
+            return [{'video_id': video_id} for video_id in sorted(known_video_ids & requested_ids)]
+        if 'INSERT INTO hanime1_series_video' in sql:
+            known_video_ids.add(params[0])
+        return []
+
+    monkeypatch.setattr(h, '_collect_ranking_video_ids', _fake_collect_ranking_video_ids)
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == [RuntimeSeriesSeed(video_id='100', title='测试系列')]
+    assert any('INSERT INTO hanime1_series ' in sql and params == ('100', '测试系列', '100') for sql, params in queries)
+    assert any('INSERT INTO hanime1_series_video' in sql and params == ('100', '100') for sql, params in queries)
+    assert any('INSERT INTO hanime1_series_video' in sql and params == ('101', '100') for sql, params in queries)
+    assert not any('INSERT INTO hanime1_series ' in sql and params == ('200', '既存系列', '300') for sql, params in queries)
+
+
+def test_update_runs_ranking_discovery_before_get_items(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    events: list[str] = []
+
+    async def _fake_ensure_table() -> None:
+        events.append('ensure')
+
+    async def _fake_discover_ranking_series() -> list[RuntimeSeriesSeed]:
+        events.append('discover')
+        return []
+
+    async def _fake_get_items() -> list[HanimeRecord]:
+        events.append('get_items')
+        return []
+
+    async def _fake_load_runtime_series_seeds() -> list[RuntimeSeriesSeed]:
+        return [RuntimeSeriesSeed(video_id='100', title='Seed')]
+
+    monkeypatch.setattr(h, '_ensure_table', _fake_ensure_table)
+    monkeypatch.setattr(h, 'discover_ranking_series', _fake_discover_ranking_series)
+    monkeypatch.setattr(h, 'get_items', _fake_get_items)
+    monkeypatch.setattr(h, '_load_runtime_series_seeds', _fake_load_runtime_series_seeds)
+
+    asyncio.run(h.update())
+
+    assert events == ['ensure', 'discover', 'get_items']
+
+
 def test_extract_watch_metadata_parses_title_release_date_and_plot() -> None:
     page_html = """
     <html>

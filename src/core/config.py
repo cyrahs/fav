@@ -51,11 +51,39 @@ class Stellasora(ScheduleJob):
     cron: str = '0 */6 * * *'
 
 
+class Hanime1Ranking(BaseModel):
+    enabled: bool = False
+    periods: list[Literal['weekly', 'monthly']] = Field(default_factory=lambda: ['weekly', 'monthly'])
+    pages: int = 1
+
+    @field_validator('periods')
+    @classmethod
+    def validate_periods(cls, value: list[Literal['weekly', 'monthly']]) -> list[Literal['weekly', 'monthly']]:
+        if not value:
+            msg = 'periods cannot be empty'
+            raise ValueError(msg)
+        deduped: list[Literal['weekly', 'monthly']] = []
+        for period in value:
+            if period in deduped:
+                continue
+            deduped.append(period)
+        return deduped
+
+    @field_validator('pages')
+    @classmethod
+    def validate_pages(cls, value: int) -> int:
+        if value < 1:
+            msg = 'pages must be greater than or equal to 1'
+            raise ValueError(msg)
+        return value
+
+
 class Hanime1(ScheduleJob):
     path: Path = Path('./collection/hanime1')
     host: str = 'https://hanime1.me'
     cron: str = '0 */6 * * *'
     user_lang: Literal['zhs', 'zht'] = 'zhs'
+    ranking: Hanime1Ranking = Field(default_factory=Hanime1Ranking)
 
 
 class Jandan(ScheduleJob):
