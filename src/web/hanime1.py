@@ -56,6 +56,14 @@ _WATCH_UPLOADER_RE = re.compile(
     r'<a[^>]+id=["\']video-artist-name["\'][^>]*>(?P<uploader>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
+_WATCH_PRIMARY_TITLE_RES = (
+    re.compile(
+        r'<(?P<tag>h[1-6]|div)[^>]+id=["\']shareBtn-title["\'][^>]*>(?P<title>.*?)</(?P=tag)>',
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(r'<meta[^>]+name=["\']title["\'][^>]+content=["\'](?P<title>.*?)["\']', re.IGNORECASE | re.DOTALL),
+    re.compile(r'<meta[^>]+content=["\'](?P<title>.*?)["\'][^>]+name=["\']title["\']', re.IGNORECASE | re.DOTALL),
+)
 _DIV_TEXT_RE = re.compile(r'<div[^>]*>(?P<text>[^<]*)</div>', re.IGNORECASE | re.DOTALL)
 _SEARCH_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
@@ -233,7 +241,9 @@ class Hanime1:
     def _normalize_watch_title(title: str | None) -> str | None:
         if not title:
             return None
-        normalized = title.strip()
+        normalized = html.unescape(title)
+        normalized = re.sub(r'<[^>]+>', '', normalized)
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
         normalized = re.sub(r'\s*-\s*Hanime1\.me\s*$', '', normalized, flags=re.IGNORECASE).strip()
         normalized = re.sub(r'\s*-\s*H動漫/裏番/線上看\s*$', '', normalized).strip()
         return normalized or None
@@ -483,6 +493,17 @@ class Hanime1:
         return None
 
     @staticmethod
+    def _extract_primary_watch_title(page_html: str) -> str | None:
+        for pattern in _WATCH_PRIMARY_TITLE_RES:
+            match = pattern.search(page_html)
+            if not match:
+                continue
+            title = Hanime1._normalize_watch_title(match.group('title'))
+            if title:
+                return title
+        return None
+
+    @staticmethod
     def _extract_release_date_from_plot_context(page_html: str) -> str | None:
         plot_match = _WATCH_PLOT_RE.search(page_html)
         if not plot_match:
@@ -529,7 +550,9 @@ class Hanime1:
 
     @staticmethod
     def extract_watch_metadata(page_html: str) -> WatchMetadata:
-        title = Hanime1._extract_title_from_plot_context(page_html)
+        title = Hanime1._extract_primary_watch_title(page_html)
+        if not title:
+            title = Hanime1._extract_title_from_plot_context(page_html)
         if not title:
             title = Hanime1._normalize_watch_title(Hanime1.parse_title(page_html))
 

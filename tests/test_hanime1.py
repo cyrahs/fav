@@ -137,6 +137,32 @@ def test_extract_watch_series_ignores_load_more_search_url() -> None:
     assert Hanime1.extract_watch_series(page_html) is None
 
 
+def test_extract_watch_metadata_prefers_primary_watch_title() -> None:
+    fullwidth_tilde = '\N{FULLWIDTH TILDE}'
+    primary_title = f'クール de M {fullwidth_tilde}崩れないオンナ{fullwidth_tilde} [中文字幕]'
+    page_html = f"""
+    <html>
+      <head>
+        <title>{primary_title}&nbsp;-&nbsp;H動漫/裏番/線上看&nbsp;-&nbsp;Hanime1.me</title>
+      </head>
+      <body>
+        <h3 id="shareBtn-title" class="video-details-wrapper">{primary_title}</h3>
+        <div>觀看次數:152.2萬次&nbsp;&nbsp;2026-03-27</div>
+        <a id="video-artist-name" href="/search?query=nur">nur</a>
+        <div>高冷的抖M</div>
+        <div class="video-caption-text caption-ellipsis">劇情介紹。</div>
+      </body>
+    </html>
+    """
+
+    metadata = Hanime1.extract_watch_metadata(page_html)
+
+    assert metadata.title == primary_title
+    assert metadata.uploader == 'nur'
+    assert metadata.release_date == '2026-03-27'
+    assert metadata.plot == '剧情介绍。'
+
+
 def test_ignored_title_marker_requires_exact_site_markers() -> None:
     assert Hanime1._ignored_title_marker('OVA Demo [新番預告]') == '[新番预告]'
     assert Hanime1._ignored_title_marker('OVA Demo [新番预告]') == '[新番预告]'
