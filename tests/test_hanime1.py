@@ -168,6 +168,8 @@ def test_ignored_title_marker_requires_exact_site_markers() -> None:
     assert Hanime1._ignored_title_marker('OVA Demo [新番预告]') == '[新番预告]'
     assert Hanime1._ignored_title_marker('OVA Demo [中字後補]') == '[中字后补]'
     assert Hanime1._ignored_title_marker('OVA Demo [中字后补]') == '[中字后补]'
+    assert Hanime1._ignored_title_marker('OVA Demo [中文後補]') == '[中文后补]'
+    assert Hanime1._ignored_title_marker('OVA Demo [中文后补]') == '[中文后补]'
     assert Hanime1._ignored_title_marker('OVA Demo 新番预告') is None
     assert Hanime1._ignored_title_marker('OVA Demo 预告') is None
 
@@ -466,6 +468,7 @@ def test_get_items_skips_candidates_with_ignored_watch_markers(monkeypatch, tmp_
         return {
             '404989': ('404989', 'OVA Demo'),
             '143654': ('143654', 'OVA Demo'),
+            '404988': ('404988', 'OVA Demo'),
             '157878': ('157878', 'OVA Demo'),
         }
 
@@ -473,6 +476,7 @@ def test_get_items_skips_candidates_with_ignored_watch_markers(monkeypatch, tmp_
         mapping = {
             '404989': WatchMetadata(title='OVA Demo [新番預告]'),
             '143654': WatchMetadata(title='OVA Demo [中字後補]'),
+            '404988': WatchMetadata(title='OVA Demo [中文後補]'),
             '157878': WatchMetadata(title='OVA Demo Episode 1'),
         }
         return mapping[item.id]

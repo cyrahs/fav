@@ -82,6 +82,7 @@ _RANKING_SORT_BY_PERIOD = {
 _IGNORED_TITLE_MARKERS = (
     '[新番预告]',
     '[中字后补]',
+    '[中文后补]',
 )
 _FILE_SIZE_UNIT = 1024
 _K_LABEL_TO_P = {
