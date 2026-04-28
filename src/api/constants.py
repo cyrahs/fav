@@ -1,4 +1,4 @@
-API_DESCRIPTION = 'Internal control and runtime configuration API for fav.'
+API_DESCRIPTION = 'Internal control and Hanime1 scan-target creation API for fav.'
 API_TITLE = 'fav API'
 API_V2_PREFIX = '/api/v2'
 APP_VERSION = '2.0.0'

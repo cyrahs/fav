@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 import src.web.hanime1 as hanime1_module
-from src.web.hanime1 import DownloadResult, Hanime1, HanimeRecord, IgnoredVideoError, RuntimeSeriesSeed, WatchMetadata
+from src.web.hanime1 import DownloadResult, Hanime1, HanimeRecord, IgnoredVideoError, RuntimeSeriesSeed, WatchMetadata, WatchSeries
 
 
 class _DummyTmpDir:
@@ -103,7 +103,7 @@ def test_extract_watch_series_reads_playlist_ids_and_title() -> None:
       <a class="overlay" href="https://hanime1.me/watch?v=13253"></a>
       <a class="overlay" href="/watch?v=12488"></a>
       <a style="text-decoration: none;" href="https://hanime1.me/search?query=%E5%B1%88%E8%BE%B1">
-        <div class="load-more-related-link related-watch-wrap">更多 屈辱 的视频</div>
+        <div class="load-more-related-link related-watch-wrap">More studio videos</div>
       </a>
     </div>
     <div id="video-playlist-wrapper">
@@ -118,11 +118,23 @@ def test_extract_watch_series_reads_playlist_ids_and_title() -> None:
     assert series is not None
     assert series.name == '屈辱'
     assert list(series.video_ids) == ['13253', '12488', '12496']
-    assert series.search_url == 'https://hanime1.me/search?query=%E5%B1%88%E8%BE%B1'
 
 
 def test_extract_watch_series_returns_none_when_playlist_not_found() -> None:
     assert Hanime1.extract_watch_series('<div>no playlist</div>') is None
+
+
+def test_extract_watch_series_ignores_load_more_search_url() -> None:
+    page_html = """
+    <div id="video-playlist-wrapper">
+      <h4>Studio Name</h4>
+      <a style="text-decoration: none;" href="https://hanime1.me/search?query=studio">
+        <div class="load-more-related-link related-watch-wrap">More studio videos</div>
+      </a>
+    </div>
+    """
+
+    assert Hanime1.extract_watch_series(page_html) is None
 
 
 def test_ignored_title_marker_requires_exact_site_markers() -> None:
@@ -256,7 +268,11 @@ def test_get_items_from_series_seeds_filters_downloaded_ids(monkeypatch, tmp_pat
     seeds = [
         RuntimeSeriesSeed(video_id='12488', title='屈辱'),
     ]
-    monkeypatch.setattr(h, '_load_runtime_series_seeds', lambda: seeds)
+
+    async def _fake_load_runtime_series_seeds() -> list[RuntimeSeriesSeed]:
+        return seeds
+
+    monkeypatch.setattr(h, '_load_runtime_series_seeds', _fake_load_runtime_series_seeds)
 
     async def _fake_downloaded_ids() -> set[str]:
         return {'13253'}
@@ -288,7 +304,11 @@ def test_get_items_skips_candidates_with_ignored_watch_markers(monkeypatch, tmp_
     seeds = [
         RuntimeSeriesSeed(video_id='12488', title='屈辱'),
     ]
-    monkeypatch.setattr(h, '_load_runtime_series_seeds', lambda: seeds)
+
+    async def _fake_load_runtime_series_seeds() -> list[RuntimeSeriesSeed]:
+        return seeds
+
+    monkeypatch.setattr(h, '_load_runtime_series_seeds', _fake_load_runtime_series_seeds)
 
     async def _fake_downloaded_ids() -> set[str]:
         return set()
@@ -318,17 +338,71 @@ def test_get_items_skips_candidates_with_ignored_watch_markers(monkeypatch, tmp_
     assert [item.title for item in items] == ['OVA Demo Episode 1']
 
 
-def test_load_runtime_series_seeds_reads_data_config_json(monkeypatch, tmp_path) -> None:
+def test_collect_ids_upserts_series_members_and_marks_success(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
-    runtime_config_path = tmp_path / 'data' / 'config.json'
-    runtime_config_path.parent.mkdir(parents=True, exist_ok=True)
-    runtime_config_path.write_text(
-        '{"hanime1":{"keywords":["屈辱 {id-12488}","12496","{id-12488}","bad-seed"]}}',
-        encoding='utf-8',
-    )
-    monkeypatch.setattr(hanime1_module.config, 'run_config', runtime_config_path)
+    seed = RuntimeSeriesSeed(video_id='12488', title='屈辱')
 
-    seeds = h._load_runtime_series_seeds()
+    async def _fake_resolve_series(_item: HanimeRecord) -> WatchSeries:
+        return WatchSeries(name='屈辱', video_ids=('13253', '12488'))
+
+    queries: list[tuple[str, tuple[str, ...]]] = []
+
+    async def _fake_query_db(sql: str, params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
+
+    assert collected == {
+        '13253': ('13253', '屈辱'),
+        '12488': ('12488', '屈辱'),
+    }
+    assert any('INSERT INTO hanime1_series_video' in sql and params == ('12488', '12488') for sql, params in queries)
+    assert any('INSERT INTO hanime1_series_video' in sql and params == ('13253', '12488') for sql, params in queries)
+    assert any('SET last_scanned_at = CURRENT_TIMESTAMP' in sql and params == ('12488',) for sql, params in queries)
+
+
+def test_collect_ids_marks_series_failure(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seed = RuntimeSeriesSeed(video_id='12488', title='屈辱')
+
+    async def _fake_resolve_series(_item: HanimeRecord) -> WatchSeries:
+        msg = 'blocked'
+        raise RuntimeError(msg)
+
+    queries: list[tuple[str, tuple[str, ...]]] = []
+
+    async def _fake_query_db(sql: str, params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
+
+    assert collected == {}
+    assert any('SET last_scan_error = ?' in sql and params == ('RuntimeError: blocked', '12488') for sql, params in queries)
+
+
+def test_load_runtime_series_seeds_reads_database(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+
+    async def _fake_query_db(sql: str, params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        assert 'FROM hanime1_series' in sql
+        assert params == ()
+        return [
+            {'canonical_video_id': '12488', 'title': '屈辱'},
+            {'canonical_video_id': '', 'title': 'ignored'},
+            {'canonical_video_id': '12496', 'title': ''},
+        ]
+
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    seeds = asyncio.run(h._load_runtime_series_seeds())
 
     assert seeds == [
         RuntimeSeriesSeed(video_id='12488', title='屈辱'),

@@ -91,10 +91,5 @@ class Hanime1ListResponse(ApiSchema):
     total: int
 
 
-class Hanime1SeedListResponse(ApiSchema):
-    items: list[Hanime1Seed]
-    total: int
-
-
 class Hanime1SeedCreate(ApiSchema):
     seed: str = Field(min_length=1)

@@ -22,12 +22,7 @@ class _RuntimeService:
     def __init__(self, seeds: list[RuntimeSeriesSeed] | None = None) -> None:
         self.seeds = list(seeds or [])
         self.add_error: Exception | None = None
-        self.delete_result: RuntimeSeriesSeed | None = None
         self.added: list[str] = []
-        self.deleted: list[str] = []
-
-    def list_seeds(self) -> list[RuntimeSeriesSeed]:
-        return list(self.seeds)
 
     def add_seed(self, raw_seed: str) -> RuntimeSeriesSeed:
         self.added.append(raw_seed)
@@ -36,10 +31,6 @@ class _RuntimeService:
         seed = RuntimeSeriesSeed(video_id='12488', title='屈辱')
         self.seeds.append(seed)
         return seed
-
-    def delete_seed(self, video_id: str) -> RuntimeSeriesSeed | None:
-        self.deleted.append(video_id)
-        return self.delete_result
 
     def close(self) -> None:
         return None
@@ -133,6 +124,9 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     payload = openapi_response.json()
     assert '/api/v2/jobs' in payload['paths']
     assert '/api/v2/hanime1/videos' in payload['paths']
+    assert '/api/v2/hanime1/seeds' in payload['paths']
+    assert set(payload['paths']['/api/v2/hanime1/seeds']) == {'post'}
+    assert '/api/v2/hanime1/seeds/{video_id}' not in payload['paths']
     assert '/api/v2/notifications' not in payload['paths']
     assert '/api/v2/notifications/ack' not in payload['paths']
     assert '/api/v1/health' not in payload['paths']
@@ -248,18 +242,17 @@ def test_get_job_request_returns_status_payload(status: str) -> None:
     assert response.json()['status'] == status
 
 
-def test_list_hanime1_seeds_returns_normalized_payload() -> None:
-    runtime_service = _RuntimeService(seeds=[RuntimeSeriesSeed(video_id='12488', title='屈辱')])
-    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime_service)
+def test_hanime1_seed_list_and_delete_endpoints_are_removed() -> None:
+    service = _build_service(token=_VALID_TOKEN)
 
     with TestClient(create_app(service=service)) as client:
-        response = client.get('/api/v2/hanime1/seeds', headers=_auth_headers())
+        list_response = client.get('/api/v2/hanime1/seeds', headers=_auth_headers())
+        delete_response = client.delete('/api/v2/hanime1/seeds/12488', headers=_auth_headers())
 
-    assert response.status_code == 200
-    assert response.json() == {
-        'items': [{'video_id': '12488', 'title': '屈辱', 'label': '屈辱 {id-12488}'}],
-        'total': 1,
-    }
+    assert list_response.status_code == 405
+    assert list_response.json()['error']['code'] == 'method_not_allowed'
+    assert delete_response.status_code == 404
+    assert delete_response.json()['error']['code'] == 'not_found'
 
 
 def test_list_hanime1_videos_returns_video_objects() -> None:
@@ -359,36 +352,6 @@ def test_add_hanime1_seed_returns_resolve_error() -> None:
         'error': {
             'code': 'seed_resolve_failed',
             'message': 'Unable to resolve Hanime1 seed.',
-            'details': None,
-        },
-    }
-
-
-def test_delete_hanime1_seed_returns_204() -> None:
-    runtime_service = _RuntimeService()
-    runtime_service.delete_result = RuntimeSeriesSeed(video_id='12488', title='屈辱')
-    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime_service)
-
-    with TestClient(create_app(service=service)) as client:
-        response = client.delete('/api/v2/hanime1/seeds/12488', headers=_auth_headers())
-
-    assert response.status_code == 204
-    assert runtime_service.deleted == ['12488']
-    assert response.content == b''
-
-
-def test_delete_hanime1_seed_returns_not_found() -> None:
-    runtime_service = _RuntimeService()
-    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime_service)
-
-    with TestClient(create_app(service=service)) as client:
-        response = client.delete('/api/v2/hanime1/seeds/12488', headers=_auth_headers())
-
-    assert response.status_code == 404
-    assert response.json() == {
-        'error': {
-            'code': 'not_found',
-            'message': 'Hanime1 seed not found.',
             'details': None,
         },
     }

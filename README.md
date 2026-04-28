@@ -4,7 +4,7 @@ Automation toolkit for collecting content from multiple sources and deduplicatin
 
 ## API Backend
 
-This repository exposes an internal FastAPI backend for control and runtime configuration.
+This repository exposes an internal FastAPI backend for control and Hanime1 scan-target creation.
 
 - `run.py` remains the worker and scheduler process.
 - `python -m src.api` starts the FastAPI server with OpenAPI support.
@@ -25,9 +25,7 @@ Protected endpoints:
 - `GET /api/v2/jobs`
 - `POST /api/v2/job-requests`
 - `GET /api/v2/job-requests/{id}`
-- `GET /api/v2/hanime1/seeds`
 - `POST /api/v2/hanime1/seeds`
-- `DELETE /api/v2/hanime1/seeds/{video_id}`
 
 All `/api/v2/*` endpoints require:
 

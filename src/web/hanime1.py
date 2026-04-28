@@ -17,7 +17,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote_plus, unquote_plus, urlsplit
+from urllib.parse import parse_qs, quote_plus, urlsplit
 
 import httpx
 from opencc import OpenCC
@@ -25,8 +25,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 
 from src.core import config, logger
 from src.tool import database, ensure_unique_path, format_video_filename, sanitize
+from src.tool.hanime1_series import ensure_hanime1_series_tables
 from src.tool.notifications import enqueue_notification
-from src.tool.runtime_config import Hanime1RuntimeConfigStore, RuntimeSeriesSeed, parse_runtime_series_seed
+from src.tool.runtime_config import RuntimeSeriesSeed, parse_runtime_series_seed
 
 log = logger.get('hanime1')
 cfg = config.web.hanime1
@@ -61,11 +62,6 @@ _SEARCH_WATCH_HREF_RE = re.compile(
     re.IGNORECASE,
 )
 _PLAYLIST_TITLE_RE = re.compile(r'<h4[^>]*>(?P<title>.*?)</h4>', re.IGNORECASE | re.DOTALL)
-_PLAYLIST_LOAD_MORE_LINK_RE = re.compile(
-    r'<a[^>]+href=["\'](?P<url>(?:https?:)?//[^"\']+/search\?query=[^"\'>\s]+|/search\?query=[^"\'>\s]+|search\?query=[^"\'>\s]+)["\'][^>]*>\s*'
-    r'<div[^>]+class=["\'][^"\']*load-more-related-link[^"\']*',
-    re.IGNORECASE | re.DOTALL,
-)
 _SEARCH_ALLOWED_GENRES = (
     ('裏番', '里番'),
     ('泡麵番', '泡面番'),
@@ -137,7 +133,6 @@ class WatchMetadata:
 class WatchSeries:
     name: str | None = None
     video_ids: tuple[str, ...] = ()
-    search_url: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -406,28 +401,18 @@ class Hanime1:
         return Hanime1._to_simplified_chinese(text)
 
     @staticmethod
-    def _extract_playlist_search_url(playlist_html: str) -> str | None:
-        match = _PLAYLIST_LOAD_MORE_LINK_RE.search(playlist_html)
-        if not match:
-            return None
-        return Hanime1._normalize_page_url(match.group('url'))
-
-    @staticmethod
     def extract_watch_series(page_html: str) -> WatchSeries | None:
         playlist_blocks = Hanime1._extract_div_blocks_by_id(page_html, block_id='video-playlist-wrapper')
         if not playlist_blocks:
             return None
 
         series_name: str | None = None
-        search_url: str | None = None
         ids: list[str] = []
         seen_ids: set[str] = set()
 
         for playlist_html in playlist_blocks:
             if not series_name:
                 series_name = Hanime1._extract_playlist_title(playlist_html)
-            if not search_url:
-                search_url = Hanime1._extract_playlist_search_url(playlist_html)
             for video_id in Hanime1.extract_search_video_ids(playlist_html):
                 key = video_id.casefold()
                 if key in seen_ids:
@@ -435,22 +420,9 @@ class Hanime1:
                 seen_ids.add(key)
                 ids.append(video_id)
 
-        if not ids and not search_url:
+        if not ids:
             return None
-        return WatchSeries(name=series_name, video_ids=tuple(ids), search_url=search_url)
-
-    @staticmethod
-    def _extract_series_name_from_search_url(search_url: str | None) -> str | None:
-        if not search_url:
-            return None
-        query = parse_qs(urlsplit(search_url).query)
-        raw_values = query.get('query')
-        if not raw_values:
-            return None
-        decoded = unquote_plus(raw_values[0]).strip()
-        if not decoded:
-            return None
-        return Hanime1._to_simplified_chinese(decoded)
+        return WatchSeries(name=series_name, video_ids=tuple(ids))
 
     @staticmethod
     def _ignored_title_marker(title: str | None) -> str | None:
@@ -694,16 +666,6 @@ class Hanime1:
             raise ValueError(msg)
         return page_html
 
-    async def _search_video_ids_from_search_url(self, search_url: str) -> list[str]:
-        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
-        res = await self.client.get(search_url, headers=headers)
-        res.raise_for_status()
-        page_html = res.text
-        if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
-            msg = f'Blocked by Cloudflare while resolving Hanime1 search page: {search_url}'
-            raise ValueError(msg)
-        return self.extract_search_video_ids(page_html)
-
     async def search_video_ids(self, keyword: str) -> list[str]:
         query = keyword.strip()
         if not query:
@@ -754,27 +716,7 @@ class Hanime1:
 
     async def resolve_series_from_watch_page(self, item: HanimeRecord) -> WatchSeries | None:
         page_html = await self._request_watch_page_html(item)
-        series = self.extract_watch_series(page_html)
-        if series is None:
-            return None
-
-        if series.video_ids:
-            return series
-
-        if not series.search_url:
-            return series
-
-        try:
-            search_ids = await self._search_video_ids_from_search_url(series.search_url)
-        except Exception as exc:  # noqa: BLE001
-            log.debug('Failed to resolve Hanime1 series search URL %s: %s', series.search_url, exc)
-            return series
-
-        return WatchSeries(
-            name=series.name or self._extract_series_name_from_search_url(series.search_url),
-            video_ids=tuple(search_ids),
-            search_url=series.search_url,
-        )
+        return self.extract_watch_series(page_html)
 
     async def resolve_stream_from_page(self, page_url: str) -> tuple[str, str | None]:
         headers = {
@@ -919,9 +861,59 @@ class Hanime1:
     def _parse_runtime_seed(raw: Any) -> RuntimeSeriesSeed | None:
         return parse_runtime_series_seed(raw)
 
-    def _load_runtime_series_seeds(self) -> list[RuntimeSeriesSeed]:
-        store = Hanime1RuntimeConfigStore(config.run_config)
-        return store.read_hanime1_seeds()
+    async def _load_runtime_series_seeds(self) -> list[RuntimeSeriesSeed]:
+        rows = await database.query_db('SELECT canonical_video_id, title FROM hanime1_series ORDER BY created_at, canonical_video_id;')
+        seeds: list[RuntimeSeriesSeed] = []
+        for row in rows:
+            video_id = str(row.get('canonical_video_id') or '').strip()
+            title = str(row.get('title') or '').strip()
+            if not video_id or not title:
+                continue
+            seeds.append(RuntimeSeriesSeed(video_id=video_id, title=title))
+        return seeds
+
+    @staticmethod
+    def _format_scan_error(exc: Exception) -> str:
+        return f'{exc.__class__.__name__}: {exc}'[:500]
+
+    async def _upsert_series_members(self, *, canonical_video_id: str, member_ids: list[str]) -> None:
+        seen_ids: set[str] = set()
+        for video_id in member_ids:
+            normalized_id = str(video_id).strip()
+            if not normalized_id or normalized_id in seen_ids:
+                continue
+            seen_ids.add(normalized_id)
+            await database.query_db(
+                """
+                INSERT INTO hanime1_series_video (video_id, canonical_video_id)
+                VALUES (?, ?)
+                ON CONFLICT (video_id) DO NOTHING;
+                """,
+                (normalized_id, canonical_video_id),
+            )
+
+    async def _mark_series_scan_success(self, canonical_video_id: str) -> None:
+        await database.query_db(
+            """
+            UPDATE hanime1_series
+            SET last_scanned_at = CURRENT_TIMESTAMP,
+                last_scan_error = '',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE canonical_video_id = ?;
+            """,
+            (canonical_video_id,),
+        )
+
+    async def _mark_series_scan_failure(self, canonical_video_id: str, exc: Exception) -> None:
+        await database.query_db(
+            """
+            UPDATE hanime1_series
+            SET last_scan_error = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE canonical_video_id = ?;
+            """,
+            (self._format_scan_error(exc), canonical_video_id),
+        )
 
     async def _collect_ids_from_watch_series(
         self,
@@ -939,20 +931,22 @@ class Hanime1:
 
             try:
                 series = await self.resolve_series_from_watch_page(seed_item)
-            except Exception:
+            except Exception as exc:
                 log.exception('Failed to resolve Hanime1 watch series from seed id %s', seed.video_id)
+                await self._mark_series_scan_failure(seed.video_id, exc)
                 continue
 
             series_name = seed.title
             candidate_ids: list[str] = [seed.video_id]
             if series is not None:
-                inferred_name = series.name or self._extract_series_name_from_search_url(series.search_url)
-                if inferred_name:
-                    series_name = inferred_name
+                if series.name:
+                    series_name = series.name
                 if series.video_ids:
                     candidate_ids = list(series.video_ids)
 
             source_name = self._to_simplified_chinese(series_name) or f'id-{seed.video_id}'
+            await self._upsert_series_members(canonical_video_id=seed.video_id, member_ids=[seed.video_id, *candidate_ids])
+            await self._mark_series_scan_success(seed.video_id)
             new_count = 0
             for video_id in candidate_ids:
                 key = video_id.casefold()
@@ -981,7 +975,7 @@ class Hanime1:
         return downloaded_ids
 
     async def get_items(self) -> list[HanimeRecord]:
-        seeds = self._load_runtime_series_seeds()
+        seeds = await self._load_runtime_series_seeds()
         if not seeds:
             return []
 
@@ -1115,6 +1109,7 @@ class Hanime1:
             await database.query_db("ALTER TABLE hanime1 ADD COLUMN title TEXT NOT NULL DEFAULT '';")
         if 'uploader' not in column_names:
             await database.query_db('ALTER TABLE hanime1 ADD COLUMN uploader TEXT;')
+        await ensure_hanime1_series_tables()
 
     async def update(self) -> None:
         await self._ensure_table()
@@ -1122,8 +1117,8 @@ class Hanime1:
 
         items = await self.get_items()
         if not items:
-            if not self._load_runtime_series_seeds():
-                log.info('No Hanime1 series seeds configured in %s', config.run_config)
+            if not await self._load_runtime_series_seeds():
+                log.info('No Hanime1 series seeds configured in database')
             else:
                 log.info('No new videos')
             return

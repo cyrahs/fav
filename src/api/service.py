@@ -8,7 +8,7 @@ from src.core import logger
 from src.core.config import config as app_config
 from src.service.jobs import ScheduledJob, build_jobs
 from src.tool.control_queue import ControlRequest, create_control_request_sync, get_control_request_sync
-from src.tool.runtime_config import Hanime1RuntimeConfigService
+from src.tool.hanime1_series import Hanime1SeriesService
 
 from .config import fetch_hanime1_videos_from_db
 from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
@@ -36,7 +36,7 @@ class FavApiService:
         job_provider: JobProvider | None = None,
         control_request_creator: ControlRequestCreator | None = None,
         control_request_getter: ControlRequestGetter | None = None,
-        runtime_service: Hanime1RuntimeConfigService | None = None,
+        runtime_service: Hanime1SeriesService | None = None,
     ) -> None:
         self._dsn = dsn
         self._token = token
@@ -49,8 +49,8 @@ class FavApiService:
             lambda kind, target: create_control_request_sync(self._dsn, kind=kind, target=target)
         )
         self._control_request_getter = control_request_getter or (lambda request_id: get_control_request_sync(self._dsn, request_id))
-        self._runtime_service = runtime_service or Hanime1RuntimeConfigService(
-            run_config=app_config.run_config,
+        self._runtime_service = runtime_service or Hanime1SeriesService(
+            dsn=self._dsn,
             host=app_config.web.hanime1.host,
             user_lang=app_config.web.hanime1.user_lang,
             proxy=app_config.proxy or None,
@@ -122,9 +122,6 @@ class FavApiService:
             raise ApiError(status_code=404, code='not_found', message='Job request not found.')
         return serialize_control_request(request)
 
-    def list_hanime1_seeds(self) -> list[dict[str, str]]:
-        return [serialize_seed(seed) for seed in self._runtime_service.list_seeds()]
-
     def list_hanime1_videos(self) -> list[dict[str, str | None]]:
         try:
             return self._hanime1_video_fetcher(self._dsn)
@@ -142,18 +139,9 @@ class FavApiService:
         except LookupError:
             raise ApiError(status_code=422, code='seed_resolve_failed', message='Unable to resolve Hanime1 seed.') from None
         except Exception:
-            log.exception('Failed to add Hanime1 runtime seed')
+            log.exception('Failed to add Hanime1 series seed')
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
         return serialize_seed(created_seed)
-
-    def delete_hanime1_seed(self, video_id: str) -> None:
-        try:
-            removed_seed = self._runtime_service.delete_seed(video_id)
-        except Exception:
-            log.exception('Failed to delete Hanime1 runtime seed %s', video_id)
-            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
-        if removed_seed is None:
-            raise ApiError(status_code=404, code='not_found', message='Hanime1 seed not found.')
 
     @staticmethod
     def model_health(payload: dict[str, str]) -> HealthResponse:

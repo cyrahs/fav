@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Path, Response, status
+from fastapi import APIRouter, Depends, Path, status
 
 from .constants import API_V2_PREFIX, TAG_HANIME1, TAG_JOBS
 from .dependencies import get_api_service, require_api_token
@@ -10,7 +10,6 @@ from .schemas import (
     Hanime1ListResponse,
     Hanime1Seed,
     Hanime1SeedCreate,
-    Hanime1SeedListResponse,
     JobListResponse,
     JobRequest,
     JobRequestCreate,
@@ -69,17 +68,6 @@ def list_hanime1_videos(service: ApiServiceDep) -> Hanime1ListResponse:
     return Hanime1ListResponse(items=items, total=len(items))
 
 
-@router.get(
-    '/hanime1/seeds',
-    operation_id='listHanime1Seeds',
-    response_model=Hanime1SeedListResponse,
-    tags=[TAG_HANIME1],
-)
-def list_hanime1_seeds(service: ApiServiceDep) -> Hanime1SeedListResponse:
-    items = [service.model_hanime1_seed(seed) for seed in service.list_hanime1_seeds()]
-    return Hanime1SeedListResponse(items=items, total=len(items))
-
-
 @router.post(
     '/hanime1/seeds',
     operation_id='createHanime1Seed',
@@ -92,17 +80,3 @@ def create_hanime1_seed(
     service: ApiServiceDep,
 ) -> Hanime1Seed:
     return service.model_hanime1_seed(service.add_hanime1_seed(payload.seed))
-
-
-@router.delete(
-    '/hanime1/seeds/{video_id}',
-    operation_id='deleteHanime1Seed',
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=[TAG_HANIME1],
-)
-def delete_hanime1_seed(
-    video_id: Annotated[int, Path(gt=0)],
-    service: ApiServiceDep,
-) -> Response:
-    service.delete_hanime1_seed(str(video_id))
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
