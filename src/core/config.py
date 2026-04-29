@@ -1,12 +1,14 @@
+import re
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 from . import logger
 
 _CRON_FIELDS = 5
+_TELEGRAM_ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 
 class ScheduleJob(BaseModel):
@@ -37,13 +39,95 @@ class CookieCloud(BaseModel):
     password: str
 
 
-class Telegram(ScheduleJob):
-    channels: list[int]
+def _normalize_telegram_channel_id(channel_id: int) -> int:
+    if channel_id < 0 and str(channel_id).startswith('-100'):
+        channel_id = int(str(channel_id).removeprefix('-100'))
+    if channel_id <= 0:
+        msg = 'telegram channel id must be a positive Telethon channel id or a -100 Bot API channel id'
+        raise ValueError(msg)
+    return channel_id
+
+
+def _dedupe_channels(value: list['TelegramChannel']) -> list['TelegramChannel']:
+    deduped: list[TelegramChannel] = []
+    seen_ids: set[int] = set()
+    for channel in value:
+        channel_id = channel.id
+        if channel_id in seen_ids:
+            continue
+        seen_ids.add(channel_id)
+        deduped.append(channel)
+    return deduped
+
+
+class TelegramChannel(BaseModel):
+    id: int
+    path: Path
+
+    @field_validator('id')
+    @classmethod
+    def normalize_id(cls, value: int) -> int:
+        return _normalize_telegram_channel_id(value)
+
+
+class TelegramAccount(BaseModel):
+    name: str
+    channels: list[TelegramChannel]
     api_id: int
     api_hash: str
-    path: Path
     session_path: Path
+
+    @field_validator('name')
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'telegram account name cannot be empty'
+            raise ValueError(msg)
+        if not _TELEGRAM_ACCOUNT_NAME_RE.fullmatch(normalized):
+            msg = 'telegram account name must contain only ASCII letters, digits, underscores, or hyphens'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('channels')
+    @classmethod
+    def validate_channels(cls, value: list[TelegramChannel]) -> list[TelegramChannel]:
+        deduped = _dedupe_channels(value)
+        if not deduped:
+            msg = 'telegram account channels cannot be empty'
+            raise ValueError(msg)
+        return deduped
+
+    @field_validator('api_hash')
+    @classmethod
+    def normalize_api_hash(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'telegram account api_hash cannot be empty'
+            raise ValueError(msg)
+        return normalized
+
+
+class Telegram(ScheduleJob):
+    accounts: list[TelegramAccount]
     cron: str = '*/30 * * * *'
+
+    @model_validator(mode='after')
+    def validate_accounts(self) -> Self:
+        if not self.accounts:
+            msg = 'web.telegram.accounts cannot be empty'
+            raise ValueError(msg)
+        account_names: set[str] = set()
+        for account in self.accounts:
+            normalized = account.name.casefold()
+            if normalized in account_names:
+                msg = f'duplicate telegram account name: {account.name}'
+                raise ValueError(msg)
+            account_names.add(normalized)
+        return self
+
+    def resolved_accounts(self) -> list[TelegramAccount]:
+        return self.accounts
 
 
 class Stellasora(ScheduleJob):

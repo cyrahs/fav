@@ -52,13 +52,18 @@ cron = "*/30 * * * *"
 postgres_dsn = "postgresql://user:password@127.0.0.1:5432/fav"
 
 [web.telegram]
-channels = [1234567890]
-api_id = 123
-api_hash = "..."
-path = "./collection/telegram"
-session_path = "./data/telethon-session"
 enabled = true
 cron = "*/30 * * * *"
+
+[[web.telegram.accounts]]
+name = "cyrah"
+api_id = 123
+api_hash = "..."
+session_path = "./data/telethon-session"
+
+[[web.telegram.accounts.channels]]
+id = 1234567890
+path = "./collection/telegram/channel-name"
 
 [web.stellasora]
 path = "./collection/stellasora"
