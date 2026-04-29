@@ -7,7 +7,17 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 import src.web.hanime1 as hanime1_module
-from src.web.hanime1 import DownloadResult, Hanime1, HanimeRecord, IgnoredVideoError, RuntimeSeriesSeed, WatchMetadata, WatchSeries
+from src.web.hanime1 import (
+    DownloadResult,
+    Hanime1,
+    HanimeCandidate,
+    HanimeRecord,
+    IgnoredVideoError,
+    RuntimeSeriesSeed,
+    WatchMetadata,
+    WatchSeries,
+    WatchSeriesVideo,
+)
 
 
 class _DummyTmpDir:
@@ -100,8 +110,14 @@ def test_extract_watch_series_reads_playlist_ids_and_title() -> None:
     page_html = """
     <div id="video-playlist-wrapper">
       <h4>屈辱</h4>
-      <a class="overlay" href="https://hanime1.me/watch?v=13253"></a>
-      <a class="overlay" href="/watch?v=12488"></a>
+      <div class="related-watch-wrap multiple-link-wrapper">
+        <a class="overlay" href="https://hanime1.me/watch?v=13253"></a>
+        <div class="card-mobile-title">屈辱 1</div>
+      </div>
+      <div class="related-watch-wrap multiple-link-wrapper">
+        <a class="overlay" href="/watch?v=12488"></a>
+        <img src="/thumbnail/12488.jpg" alt="屈辱 2" />
+      </div>
       <a style="text-decoration: none;" href="https://hanime1.me/search?query=%E5%B1%88%E8%BE%B1">
         <div class="load-more-related-link related-watch-wrap">More studio videos</div>
       </a>
@@ -118,6 +134,88 @@ def test_extract_watch_series_reads_playlist_ids_and_title() -> None:
     assert series is not None
     assert series.name == '屈辱'
     assert list(series.video_ids) == ['13253', '12488', '12496']
+    assert list(series.videos) == [
+        WatchSeriesVideo(video_id='13253', title='屈辱 1', position=1),
+        WatchSeriesVideo(video_id='12488', title='屈辱 2', position=2),
+        WatchSeriesVideo(video_id='12496', title=None, position=3),
+    ]
+
+
+def test_extract_watch_series_preserves_mixed_wrapped_and_plain_links() -> None:
+    page_html = """
+    <div id="video-playlist-wrapper">
+      <h4>混合系列</h4>
+      <div class="related-watch-wrap multiple-link-wrapper">
+        <a class="overlay" href="https://hanime1.me/watch?v=10001"></a>
+        <div class="card-mobile-title">混合系列 1</div>
+      </div>
+      <a class="overlay" href="https://hanime1.me/watch?v=10002"></a>
+    </div>
+    """
+
+    series = Hanime1.extract_watch_series(page_html)
+
+    assert series is not None
+    assert list(series.videos) == [
+        WatchSeriesVideo(video_id='10001', title='混合系列 1', position=1),
+        WatchSeriesVideo(video_id='10002', title=None, position=2),
+    ]
+
+
+def test_collect_ids_adds_sequence_when_playlist_titles_are_not_distinct(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seed = RuntimeSeriesSeed(video_id='404988', title='クール de M')
+
+    async def _fake_resolve_series(_item: HanimeRecord) -> WatchSeries:
+        return WatchSeries(
+            name='クール de M',
+            video_ids=('404988', '157875'),
+            videos=(
+                WatchSeriesVideo(video_id='404988', title='高冷的抖M', position=1),
+                WatchSeriesVideo(video_id='157875', title='高冷的抖M', position=2),
+            ),
+        )
+
+    async def _fake_query_db(_sql: str, _params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
+
+    assert collected == {
+        '404988': HanimeCandidate(video_id='404988', source_name='クール de M', archive_title='クール de M 01'),
+        '157875': HanimeCandidate(video_id='157875', source_name='クール de M', archive_title='クール de M 02'),
+    }
+
+
+def test_collect_ids_keeps_playlist_titles_with_sequence(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seed = RuntimeSeriesSeed(video_id='13253', title='屈辱')
+
+    async def _fake_resolve_series(_item: HanimeRecord) -> WatchSeries:
+        return WatchSeries(
+            name='屈辱',
+            video_ids=('13253', '12488'),
+            videos=(
+                WatchSeriesVideo(video_id='13253', title='屈辱 1', position=1),
+                WatchSeriesVideo(video_id='12488', title='屈辱 2', position=2),
+            ),
+        )
+
+    async def _fake_query_db(_sql: str, _params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
+
+    assert collected == {
+        '13253': HanimeCandidate(video_id='13253', source_name='屈辱', archive_title='屈辱 1'),
+        '12488': HanimeCandidate(video_id='12488', source_name='屈辱', archive_title='屈辱 2'),
+    }
 
 
 def test_extract_watch_series_returns_none_when_playlist_not_found() -> None:
@@ -428,11 +526,11 @@ def test_get_items_from_series_seeds_filters_downloaded_ids(monkeypatch, tmp_pat
     async def _fake_downloaded_ids() -> set[str]:
         return {'13253'}
 
-    async def _fake_collect(_seeds: list[RuntimeSeriesSeed]) -> dict[str, tuple[str, str]]:
+    async def _fake_collect(_seeds: list[RuntimeSeriesSeed]) -> dict[str, HanimeCandidate]:
         assert _seeds == seeds
         return {
-            '13253': ('13253', '屈辱'),
-            '12488': ('12488', '屈辱'),
+            '13253': HanimeCandidate(video_id='13253', source_name='屈辱', archive_title='屈辱 01'),
+            '12488': HanimeCandidate(video_id='12488', source_name='屈辱', archive_title='屈辱 02'),
         }
 
     async def _fake_resolve_metadata(item: HanimeRecord) -> WatchMetadata:
@@ -445,7 +543,7 @@ def test_get_items_from_series_seeds_filters_downloaded_ids(monkeypatch, tmp_pat
     items = asyncio.run(h.get_items())
 
     assert [item.id for item in items] == ['12488']
-    assert [item.title for item in items] == ['Title 12488']
+    assert [item.title for item in items] == ['屈辱 02']
     assert [item.keyword for item in items] == ['屈辱']
     assert all(item.page_url == f'{hanime1_module.cfg.host.rstrip("/")}/watch?v={item.id}' for item in items)
 
@@ -464,12 +562,12 @@ def test_get_items_skips_candidates_with_ignored_watch_markers(monkeypatch, tmp_
     async def _fake_downloaded_ids() -> set[str]:
         return set()
 
-    async def _fake_collect(_seeds: list[RuntimeSeriesSeed]) -> dict[str, tuple[str, str]]:
+    async def _fake_collect(_seeds: list[RuntimeSeriesSeed]) -> dict[str, HanimeCandidate]:
         return {
-            '404989': ('404989', 'OVA Demo'),
-            '143654': ('143654', 'OVA Demo'),
-            '404988': ('404988', 'OVA Demo'),
-            '157878': ('157878', 'OVA Demo'),
+            '404989': HanimeCandidate(video_id='404989', source_name='OVA Demo', archive_title='OVA Demo 01'),
+            '143654': HanimeCandidate(video_id='143654', source_name='OVA Demo', archive_title='OVA Demo 02'),
+            '404988': HanimeCandidate(video_id='404988', source_name='OVA Demo', archive_title='OVA Demo 03'),
+            '157878': HanimeCandidate(video_id='157878', source_name='OVA Demo', archive_title='OVA Demo 04'),
         }
 
     async def _fake_resolve_metadata(item: HanimeRecord) -> WatchMetadata:
@@ -488,7 +586,7 @@ def test_get_items_skips_candidates_with_ignored_watch_markers(monkeypatch, tmp_
     items = asyncio.run(h.get_items())
 
     assert [item.id for item in items] == ['157878']
-    assert [item.title for item in items] == ['OVA Demo Episode 1']
+    assert [item.title for item in items] == ['OVA Demo 04']
 
 
 def test_collect_ids_upserts_series_members_and_marks_success(monkeypatch, tmp_path) -> None:
@@ -510,8 +608,8 @@ def test_collect_ids_upserts_series_members_and_marks_success(monkeypatch, tmp_p
     collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
 
     assert collected == {
-        '13253': ('13253', '屈辱'),
-        '12488': ('12488', '屈辱'),
+        '13253': HanimeCandidate(video_id='13253', source_name='屈辱', archive_title='屈辱 01'),
+        '12488': HanimeCandidate(video_id='12488', source_name='屈辱', archive_title='屈辱 02'),
     }
     assert any('INSERT INTO hanime1_series_video' in sql and params == ('12488', '12488') for sql, params in queries)
     assert any('INSERT INTO hanime1_series_video' in sql and params == ('13253', '12488') for sql, params in queries)
@@ -616,6 +714,7 @@ def test_download_item_renames_and_moves_file(tmp_path, monkeypatch) -> None:
     result = asyncio.run(h.download_item(item))
 
     assert result.title == 'Watch Title'
+    assert result.archive_title == 'Watch Title'
     assert result.stream_url == 'https://video.example.com/master.mp4?token=abc'
     assert result.resolution is None
     assert result.release_date == '2020-01-01'
@@ -632,7 +731,7 @@ def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, 
 
     item = HanimeRecord(
         id='video-234',
-        title='',
+        title='Playlist Title 01',
         keyword='tag-b',
         uploader=None,
         page_url='https://hanime1.me/v/demo',
@@ -667,10 +766,12 @@ def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, 
 
     result = asyncio.run(h.download_item(item))
 
+    assert result.title == 'Watch Title'
+    assert result.archive_title == 'Playlist Title 01'
     assert result.uploader == 'Watch Studio'
     assert result.resolution is None
     assert result.cover_url is None
-    assert result.final_path == output_dir / 'tag-b' / 'Watch Title [video-234].mp4'
+    assert result.final_path == output_dir / 'tag-b' / 'Playlist Title 01 [video-234].mp4'
 
 
 def test_download_item_raises_for_ignored_site_markers(tmp_path) -> None:

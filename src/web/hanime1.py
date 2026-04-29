@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,23 @@ _SEARCH_WATCH_HREF_RE = re.compile(
     re.IGNORECASE,
 )
 _PLAYLIST_TITLE_RE = re.compile(r'<h4[^>]*>(?P<title>.*?)</h4>', re.IGNORECASE | re.DOTALL)
+_PLAYLIST_ITEM_TITLE_RE = re.compile(
+    r'<div[^>]+class=["\'][^"\']*\bcard-mobile-title\b[^"\']*["\'][^>]*>(?P<title>.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_IMAGE_ALT_RE = re.compile(r'<img\b[^>]*\balt=["\'](?P<title>.*?)["\']', re.IGNORECASE | re.DOTALL)
+_EPISODE_MARKER_RE = re.compile(
+    r'(?:'
+    r'S\s*[0-9]{1,2}\s*E\s*[0-9]{1,3}|'
+    r'E\s*[0-9]{1,3}|'
+    r'第\s*(?:[0-9]+|[一二三四五六七八九十百零〇]+)\s*(?:話|话|集|章|部|回)|'
+    r'(?:ep(?:isode)?|part|vol(?:ume)?|ova|oad)\.?\s*[0-9]+|'
+    r'[0-9]+\s*(?:話|话|集|章|部|回|巻|卷)'
+    r')',
+    re.IGNORECASE,
+)
+_STANDALONE_NUMBER_RE = re.compile(r'(?<![A-Za-z0-9])([0-9]{1,3})(?![A-Za-z0-9])')
+_TITLE_SUFFIX_STRIP_CHARS = ' \t\r\n._-:~\uff1a\uff5e'
 _SEARCH_ALLOWED_GENRES = (
     ('裏番', '里番'),
     ('泡麵番', '泡面番'),
@@ -121,12 +139,20 @@ class HanimeRecord:
     uploader: str | None = None
 
 
+@dataclass(slots=True, frozen=True)
+class HanimeCandidate:
+    video_id: str
+    source_name: str
+    archive_title: str
+
+
 @dataclass(slots=True)
 class DownloadResult:
     item_id: str
     title: str
     stream_url: str
     final_path: Path
+    archive_title: str = ''
     resolution: str | None = None
     uploader: str | None = None
     release_date: str | None = None
@@ -144,9 +170,17 @@ class WatchMetadata:
 
 
 @dataclass(slots=True, frozen=True)
+class WatchSeriesVideo:
+    video_id: str
+    title: str | None = None
+    position: int = 1
+
+
+@dataclass(slots=True, frozen=True)
 class WatchSeries:
     name: str | None = None
     video_ids: tuple[str, ...] = ()
+    videos: tuple[WatchSeriesVideo, ...] = ()
 
 
 @dataclass(slots=True, frozen=True)
@@ -377,6 +411,18 @@ class Hanime1:
     @staticmethod
     def _extract_div_blocks_by_id(page_html: str, *, block_id: str) -> list[str]:
         pattern = re.compile(rf'<div[^>]+id=["\']{re.escape(block_id)}["\'][^>]*>', re.IGNORECASE)
+        return Hanime1._extract_div_blocks(page_html, pattern)
+
+    @staticmethod
+    def _extract_div_blocks_by_class(page_html: str, *, class_name: str) -> list[str]:
+        pattern = re.compile(
+            rf'<div\b(?=[^>]*\bclass=["\'][^"\']*\b{re.escape(class_name)}\b[^"\']*["\'])[^>]*>',
+            re.IGNORECASE,
+        )
+        return Hanime1._extract_div_blocks(page_html, pattern)
+
+    @staticmethod
+    def _extract_div_blocks(page_html: str, pattern: re.Pattern[str]) -> list[str]:
         tag_pattern = re.compile(r'</?div\b[^>]*>', re.IGNORECASE)
         blocks: list[str] = []
         search_pos = 0
@@ -405,16 +451,59 @@ class Hanime1:
         return blocks
 
     @staticmethod
+    def _normalize_html_text(text: str | None) -> str | None:
+        if not text:
+            return None
+        normalized = html.unescape(text)
+        normalized = re.sub(r'<[^>]+>', '', normalized)
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized or None
+
+    @staticmethod
     def _extract_playlist_title(playlist_html: str) -> str | None:
         match = _PLAYLIST_TITLE_RE.search(playlist_html)
         if not match:
             return None
-        text = html.unescape(match.group('title'))
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'\s+', ' ', text).strip()
+        text = Hanime1._normalize_html_text(match.group('title'))
         if not text:
             return None
         return Hanime1._to_simplified_chinese(text)
+
+    @staticmethod
+    def _extract_playlist_item_title(item_html: str) -> str | None:
+        match = _PLAYLIST_ITEM_TITLE_RE.search(item_html)
+        if match:
+            title = Hanime1._normalize_html_text(match.group('title'))
+            if title:
+                return Hanime1._to_simplified_chinese(title)
+
+        for match in _IMAGE_ALT_RE.finditer(item_html):
+            title = Hanime1._normalize_html_text(match.group('title'))
+            if title:
+                return Hanime1._to_simplified_chinese(title)
+        return None
+
+    @staticmethod
+    def _extract_playlist_videos(playlist_html: str) -> list[WatchSeriesVideo]:
+        videos: list[WatchSeriesVideo] = []
+        seen_ids: set[str] = set()
+        for item_html in Hanime1._extract_div_blocks_by_class(playlist_html, class_name='related-watch-wrap'):
+            title = Hanime1._extract_playlist_item_title(item_html)
+            for video_id in Hanime1.extract_search_video_ids(item_html):
+                key = video_id.casefold()
+                if key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                videos.append(WatchSeriesVideo(video_id=video_id, title=title, position=len(videos) + 1))
+
+        for video_id in Hanime1.extract_search_video_ids(playlist_html):
+            key = video_id.casefold()
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            videos.append(WatchSeriesVideo(video_id=video_id, position=len(videos) + 1))
+
+        return videos
 
     @staticmethod
     def extract_watch_series(page_html: str) -> WatchSeries | None:
@@ -424,21 +513,67 @@ class Hanime1:
 
         series_name: str | None = None
         ids: list[str] = []
+        videos: list[WatchSeriesVideo] = []
         seen_ids: set[str] = set()
 
         for playlist_html in playlist_blocks:
             if not series_name:
                 series_name = Hanime1._extract_playlist_title(playlist_html)
-            for video_id in Hanime1.extract_search_video_ids(playlist_html):
+            for video in Hanime1._extract_playlist_videos(playlist_html):
+                video_id = video.video_id
                 key = video_id.casefold()
                 if key in seen_ids:
                     continue
                 seen_ids.add(key)
                 ids.append(video_id)
+                videos.append(WatchSeriesVideo(video_id=video_id, title=video.title, position=len(videos) + 1))
 
         if not ids:
             return None
-        return WatchSeries(name=series_name, video_ids=tuple(ids))
+        return WatchSeries(name=series_name, video_ids=tuple(ids), videos=tuple(videos))
+
+    @staticmethod
+    def _title_contains_series(title: str, series_name: str | None) -> bool:
+        if not series_name:
+            return False
+        normalized_title = re.sub(r'\s+', ' ', title).strip().casefold()
+        normalized_series = re.sub(r'\s+', ' ', series_name).strip().casefold()
+        return bool(normalized_series and normalized_title.startswith(normalized_series))
+
+    @staticmethod
+    def _title_suffix_after_series(title: str, series_name: str | None) -> str:
+        if not series_name:
+            return title
+        normalized_title = re.sub(r'\s+', ' ', title).strip()
+        normalized_series = re.sub(r'\s+', ' ', series_name).strip()
+        if normalized_title.casefold().startswith(normalized_series.casefold()):
+            return normalized_title[len(normalized_series) :].strip(_TITLE_SUFFIX_STRIP_CHARS)
+        return normalized_title
+
+    @staticmethod
+    def _playlist_item_title_has_sequence(title: str, series_name: str | None) -> bool:
+        suffix = Hanime1._title_suffix_after_series(title, series_name)
+        suffix = unicodedata.normalize('NFKC', suffix)
+        return bool(_EPISODE_MARKER_RE.search(suffix) or _STANDALONE_NUMBER_RE.search(suffix))
+
+    @staticmethod
+    def _format_playlist_archive_title(*, series_name: str | None, video: WatchSeriesVideo, total: int) -> str:
+        series_title = Hanime1._to_simplified_chinese(series_name) or series_name
+        item_title = Hanime1._to_simplified_chinese(video.title) or video.title
+
+        if item_title and Hanime1._playlist_item_title_has_sequence(item_title, series_title):
+            if series_title and not Hanime1._title_contains_series(item_title, series_title):
+                return f'{series_title} {item_title}'
+            return item_title
+
+        if series_title:
+            if total > 1:
+                return f'{series_title} {video.position:02d}'
+            return series_title
+
+        if item_title:
+            return item_title
+        return video.video_id
 
     @staticmethod
     def _ignored_title_marker(title: str | None) -> str | None:
@@ -1112,8 +1247,8 @@ class Hanime1:
     async def _collect_ids_from_watch_series(
         self,
         seeds: list[RuntimeSeriesSeed],
-    ) -> dict[str, tuple[str, str]]:
-        collected: dict[str, tuple[str, str]] = {}
+    ) -> dict[str, HanimeCandidate]:
+        collected: dict[str, HanimeCandidate] = {}
 
         for seed in seeds:
             seed_item = HanimeRecord(
@@ -1132,26 +1267,44 @@ class Hanime1:
 
             series_name = seed.title
             candidate_ids: list[str] = [seed.video_id]
+            series_videos: tuple[WatchSeriesVideo, ...] = ()
             if series is not None:
                 if series.name:
                     series_name = series.name
                 if series.video_ids:
                     candidate_ids = list(series.video_ids)
+                if series.videos:
+                    series_videos = series.videos
 
             source_name = self._to_simplified_chinese(series_name) or f'id-{seed.video_id}'
             await self._upsert_series_members(canonical_video_id=seed.video_id, member_ids=[seed.video_id, *candidate_ids])
             await self._mark_series_scan_success(seed.video_id)
+            if not series_videos:
+                series_videos = tuple(
+                    WatchSeriesVideo(video_id=video_id, position=position) for position, video_id in enumerate(candidate_ids, start=1)
+                )
+
+            total_series_videos = len(series_videos)
             new_count = 0
-            for video_id in candidate_ids:
+            for video in series_videos:
+                video_id = video.video_id
                 key = video_id.casefold()
                 if key in collected:
                     continue
-                collected[key] = (video_id, source_name)
+                collected[key] = HanimeCandidate(
+                    video_id=video_id,
+                    source_name=source_name,
+                    archive_title=self._format_playlist_archive_title(
+                        series_name=source_name,
+                        video=video,
+                        total=total_series_videos,
+                    ),
+                )
                 new_count += 1
             log.info(
                 'Seed %s resolved %d series videos (%d unique) as %r',
                 seed.video_id,
-                len(candidate_ids),
+                total_series_videos,
                 new_count,
                 source_name,
             )
@@ -1180,36 +1333,36 @@ class Hanime1:
         downloaded_ids = await self._get_downloaded_ids()
         records: list[HanimeRecord] = []
         seen_ids = set(downloaded_ids)
-        for key, (video_id, source_name) in candidate_map.items():
+        for key, candidate in candidate_map.items():
             if key in seen_ids:
                 continue
             item = HanimeRecord(
-                id=video_id,
-                title='',
-                keyword=source_name,
+                id=candidate.video_id,
+                title=candidate.archive_title,
+                keyword=candidate.source_name,
                 uploader=None,
-                page_url=f'{cfg.host.rstrip("/")}/watch?v={video_id}',
+                page_url=f'{cfg.host.rstrip("/")}/watch?v={candidate.video_id}',
                 stream_url=None,
             )
             try:
                 watch_metadata = await self.resolve_metadata_from_watch_page(item)
             except Exception as exc:  # noqa: BLE001
-                log.debug('Failed to resolve Hanime1 watch metadata for discovery item %s: %s', video_id, exc)
+                log.debug('Failed to resolve Hanime1 watch metadata for discovery item %s: %s', candidate.video_id, exc)
                 watch_metadata = WatchMetadata()
 
             marker = self._ignored_title_marker(watch_metadata.title)
             if marker is not None:
-                normalized_title = self._to_simplified_chinese(watch_metadata.title) or watch_metadata.title or video_id
+                normalized_title = self._to_simplified_chinese(watch_metadata.title) or watch_metadata.title or candidate.video_id
                 log.info(
                     'Skipping Hanime1 discovery item %s because watch title contains ignored marker %s: %s',
-                    video_id,
+                    candidate.video_id,
                     marker,
                     normalized_title,
                 )
                 continue
 
             seen_ids.add(key)
-            if watch_metadata.title:
+            if not item.title and watch_metadata.title:
                 item.title = watch_metadata.title
             records.append(item)
         log.info('Hanime1 discovery path watch-series(ids) produced %d new videos', len(records))
@@ -1217,7 +1370,9 @@ class Hanime1:
 
     async def download_item(self, item: HanimeRecord) -> DownloadResult:
         item_id = self._derive_item_id(item)
-        title = self._to_simplified_chinese(item.title) or item_id
+        item_title = self._to_simplified_chinese(item.title)
+        archive_title = item_title or item_id
+        metadata_title: str | None = None
         uploader = self._to_simplified_chinese(item.uploader)
         watch_metadata = WatchMetadata()
         stream_url = item.stream_url
@@ -1233,14 +1388,18 @@ class Hanime1:
                 stream_url, parsed_title = await self.resolve_stream_from_page(item.page_url)
             self._raise_if_ignored_title(item_id=item_id, title=parsed_title, source='page')
             if parsed_title:
-                title = parsed_title
+                metadata_title = parsed_title
+                if not item_title:
+                    archive_title = parsed_title
         try:
             watch_metadata = await self.resolve_metadata_from_watch_page(item)
         except Exception as exc:  # noqa: BLE001
             log.debug('Failed to resolve watch metadata for %s: %s', item_id, exc)
         self._raise_if_ignored_title(item_id=item_id, title=watch_metadata.title, source='watch metadata')
         if watch_metadata.title:
-            title = watch_metadata.title
+            metadata_title = watch_metadata.title
+            if not item_title:
+                archive_title = watch_metadata.title
         if not uploader and watch_metadata.uploader:
             uploader = watch_metadata.uploader
 
@@ -1260,7 +1419,7 @@ class Hanime1:
         )
 
         filename = format_video_filename(
-            title=title,
+            title=archive_title,
             video_id=item_id,
             ext=downloaded_path.suffix,
         )
@@ -1272,9 +1431,10 @@ class Hanime1:
 
         return DownloadResult(
             item_id=item.id,
-            title=title,
+            title=metadata_title or archive_title,
             stream_url=stream_url,
             final_path=final_path,
+            archive_title=archive_title,
             resolution=resolution,
             uploader=uploader,
             release_date=watch_metadata.release_date,
