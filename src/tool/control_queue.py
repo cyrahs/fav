@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
 import psycopg
 from psycopg.rows import dict_row
 
 from src.tool import database
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import datetime
+    from typing import Any
 
 STATUS_FAILED = 'failed'
 STATUS_PENDING = 'pending'
@@ -18,6 +21,7 @@ STATUS_RUNNING = 'running'
 STATUS_SUCCEEDED = 'succeeded'
 VALID_STATUSES = {STATUS_PENDING, STATUS_RUNNING, STATUS_SUCCEEDED, STATUS_FAILED, STATUS_REJECTED}
 VALID_KINDS = {'trigger_job'}
+_STALE_RUNNING_REQUEST_SECONDS = 6 * 60 * 60
 
 _CREATE_CONTROL_REQUESTS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS control_requests (
@@ -179,3 +183,26 @@ async def update_control_request(
         """,
         (status, result, error, str(request_id)),
     )
+
+
+async def fail_stale_running_control_requests(*, older_than_seconds: int = _STALE_RUNNING_REQUEST_SECONDS) -> int:
+    await ensure_control_requests_table()
+    rows = await database.query_db(
+        """
+        UPDATE control_requests
+        SET status = ?,
+            finished_at = CURRENT_TIMESTAMP,
+            error = CASE WHEN error = '' THEN ? ELSE error END
+        WHERE status = ?
+          AND started_at IS NOT NULL
+          AND started_at < CURRENT_TIMESTAMP - (?::double precision * INTERVAL '1 second')
+        RETURNING id;
+        """,
+        (
+            STATUS_FAILED,
+            f'Stale running control request after {older_than_seconds} seconds',
+            STATUS_RUNNING,
+            str(older_than_seconds),
+        ),
+    )
+    return len(rows)

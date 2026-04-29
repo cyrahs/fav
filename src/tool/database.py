@@ -1,5 +1,7 @@
+import hashlib
 import re
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from typing import Any
 
 import psycopg
@@ -15,6 +17,33 @@ _PRAGMA_TABLE_INFO_RE = re.compile(
 )
 _PRAGMA_RE = re.compile(r'^\s*PRAGMA\b', re.IGNORECASE)
 _INSERT_OR_IGNORE_RE = re.compile(r'^\s*INSERT\s+OR\s+IGNORE\b', re.IGNORECASE)
+
+
+def advisory_lock_id(name: str) -> int:
+    digest = hashlib.blake2b(name.encode(), digest_size=8).digest()
+    return int.from_bytes(digest, byteorder='big', signed=True)
+
+
+@asynccontextmanager
+async def advisory_lock(name: str) -> AsyncIterator[bool]:
+    lock_id = advisory_lock_id(name)
+    dsn = _postgres_dsn()
+    conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True, row_factory=dict_row)
+    acquired = False
+    try:
+        async with conn.cursor() as cursor:
+            await cursor.execute('SELECT pg_try_advisory_lock(%s) AS acquired;', (lock_id,))
+            row = await cursor.fetchone()
+            acquired = bool(row and row['acquired'])
+        yield acquired
+    finally:
+        if acquired:
+            try:
+                async with conn.cursor() as cursor:
+                    await cursor.execute('SELECT pg_advisory_unlock(%s);', (lock_id,))
+            except Exception as exc:  # noqa: BLE001
+                log.warning('Failed to release advisory lock %s: %s', name, exc)
+        await conn.close()
 
 
 def _postgres_dsn() -> str:

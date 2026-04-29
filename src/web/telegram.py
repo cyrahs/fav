@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS telegram (
     PRIMARY KEY (account_name, channel_id, message_id)
 );
 """
+_TELETHON_SQLITE_SESSION_SUFFIX = '.session'
 
 
 class Telegram:
@@ -233,15 +234,12 @@ class Telegram:
 
     async def update_account(self, account: TelegramAccount) -> None:
         log.info('Updating telegram account %s', account.name)
-        self.client = TelegramClient(account.session_path, account.api_id, account.api_hash)
-        try:
-            await self.client.start()
-            for channel in account.channels:
-                await self.update_channel(channel, account)
-        finally:
-            if self.client is not None:
-                await self.client.disconnect()
-                self.client = None
+        lock_name = self._account_lock_name(account)
+        async with database.advisory_lock(lock_name) as acquired:
+            if not acquired:
+                log.warning('Telegram account %s is already running, skip this account', account.name)
+                return
+            await self._update_account_locked(account)
 
     async def update(self) -> None:
         await database.query_db_multi(_TELEGRAM_SCHEMA_SQL)
@@ -249,3 +247,33 @@ class Telegram:
 
         for account in cfg.resolved_accounts():
             await self.update_account(account)
+
+    @staticmethod
+    def _account_lock_name(account: TelegramAccount) -> str:
+        return f'telegram-session:{Telegram._effective_session_file(account.session_path)}'
+
+    @staticmethod
+    def _effective_session_file(session_path: Path) -> Path:
+        path_text = str(session_path)
+        if not path_text.endswith(_TELETHON_SQLITE_SESSION_SUFFIX):
+            path_text = f'{path_text}{_TELETHON_SQLITE_SESSION_SUFFIX}'
+        return Path(path_text).expanduser().resolve()
+
+    async def _update_account_locked(self, account: TelegramAccount) -> None:
+        self.client = TelegramClient(account.session_path, account.api_id, account.api_hash)
+        try:
+            await self.client.connect()
+            if not await self.client.is_user_authorized():
+                raise TelegramSessionUnauthorizedError(account_name=account.name, session_path=account.session_path)
+            for channel in account.channels:
+                await self.update_channel(channel, account)
+        finally:
+            if self.client is not None:
+                await self.client.disconnect()
+                self.client = None
+
+
+class TelegramSessionUnauthorizedError(RuntimeError):
+    def __init__(self, *, account_name: str, session_path: Path) -> None:
+        msg = f'Telegram session unauthorized: account={account_name}, session_path={session_path}'
+        super().__init__(msg)

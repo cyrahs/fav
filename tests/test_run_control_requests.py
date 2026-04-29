@@ -100,6 +100,28 @@ def test_execute_control_request_marks_failed_runner(monkeypatch) -> None:
     assert updates == [{'request_id': '1', 'status': STATUS_FAILED, 'result': '', 'error': 'RuntimeError: boom'}]
 
 
+def test_execute_control_request_marks_failed_cancelled_runner(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    async def _fake_runner() -> run_module.JobRunResult:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    asyncio.run(
+        run_module._execute_control_request(
+            _request(target='telegram'),
+            all_jobs=[_job(key='telegram', enabled=True)],
+            runner_by_key={'telegram': _fake_runner},
+        ),
+    )
+
+    assert updates == [{'request_id': '1', 'status': STATUS_FAILED, 'result': '', 'error': 'CancelledError'}]
+
+
 def test_execute_control_request_runs_all_enabled_jobs(monkeypatch) -> None:
     updates: list[dict[str, str]] = []
     invoked: list[str] = []
@@ -131,6 +153,45 @@ def test_execute_control_request_runs_all_enabled_jobs(monkeypatch) -> None:
             'status': STATUS_SUCCEEDED,
             'result': 'bilibili=ok, hanime1=ok',
             'error': '',
+        },
+    ]
+
+
+def test_execute_control_request_all_stops_after_cancelled_runner(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+    invoked: list[str] = []
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    async def _cancelled_runner() -> run_module.JobRunResult:
+        invoked.append('telegram')
+        raise asyncio.CancelledError
+
+    async def _unexpected_runner() -> run_module.JobRunResult:
+        invoked.append('bilibili')
+        return run_module.JobRunResult(job_key='bilibili', job_name='Bilibili', success=True)
+
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    asyncio.run(
+        run_module._execute_control_request(
+            _request(target='all'),
+            all_jobs=[_job(key='telegram', enabled=True), _job(key='bilibili', enabled=True)],
+            runner_by_key={
+                'telegram': _cancelled_runner,
+                'bilibili': _unexpected_runner,
+            },
+        ),
+    )
+
+    assert invoked == ['telegram']
+    assert updates == [
+        {
+            'request_id': '1',
+            'status': STATUS_FAILED,
+            'result': 'telegram=failed',
+            'error': 'telegram: CancelledError',
         },
     ]
 
@@ -171,6 +232,44 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert captured['payload']['job'] == 'bilibili'
     assert captured['payload']['error_class'] == 'RuntimeError'
     assert captured['payload']['error_message'] == 'boom'
+
+
+def test_run_job_handles_cancelled_error_and_closes_worker(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    closed: list[str] = []
+
+    class _CancelledWorker:
+        async def update(self) -> None:
+            raise asyncio.CancelledError
+
+        async def aclose(self) -> None:
+            closed.append('closed')
+
+    async def _fake_enqueue_notification(**payload) -> None:
+        captured.update(payload)
+
+    monkeypatch.setattr(run_module, 'enqueue_notification', _fake_enqueue_notification)
+
+    result = asyncio.run(
+        run_module._run_job(
+            job=ScheduledJob(
+                key='telegram',
+                name='Telegram',
+                cron='*/30 * * * *',
+                enabled=True,
+                run_on_start=False,
+                required_commands=(),
+                factory=_CancelledWorker,
+            ),
+        ),
+    )
+
+    assert result.success is False
+    assert result.error == 'CancelledError'
+    assert result.cancelled is True
+    assert closed == ['closed']
+    assert captured['kind'] == 'job_failed'
+    assert captured['payload']['error_class'] == 'CancelledError'
 
 
 def test_load_notification_webhook_config_requires_values(monkeypatch) -> None:

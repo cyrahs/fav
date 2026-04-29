@@ -7,6 +7,14 @@ import pytest
 from src.tool import database
 
 
+def test_advisory_lock_id_is_stable_signed_bigint() -> None:
+    lock_id = database.advisory_lock_id('telegram:default:data/session')
+
+    assert lock_id == database.advisory_lock_id('telegram:default:data/session')
+    assert lock_id != database.advisory_lock_id('telegram:other:data/session')
+    assert -(2**63) <= lock_id <= 2**63 - 1
+
+
 def test_insert_db_batch_respects_max_bind_params(monkeypatch: pytest.MonkeyPatch) -> None:
     max_bind_params = 7
     expected_call_count = 5

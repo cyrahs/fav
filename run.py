@@ -25,6 +25,7 @@ from src.tool.control_queue import (
     ControlRequest,
     claim_next_control_request,
     ensure_control_requests_table,
+    fail_stale_running_control_requests,
     update_control_request,
 )
 from src.tool.notifications import (
@@ -54,6 +55,7 @@ class JobRunResult:
     job_name: str
     success: bool
     error: str = ''
+    cancelled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,14 +192,15 @@ async def _enqueue_job_failed_notification(
     started_at: datetime,
     finished_at: datetime,
     elapsed_seconds: float,
-    exc: Exception,
+    exc: BaseException,
 ) -> None:
+    error_message = _format_exception(exc)
     try:
         await enqueue_notification(
             kind='job_failed',
             source='worker',
             title=f'Job failed: {job.name}',
-            body=f'{exc.__class__.__name__}: {exc}',
+            body=error_message,
             payload={
                 'job': job.key,
                 'started_at': _serialize_datetime(started_at),
@@ -209,6 +212,13 @@ async def _enqueue_job_failed_notification(
         )
     except Exception as notify_exc:  # noqa: BLE001
         log.warning('Failed to enqueue job_failed notification for %s: %s', job.key, notify_exc)
+
+
+def _format_exception(exc: BaseException) -> str:
+    message = str(exc)
+    if not message:
+        return exc.__class__.__name__
+    return f'{exc.__class__.__name__}: {message}'
 
 
 def _notification_webhook_headers(token: str) -> dict[str, str]:
@@ -328,6 +338,18 @@ async def _run_job(*, job: ScheduledJob) -> JobRunResult:
     worker = job.factory()
     try:
         await worker.update()
+    except asyncio.CancelledError as exc:
+        elapsed = perf_counter() - started_perf
+        finished_at = datetime.now(tz=UTC)
+        await _enqueue_job_failed_notification(
+            job=job,
+            started_at=started_at,
+            finished_at=finished_at,
+            elapsed_seconds=elapsed,
+            exc=exc,
+        )
+        log.exception('Job cancelled: %s', job.name)
+        return JobRunResult(job_key=job.key, job_name=job.name, success=False, error=_format_exception(exc), cancelled=True)
     except Exception as exc:
         elapsed = perf_counter() - started_perf
         finished_at = datetime.now(tz=UTC)
@@ -339,13 +361,22 @@ async def _run_job(*, job: ScheduledJob) -> JobRunResult:
             exc=exc,
         )
         log.exception('Job failed: %s', job.name)
-        return JobRunResult(job_key=job.key, job_name=job.name, success=False, error=f'{exc.__class__.__name__}: {exc}')
+        return JobRunResult(job_key=job.key, job_name=job.name, success=False, error=_format_exception(exc))
     else:
         elapsed = perf_counter() - started_perf
         log.notice('Job completed: %s (%.1fs)', job.name, elapsed)
         return JobRunResult(job_key=job.key, job_name=job.name, success=True)
     finally:
         await _safe_close(job.name, worker)
+
+
+async def _run_control_runner(*, job: ScheduledJob, runner: Callable[[], object]) -> JobRunResult:
+    try:
+        return await runner()
+    except asyncio.CancelledError as exc:
+        return JobRunResult(job_key=job.key, job_name=job.name, success=False, error=_format_exception(exc), cancelled=True)
+    except Exception as exc:  # noqa: BLE001
+        return JobRunResult(job_key=job.key, job_name=job.name, success=False, error=_format_exception(exc))
 
 
 async def _execute_control_request(  # noqa: C901, PLR0911
@@ -380,7 +411,10 @@ async def _execute_control_request(  # noqa: C901, PLR0911
             if runner is None:
                 results.append(JobRunResult(job_key=job.key, job_name=job.name, success=False, error='Runner unavailable'))
                 continue
-            results.append(await runner())
+            result = await _run_control_runner(job=job, runner=runner)
+            results.append(result)
+            if result.cancelled:
+                break
 
         failures = [result for result in results if not result.success]
         summary = ', '.join(f'{result.job_key}={"ok" if result.success else "failed"}' for result in results)
@@ -417,7 +451,7 @@ async def _execute_control_request(  # noqa: C901, PLR0911
         )
         return
 
-    result = await runner()
+    result = await _run_control_runner(job=job, runner=runner)
     if result.success:
         await update_control_request(request.request_id, status=STATUS_SUCCEEDED, result=f'Completed {target}.')
         return
@@ -431,6 +465,9 @@ async def _consume_control_requests(
     stop_event: asyncio.Event,
 ) -> None:
     await ensure_control_requests_table()
+    stale_count = await fail_stale_running_control_requests()
+    if stale_count:
+        log.warning('Marked %d stale control requests as failed', stale_count)
     while not stop_event.is_set():
         request = await claim_next_control_request()
         if request is None:
