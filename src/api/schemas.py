@@ -142,6 +142,27 @@ class NikkeCharacterListResponse(ApiSchema):
     offset: int = 0
 
 
+class NikkeSidebarIcon(ApiSchema):
+    url: str
+    available: bool
+    sha256: str
+    content_type: str
+
+
+class NikkeSidebarCharacter(ApiSchema):
+    content_id: int
+    title: str
+    icon: NikkeSidebarIcon
+    implemented_at: str | None = None
+    updated_at: int | str | None = None
+    fetched_at: str | None = None
+
+
+class NikkeSidebarCharacterListResponse(ApiSchema):
+    items: list[NikkeSidebarCharacter]
+    total: int
+
+
 class NikkeLive2DModel(ApiSchema):
     label: str = ''
     section: str = ''

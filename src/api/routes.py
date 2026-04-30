@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import re
+from datetime import UTC, date, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from fastapi.responses import FileResponse
 
 from .constants import API_V2_PREFIX, TAG_HANIME1, TAG_JOBS, TAG_NIKKE
@@ -16,6 +20,8 @@ from .schemas import (
     JobRequestCreate,
     NikkeCharacterDetail,
     NikkeCharacterListResponse,
+    NikkeSidebarCharacter,
+    NikkeSidebarCharacterListResponse,
 )
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
@@ -23,6 +29,8 @@ ApiServiceDep = Annotated[Any, Depends(get_api_service)]
 NikkeSearchQuery = Annotated[str | None, Query(alias='q', min_length=1)]
 NikkeLimitQuery = Annotated[int, Query(ge=1, le=500)]
 NikkeOffsetQuery = Annotated[int, Query(ge=0)]
+_DATE_PART_COUNT = 3
+_NIKKE_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
 
 
 def _matches_nikke_query(character: dict[str, Any], query: str) -> bool:
@@ -35,6 +43,99 @@ def _matches_nikke_query(character: dict[str, Any], query: str) -> bool:
     if isinstance(profile, list):
         haystack.extend(str(item.get('value') or '') for item in profile if isinstance(item, dict))
     return normalized in ' '.join(haystack).casefold()
+
+
+def _nikke_profile_value(character: dict[str, Any], key: str) -> str | None:
+    profile = character.get('profile')
+    if not isinstance(profile, list):
+        return None
+    for item in profile:
+        if not isinstance(item, dict) or item.get('key') != key:
+            continue
+        value = str(item.get('value') or '').strip()
+        return value or None
+    return None
+
+
+def _nikke_sidebar_icon_payload(character: dict[str, Any]) -> dict[str, Any]:
+    icon = character.get('icon')
+    if not isinstance(icon, dict):
+        icon = {}
+    return {
+        'url': str(icon.get('url') or ''),
+        'available': bool(icon.get('available')),
+        'sha256': str(icon.get('sha256') or ''),
+        'content_type': str(icon.get('content_type') or ''),
+    }
+
+
+def _nikke_sidebar_character_payload(character: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'content_id': character.get('content_id'),
+        'title': character.get('title') or '',
+        'icon': _nikke_sidebar_icon_payload(character),
+        'implemented_at': _nikke_profile_value(character, 'implemented_at'),
+        'updated_at': character.get('updated_at'),
+        'fetched_at': character.get('fetched_at'),
+    }
+
+
+def _sort_timestamp(value: Any) -> float:
+    result = 0.0
+    if isinstance(value, bool) or value is None:
+        return result
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return result
+
+    text = value.strip()
+    if not text:
+        return result
+    if text.isdigit():
+        result = float(text)
+    else:
+        normalized = text.replace('Z', '+00:00')
+        try:
+            parsed = datetime.fromisoformat(normalized)
+            result = parsed.replace(tzinfo=UTC).timestamp() if parsed.tzinfo is None else parsed.timestamp()
+        except ValueError:
+            result = 0.0
+    return result
+
+
+def _sort_date(value: Any) -> int:
+    if not isinstance(value, str):
+        return 0
+    parts = [int(part) for part in re.findall(r'\d+', value)]
+    if len(parts) < _DATE_PART_COUNT:
+        return 0
+    year, month, day = parts[:3]
+    try:
+        return date(year, month, day).toordinal()
+    except ValueError:
+        return 0
+
+
+def _nikke_sidebar_sort_key(item: NikkeSidebarCharacter) -> tuple[int, float, float, int]:
+    return (
+        _sort_date(item.implemented_at),
+        _sort_timestamp(item.updated_at),
+        _sort_timestamp(item.fetched_at),
+        item.content_id,
+    )
+
+
+def _sidebar_response_etag(payload: NikkeSidebarCharacterListResponse) -> str:
+    body = json.dumps(payload.model_dump(mode='json'), ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
+    return f'"{hashlib.sha256(body).hexdigest()}"'
+
+
+def _etag_matches(header_value: str | None, etag: str) -> bool:
+    if not header_value:
+        return False
+    candidates = [value.strip() for value in header_value.split(',')]
+    return '*' in candidates or etag in candidates
 
 
 @router.get(
@@ -119,6 +220,34 @@ def list_nikke_characters(
     page = characters[offset : offset + limit]
     items = [service.model_nikke_character_summary(character) for character in page]
     return NikkeCharacterListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get(
+    '/nikke/sidebar/characters',
+    operation_id='listNikkeSidebarCharacters',
+    response_model=NikkeSidebarCharacterListResponse,
+    tags=[TAG_NIKKE],
+)
+def list_nikke_sidebar_characters(
+    request: Request,
+    response: Response,
+    service: ApiServiceDep,
+    query: NikkeSearchQuery = None,
+) -> NikkeSidebarCharacterListResponse | Response:
+    characters = service.list_nikke_characters()
+    if query:
+        characters = [character for character in characters if _matches_nikke_query(character, query)]
+
+    items = [NikkeSidebarCharacter.model_validate(_nikke_sidebar_character_payload(character)) for character in characters]
+    items = sorted(items, key=_nikke_sidebar_sort_key, reverse=True)
+    payload = NikkeSidebarCharacterListResponse(items=items, total=len(items))
+    etag = _sidebar_response_etag(payload)
+    headers = {'Cache-Control': _NIKKE_SIDEBAR_CACHE_CONTROL, 'ETag': etag}
+    if _etag_matches(request.headers.get('if-none-match'), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    response.headers.update(headers)
+    return payload
 
 
 @router.get(

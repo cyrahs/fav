@@ -121,6 +121,7 @@ def _create_nikke_fixture(root: Path) -> Path:
         '职业': [{'row_index': 9, 'values': [{'type': 'text', 'value': 'Attacker'}]}],
         '武器': [{'row_index': 10, 'values': [{'type': 'text', 'value': 'Rifle'}]}],
         'CV': [{'row_index': 2, 'values': [{'type': 'text', 'value': 'Test CV'}]}],
+        '实装日期': [{'row_index': 20, 'values': [{'type': 'text', 'value': '2024/01/01'}]}],
     }
     skins = [
         {
@@ -216,6 +217,80 @@ def test_list_nikke_characters_returns_lightweight_summaries(tmp_path: Path) -> 
     assert item['portrait']['path'] == 'assets/images/portrait.png'
     assert item['skin_count'] == 1
     assert item['live2d_model_count'] == 1
+
+
+def test_list_nikke_sidebar_characters_returns_sorted_light_payload(tmp_path: Path) -> None:
+    root = _create_nikke_fixture(tmp_path / 'nikke')
+    recent_root = root / '202 - Recent NIKKE'
+    recent_icon_path = 'assets/images/recent-icon.png'
+    _write_asset(recent_root / recent_icon_path, b'recent-icon')
+    _write_json(
+        recent_root / 'manifest.json',
+        {
+            'source_url': 'https://www.gamekee.com/nikke/tj/202.html',
+            'fetched_at': '2026-04-30T00:00:01+00:00',
+            'content_id': 202,
+            'title': 'Recent NIKKE',
+            'updated_at': 999,
+            'tj_list': {'content_id': 202, 'name': 'Recent NIKKE', 'level': 'SSR', 'qy': 'Missilis'},
+            'base_info': {
+                '稀有度': [{'row_index': 1, 'values': [{'type': 'text', 'value': 'SSR'}]}],
+                '企业': [{'row_index': 5, 'values': [{'type': 'text', 'value': 'Missilis'}]}],
+                '实装日期': [{'row_index': 20, 'values': [{'type': 'text', 'value': '2025/02/03'}]}],
+            },
+            'content_summary': {'skins': []},
+            'live2d_models': [],
+            'assets': [
+                {
+                    'url': 'https://cdn.example.test/recent-icon.png',
+                    'kind': 'image',
+                    'local_path': recent_icon_path,
+                    'sha256': 'c' * 64,
+                    'content_type': 'image/png',
+                    'size': len(b'recent-icon'),
+                    'status': 'downloaded',
+                    'error': '',
+                    'contexts': [{'section': 'tj_list', 'field': 'icon', 'label': 'icon'}],
+                },
+            ],
+        },
+    )
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/nikke/sidebar/characters', headers=_auth_headers())
+        query_response = client.get('/api/v2/nikke/sidebar/characters?q=elysion', headers=_auth_headers())
+        cached_response = client.get(
+            '/api/v2/nikke/sidebar/characters',
+            headers={**_auth_headers(), 'If-None-Match': response.headers['etag']},
+        )
+
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'public, max-age=300'
+    assert response.headers['etag'].startswith('"')
+    payload = response.json()
+    assert set(payload) == {'items', 'total'}
+    assert payload['total'] == 2
+    assert [item['content_id'] for item in payload['items']] == [202, 101]
+    item = payload['items'][0]
+    assert set(item) == {'content_id', 'title', 'icon', 'implemented_at', 'updated_at', 'fetched_at'}
+    assert item['title'] == 'Recent NIKKE'
+    assert item['implemented_at'] == '2025/02/03'
+    assert item['updated_at'] == 999
+    assert item['fetched_at'] == '2026-04-30T00:00:01+00:00'
+    assert item['icon'] == {
+        'url': '/api/v2/nikke/assets/202/assets/images/recent-icon.png?v=' + ('c' * 64),
+        'available': True,
+        'sha256': 'c' * 64,
+        'content_type': 'image/png',
+    }
+    assert query_response.status_code == 200
+    assert query_response.json()['total'] == 1
+    assert query_response.json()['items'][0]['content_id'] == 101
+    assert cached_response.status_code == 304
+    assert cached_response.content == b''
+    assert cached_response.headers['cache-control'] == 'public, max-age=300'
+    assert cached_response.headers['etag'] == response.headers['etag']
 
 
 def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path) -> None:

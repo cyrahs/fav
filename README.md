@@ -27,6 +27,7 @@ Protected endpoints:
 - `GET /api/v2/job-requests/{id}`
 - `POST /api/v2/hanime1/seeds`
 - `GET /api/v2/nikke/characters`
+- `GET /api/v2/nikke/sidebar/characters`
 - `GET /api/v2/nikke/characters/{content_id}`
 - `GET /api/v2/nikke/assets/{content_id}/{asset_path}`
 
