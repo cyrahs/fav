@@ -9,6 +9,7 @@ from . import logger
 
 _CRON_FIELDS = 5
 _TELEGRAM_ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+TelegramMediaType = Literal['video', 'image']
 
 
 class ScheduleJob(BaseModel):
@@ -60,14 +61,33 @@ def _dedupe_channels(value: list['TelegramChannel']) -> list['TelegramChannel']:
     return deduped
 
 
+def _dedupe_telegram_media_types(value: list[TelegramMediaType]) -> list[TelegramMediaType]:
+    deduped: list[TelegramMediaType] = []
+    for media_type in value:
+        if media_type in deduped:
+            continue
+        deduped.append(media_type)
+    return deduped
+
+
 class TelegramChannel(BaseModel):
     id: int
     path: Path
+    media_types: list[TelegramMediaType] = Field(default_factory=lambda: ['video'])
 
     @field_validator('id')
     @classmethod
     def normalize_id(cls, value: int) -> int:
         return _normalize_telegram_channel_id(value)
+
+    @field_validator('media_types')
+    @classmethod
+    def validate_media_types(cls, value: list[TelegramMediaType]) -> list[TelegramMediaType]:
+        deduped = _dedupe_telegram_media_types(value)
+        if not deduped:
+            msg = 'telegram channel media_types cannot be empty'
+            raise ValueError(msg)
+        return deduped
 
 
 class TelegramAccount(BaseModel):

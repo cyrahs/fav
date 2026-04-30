@@ -66,6 +66,18 @@ webhook_token = "replace-with-webhook-bearer-token"
 uv run python -m src.api
 ```
 
+## Telegram Media Types
+
+Telegram channels download videos by default. Add `media_types = ["video", "image"]` to a channel to also archive images.
+`image` includes regular Telegram photos and image documents such as original PNG/JPEG files, while stickers are skipped.
+
+```toml
+[[web.telegram.accounts.channels]]
+id = 1234567890
+path = "./collection/telegram/channel-name"
+media_types = ["video", "image"]
+```
+
 ## Hanime1 Ranking Discovery
 
 Hanime1 can auto-add series targets from the configured weekly and monthly adult anime ranking pages before each downloader run.

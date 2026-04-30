@@ -71,6 +71,28 @@ def test_telegram_accounts_config_resolves_named_accounts() -> None:
     assert [account.channels[0].path for account in accounts] == [Path('./collection/telegram/main'), Path('./collection/telegram/alt')]
 
 
+def test_telegram_channel_defaults_to_video_media_type() -> None:
+    channel = TelegramChannel(id=1, path=Path('./collection/telegram/main'))
+
+    assert channel.media_types == ['video']
+
+
+def test_telegram_channel_accepts_image_media_type_and_dedupes() -> None:
+    channel = TelegramChannel(id=1, path=Path('./collection/telegram/main'), media_types=['video', 'image', 'image'])
+
+    assert channel.media_types == ['video', 'image']
+
+
+def test_telegram_channel_rejects_empty_media_types() -> None:
+    with pytest.raises(ValidationError):
+        TelegramChannel(id=1, path=Path('./collection/telegram/main'), media_types=[])
+
+
+def test_telegram_channel_rejects_unknown_media_type() -> None:
+    with pytest.raises(ValidationError):
+        TelegramChannel(id=1, path=Path('./collection/telegram/main'), media_types=['photo'])
+
+
 def test_telegram_rejects_duplicate_account_names() -> None:
     with pytest.raises(ValidationError):
         Telegram(

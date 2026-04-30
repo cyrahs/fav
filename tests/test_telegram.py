@@ -8,12 +8,26 @@ from types import SimpleNamespace
 import pytest
 
 import src.web.telegram as telegram_module
-from src.web.telegram import Telegram, TelegramSessionUnauthorizedError
+from src.web.telegram import Telegram, TelegramMediaEntry, TelegramSessionUnauthorizedError
 
 
 class _DummyClient:
     async def get_entity(self, _peer: object) -> SimpleNamespace:
         return SimpleNamespace(username='demo_channel')
+
+
+class _IterClient(_DummyClient):
+    def __init__(self, messages: list[SimpleNamespace]) -> None:
+        self._messages = messages
+
+    def iter_messages(self, _channel: object, *, reverse: bool = False):
+        messages = self._messages if reverse else list(reversed(self._messages))
+
+        async def _iter_messages():
+            for msg in messages:
+                yield msg
+
+        return _iter_messages()
 
 
 class _DummyTmpDir:
@@ -47,6 +61,32 @@ def _account(name: str = 'default', channel_path: Path | None = None) -> telegra
     )
 
 
+def _media_entry(msg: object, filename: str = 'My Video', media_type: telegram_module.TelegramMediaType = 'video') -> TelegramMediaEntry:
+    return TelegramMediaEntry(msg=msg, filename=filename, media_type=media_type)
+
+
+def _message(
+    message_id: int,
+    **updates: object,
+) -> SimpleNamespace:
+    data: dict[str, object] = {
+        'message': '',
+        'grouped_id': None,
+        'media': None,
+        'video': False,
+        'photo': False,
+        'document': None,
+        'sticker': False,
+    }
+    data.update(updates)
+    return SimpleNamespace(id=message_id, **data)
+
+
+def _document_media(mime_type: str, attributes: list[object] | None = None) -> telegram_module.MessageMediaDocument:
+    document = SimpleNamespace(mime_type=mime_type, attributes=attributes or [])
+    return telegram_module.MessageMediaDocument(document=document)
+
+
 def test_update_channel_sends_notification(tmp_path, monkeypatch) -> None:
     tg = _make_telegram()
     notifications: list[dict[str, object]] = []
@@ -55,20 +95,21 @@ def test_update_channel_sends_notification(tmp_path, monkeypatch) -> None:
     msg = SimpleNamespace(id=456)
     queries: list[tuple[str, tuple | None]] = []
 
-    async def _fake_get_videos(_channel: object) -> list[dict[str, object]]:
-        return [{'msg': msg, 'filename': 'My Video'}]
+    async def _fake_get_media(_channel: object, _media_types: list[telegram_module.TelegramMediaType]) -> list[TelegramMediaEntry]:
+        return [_media_entry(msg)]
 
     async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int) -> list[int]:
         return []
 
-    async def _fake_download(_msg: object, _dst: Path, _title: str) -> Path:
+    async def _fake_download(_msg: object, _dst: Path, _title: str, media_type: telegram_module.TelegramMediaType = 'video') -> Path:
+        assert media_type == 'video'
         return tmp_path / 'demo_channel' / 'My Video [456].mp4'
 
     async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
-    monkeypatch.setattr(tg, 'get_videos', _fake_get_videos)
+    monkeypatch.setattr(tg, 'get_media', _fake_get_media)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
     monkeypatch.setattr(tg, 'download', _fake_download)
     monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
@@ -95,7 +136,7 @@ def test_update_channel_sends_notification(tmp_path, monkeypatch) -> None:
         },
     ]
     assert sum('INSERT INTO telegram' in sql for sql, _ in queries) == 1
-    assert queries[-1][1] == ('default', 456, 123, 'My Video', 'demo_channel')
+    assert queries[-1][1] == ('default', 456, 123, 'My Video', 'demo_channel', 'video')
 
 
 def test_update_channel_continues_when_notification_fails(tmp_path, monkeypatch) -> None:
@@ -105,20 +146,21 @@ def test_update_channel_continues_when_notification_fails(tmp_path, monkeypatch)
     msg = SimpleNamespace(id=456)
     queries: list[tuple[str, tuple | None]] = []
 
-    async def _fake_get_videos(_channel: object) -> list[dict[str, object]]:
-        return [{'msg': msg, 'filename': 'My Video'}]
+    async def _fake_get_media(_channel: object, _media_types: list[telegram_module.TelegramMediaType]) -> list[TelegramMediaEntry]:
+        return [_media_entry(msg)]
 
     async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int) -> list[int]:
         return []
 
-    async def _fake_download(_msg: object, _dst: Path, _title: str) -> Path:
+    async def _fake_download(_msg: object, _dst: Path, _title: str, media_type: telegram_module.TelegramMediaType = 'video') -> Path:
+        assert media_type == 'video'
         return tmp_path / 'demo_channel' / 'My Video [456].mp4'
 
     async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
         queries.append((sql, params))
         return []
 
-    monkeypatch.setattr(tg, 'get_videos', _fake_get_videos)
+    monkeypatch.setattr(tg, 'get_media', _fake_get_media)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
     monkeypatch.setattr(tg, 'download', _fake_download)
     monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
@@ -147,16 +189,16 @@ def test_update_channel_uses_explicit_channel_path(tmp_path, monkeypatch) -> Non
         session_path=Path('./session'),
     )
 
-    async def _fake_get_videos(_channel: object) -> list[dict[str, object]]:
-        return [{'msg': msg, 'filename': 'My Video'}]
+    async def _fake_get_media(_channel: object, _media_types: list[telegram_module.TelegramMediaType]) -> list[TelegramMediaEntry]:
+        return [_media_entry(msg)]
 
     async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int) -> list[int]:
         return []
 
-    download_calls: list[tuple[object, Path, str]] = []
+    download_calls: list[tuple[object, Path, str, telegram_module.TelegramMediaType]] = []
 
-    async def _fake_download(_msg: object, dst: Path, title: str) -> Path:
-        download_calls.append((_msg, dst, title))
+    async def _fake_download(_msg: object, dst: Path, title: str, media_type: telegram_module.TelegramMediaType = 'video') -> Path:
+        download_calls.append((_msg, dst, title, media_type))
         return dst / 'My Video [456].mp4'
 
     async def _fake_query_db(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:
@@ -165,7 +207,7 @@ def test_update_channel_uses_explicit_channel_path(tmp_path, monkeypatch) -> Non
     async def _fake_enqueue_notification(**_payload) -> None:  # noqa: ANN003
         return None
 
-    monkeypatch.setattr(tg, 'get_videos', _fake_get_videos)
+    monkeypatch.setattr(tg, 'get_media', _fake_get_media)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
     monkeypatch.setattr(tg, 'download', _fake_download)
     monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
@@ -173,7 +215,85 @@ def test_update_channel_uses_explicit_channel_path(tmp_path, monkeypatch) -> Non
 
     asyncio.run(tg.update_channel(channel, account))
 
-    assert download_calls == [(msg, tmp_path / 'custom-channel', 'My Video')]
+    assert download_calls == [(msg, tmp_path / 'custom-channel', 'My Video', 'video')]
+
+
+def test_get_media_uses_configured_media_types() -> None:
+    tg = _make_telegram()
+    tg.client = _IterClient(
+        [
+            _message(message_id=1, message='Video Caption', video=True),
+            _message(message_id=2, message='Image Caption', media=telegram_module.MessageMediaPhoto(photo=object())),
+        ],
+    )
+
+    video_only = asyncio.run(tg.get_media(SimpleNamespace(), ['video']))
+    video_and_image = asyncio.run(tg.get_media(SimpleNamespace(), ['video', 'image']))
+
+    assert [(item.msg.id, item.filename, item.media_type) for item in video_only] == [(1, 'Video Caption', 'video')]
+    assert [(item.msg.id, item.filename, item.media_type) for item in video_and_image] == [
+        (1, 'Video Caption', 'video'),
+        (2, 'Image Caption', 'image'),
+    ]
+
+
+def test_get_media_supports_image_documents_and_skips_stickers() -> None:
+    sticker_attr = type('DocumentAttributeSticker', (), {})()
+    tg = _make_telegram()
+    tg.client = _IterClient(
+        [
+            _message(message_id=1, media=_document_media('image/png')),
+            _message(message_id=2, media=_document_media('image/webp', [sticker_attr])),
+            _message(message_id=3, media=_document_media('application/octet-stream')),
+        ],
+    )
+
+    media = asyncio.run(tg.get_media(SimpleNamespace(), ['image']))
+
+    assert [(item.msg.id, item.filename, item.media_type) for item in media] == [(1, 'image_1', 'image')]
+
+
+def test_get_media_uses_album_caption_for_images() -> None:
+    tg = _make_telegram()
+    tg.client = _IterClient(
+        [
+            _message(message_id=1, message='Album Caption', grouped_id=99, media=telegram_module.MessageMediaPhoto(photo=object())),
+            _message(message_id=2, grouped_id=99, media=_document_media('image/png')),
+        ],
+    )
+
+    media = asyncio.run(tg.get_media(SimpleNamespace(), ['image']))
+
+    assert [(item.msg.id, item.filename, item.media_type) for item in media] == [
+        (1, 'Album Caption-1', 'image'),
+        (2, 'Album Caption-2', 'image'),
+    ]
+
+
+def test_get_media_skips_web_preview_photos() -> None:
+    tg = _make_telegram()
+    tg.client = _IterClient(
+        [
+            _message(message_id=1, message='Link preview', photo=object()),
+        ],
+    )
+
+    media = asyncio.run(tg.get_media(SimpleNamespace(), ['image']))
+
+    assert media == []
+
+
+def test_get_media_skips_web_preview_image_documents() -> None:
+    tg = _make_telegram()
+    tg.client = _IterClient(
+        [
+            _message(message_id=1, message='Link preview', document=SimpleNamespace(mime_type='image/png', attributes=[])),
+        ],
+    )
+
+    media = asyncio.run(tg.get_media(SimpleNamespace(), ['image']))
+
+    assert media == []
 
 
 def test_update_account_connects_without_interactive_start(tmp_path, monkeypatch) -> None:
