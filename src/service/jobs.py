@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from src.core.config import config
-from src.web import Bilibili, Hanime1, Jandan, StellaSora, Telegram
+from src.web import Bilibili, Hanime1, Jandan, Nikke, StellaSora, Telegram
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +35,7 @@ def build_jobs() -> list[ScheduledJob]:
     telegram_cfg = config.web.telegram
     stellasora_cfg = config.web.stellasora
     hanime1_cfg = config.web.hanime1
+    nikke_cfg = config.web.nikke
     return [
         ScheduledJob(
             key='bilibili',
@@ -59,6 +63,15 @@ def build_jobs() -> list[ScheduledJob]:
             run_on_start=jandan_cfg.run_on_start,
             required_commands=(),
             factory=Jandan,
+        ),
+        ScheduledJob(
+            key='nikke',
+            name='Nikke',
+            cron=nikke_cfg.cron,
+            enabled=nikke_cfg.enabled,
+            run_on_start=nikke_cfg.run_on_start,
+            required_commands=(),
+            factory=Nikke,
         ),
         ScheduledJob(
             key='telegram',

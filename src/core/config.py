@@ -186,6 +186,12 @@ class Stellasora(ScheduleJob):
     cron: str = '0 */6 * * *'
 
 
+class Nikke(ScheduleJob):
+    enabled: bool = False
+    path: Path = Path('./collection/nikke')
+    cron: str = '0 */6 * * *'
+
+
 class Hanime1Ranking(BaseModel):
     enabled: bool = False
     periods: list[Literal['weekly', 'monthly']] = Field(default_factory=lambda: ['weekly', 'monthly'])
@@ -272,6 +278,7 @@ class Web(BaseModel):
     bilibili: Bilibili
     telegram: Telegram
     stellasora: Stellasora = Field(default_factory=Stellasora)
+    nikke: Nikke = Field(default_factory=Nikke)
     hanime1: Hanime1 = Field(default_factory=Hanime1)
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono

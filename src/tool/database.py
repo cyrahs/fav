@@ -247,10 +247,10 @@ def _convert_qmark_placeholders(sql: str) -> tuple[str, int]:  # noqa: C901, PLR
 
 def _prepare_statement(
     sql: str,
-    params: tuple[str, ...],
+    params: tuple[Any, ...],
     *,
     allow_partial_params: bool = False,
-) -> tuple[str, tuple[str, ...], int]:
+) -> tuple[str, tuple[Any, ...], int]:
     pragma_match = _PRAGMA_TABLE_INFO_RE.match(sql)
     if pragma_match:
         if params and not allow_partial_params:
@@ -283,7 +283,7 @@ def _prepare_statement(
 
 
 async def _execute_prepared_statements(
-    statements: Sequence[tuple[str, tuple[str, ...]]],
+    statements: Sequence[tuple[str, tuple[Any, ...]]],
 ) -> list[list[dict[str, Any]]]:
     dsn = _postgres_dsn()
     results: list[list[dict[str, Any]]] = []
@@ -300,9 +300,9 @@ async def _execute_prepared_statements(
 
 
 async def _query_statements(
-    statements: Sequence[tuple[str, tuple[str, ...]]],
+    statements: Sequence[tuple[str, tuple[Any, ...]]],
 ) -> list[list[dict[str, Any]]]:
-    prepared: list[tuple[str, tuple[str, ...]]] = []
+    prepared: list[tuple[str, tuple[Any, ...]]] = []
     for sql, params in statements:
         normalized_sql = sql.strip()
         if not normalized_sql:
@@ -314,12 +314,12 @@ async def _query_statements(
     return await _execute_prepared_statements(prepared)
 
 
-async def query_db_multi(query: str, params: tuple[str, ...] = ()) -> list[list[dict[str, Any]]]:
+async def query_db_multi(query: str, params: tuple[Any, ...] = ()) -> list[list[dict[str, Any]]]:
     raw_statements = _split_sql_statements(query)
     if not raw_statements:
         return []
 
-    prepared: list[tuple[str, tuple[str, ...]]] = []
+    prepared: list[tuple[str, tuple[Any, ...]]] = []
     params_offset = 0
     for statement in raw_statements:
         translated_sql, translated_params, consumed = _prepare_statement(
@@ -336,7 +336,7 @@ async def query_db_multi(query: str, params: tuple[str, ...] = ()) -> list[list[
     return await _execute_prepared_statements(prepared)
 
 
-async def query_db(query: str, params: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+async def query_db(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     results = await query_db_multi(query, params)
     if not results:
         return []
@@ -344,7 +344,7 @@ async def query_db(query: str, params: tuple[str, ...] = ()) -> list[dict[str, A
 
 
 async def query_db_batch(
-    statements: Sequence[tuple[str, tuple[str, ...]]],
+    statements: Sequence[tuple[str, tuple[Any, ...]]],
     *,
     chunk_size: int = 50,
     max_bind_params: int = _DEFAULT_DB_MAX_BIND_PARAMS,
@@ -358,7 +358,7 @@ async def query_db_batch(
 
     all_results: list[list[dict[str, Any]]] = []
     normalized_statements = [(sql.strip().rstrip(';'), params) for sql, params in statements if sql.strip()]
-    chunk: list[tuple[str, tuple[str, ...]]] = []
+    chunk: list[tuple[str, tuple[Any, ...]]] = []
     chunk_params_count = 0
 
     for sql, params in normalized_statements:
@@ -387,6 +387,33 @@ async def query_db_batch(
             raise ValueError(msg)
         all_results.extend(chunk_results)
     return all_results
+
+
+async def query_db_transaction(statements: Sequence[tuple[str, tuple[Any, ...]]]) -> list[list[dict[str, Any]]]:
+    prepared: list[tuple[str, tuple[Any, ...]]] = []
+    for sql, params in statements:
+        normalized_sql = sql.strip().rstrip(';')
+        if not normalized_sql:
+            continue
+        translated_sql, translated_params, _ = _prepare_statement(normalized_sql, params)
+        prepared.append((translated_sql, translated_params))
+    if not prepared:
+        return []
+
+    dsn = _postgres_dsn()
+    results: list[list[dict[str, Any]]] = []
+    async with await psycopg.AsyncConnection.connect(dsn, autocommit=False, row_factory=dict_row) as conn:
+        try:
+            async with conn.cursor() as cursor:
+                for sql, params in prepared:
+                    await cursor.execute(sql, params)
+                    rows = await cursor.fetchall() if cursor.description is not None else []
+                    results.append([dict(row) for row in rows])
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+    return results
 
 
 async def insert_db_batch(

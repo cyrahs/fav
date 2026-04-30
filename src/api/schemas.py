@@ -30,6 +30,7 @@ class JobRequestTarget(StrEnum):
     BILIBILI = 'bilibili'
     HANIME1 = 'hanime1'
     JANDAN = 'jandan'
+    NIKKE = 'nikke'
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
 
