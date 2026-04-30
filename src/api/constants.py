@@ -13,5 +13,6 @@ MAX_PORT = 65535
 OPENAPI_URL = '/openapi.json'
 TAG_HANIME1 = 'hanime1'
 TAG_JOBS = 'jobs'
+TAG_NIKKE = 'nikke'
 TAG_SYSTEM = 'system'
 WWW_AUTHENTICATE_BEARER = 'Bearer realm="fav-api"'

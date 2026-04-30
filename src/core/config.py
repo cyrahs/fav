@@ -301,6 +301,8 @@ class Api(BaseModel):
     token: str = ''
     bind: str = '127.0.0.1'
     port: int = 8091
+    cors_origins: list[str] = Field(default_factory=list)
+    cors_allow_credentials: bool = False
 
     @field_validator('token')
     @classmethod
@@ -321,6 +323,19 @@ class Api(BaseModel):
             msg = f'api.port must be between 1 and {max_port}'
             raise ValueError(msg)
         return value
+
+    @field_validator('cors_origins')
+    @classmethod
+    def normalize_cors_origins(cls, value: list[str]) -> list[str]:
+        origins: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            origin = item.strip().rstrip('/')
+            if not origin or origin in seen:
+                continue
+            origins.append(origin)
+            seen.add(origin)
+        return origins
 
 
 class Notifications(BaseModel):

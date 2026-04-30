@@ -94,3 +94,102 @@ class Hanime1ListResponse(ApiSchema):
 
 class Hanime1SeedCreate(ApiSchema):
     seed: str = Field(min_length=1)
+
+
+class NikkeAsset(ApiSchema):
+    kind: str
+    path: str
+    url: str
+    content_type: str = ''
+    size: int = 0
+    sha256: str = ''
+    status: str = ''
+    label: str = ''
+    field: str = ''
+    skin_index: int | None = None
+    live2d_key: str = ''
+    available: bool = False
+    contexts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class NikkeProfileItem(ApiSchema):
+    key: str
+    label: str
+    value: str = ''
+    asset: NikkeAsset | None = None
+
+
+class NikkeCharacterSummary(ApiSchema):
+    content_id: int
+    title: str
+    directory_name: str = ''
+    source_url: str = ''
+    updated_at: int | str | None = None
+    fetched_at: str | None = None
+    asset_counts: dict[str, int] = Field(default_factory=dict)
+    tags: dict[str, str] = Field(default_factory=dict)
+    profile: list[NikkeProfileItem] = Field(default_factory=list)
+    icon: NikkeAsset | None = None
+    portrait: NikkeAsset | None = None
+    skin_count: int = 0
+    live2d_model_count: int = 0
+
+
+class NikkeCharacterListResponse(ApiSchema):
+    items: list[NikkeCharacterSummary]
+    total: int
+    limit: int | None = None
+    offset: int = 0
+
+
+class NikkeLive2DModel(ApiSchema):
+    label: str = ''
+    section: str = ''
+    row_index: int | None = None
+    skin_index: int | None = None
+    skin_name: str = ''
+    skin_title: str = ''
+    skin_series: str = ''
+    skin_obtain: str = ''
+    is_collection_skin: bool = False
+    key: str = ''
+    stable_id: str = ''
+    live2d_key: str = ''
+    animation: str = ''
+    skin: str = ''
+    limit_age: bool = False
+    position: dict[str, Any] = Field(default_factory=dict)
+    bg_position: dict[str, Any] = Field(default_factory=dict)
+    source_urls: dict[str, Any] = Field(default_factory=dict)
+    assets: dict[str, Any] = Field(default_factory=dict)
+
+
+class NikkeVoiceLine(ApiSchema):
+    label: str
+    text: str = ''
+    source_url: str = ''
+
+
+class NikkeSkin(ApiSchema):
+    skin_index: int | None = None
+    name: str = ''
+    title: str = ''
+    series: str = ''
+    obtain: str = ''
+    is_collection_skin: bool = False
+    thumbnail: NikkeAsset | None = None
+    portrait: NikkeAsset | None = None
+    sd_model: NikkeAsset | None = None
+    burst_animation: NikkeAsset | None = None
+    gallery: list[NikkeAsset] = Field(default_factory=list)
+    live2d_models: list[NikkeLive2DModel] = Field(default_factory=list)
+    voice_lines: list[NikkeVoiceLine] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class NikkeCharacterDetail(NikkeCharacterSummary):
+    tj_list: dict[str, Any] | None = None
+    base_info: dict[str, Any] = Field(default_factory=dict)
+    skins: list[NikkeSkin] = Field(default_factory=list)
+    live2d_models: list[NikkeLive2DModel] = Field(default_factory=list)
+    assets: list[NikkeAsset] = Field(default_factory=list)

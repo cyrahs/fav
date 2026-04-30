@@ -93,7 +93,7 @@ def _build_service(
 def _mock_app_config(*, dsn: str, token: str, bind: str = _PRIMARY_BIND, port: int = _PRIMARY_PORT) -> SimpleNamespace:
     return SimpleNamespace(
         database=SimpleNamespace(postgres_dsn=dsn),
-        api=SimpleNamespace(token=token, bind=bind, port=port),
+        api=SimpleNamespace(token=token, bind=bind, port=port, cors_origins=[], cors_allow_credentials=False),
     )
 
 
@@ -139,6 +139,33 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
             'details': None,
         },
     }
+
+
+def test_configured_cors_allows_frontend_origin_preflight() -> None:
+    service = _build_service(token=_VALID_TOKEN, jobs=[_job(key='bilibili')])
+    config = api_server.ApiConfig(
+        dsn='postgresql://db.local/fav',
+        token=_VALID_TOKEN,
+        bind=_PRIMARY_BIND,
+        port=_PRIMARY_PORT,
+        cors_origins=('https://game-view.s117.me',),
+        cors_allow_credentials=True,
+    )
+
+    with TestClient(create_app(config=config, service=service)) as client:
+        response = client.options(
+            '/api/v2/jobs',
+            headers={
+                'Origin': 'https://game-view.s117.me',
+                'Access-Control-Request-Method': 'GET',
+                'Access-Control-Request-Headers': 'Authorization',
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers['access-control-allow-origin'] == 'https://game-view.s117.me'
+    assert response.headers['access-control-allow-credentials'] == 'true'
+    assert 'Authorization' in response.headers['access-control-allow-headers']
 
 
 def test_jobs_endpoint_requires_authorization_header() -> None:
@@ -386,6 +413,20 @@ def test_load_config_from_settings_reads_database_postgres_dsn_and_api_fields(mo
     assert config.token == 'abc123'
     assert config.bind == _PRIMARY_BIND
     assert config.port == _PRIMARY_PORT
+    assert config.cors_origins == ()
+    assert config.cors_allow_credentials is False
+
+
+def test_load_config_from_settings_reads_api_cors_fields(monkeypatch) -> None:
+    settings = _mock_app_config(dsn='postgresql://cfg-user:cfg-pass@127.0.0.1:5432/fav', token='abc123')
+    settings.api.cors_origins = ['https://game-view.s117.me/', '']
+    settings.api.cors_allow_credentials = True
+    monkeypatch.setattr(api_server, 'app_config', settings)
+
+    config = api_server.load_config_from_settings()
+
+    assert config.cors_origins == ('https://game-view.s117.me',)
+    assert config.cors_allow_credentials is True
 
 
 def test_load_config_from_settings_rejects_empty_database_postgres_dsn(monkeypatch) -> None:

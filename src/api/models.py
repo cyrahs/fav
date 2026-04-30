@@ -11,3 +11,5 @@ class ApiConfig:
     token: str
     bind: str = DEFAULT_BIND
     port: int = DEFAULT_PORT
+    cors_origins: tuple[str, ...] = ()
+    cors_allow_credentials: bool = False

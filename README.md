@@ -26,6 +26,9 @@ Protected endpoints:
 - `POST /api/v2/job-requests`
 - `GET /api/v2/job-requests/{id}`
 - `POST /api/v2/hanime1/seeds`
+- `GET /api/v2/nikke/characters`
+- `GET /api/v2/nikke/characters/{content_id}`
+- `GET /api/v2/nikke/assets/{content_id}/{asset_path}`
 
 All `/api/v2/*` endpoints require:
 
@@ -41,6 +44,8 @@ The API reads runtime settings from `config.toml`:
 - `api.token` (required)
 - `api.bind` (optional, default `127.0.0.1`)
 - `api.port` (optional, default `8091`)
+- `api.cors_origins` (optional, default `[]`)
+- `api.cors_allow_credentials` (optional, default `false`)
 - `notifications.webhook_base_url` (required for worker delivery)
 - `notifications.webhook_token` (required for worker delivery)
 
@@ -54,11 +59,15 @@ postgres_dsn = "postgresql://user:password@127.0.0.1:5432/fav"
 token = "replace-with-strong-random-token"
 bind = "127.0.0.1"
 port = 8091
+cors_origins = ["https://game-view.s117.me"]
+cors_allow_credentials = false
 
 [notifications]
 webhook_base_url = "https://internal.example.com"
 webhook_token = "replace-with-webhook-bearer-token"
 ```
+
+Use `cors_allow_credentials = true` only if the browser needs to send cookies or other credentialed requests to the API origin.
 
 ### Run
 

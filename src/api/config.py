@@ -13,6 +13,9 @@ def load_config_from_settings(settings=default_app_config) -> ApiConfig:  # noqa
     token = str(settings.api.token).strip()
     bind = str(settings.api.bind).strip() or DEFAULT_BIND
     port = int(settings.api.port)
+    raw_cors_origins = getattr(settings.api, 'cors_origins', [])
+    cors_origins = tuple(str(origin).strip().rstrip('/') for origin in raw_cors_origins if str(origin).strip())
+    cors_allow_credentials = bool(getattr(settings.api, 'cors_allow_credentials', False))
 
     if not dsn:
         msg = 'database.postgres_dsn is required'
@@ -24,7 +27,14 @@ def load_config_from_settings(settings=default_app_config) -> ApiConfig:  # noqa
         msg = f'api.port must be between 1 and {MAX_PORT}'
         raise ValueError(msg)
 
-    return ApiConfig(dsn=dsn, token=token, bind=bind, port=port)
+    return ApiConfig(
+        dsn=dsn,
+        token=token,
+        bind=bind,
+        port=port,
+        cors_origins=cors_origins,
+        cors_allow_credentials=cors_allow_credentials,
+    )
 
 
 def fetch_hanime1_downloaded_ids_from_db(dsn: str) -> list[str]:

@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -101,6 +102,14 @@ def create_app(
         openapi_url=OPENAPI_URL,
         lifespan=lifespan,
     )
+    if resolved_config is not None and resolved_config.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(resolved_config.cors_origins),
+            allow_credentials=resolved_config.cors_allow_credentials,
+            allow_methods=['GET', 'POST', 'OPTIONS'],
+            allow_headers=['Authorization', 'Content-Type'],
+        )
     _register_exception_handlers(app)
     app.include_router(api_router)
 
