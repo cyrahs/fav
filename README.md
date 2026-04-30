@@ -78,6 +78,23 @@ path = "./collection/telegram/channel-name"
 media_types = ["video", "image"]
 ```
 
+## Telegram Downloader Safety
+
+Telegram channel downloads are incremental and paced by default.
+The first run without an existing scan cursor only considers the latest `scan_limit` messages.
+Later runs continue from the saved per-channel message cursor.
+When upgrading from older versions with existing Telegram download rows, the initial cursor starts after the latest saved message.
+
+```toml
+[web.telegram]
+scan_limit = 50
+download_limit_per_channel = 2
+download_delay_seconds = 60
+channel_cooldown_seconds = 1800
+history_wait_seconds = 1
+flood_sleep_threshold_seconds = 300
+```
+
 ## Hanime1 Ranking Discovery
 
 Hanime1 can auto-add series targets from the configured weekly and monthly adult anime ranking pages before each downloader run.

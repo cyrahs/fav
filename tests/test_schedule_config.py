@@ -7,6 +7,13 @@ from pydantic import ValidationError
 
 from src.core.config import Hanime1Ranking, ScheduleJob, Telegram, TelegramAccount, TelegramChannel
 
+_TELEGRAM_DEFAULT_SCAN_LIMIT = 50
+_TELEGRAM_DEFAULT_DOWNLOAD_LIMIT_PER_CHANNEL = 2
+_TELEGRAM_DEFAULT_DOWNLOAD_DELAY_SECONDS = 60.0
+_TELEGRAM_DEFAULT_CHANNEL_COOLDOWN_SECONDS = 1800.0
+_TELEGRAM_DEFAULT_HISTORY_WAIT_SECONDS = 1.0
+_TELEGRAM_DEFAULT_FLOOD_SLEEP_THRESHOLD_SECONDS = 300
+
 
 def test_schedule_job_accepts_five_field_cron() -> None:
     job = ScheduleJob(cron='*/5 * * * *')
@@ -91,6 +98,54 @@ def test_telegram_channel_rejects_empty_media_types() -> None:
 def test_telegram_channel_rejects_unknown_media_type() -> None:
     with pytest.raises(ValidationError):
         TelegramChannel(id=1, path=Path('./collection/telegram/main'), media_types=['photo'])
+
+
+def test_telegram_download_safety_defaults() -> None:
+    cfg = Telegram(
+        accounts=[
+            TelegramAccount(
+                name='main',
+                channels=[TelegramChannel(id=1, path=Path('./collection/telegram/main'))],
+                api_id=123,
+                api_hash='hash-1',
+                session_path=Path('./data/main'),
+            ),
+        ],
+    )
+
+    assert cfg.scan_limit == _TELEGRAM_DEFAULT_SCAN_LIMIT
+    assert cfg.download_limit_per_channel == _TELEGRAM_DEFAULT_DOWNLOAD_LIMIT_PER_CHANNEL
+    assert cfg.download_delay_seconds == _TELEGRAM_DEFAULT_DOWNLOAD_DELAY_SECONDS
+    assert cfg.channel_cooldown_seconds == _TELEGRAM_DEFAULT_CHANNEL_COOLDOWN_SECONDS
+    assert cfg.history_wait_seconds == _TELEGRAM_DEFAULT_HISTORY_WAIT_SECONDS
+    assert cfg.flood_sleep_threshold_seconds == _TELEGRAM_DEFAULT_FLOOD_SLEEP_THRESHOLD_SECONDS
+
+
+def test_telegram_rejects_invalid_download_safety_values() -> None:
+    account = TelegramAccount(
+        name='main',
+        channels=[TelegramChannel(id=1, path=Path('./collection/telegram/main'))],
+        api_id=123,
+        api_hash='hash-1',
+        session_path=Path('./data/main'),
+    )
+
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], scan_limit=0)
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], download_limit_per_channel=0)
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], download_delay_seconds=-1)
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], download_delay_seconds=float('nan'))
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], channel_cooldown_seconds=float('inf'))
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], channel_cooldown_seconds=-1)
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], history_wait_seconds=-1)
+    with pytest.raises(ValidationError):
+        Telegram(accounts=[account], flood_sleep_threshold_seconds=-1)
 
 
 def test_telegram_rejects_duplicate_account_names() -> None:

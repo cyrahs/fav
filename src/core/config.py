@@ -1,3 +1,4 @@
+import math
 import re
 from pathlib import Path
 from typing import Literal, Self
@@ -131,6 +132,36 @@ class TelegramAccount(BaseModel):
 class Telegram(ScheduleJob):
     accounts: list[TelegramAccount]
     cron: str = '*/30 * * * *'
+    scan_limit: int = 50
+    download_limit_per_channel: int = 2
+    download_delay_seconds: float = 60.0
+    channel_cooldown_seconds: float = 1800.0
+    history_wait_seconds: float = 1.0
+    flood_sleep_threshold_seconds: int = 300
+
+    @field_validator('scan_limit', 'download_limit_per_channel')
+    @classmethod
+    def validate_positive_limit(cls, value: int) -> int:
+        if value < 1:
+            msg = 'telegram limits must be greater than or equal to 1'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('download_delay_seconds', 'channel_cooldown_seconds', 'history_wait_seconds')
+    @classmethod
+    def validate_non_negative_seconds(cls, value: float) -> float:
+        if not math.isfinite(value) or value < 0:
+            msg = 'telegram delays must be finite and greater than or equal to 0'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('flood_sleep_threshold_seconds')
+    @classmethod
+    def validate_flood_sleep_threshold_seconds(cls, value: int) -> int:
+        if value < 0:
+            msg = 'telegram flood_sleep_threshold_seconds must be greater than or equal to 0'
+            raise ValueError(msg)
+        return value
 
     @model_validator(mode='after')
     def validate_accounts(self) -> Self:
