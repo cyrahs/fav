@@ -8,9 +8,13 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 
-from .constants import API_V2_PREFIX, TAG_HANIME1, TAG_JOBS, TAG_NIKKE
+from .constants import API_V2_PREFIX, TAG_BD2, TAG_HANIME1, TAG_JOBS, TAG_NIKKE
 from .dependencies import get_api_service, require_api_token
 from .schemas import (
+    BD2CharacterDetail,
+    BD2CharacterListResponse,
+    BD2SidebarCharacter,
+    BD2SidebarCharacterListResponse,
     Hanime1ListResponse,
     Hanime1Seed,
     Hanime1SeedCreate,
@@ -25,11 +29,60 @@ from .schemas import (
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
 ApiServiceDep = Annotated[Any, Depends(get_api_service)]
+BD2SearchQuery = Annotated[str | None, Query(alias='q', min_length=1)]
+BD2LimitQuery = Annotated[int, Query(ge=1, le=500)]
+BD2OffsetQuery = Annotated[int, Query(ge=0)]
 NikkeSearchQuery = Annotated[str | None, Query(alias='q', min_length=1)]
 NikkeLimitQuery = Annotated[int, Query(ge=1, le=500)]
 NikkeOffsetQuery = Annotated[int, Query(ge=0)]
 _DATE_PART_COUNT = 3
+_BD2_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
 _NIKKE_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
+_SIDEBAR_RESPONSES = {
+    304: {'description': 'Not modified'},
+}
+
+
+def _matches_bd2_query(character: dict[str, Any], query: str) -> bool:
+    normalized = query.casefold()
+    haystack: list[str] = [str(character.get('content_id') or ''), str(character.get('title') or '')]
+    tags = character.get('tags')
+    if isinstance(tags, dict):
+        haystack.extend(str(value) for value in tags.values())
+    profile = character.get('profile')
+    if isinstance(profile, list):
+        haystack.extend(str(item.get('value') or '') for item in profile if isinstance(item, dict))
+    search_terms = character.get('search_terms')
+    if isinstance(search_terms, list):
+        haystack.extend(str(term) for term in search_terms)
+    costumes = character.get('costumes')
+    if isinstance(costumes, list):
+        for costume in costumes:
+            if isinstance(costume, dict):
+                haystack.extend((str(costume.get('title') or ''), str(costume.get('category') or '')))
+    return normalized in ' '.join(haystack).casefold()
+
+
+def _bd2_sidebar_icon_payload(character: dict[str, Any]) -> dict[str, Any]:
+    icon = character.get('icon')
+    if not isinstance(icon, dict):
+        icon = {}
+    return {
+        'url': str(icon.get('url') or ''),
+        'available': bool(icon.get('available')),
+        'sha256': str(icon.get('sha256') or ''),
+        'content_type': str(icon.get('content_type') or ''),
+    }
+
+
+def _bd2_sidebar_character_payload(character: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'content_id': character.get('content_id'),
+        'title': character.get('title') or '',
+        'icon': _bd2_sidebar_icon_payload(character),
+        'updated_at': character.get('updated_at'),
+        'fetched_at': character.get('fetched_at'),
+    }
 
 
 def _matches_nikke_query(character: dict[str, Any], query: str) -> bool:
@@ -125,7 +178,15 @@ def _nikke_sidebar_sort_key(item: NikkeSidebarCharacter) -> tuple[int, float, fl
     )
 
 
-def _sidebar_response_etag(payload: NikkeSidebarCharacterListResponse) -> str:
+def _bd2_sidebar_sort_key(item: BD2SidebarCharacter) -> tuple[float, float, int]:
+    return (
+        _sort_timestamp(item.updated_at),
+        _sort_timestamp(item.fetched_at),
+        item.content_id,
+    )
+
+
+def _sidebar_response_etag(payload: BD2SidebarCharacterListResponse | NikkeSidebarCharacterListResponse) -> str:
     body = json.dumps(payload.model_dump(mode='json'), ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
     return f'"{hashlib.sha256(body).hexdigest()}"'
 
@@ -201,6 +262,69 @@ def create_hanime1_seed(
 
 
 @router.get(
+    '/bd2/characters',
+    operation_id='listBD2Characters',
+    response_model=BD2CharacterListResponse,
+    tags=[TAG_BD2],
+)
+def list_bd2_characters(
+    service: ApiServiceDep,
+    query: BD2SearchQuery = None,
+    limit: BD2LimitQuery = 200,
+    offset: BD2OffsetQuery = 0,
+) -> BD2CharacterListResponse:
+    characters = service.list_bd2_characters()
+    if query:
+        characters = [character for character in characters if _matches_bd2_query(character, query)]
+    total = len(characters)
+    page = characters[offset : offset + limit]
+    items = [service.model_bd2_character_summary(character) for character in page]
+    return BD2CharacterListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get(
+    '/bd2/sidebar/characters',
+    operation_id='listBD2SidebarCharacters',
+    response_model=BD2SidebarCharacterListResponse,
+    responses=_SIDEBAR_RESPONSES,
+    tags=[TAG_BD2],
+)
+def list_bd2_sidebar_characters(
+    request: Request,
+    response: Response,
+    service: ApiServiceDep,
+    query: BD2SearchQuery = None,
+) -> BD2SidebarCharacterListResponse | Response:
+    characters = service.list_bd2_characters()
+    if query:
+        characters = [character for character in characters if _matches_bd2_query(character, query)]
+
+    items = [BD2SidebarCharacter.model_validate(_bd2_sidebar_character_payload(character)) for character in characters]
+    items = sorted(items, key=_bd2_sidebar_sort_key, reverse=True)
+    payload = BD2SidebarCharacterListResponse(items=items, total=len(items))
+    etag = _sidebar_response_etag(payload)
+    headers = {'Cache-Control': _BD2_SIDEBAR_CACHE_CONTROL, 'ETag': etag}
+    if _etag_matches(request.headers.get('if-none-match'), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    response.headers.update(headers)
+    return payload
+
+
+@router.get(
+    '/bd2/characters/{content_id}',
+    operation_id='getBD2Character',
+    response_model=BD2CharacterDetail,
+    tags=[TAG_BD2],
+)
+def get_bd2_character(
+    content_id: Annotated[int, Path(gt=0)],
+    service: ApiServiceDep,
+) -> BD2CharacterDetail:
+    return service.model_bd2_character_detail(service.get_bd2_character(content_id))
+
+
+@router.get(
     '/nikke/characters',
     operation_id='listNikkeCharacters',
     response_model=NikkeCharacterListResponse,
@@ -225,6 +349,7 @@ def list_nikke_characters(
     '/nikke/sidebar/characters',
     operation_id='listNikkeSidebarCharacters',
     response_model=NikkeSidebarCharacterListResponse,
+    responses=_SIDEBAR_RESPONSES,
     tags=[TAG_NIKKE],
 )
 def list_nikke_sidebar_characters(

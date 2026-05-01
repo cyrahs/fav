@@ -122,6 +122,12 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     assert docs_response.status_code == 200
     assert openapi_response.status_code == 200
     payload = openapi_response.json()
+    assert '/api/v2/bd2/characters' in payload['paths']
+    assert '/api/v2/bd2/characters/{content_id}' in payload['paths']
+    assert '/api/v2/bd2/assets/{content_id}/{asset_path}' not in payload['paths']
+    assert '304' in payload['paths']['/api/v2/bd2/sidebar/characters']['get']['responses']
+    assert '/api/v2/nikke/assets/{content_id}/{asset_path}' not in payload['paths']
+    assert '304' in payload['paths']['/api/v2/nikke/sidebar/characters']['get']['responses']
     assert '/api/v2/jobs' in payload['paths']
     assert '/api/v2/hanime1/videos' in payload['paths']
     assert '/api/v2/hanime1/seeds' in payload['paths']

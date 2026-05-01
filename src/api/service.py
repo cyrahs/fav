@@ -10,12 +10,23 @@ from src.service.jobs import ScheduledJob, build_jobs
 from src.tool.control_queue import ControlRequest, create_control_request_sync, get_control_request_sync
 from src.tool.hanime1_series import Hanime1SeriesService
 
+from .bd2 import BD2CharacterNotFoundError, BD2Library
 from .config import fetch_hanime1_videos_from_db
 from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
 from .errors import ApiError
 from .helpers import serialize_control_request, serialize_job, serialize_seed, utc_now_iso_z
 from .nikke import NikkeCharacterNotFoundError, NikkeLibrary
-from .schemas import Hanime1Seed, Hanime1Video, HealthResponse, JobRequest, JobSummary, NikkeCharacterDetail, NikkeCharacterSummary
+from .schemas import (
+    BD2CharacterDetail,
+    BD2CharacterSummary,
+    Hanime1Seed,
+    Hanime1Video,
+    HealthResponse,
+    JobRequest,
+    JobSummary,
+    NikkeCharacterDetail,
+    NikkeCharacterSummary,
+)
 
 log = logger.get('fav-api')
 
@@ -39,6 +50,7 @@ class FavApiService:
         control_request_getter: ControlRequestGetter | None = None,
         runtime_service: Hanime1SeriesService | None = None,
         nikke_library: NikkeLibrary | None = None,
+        bd2_library: BD2Library | None = None,
     ) -> None:
         self._dsn = dsn
         self._token = token
@@ -58,6 +70,7 @@ class FavApiService:
             proxy=app_config.proxy or None,
         )
         self._nikke_library = nikke_library or NikkeLibrary(app_config.web.nikke.path)
+        self._bd2_library = bd2_library or BD2Library(app_config.web.bd2.path)
 
     def close(self) -> None:
         close = getattr(self._runtime_service, 'close', None)
@@ -146,6 +159,22 @@ class FavApiService:
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
         return serialize_seed(created_seed)
 
+    def list_bd2_characters(self) -> list[dict[str, object]]:
+        try:
+            return self._bd2_library.list_characters()
+        except Exception:
+            log.exception('Failed to list BD2 characters')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+    def get_bd2_character(self, content_id: int) -> dict[str, object]:
+        try:
+            return self._bd2_library.get_character(content_id)
+        except BD2CharacterNotFoundError:
+            raise ApiError(status_code=404, code='bd2_character_not_found', message='BD2 character not found.') from None
+        except Exception:
+            log.exception('Failed to get BD2 character content_id=%d', content_id)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
     def list_nikke_characters(self) -> list[dict[str, object]]:
         try:
             return self._nikke_library.list_characters()
@@ -181,6 +210,14 @@ class FavApiService:
     @staticmethod
     def model_hanime1_video(payload: dict[str, str | None]) -> Hanime1Video:
         return Hanime1Video.model_validate(payload)
+
+    @staticmethod
+    def model_bd2_character_summary(payload: dict[str, object]) -> BD2CharacterSummary:
+        return BD2CharacterSummary.model_validate(payload)
+
+    @staticmethod
+    def model_bd2_character_detail(payload: dict[str, object]) -> BD2CharacterDetail:
+        return BD2CharacterDetail.model_validate(payload)
 
     @staticmethod
     def model_nikke_character_summary(payload: dict[str, object]) -> NikkeCharacterSummary:
