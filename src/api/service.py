@@ -14,7 +14,7 @@ from .config import fetch_hanime1_videos_from_db
 from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
 from .errors import ApiError
 from .helpers import serialize_control_request, serialize_job, serialize_seed, utc_now_iso_z
-from .nikke import NikkeAssetFile, NikkeAssetNotFoundError, NikkeCharacterNotFoundError, NikkeLibrary
+from .nikke import NikkeCharacterNotFoundError, NikkeLibrary
 from .schemas import Hanime1Seed, Hanime1Video, HealthResponse, JobRequest, JobSummary, NikkeCharacterDetail, NikkeCharacterSummary
 
 log = logger.get('fav-api')
@@ -160,15 +160,6 @@ class FavApiService:
             raise ApiError(status_code=404, code='nikke_character_not_found', message='Nikke character not found.') from None
         except Exception:
             log.exception('Failed to get Nikke character content_id=%d', content_id)
-            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
-
-    def get_nikke_asset(self, content_id: int, asset_path: str) -> NikkeAssetFile:
-        try:
-            return self._nikke_library.get_asset_file(content_id, asset_path)
-        except (NikkeCharacterNotFoundError, NikkeAssetNotFoundError):
-            raise ApiError(status_code=404, code='nikke_asset_not_found', message='Nikke asset not found.') from None
-        except Exception:
-            log.exception('Failed to get Nikke asset content_id=%d path=%s', content_id, asset_path)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
     @staticmethod

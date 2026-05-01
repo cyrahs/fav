@@ -1,7 +1,6 @@
 # ruff: noqa: INP001, S101, S105, PLR2004, RUF001
 
 import json
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +12,7 @@ from src.api.service import FavApiService
 
 _VALID_TOKEN = 'token-for-tests'
 _FIXED_NOW = datetime(2026, 4, 30, 0, 0, tzinfo=UTC)
+_STATIC_CHARACTER_PREFIX = '/static/nikke/101%20-%20Test%20NIKKE'
 _ROW_INDEX_BY_LABEL = {
     '时装图（切换）': 2,
     '时装立绘': 8,
@@ -213,7 +213,7 @@ def test_list_nikke_characters_returns_lightweight_summaries(tmp_path: Path) -> 
     assert item['title'] == 'Test NIKKE'
     assert item['tags']['rarity'] == 'SSR'
     assert item['tags']['company'] == 'Elysion'
-    assert item['icon']['url'] == '/api/v2/nikke/assets/101/assets/images/icon.png?v=' + ('b' * 64)
+    assert item['icon']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/images/icon.png?v=' + ('b' * 64)
     assert item['portrait']['path'] == 'assets/images/portrait.png'
     assert item['skin_count'] == 1
     assert item['live2d_model_count'] == 1
@@ -279,7 +279,7 @@ def test_list_nikke_sidebar_characters_returns_sorted_light_payload(tmp_path: Pa
     assert item['updated_at'] == 999
     assert item['fetched_at'] == '2026-04-30T00:00:01+00:00'
     assert item['icon'] == {
-        'url': '/api/v2/nikke/assets/202/assets/images/recent-icon.png?v=' + ('c' * 64),
+        'url': '/static/nikke/202%20-%20Recent%20NIKKE/assets/images/recent-icon.png?v=' + ('c' * 64),
         'available': True,
         'sha256': 'c' * 64,
         'content_type': 'image/png',
@@ -314,48 +314,17 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     model = skin['live2d_models'][0]
     assert model['live2d_key'] == 'model-a'
     assert model['assets']['atlas']['path'] == 'assets/live2d/model-a/model.atlas'
+    assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)
     assert model['assets']['skel']['path'] == 'assets/live2d/model-a/model.skel'
     assert model['assets']['textures'][0]['path'] == 'assets/live2d/model-a/model.png'
 
 
-def test_get_nikke_asset_serves_known_manifest_asset(tmp_path: Path) -> None:
+def test_get_nikke_asset_endpoint_is_removed(tmp_path: Path) -> None:
     root = _create_nikke_fixture(tmp_path / 'nikke')
-    service = _build_service(root)
-
-    with TestClient(create_app(service=service)) as client:
-        response = client.get('/api/v2/nikke/assets/101/assets/images/icon.png', headers=_auth_headers())
-
-    assert response.status_code == 200
-    assert response.content == b'icon'
-    assert response.headers['cache-control'] == 'public, max-age=31536000, immutable'
-    assert response.headers['etag'] == '"' + ('b' * 64) + '"'
-
-
-def test_get_nikke_asset_rejects_paths_outside_manifest_assets(tmp_path: Path) -> None:
-    root = _create_nikke_fixture(tmp_path / 'nikke')
-    service = _build_service(root)
-
-    with TestClient(create_app(service=service)) as client:
-        traversal = client.get('/api/v2/nikke/assets/101/assets/%2E%2E/character.json', headers=_auth_headers())
-        missing = client.get('/api/v2/nikke/assets/101/assets/images/missing.png', headers=_auth_headers())
-
-    assert traversal.status_code == 404
-    assert traversal.json()['error']['code'] == 'nikke_asset_not_found'
-    assert missing.status_code == 404
-    assert missing.json()['error']['code'] == 'nikke_asset_not_found'
-
-
-def test_get_nikke_asset_rejects_external_assets_root_symlink(tmp_path: Path) -> None:
-    root = _create_nikke_fixture(tmp_path / 'nikke')
-    character_root = root / '101 - Test NIKKE'
-    external_assets = tmp_path / 'external-assets'
-    _write_asset(external_assets / 'images' / 'icon.png', b'outside')
-    shutil.rmtree(character_root / 'assets')
-    (character_root / 'assets').symlink_to(external_assets, target_is_directory=True)
     service = _build_service(root)
 
     with TestClient(create_app(service=service)) as client:
         response = client.get('/api/v2/nikke/assets/101/assets/images/icon.png', headers=_auth_headers())
 
     assert response.status_code == 404
-    assert response.json()['error']['code'] == 'nikke_asset_not_found'
+    assert response.json()['error']['code'] == 'not_found'

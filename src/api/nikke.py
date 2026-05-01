@@ -10,8 +10,6 @@ from urllib.parse import quote, unquote
 
 from src.core import logger
 
-from .constants import API_V2_PREFIX
-
 log = logger.get('fav-api.nikke')
 
 _PROFILE_FIELDS: tuple[tuple[str, str, str], ...] = (
@@ -28,6 +26,7 @@ _PROFILE_FIELDS: tuple[tuple[str, str, str], ...] = (
 _SUMMARY_TAG_KEYS = {'rarity', 'company', 'burst', 'attribute', 'role', 'weapon'}
 _LONG_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 _SHORT_CACHE_CONTROL = 'public, max-age=3600'
+_NIKKE_STATIC_PREFIX = '/static/nikke'
 
 
 class NikkeLibraryError(RuntimeError):
@@ -472,7 +471,7 @@ class NikkeLibrary:
         return {
             'kind': _clean_text(asset.get('kind')),
             'path': local_path,
-            'url': self._asset_api_url(record.content_id, local_path, sha256=sha256) if local_path else '',
+            'url': self._asset_static_url(record.directory_name, local_path, sha256=sha256) if local_path else '',
             'content_type': _clean_text(asset.get('content_type')),
             'size': _to_int(asset.get('size')) or 0,
             'sha256': sha256,
@@ -486,8 +485,8 @@ class NikkeLibrary:
         }
 
     @staticmethod
-    def _asset_api_url(content_id: int, asset_path: str, *, sha256: str = '') -> str:
-        url = f'{API_V2_PREFIX}/nikke/assets/{content_id}/{quote(asset_path, safe="/")}'
+    def _asset_static_url(directory_name: str, asset_path: str, *, sha256: str = '') -> str:
+        url = f'{_NIKKE_STATIC_PREFIX}/{quote(directory_name, safe="")}/{quote(asset_path, safe="/")}'
         return f'{url}?v={quote(sha256)}' if sha256 else url
 
     @staticmethod

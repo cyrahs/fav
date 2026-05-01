@@ -29,13 +29,14 @@ Protected endpoints:
 - `GET /api/v2/nikke/characters`
 - `GET /api/v2/nikke/sidebar/characters`
 - `GET /api/v2/nikke/characters/{content_id}`
-- `GET /api/v2/nikke/assets/{content_id}/{asset_path}`
 
 All `/api/v2/*` endpoints require:
 
 - `Authorization: Bearer <api.token>`
 
 The API contract is OpenAPI-first. Use `/openapi.json` or `/docs` for the exact request and response schema.
+
+NIKKE asset URLs in API responses point to `/static/nikke/{directory_name}/assets/...` and are intended to be served by the deployment's static file service, not by FastAPI.
 
 ### Config source
 

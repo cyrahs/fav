@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
-from fastapi.responses import FileResponse
 
 from .constants import API_V2_PREFIX, TAG_HANIME1, TAG_JOBS, TAG_NIKKE
 from .dependencies import get_api_service, require_api_token
@@ -261,17 +260,3 @@ def get_nikke_character(
     service: ApiServiceDep,
 ) -> NikkeCharacterDetail:
     return service.model_nikke_character_detail(service.get_nikke_character(content_id))
-
-
-@router.get(
-    '/nikke/assets/{content_id}/{asset_path:path}',
-    operation_id='getNikkeAsset',
-    tags=[TAG_NIKKE],
-)
-def get_nikke_asset(
-    content_id: Annotated[int, Path(gt=0)],
-    asset_path: str,
-    service: ApiServiceDep,
-) -> FileResponse:
-    asset = service.get_nikke_asset(content_id, asset_path)
-    return FileResponse(asset.path, media_type=asset.content_type or None, headers=asset.headers)
