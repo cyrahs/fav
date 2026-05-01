@@ -27,6 +27,7 @@ class HealthResponse(ApiSchema):
 
 class JobRequestTarget(StrEnum):
     ALL = 'all'
+    BD2 = 'bd2'
     BILIBILI = 'bilibili'
     HANIME1 = 'hanime1'
     JANDAN = 'jandan'

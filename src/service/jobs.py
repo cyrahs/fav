@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from src.core.config import config
-from src.web import Bilibili, Hanime1, Jandan, Nikke, StellaSora, Telegram
+from src.web import BD2, Bilibili, Hanime1, Jandan, Nikke, StellaSora, Telegram
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,6 +36,7 @@ def build_jobs() -> list[ScheduledJob]:
     stellasora_cfg = config.web.stellasora
     hanime1_cfg = config.web.hanime1
     nikke_cfg = config.web.nikke
+    bd2_cfg = config.web.bd2
     return [
         ScheduledJob(
             key='bilibili',
@@ -72,6 +73,15 @@ def build_jobs() -> list[ScheduledJob]:
             run_on_start=nikke_cfg.run_on_start,
             required_commands=(),
             factory=Nikke,
+        ),
+        ScheduledJob(
+            key='bd2',
+            name='BD2',
+            cron=bd2_cfg.cron,
+            enabled=bd2_cfg.enabled,
+            run_on_start=bd2_cfg.run_on_start,
+            required_commands=(),
+            factory=BD2,
         ),
         ScheduledJob(
             key='telegram',

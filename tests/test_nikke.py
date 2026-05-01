@@ -41,6 +41,7 @@ def test_nikke_config_defaults_to_disabled_collection_nikke_path() -> None:
 def test_scheduler_registration_includes_nikke(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_config = SimpleNamespace(
         web=SimpleNamespace(
+            bd2=_job_cfg(),
             bilibili=_job_cfg(),
             hanime1=_job_cfg(),
             jandan=_job_cfg(),
