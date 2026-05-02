@@ -1,6 +1,7 @@
 # ruff: noqa: INP001, S101, SLF001
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +14,14 @@ import src.service.jobs as jobs_module
 import src.web.bd2 as bd2_module
 from src.api.schemas import JobRequestTarget
 from src.core.config import BD2
-from src.web.bd2 import Asset, assign_asset_paths, extract_resources, filter_bd2_character_rows, retry_delay_seconds
+from src.web.bd2 import (
+    Asset,
+    assign_asset_paths,
+    extract_resources,
+    filter_bd2_character_rows,
+    retry_delay_seconds,
+    video_retry_cooldown_days,
+)
 
 _FIVE_STAR_GROUP_ID = 122323
 _EXPECTED_RETRY_AFTER_SECONDS = 2.0
@@ -124,6 +132,11 @@ def test_retry_delay_prefers_retry_after_header() -> None:
     )
 
     assert retry_delay_seconds(1, response) == _EXPECTED_RETRY_AFTER_SECONDS
+
+
+def test_video_retry_cooldown_days_caps_at_one_week() -> None:
+    assert [video_retry_cooldown_days(count) for count in range(1, 6)] == [1, 3, 7, 7, 7]
+    assert video_retry_cooldown_days(0) == 1
 
 
 def test_filter_bd2_character_rows_keeps_positive_character_descendants_only() -> None:
@@ -288,6 +301,125 @@ def test_expand_atlas_textures_fails_when_atlas_blob_is_unavailable(monkeypatch:
 
     with pytest.raises(bd2_module.AssetProcessingError, match='Live2D atlas'):
         asyncio.run(crawler._expand_atlas_textures(client=object(), root=tmp_path, assets=assets, live2d_models=models))
+
+
+def test_process_asset_skips_video_during_retry_cooldown(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    crawler = bd2_module.BD2(path=tmp_path)
+    asset = Asset(url='https://cdn.example.com/broken.mp4', kind='video', local_path='assets/videos/broken.mp4')
+    touched: list[str] = []
+
+    async def _fake_upsert_asset_seen(url: str) -> None:
+        touched.append(url)
+
+    async def _fake_video_retry_cooldown(_asset: Asset) -> dict[str, object]:
+        return {'failed_count': 2, 'last_error': 'HTTP 403', 'next_retry_at': '2026-05-03T00:00:00+00:00'}
+
+    async def _fail_download(_client: object, _asset: Asset) -> bd2_module.TempBlob:
+        msg = 'download should not run during cooldown'
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(crawler, '_upsert_asset_seen', _fake_upsert_asset_seen)
+    monkeypatch.setattr(crawler, '_video_retry_cooldown', _fake_video_retry_cooldown)
+    monkeypatch.setattr(crawler, '_download_asset_to_temp', _fail_download)
+
+    result = asyncio.run(crawler._process_asset(client=object(), root=tmp_path, asset=asset))
+
+    assert result is False
+    assert touched == ['https://cdn.example.com/broken.mp4']
+    assert asset.status == 'failed'
+    assert asset.error == 'HTTP 403'
+
+
+def test_process_assets_does_not_raise_for_failed_videos(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    crawler = bd2_module.BD2(path=tmp_path)
+    assets = {
+        ('https://cdn.example.com/broken.mp4', 'video'): Asset(
+            url='https://cdn.example.com/broken.mp4',
+            kind='video',
+            local_path='assets/videos/broken.mp4',
+        ),
+    }
+
+    async def _fake_process_asset(*, client: object, root: Path, asset: Asset) -> bool:
+        _ = client, root
+        asset.status = 'failed'
+        asset.error = 'HTTP 403'
+        return False
+
+    monkeypatch.setattr(crawler, '_process_asset', _fake_process_asset)
+
+    asyncio.run(crawler._process_assets(client=object(), root=tmp_path, assets=assets))
+
+    assert assets[('https://cdn.example.com/broken.mp4', 'video')].status == 'failed'
+
+
+def test_process_assets_still_raises_for_failed_non_video(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    crawler = bd2_module.BD2(path=tmp_path)
+    assets = {
+        ('https://cdn.example.com/broken.png', 'image'): Asset(
+            url='https://cdn.example.com/broken.png',
+            kind='image',
+            local_path='assets/images/broken.png',
+        ),
+    }
+
+    async def _fake_process_asset(*, client: object, root: Path, asset: Asset) -> bool:
+        _ = client, root
+        asset.status = 'failed'
+        asset.error = 'HTTP 403'
+        return False
+
+    monkeypatch.setattr(crawler, '_process_asset', _fake_process_asset)
+
+    with pytest.raises(bd2_module.AssetProcessingError, match='1 BD2 assets failed'):
+        asyncio.run(crawler._process_assets(client=object(), root=tmp_path, assets=assets))
+
+
+def test_crawl_page_writes_manifest_when_video_asset_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    rows = [_empty_row(index) for index in range(33)]
+    rows[0] = [_text('costume_name_label', 'Costume name'), _text('costume_name', 'Broken Video Costume')]
+    rows[1] = [_text('costume_category_label', 'Costume category'), _text('costume_category', 'Limited')]
+    rows[32] = [_text('skill_label', 'Skill effect'), _video('skill_video', 'https://cdn.example.com/broken.mp4')]
+    content_json = {'styleData': [{'name': 'style-a', 'data': rows}]}
+    detail_response = {
+        'data': {
+            'title': 'Video Soft Failure',
+            'content_json': json.dumps(content_json),
+            'entry_data_bind': json.dumps({'stable-video': 'skill_video'}),
+        },
+    }
+    crawler = bd2_module.BD2(path=tmp_path)
+    completed_assets: list[dict[tuple[str, str], Asset]] = []
+
+    async def _fake_fetch_detail_response(_client: object, _content_id: int) -> dict[str, object]:
+        return detail_response
+
+    async def _fake_upsert_page_fetch_start(**_kwargs: object) -> None:
+        return None
+
+    async def _fake_process_asset(*, client: object, root: Path, asset: Asset) -> bool:
+        _ = client, root
+        asset.status = 'failed'
+        asset.error = 'HTTP 403'
+        return False
+
+    async def _fake_replace_page_assets_and_mark_completed(*, content_id: int, assets: dict[tuple[str, str], Asset]) -> None:
+        _ = content_id
+        completed_assets.append(assets)
+
+    monkeypatch.setattr(crawler, '_fetch_detail_response', _fake_fetch_detail_response)
+    monkeypatch.setattr(crawler, '_upsert_page_fetch_start', _fake_upsert_page_fetch_start)
+    monkeypatch.setattr(crawler, '_process_asset', _fake_process_asset)
+    monkeypatch.setattr(crawler, '_replace_page_assets_and_mark_completed', _fake_replace_page_assets_and_mark_completed)
+
+    root = asyncio.run(crawler._crawl_page(client=object(), tree_row={'content_id': 1, 'name': 'Video Soft Failure'}, content_id=1))
+    manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+
+    assert completed_assets
+    assert manifest['asset_counts']['video'] == 1
+    assert manifest['assets'][0]['status'] == 'failed'
+    assert manifest['assets'][0]['error'] == 'HTTP 403'
+    assert (root / 'character.json').is_file()
 
 
 def test_replace_page_assets_and_complete_uses_bd2_tables(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

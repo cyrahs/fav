@@ -81,6 +81,7 @@ _HTTP_NOT_ACCEPTABLE = 406
 _HTTP_REQUEST_TIMEOUT = 408
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVICE_UNAVAILABLE = 503
+_VIDEO_RETRY_COOLDOWN_DAYS = (1, 3, 7)
 
 _CREATE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS bd2_pages (
@@ -109,6 +110,7 @@ CREATE TABLE IF NOT EXISTS bd2_assets (
     status TEXT NOT NULL DEFAULT 'pending',
     failed_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT NOT NULL DEFAULT '',
+    next_retry_at TIMESTAMPTZ,
     first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -139,6 +141,7 @@ CREATE TABLE IF NOT EXISTS bd2_page_assets (
 CREATE INDEX IF NOT EXISTS bd2_assets_sha256_size_idx ON bd2_assets (sha256, size);
 CREATE INDEX IF NOT EXISTS bd2_page_assets_content_id_idx ON bd2_page_assets (content_id);
 CREATE INDEX IF NOT EXISTS bd2_pages_rarity_group_id_idx ON bd2_pages (rarity_group_id);
+ALTER TABLE bd2_assets ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 """
 
 
@@ -927,6 +930,15 @@ def max_attempts_for_status(status_code: int) -> int:
     return 1
 
 
+def video_retry_cooldown_days(failed_count: int) -> int:
+    index = min(max(1, failed_count), len(_VIDEO_RETRY_COOLDOWN_DAYS)) - 1
+    return _VIDEO_RETRY_COOLDOWN_DAYS[index]
+
+
+def is_nonblocking_failed_asset(asset: Asset) -> bool:
+    return asset.kind == 'video'
+
+
 class BD2:
     def __init__(self, *, path: Path | None = None, client: httpx.AsyncClient | None = None) -> None:
         self.path = Path(path or cfg.path)
@@ -1111,11 +1123,30 @@ class BD2:
                 last_seen_at = NOW(),
                 status = CASE
                     WHEN bd2_assets.status = 'downloaded' THEN bd2_assets.status
+                    WHEN bd2_assets.status = 'failed' AND bd2_assets.next_retry_at > NOW() THEN bd2_assets.status
                     ELSE excluded.status
+                END,
+                next_retry_at = CASE
+                    WHEN bd2_assets.status = 'failed' AND bd2_assets.next_retry_at > NOW() THEN bd2_assets.next_retry_at
+                    ELSE NULL
                 END;
             """,
             (url, url),
         )
+
+    async def _video_retry_cooldown(self, asset: Asset) -> dict[str, Any] | None:
+        if asset.kind != 'video':
+            return None
+        rows = await database.query_db(
+            """
+            SELECT failed_count, last_error, next_retry_at
+            FROM bd2_assets
+            WHERE url = ? AND status = 'failed' AND next_retry_at > NOW()
+            LIMIT 1;
+            """,
+            (asset.url,),
+        )
+        return rows[0] if rows else None
 
     def _resolve_blob_path(self, blob_path: str) -> Path:
         path = Path(blob_path)
@@ -1153,24 +1184,49 @@ class BD2:
             """
             UPDATE bd2_assets
             SET sha256 = ?, size = ?, content_type = ?, status = 'downloaded',
-                failed_count = 0, last_error = '', last_seen_at = NOW()
+                failed_count = 0, last_error = '', next_retry_at = NULL, last_seen_at = NOW()
             WHERE url = ?;
             """,
             (blob.sha256, blob.size, blob.content_type, asset.url),
         )
 
     async def _mark_asset_failed(self, asset: Asset, reason: str) -> None:
+        first_retry_days = video_retry_cooldown_days(1)
+        second_retry_days = video_retry_cooldown_days(2)
+        later_retry_days = video_retry_cooldown_days(3)
+        next_retry_days = first_retry_days if asset.kind == 'video' else None
         await database.query_db(
             """
-            INSERT INTO bd2_assets (url, normalized_url, status, failed_count, last_error, first_seen_at, last_seen_at)
-            VALUES (?, ?, 'failed', 1, ?, NOW(), NOW())
+            INSERT INTO bd2_assets (
+                url, normalized_url, status, failed_count, last_error, next_retry_at, first_seen_at, last_seen_at
+            )
+            VALUES (?, ?, 'failed', 1, ?, NOW() + (?::integer * INTERVAL '1 day'), NOW(), NOW())
             ON CONFLICT (url) DO UPDATE SET
                 status = 'failed',
                 failed_count = bd2_assets.failed_count + 1,
                 last_error = excluded.last_error,
+                next_retry_at = CASE
+                    WHEN ?::boolean THEN NOW() + (
+                        CASE
+                            WHEN bd2_assets.failed_count + 1 <= 1 THEN ?::integer * INTERVAL '1 day'
+                            WHEN bd2_assets.failed_count + 1 = 2 THEN ?::integer * INTERVAL '1 day'
+                            ELSE ?::integer * INTERVAL '1 day'
+                        END
+                    )
+                    ELSE NULL
+                END,
                 last_seen_at = NOW();
             """,
-            (asset.url, asset.url, reason[:500]),
+            (
+                asset.url,
+                asset.url,
+                reason[:500],
+                next_retry_days,
+                asset.kind == 'video',
+                first_retry_days,
+                second_retry_days,
+                later_retry_days,
+            ),
         )
 
     def _blob_relative_path(self, sha256: str) -> Path:
@@ -1298,6 +1354,13 @@ class BD2:
 
     async def _process_asset(self, *, client: httpx.AsyncClient, root: Path, asset: Asset) -> bool:
         await self._upsert_asset_seen(asset.url)
+        cooldown = await self._video_retry_cooldown(asset)
+        if cooldown is not None:
+            next_retry_at = str(cooldown.get('next_retry_at') or '')
+            asset.status = 'failed'
+            asset.error = str(cooldown.get('last_error') or 'retry cooldown active')
+            log.info('Skipping BD2 video asset during retry cooldown until %s: %s', next_retry_at, asset.url)
+            return False
         try:
             blob = await self._completed_blob_for_url(asset.url)
             if blob is None:
@@ -1340,12 +1403,15 @@ class BD2:
 
         await asyncio.gather(*(_process_url_group(group) for group in assets_by_url.values()))
         failed = [asset for asset in assets.values() if asset.status == 'failed']
-        if failed:
-            examples = ', '.join(asset.url for asset in failed[:3])
-            msg = f'{len(failed)} BD2 assets failed'
+        blocking_failed = [asset for asset in failed if not is_nonblocking_failed_asset(asset)]
+        if blocking_failed:
+            examples = ', '.join(asset.url for asset in blocking_failed[:3])
+            msg = f'{len(blocking_failed)} BD2 assets failed'
             if examples:
                 msg = f'{msg}: {examples}'
             raise AssetProcessingError(msg)
+        if failed:
+            log.info('BD2 page kept %d unavailable video assets in manifest without failing the page', len(failed))
 
     async def _read_known_atlas_text(self, atlas_url: str) -> str | None:
         blob = await self._completed_blob_for_url(atlas_url)
