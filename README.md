@@ -41,6 +41,27 @@ The API contract is OpenAPI-first. Use `/openapi.json` or `/docs` for the exact 
 
 NIKKE and BD2 asset URLs in API responses point to `/static/{source}/{directory_name}/assets/...` and are intended to be served by the deployment's static file service, not by FastAPI.
 
+## BD2 L2D Viewer comparison
+
+BD2 is collected from GameKee. To compare the archived GameKee Live2D resource stems with the resources listed by
+[BD2-L2D-Viewer](https://jelosus2.github.io/BD2-L2D-Viewer/), run:
+
+```bash
+uv run python script/bd2_compare_l2d_viewer.py
+```
+
+To compare against the current GameKee API without downloading assets or touching PostgreSQL:
+
+```bash
+uv run python script/bd2_compare_l2d_viewer.py --source gamekee-live
+```
+
+Use `--format json` for machine-readable output.
+
+During BD2 crawls, GameKee remains the primary source. BD2-L2D-Viewer is used only as a supplemental Live2D source when a
+viewer resource can be anchored to an existing GameKee model for the same character/costume entry. Censored viewer resources are
+stored as model variants on the anchored costume instead of separate characters.
+
 ### Config source
 
 The API reads runtime settings from `config.toml`:

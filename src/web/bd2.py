@@ -19,6 +19,7 @@ import httpx
 
 from src.core import config, logger
 from src.tool import database
+from src.tool.bd2_l2d_viewer import VIEWER_PAGE_URL, ViewerResource, fetch_viewer_resources, resource_stem_from_url, viewer_asset_url
 from src.tool.filename import sanitize
 from src.web.nikke import (
     Asset,
@@ -60,6 +61,9 @@ MEDIA_CELL_TYPES = {'audio', 'image', 'video', 'live2d'}
 STYLE_COSTUME_NAME_ROW = 0
 STYLE_COSTUME_CATEGORY_ROW = 1
 STYLE_LIVE2D_HEADER_ROW = 5
+STANDING_LIVE2D_ROW = 6
+INTERACTION_LIVE2D_ROW = 7
+SKILL_LIVE2D_1_ROW = 8
 
 _API_REQUEST_INTERVAL_SECONDS = 0.5
 _CDN_REQUEST_INTERVAL_SECONDS = 0.2
@@ -182,6 +186,13 @@ class TreeWalkState:
     sort_path: list[int] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class ViewerSupplementTarget:
+    row_index: int
+    field: str
+    label: str
+
+
 ART_ROWS = {
     2: ArtRow(row_index=2, field='costume_sprite'),
     3: ArtRow(row_index=3, field='costume_portrait'),
@@ -195,6 +206,23 @@ ART_ROWS = {
     12: ArtRow(row_index=12, field='story_live2d_3'),
     13: ArtRow(row_index=13, field='story_live2d_4'),
     14: ArtRow(row_index=14, field='story_live2d_5'),
+}
+
+_VIEWER_SUPPLEMENT_SOURCE = 'bd2_l2d_viewer'
+_VIEWER_SUPPLEMENT_CORE_FIELD_BY_SUFFIX = {
+    '.atlas': 'atlas',
+    '.skel': 'skel',
+    '.json': 'json',
+}
+_VIEWER_SUPPLEMENT_ANCHOR_CATEGORY_ORDER = ('character', 'ultimate', 'dating', 'unknown')
+_VIEWER_SUPPLEMENT_TARGETS = {
+    'character': ViewerSupplementTarget(row_index=STANDING_LIVE2D_ROW, field=ART_ROWS[STANDING_LIVE2D_ROW].field, label='Standing Live2D'),
+    'dating': ViewerSupplementTarget(
+        row_index=INTERACTION_LIVE2D_ROW,
+        field=ART_ROWS[INTERACTION_LIVE2D_ROW].field,
+        label='Interaction Live2D',
+    ),
+    'ultimate': ViewerSupplementTarget(row_index=SKILL_LIVE2D_1_ROW, field=ART_ROWS[SKILL_LIVE2D_1_ROW].field, label='Skill Live2D'),
 }
 
 
@@ -720,6 +748,202 @@ def extract_resources(
     return assets, live2d_models
 
 
+def _stem_key(stem: str) -> str:
+    return stem.casefold()
+
+
+def _live2d_model_urls(model: dict[str, Any]) -> tuple[str, ...]:
+    raw_urls = model.get('urls')
+    if not isinstance(raw_urls, dict):
+        return ()
+
+    urls: list[str] = []
+    for value in raw_urls.values():
+        if isinstance(value, str):
+            urls.append(value)
+        elif isinstance(value, list):
+            urls.extend(item for item in value if isinstance(item, str))
+    return tuple(urls)
+
+
+def _live2d_models_by_stem(live2d_models: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for model in live2d_models:
+        model_stem_keys = {_stem_key(stem) for url in _live2d_model_urls(model) if (stem := resource_stem_from_url(url))}
+        for stem_key in model_stem_keys:
+            grouped.setdefault(stem_key, []).append(model)
+    return grouped
+
+
+def _viewer_resources_by_entry(viewer_resources: tuple[ViewerResource, ...]) -> dict[str, list[ViewerResource]]:
+    grouped: dict[str, list[ViewerResource]] = {}
+    for resource in viewer_resources:
+        grouped.setdefault(resource.entry_id, []).append(resource)
+    return grouped
+
+
+def _viewer_anchor_entry_ids(resource: ViewerResource) -> tuple[str, ...]:
+    entry_ids = [resource.entry_id]
+    if resource.entry_id.endswith('_c'):
+        entry_ids.append(resource.entry_id.removesuffix('_c'))
+    return tuple(dict.fromkeys(entry_ids))
+
+
+def _viewer_anchor_model(
+    *,
+    resource: ViewerResource,
+    viewer_by_entry: dict[str, list[ViewerResource]],
+    models_by_stem: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    for entry_id in _viewer_anchor_entry_ids(resource):
+        siblings = viewer_by_entry.get(entry_id, [])
+        for category in _VIEWER_SUPPLEMENT_ANCHOR_CATEGORY_ORDER:
+            for sibling in siblings:
+                if sibling.category != category:
+                    continue
+                models = models_by_stem.get(_stem_key(sibling.stem), [])
+                if models:
+                    return models[0]
+    return None
+
+
+def _is_viewer_censored_resource(resource: ViewerResource) -> bool:
+    return resource.entry_id.endswith('_c') or resource.stem.endswith('_c')
+
+
+def _viewer_supplement_target(resource: ViewerResource) -> ViewerSupplementTarget | None:
+    return _VIEWER_SUPPLEMENT_TARGETS.get(resource.category)
+
+
+def _viewer_core_urls(resource: ViewerResource) -> dict[str, str]:
+    urls: dict[str, str] = {}
+    for path in resource.files:
+        field_name = _VIEWER_SUPPLEMENT_CORE_FIELD_BY_SUFFIX.get(Path(path).suffix.casefold())
+        if field_name is None or field_name in urls:
+            continue
+        url = viewer_asset_url(path)
+        if url:
+            urls[field_name] = url
+    return urls
+
+
+def _has_required_live2d_core(urls: dict[str, str]) -> bool:
+    return 'atlas' in urls and bool({'skel', 'json'} & set(urls))
+
+
+def _same_live2d_slot(model: dict[str, Any], anchor: dict[str, Any], *, field_name: str) -> bool:
+    return (
+        model.get('style_index') == anchor.get('style_index')
+        and model.get('column_index') == anchor.get('column_index')
+        and model.get('field') == field_name
+    )
+
+
+def _viewer_slot_is_filled(
+    *,
+    live2d_models: list[dict[str, Any]],
+    anchor: dict[str, Any],
+    target: ViewerSupplementTarget,
+    resource: ViewerResource,
+) -> bool:
+    if _is_viewer_censored_resource(resource) and target.field == ART_ROWS[STANDING_LIVE2D_ROW].field:
+        return False
+    return any(_same_live2d_slot(model, anchor, field_name=target.field) for model in live2d_models)
+
+
+def _viewer_supplement_context(model: dict[str, Any], *, live2d_field: str) -> dict[str, Any]:
+    context = live2d_atlas_texture_context(model)
+    context['live2d_field'] = live2d_field
+    return context
+
+
+def _viewer_supplement_model(
+    *,
+    anchor: dict[str, Any],
+    resource: ViewerResource,
+    target: ViewerSupplementTarget,
+) -> dict[str, Any] | None:
+    urls = _viewer_core_urls(resource)
+    if not _has_required_live2d_core(urls):
+        return None
+
+    variant = 'censored' if _is_viewer_censored_resource(resource) else ''
+    return {
+        'section': anchor.get('section') or 'style',
+        'style_index': anchor.get('style_index'),
+        'style_name': anchor.get('style_name') or '',
+        'costume_title': anchor.get('costume_title') or '',
+        'costume_category': anchor.get('costume_category') or '',
+        'row_index': target.row_index,
+        'column_index': anchor.get('column_index'),
+        'label': target.label,
+        'field': target.field,
+        'is_art_row': True,
+        'column_name': anchor.get('column_name') or '',
+        'column_category': anchor.get('column_category') or '',
+        'column_role': anchor.get('column_role') or '',
+        'column_header': anchor.get('column_header') or '',
+        'key': '',
+        'stable_id': '',
+        'live2d_key': f'bd2-l2d-viewer-{resource.entry_id}-{resource.stem}',
+        'animation': '',
+        'skin': '',
+        'limit_age': False,
+        'position': {},
+        'bg_position': {},
+        'source': _VIEWER_SUPPLEMENT_SOURCE,
+        'variant': variant,
+        'viewer_entry_id': resource.entry_id,
+        'viewer_stem': resource.stem,
+        'source_page_url': VIEWER_PAGE_URL,
+        'urls': urls,
+    }
+
+
+def _add_viewer_model_assets(assets: dict[tuple[str, str], Asset], model: dict[str, Any]) -> None:
+    raw_urls = model.get('urls')
+    if not isinstance(raw_urls, dict):
+        return
+
+    for field_name in LIVE2D_URL_FIELDS:
+        url = raw_urls.get(field_name)
+        if isinstance(url, str) and url:
+            add_asset(assets, url, f'live2d_{field_name}', _viewer_supplement_context(model, live2d_field=field_name))
+
+
+def supplement_live2d_models_from_viewer(
+    *,
+    assets: dict[tuple[str, str], Asset],
+    live2d_models: list[dict[str, Any]],
+    viewer_resources: tuple[ViewerResource, ...],
+) -> int:
+    models_by_stem = _live2d_models_by_stem(live2d_models)
+    existing_stem_keys = set(models_by_stem)
+    viewer_by_entry = _viewer_resources_by_entry(viewer_resources)
+    added = 0
+
+    for resource in viewer_resources:
+        stem_key = _stem_key(resource.stem)
+        if stem_key in existing_stem_keys or resource.missing_core_files:
+            continue
+        target = _viewer_supplement_target(resource)
+        if target is None:
+            continue
+        anchor = _viewer_anchor_model(resource=resource, viewer_by_entry=viewer_by_entry, models_by_stem=models_by_stem)
+        if anchor is None or _viewer_slot_is_filled(live2d_models=live2d_models, anchor=anchor, target=target, resource=resource):
+            continue
+        model = _viewer_supplement_model(anchor=anchor, resource=resource, target=target)
+        if model is None:
+            continue
+        _add_viewer_model_assets(assets, model)
+        live2d_models.append(model)
+        existing_stem_keys.add(stem_key)
+        models_by_stem.setdefault(stem_key, []).append(model)
+        added += 1
+
+    return added
+
+
 def extension_for_kind(kind: str) -> str:
     if kind == 'audio':
         return '.mp3'
@@ -875,6 +1099,11 @@ def live2d_atlas_texture_context(model: dict[str, Any]) -> dict[str, Any]:
         'stable_id': model.get('stable_id') or '',
         'live2d_key': model.get('live2d_key') or '',
         'live2d_field': 'atlas_texture',
+        'source': model.get('source') or '',
+        'variant': model.get('variant') or '',
+        'viewer_entry_id': model.get('viewer_entry_id') or '',
+        'viewer_stem': model.get('viewer_stem') or '',
+        'source_page_url': model.get('source_page_url') or '',
     }
 
 
@@ -940,9 +1169,16 @@ def is_nonblocking_failed_asset(asset: Asset) -> bool:
 
 
 class BD2:
-    def __init__(self, *, path: Path | None = None, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        path: Path | None = None,
+        client: httpx.AsyncClient | None = None,
+        viewer_resources: tuple[ViewerResource, ...] | None = None,
+    ) -> None:
         self.path = Path(path or cfg.path)
         self._client = client
+        self._viewer_resources = viewer_resources
         self._api_limiter = _RateLimiter(_API_REQUEST_INTERVAL_SECONDS)
         self._cdn_limiter = _RateLimiter(_CDN_REQUEST_INTERVAL_SECONDS)
         self._cdn_semaphore = asyncio.Semaphore(_CDN_CONCURRENCY)
@@ -1027,6 +1263,17 @@ class BD2:
             msg = f'GameKee detail payload is missing data for content_id={content_id}'
             raise TypeError(msg)
         return payload
+
+    async def _viewer_resources_for_supplement(self) -> tuple[ViewerResource, ...]:
+        if self._viewer_resources is not None:
+            return self._viewer_resources
+
+        try:
+            self._viewer_resources = await asyncio.to_thread(fetch_viewer_resources)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('BD2 L2D Viewer supplement is unavailable for this run: %s', exc)
+            self._viewer_resources = ()
+        return self._viewer_resources
 
     async def _ensure_schema(self) -> None:
         await database.query_db_multi(_CREATE_SCHEMA_SQL)
@@ -1524,6 +1771,13 @@ class BD2:
         content_summary = summarize_content(content_json, reverse_bind)
         base_info = base_info_from_summary(content_summary)
         assets, live2d_models = extract_resources(content_json=content_json, tree_row=tree_row, reverse_bind=reverse_bind)
+        viewer_added = supplement_live2d_models_from_viewer(
+            assets=assets,
+            live2d_models=live2d_models,
+            viewer_resources=await self._viewer_resources_for_supplement(),
+        )
+        if viewer_added:
+            log.info('Supplemented %d BD2 Live2D models from BD2-L2D-Viewer for content_id=%d', viewer_added, content_id)
 
         name = detail_name(detail, content_id, tree_row)
         root = output_root(self.path, detail, content_id, tree_row)

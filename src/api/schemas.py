@@ -189,6 +189,11 @@ class BD2Live2DModel(ApiSchema):
     animation: str = ''
     skin: str = ''
     limit_age: bool = False
+    source: str = ''
+    variant: str = ''
+    viewer_entry_id: str = ''
+    viewer_stem: str = ''
+    source_page_url: str = ''
     position: dict[str, Any] = Field(default_factory=dict)
     bg_position: dict[str, Any] = Field(default_factory=dict)
     source_urls: dict[str, Any] = Field(default_factory=dict)

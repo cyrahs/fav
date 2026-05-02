@@ -206,6 +206,11 @@ def _create_bd2_fixture(root: Path) -> Path:
             'animation': 'idle',
             'skin': 'office',
             'limit_age': False,
+            'source': 'bd2_l2d_viewer',
+            'variant': 'censored',
+            'viewer_entry_id': '101101_c',
+            'viewer_stem': 'char101101_c',
+            'source_page_url': 'https://jelosus2.github.io/BD2-L2D-Viewer/',
             'position': {'pc': {'x': 1}},
             'bg_position': {'pc': {'x': 2}},
             'urls': {'atlas': 'https://cdn.example.test/model.atlas', 'bg': 'https://cdn.example.test/background.png'},
@@ -385,6 +390,11 @@ def test_get_bd2_character_returns_costumes_assets_and_live2d_refs(tmp_path: Pat
     assert costume['audio'][0]['path'] == 'assets/audio/voice.mp3'
     model = costume['live2d_models'][0]
     assert model['live2d_key'] == 'model-a'
+    assert model['source'] == 'bd2_l2d_viewer'
+    assert model['variant'] == 'censored'
+    assert model['viewer_entry_id'] == '101101_c'
+    assert model['viewer_stem'] == 'char101101_c'
+    assert model['source_page_url'] == 'https://jelosus2.github.io/BD2-L2D-Viewer/'
     assert model['assets']['atlas']['path'] == 'assets/live2d/model-a/model.atlas'
     assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)
     assert model['assets']['json']['path'] == 'assets/live2d/model-a/model.json'

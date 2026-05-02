@@ -14,18 +14,21 @@ import src.service.jobs as jobs_module
 import src.web.bd2 as bd2_module
 from src.api.schemas import JobRequestTarget
 from src.core.config import BD2
+from src.tool.bd2_l2d_viewer import ViewerResource
 from src.web.bd2 import (
     Asset,
     assign_asset_paths,
     extract_resources,
     filter_bd2_character_rows,
     retry_delay_seconds,
+    supplement_live2d_models_from_viewer,
     video_retry_cooldown_days,
 )
 
 _FIVE_STAR_GROUP_ID = 122323
 _EXPECTED_RETRY_AFTER_SECONDS = 2.0
 _UPDATE_ROW_COUNT = 2
+_INTERACTION_LIVE2D_ROW = 7
 
 
 def _job_cfg(*, enabled: bool = True) -> SimpleNamespace:
@@ -229,6 +232,130 @@ def test_extract_resources_collects_all_page_media_and_column_contexts() -> None
 
     unbound = next(asset for asset in assets.values() if asset.url == 'https://www.gamekee.com/media/unbound-sprite.png')
     assert unbound.contexts[0]['stable_id'] == ''
+
+
+def test_viewer_supplement_fills_missing_interaction_live2d() -> None:
+    assets: dict[tuple[str, str], Asset] = {}
+    live2d_models = [
+        {
+            'section': 'style',
+            'style_index': 0,
+            'style_name': 'style-a',
+            'costume_title': 'Stranger Bunny',
+            'costume_category': 'Warrior',
+            'row_index': 6,
+            'column_index': 1,
+            'label': 'Standing Live2D',
+            'field': 'standing_live2d',
+            'is_art_row': True,
+            'column_name': 'Stranger Bunny',
+            'column_category': 'Warrior',
+            'column_role': 'Live2D file',
+            'column_header': 'Live2D file',
+            'live2d_key': 'char061492',
+            'urls': {
+                'atlas': 'https://www.gamekee.com/spines/char061492.atlas',
+                'skel': 'https://www.gamekee.com/spines/char061492.skel',
+            },
+        },
+    ]
+    viewer_resources = (
+        ViewerResource(
+            entry_id='061492',
+            category='character',
+            stem='char061492',
+            char_name='Zenith',
+            costume_name='Stranger Bunny',
+            files=('061492/char061492.atlas', '061492/char061492.skel'),
+        ),
+        ViewerResource(
+            entry_id='061492',
+            category='dating',
+            stem='illust_dating12',
+            char_name='Zenith',
+            costume_name='Stranger Bunny',
+            files=('061492/dating/illust_dating12.atlas', '061492/dating/illust_dating12.skel', '061492/dating/illust_dating12.png'),
+        ),
+    )
+
+    added = supplement_live2d_models_from_viewer(assets=assets, live2d_models=live2d_models, viewer_resources=viewer_resources)
+
+    assert added == 1
+    model = live2d_models[-1]
+    assert model['field'] == 'interaction_live2d'
+    assert model['row_index'] == _INTERACTION_LIVE2D_ROW
+    assert model['source'] == 'bd2_l2d_viewer'
+    assert model['viewer_entry_id'] == '061492'
+    assert model['viewer_stem'] == 'illust_dating12'
+    assert model['urls']['atlas'].endswith('/061492/dating/illust_dating12.atlas')
+    assert (
+        'https://raw.githubusercontent.com/Jelosus2/BD2-L2D-Viewer/main/src/assets/spines/061492/dating/illust_dating12.atlas',
+        'live2d_atlas',
+    ) in assets
+    atlas_asset = assets[
+        (
+            'https://raw.githubusercontent.com/Jelosus2/BD2-L2D-Viewer/main/src/assets/spines/061492/dating/illust_dating12.atlas',
+            'live2d_atlas',
+        )
+    ]
+    assert atlas_asset.contexts[0]['live2d_key'] == 'bd2-l2d-viewer-061492-illust_dating12'
+    assert atlas_asset.contexts[0]['source'] == 'bd2_l2d_viewer'
+
+
+def test_viewer_supplement_keeps_censored_as_model_variant() -> None:
+    assets: dict[tuple[str, str], Asset] = {}
+    live2d_models = [
+        {
+            'section': 'style',
+            'style_index': 0,
+            'style_name': 'style-a',
+            'costume_title': "Demon's Daughter",
+            'costume_category': 'Defender',
+            'row_index': 6,
+            'column_index': 1,
+            'label': 'Standing Live2D',
+            'field': 'standing_live2d',
+            'is_art_row': True,
+            'column_name': "Demon's Daughter",
+            'column_category': 'Defender',
+            'column_role': 'Live2D file',
+            'column_header': 'Live2D file',
+            'live2d_key': 'char101101',
+            'urls': {
+                'atlas': 'https://www.gamekee.com/spines/char101101.atlas',
+                'skel': 'https://www.gamekee.com/spines/char101101.skel',
+            },
+        },
+    ]
+    viewer_resources = (
+        ViewerResource(
+            entry_id='101101',
+            category='character',
+            stem='char101101',
+            char_name='Seir',
+            costume_name="Demon's Daughter",
+            files=('101101/char101101.atlas', '101101/char101101.skel'),
+        ),
+        ViewerResource(
+            entry_id='101101_c',
+            category='character',
+            stem='char101101_c',
+            char_name='Seir',
+            costume_name="Demon's Daughter (Censored)",
+            files=('101101_c/char101101_c.atlas', '101101_c/char101101_c.skel'),
+        ),
+    )
+
+    added = supplement_live2d_models_from_viewer(assets=assets, live2d_models=live2d_models, viewer_resources=viewer_resources)
+
+    assert added == 1
+    censored_model = live2d_models[-1]
+    assert censored_model['field'] == 'standing_live2d'
+    assert censored_model['variant'] == 'censored'
+    assert censored_model['style_index'] == 0
+    assert censored_model['column_index'] == 1
+    assert censored_model['viewer_entry_id'] == '101101_c'
+    assert censored_model['viewer_stem'] == 'char101101_c'
 
 
 def test_assign_asset_paths_routes_audio_to_audio_directory() -> None:
