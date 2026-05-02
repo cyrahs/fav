@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -8,6 +9,8 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 from src.core import logger
+
+from .summary_cache import ManifestEntry, ManifestSignature, SummaryCacheData, manifest_signature, read_summary_cache, write_summary_cache
 
 log = logger.get('fav-api.bd2')
 
@@ -42,6 +45,14 @@ class _BD2Record:
     manifest_path: Path
     directory_name: str
     manifest: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class _BD2RecordEntry:
+    content_id: int
+    root: Path
+    manifest_path: Path
+    directory_name: str
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:
@@ -185,12 +196,13 @@ def _costume_search_terms(costumes: list[Any]) -> list[str]:
 class BD2Library:
     def __init__(self, root: Path) -> None:
         self._root = Path(root)
-        self._signature: tuple[tuple[str, int, int], ...] | None = None
-        self._records: dict[int, _BD2Record] = {}
+        self._signature: ManifestSignature | None = None
+        self._record_entries: dict[int, _BD2RecordEntry] = {}
         self._summaries: list[dict[str, Any]] = []
+        self._cache_lock = threading.Lock()
 
     def list_characters(self) -> list[dict[str, Any]]:
-        self._load_records()
+        self._ensure_summary_cache()
         return list(self._summaries)
 
     def get_character(self, content_id: int) -> dict[str, Any]:
@@ -245,7 +257,7 @@ class BD2Library:
             headers['ETag'] = f'"{sha256}"'
         return BD2AssetFile(path=target, content_type=_clean_text(asset.get('content_type')), headers=headers)
 
-    def _manifest_entries(self) -> list[tuple[Path, int, int]]:
+    def _manifest_entries(self) -> list[ManifestEntry]:
         if not self._root.is_dir():
             return []
 
@@ -275,13 +287,27 @@ class BD2Library:
             entries.append((manifest_path, stat.st_mtime_ns, stat.st_size))
         return sorted(entries, key=lambda entry: entry[0].parent.name.casefold())
 
-    def _load_records(self) -> dict[int, _BD2Record]:
+    def _ensure_summary_cache(self) -> None:
         entries = self._manifest_entries()
-        signature = tuple((path.as_posix(), mtime_ns, size) for path, mtime_ns, size in entries)
+        signature = manifest_signature(entries)
         if signature == self._signature:
-            return self._records
+            return
 
-        records: dict[int, _BD2Record] = {}
+        with self._cache_lock:
+            entries = self._manifest_entries()
+            signature = manifest_signature(entries)
+            if signature == self._signature:
+                return
+            if self._load_summary_cache(signature):
+                return
+
+            record_entries, summaries = self._build_summary_cache(entries)
+            self._replace_summary_cache(signature=signature, record_entries=record_entries, summaries=summaries)
+            self._write_summary_cache()
+
+    def _build_summary_cache(self, entries: list[ManifestEntry]) -> tuple[dict[int, _BD2RecordEntry], list[dict[str, Any]]]:
+        record_entries: dict[int, _BD2RecordEntry] = {}
+        summaries_by_content_id: dict[int, dict[str, Any]] = {}
         freshness_by_content_id: dict[int, tuple[float, float, int]] = {}
         for manifest_path, mtime_ns, _size in entries:
             try:
@@ -295,7 +321,7 @@ class BD2Library:
                 log.warning('Skipping BD2 manifest without content id: %s', manifest_path)
                 continue
             freshness = _record_freshness_key(manifest, mtime_ns=mtime_ns)
-            existing = records.get(content_id)
+            existing = record_entries.get(content_id)
             if existing is not None:
                 if freshness <= freshness_by_content_id[content_id]:
                     log.warning('Skipping stale duplicate BD2 manifest for content_id=%d: %s', content_id, manifest_path)
@@ -307,29 +333,114 @@ class BD2Library:
                     manifest_path,
                 )
 
-            records[content_id] = _BD2Record(
+            record = _BD2Record(
                 content_id=content_id,
                 root=manifest_path.parent,
                 manifest_path=manifest_path,
                 directory_name=manifest_path.parent.name,
                 manifest=manifest,
             )
+            record_entries[content_id] = _BD2RecordEntry(
+                content_id=content_id,
+                root=manifest_path.parent,
+                manifest_path=manifest_path,
+                directory_name=manifest_path.parent.name,
+            )
+            summaries_by_content_id[content_id] = self._summary_payload(record)
             freshness_by_content_id[content_id] = freshness
 
-        self._records = records
-        self._summaries = sorted(
-            (self._summary_payload(record) for record in records.values()),
+        summaries = sorted(
+            summaries_by_content_id.values(),
             key=lambda item: (str(item.get('title') or '').casefold(), int(item.get('content_id') or 0)),
         )
+        return record_entries, summaries
+
+    def _load_summary_cache(self, signature: ManifestSignature) -> bool:
+        cached = read_summary_cache(
+            self._summary_cache_path,
+            expected_signature=signature,
+            log=log,
+            label='BD2',
+        )
+        if cached is None:
+            return False
+
+        record_entries = self._record_entries_from_cache(cached.records, signature=signature)
+        if record_entries is None:
+            return False
+        self._replace_summary_cache(signature=signature, record_entries=record_entries, summaries=cached.summaries)
+        return True
+
+    def _record_entries_from_cache(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        signature: ManifestSignature,
+    ) -> dict[int, _BD2RecordEntry] | None:
+        current_paths = {path for path, _mtime_ns, _size in signature}
+        record_entries: dict[int, _BD2RecordEntry] = {}
+        for item in records:
+            content_id = _to_int(item.get('content_id'))
+            manifest_path_value = item.get('manifest_path')
+            if content_id is None or not isinstance(manifest_path_value, str) or manifest_path_value not in current_paths:
+                return None
+            manifest_path = Path(manifest_path_value)
+            record_entries[content_id] = _BD2RecordEntry(
+                content_id=content_id,
+                root=manifest_path.parent,
+                manifest_path=manifest_path,
+                directory_name=manifest_path.parent.name,
+            )
+        return record_entries
+
+    def _replace_summary_cache(
+        self,
+        *,
+        signature: ManifestSignature,
+        record_entries: dict[int, _BD2RecordEntry],
+        summaries: list[dict[str, Any]],
+    ) -> None:
         self._signature = signature
-        return records
+        self._record_entries = record_entries
+        self._summaries = summaries
+
+    @property
+    def _summary_cache_path(self) -> Path:
+        return self._root / '_api' / 'summary-cache.json'
+
+    def _write_summary_cache(self) -> None:
+        if not self._root.is_dir():
+            return
+        records = [
+            {'content_id': entry.content_id, 'manifest_path': entry.manifest_path.as_posix()}
+            for entry in sorted(self._record_entries.values(), key=lambda item: item.content_id)
+        ]
+        write_summary_cache(
+            self._summary_cache_path,
+            data=SummaryCacheData(signature=self._signature or (), records=records, summaries=self._summaries),
+            log=log,
+            label='BD2',
+        )
 
     def _get_record(self, content_id: int) -> _BD2Record:
-        record = self._load_records().get(content_id)
-        if record is None:
+        self._ensure_summary_cache()
+        entry = self._record_entries.get(content_id)
+        if entry is None:
             msg = f'BD2 character not found: {content_id}'
             raise BD2CharacterNotFoundError(msg)
-        return record
+        try:
+            manifest = _read_json_object(entry.manifest_path)
+        except (OSError, TypeError, ValueError) as exc:
+            log.warning('Skipping unreadable BD2 manifest %s: %s', entry.manifest_path, exc)
+            msg = f'BD2 character not found: {content_id}'
+            raise BD2CharacterNotFoundError(msg) from exc
+        return _BD2Record(
+            content_id=entry.content_id,
+            root=entry.root,
+            manifest_path=entry.manifest_path,
+            directory_name=entry.directory_name,
+            manifest=manifest,
+        )
 
     def _read_character_json(self, record: _BD2Record) -> dict[str, Any]:
         path = record.root / 'character.json'

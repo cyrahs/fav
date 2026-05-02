@@ -1,11 +1,13 @@
-# ruff: noqa: INP001, S101, S105, PLR2004, RUF001
+# ruff: noqa: INP001, S101, S105, PLR2004, RUF001, SLF001
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+import src.api.nikke as nikke_module
 from src.api.app import create_app
 from src.api.nikke import NikkeLibrary
 from src.api.service import FavApiService
@@ -217,6 +219,27 @@ def test_list_nikke_characters_returns_lightweight_summaries(tmp_path: Path) -> 
     assert item['portrait']['path'] == 'assets/images/portrait.png'
     assert item['skin_count'] == 1
     assert item['live2d_model_count'] == 1
+
+
+def test_nikke_library_loads_summary_from_disk_cache_without_rebuilding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = _create_nikke_fixture(tmp_path / 'nikke')
+    expected = NikkeLibrary(root).list_characters()
+    assert (root / '_api' / 'summary-cache.json').is_file()
+
+    original_read_json_object = nikke_module._read_json_object
+
+    def _fail_manifest_read(path: Path) -> dict:
+        if path.name == 'manifest.json':
+            msg = f'Unexpected manifest rebuild: {path}'
+            raise AssertionError(msg)
+        return original_read_json_object(path)
+
+    monkeypatch.setattr(nikke_module, '_read_json_object', _fail_manifest_read)
+
+    assert NikkeLibrary(root).list_characters() == expected
 
 
 def test_list_nikke_sidebar_characters_returns_sorted_light_payload(tmp_path: Path) -> None:

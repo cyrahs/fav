@@ -1,11 +1,13 @@
-# ruff: noqa: INP001, S101, S105, PLR0913, PLR2004
+# ruff: noqa: INP001, S101, S105, PLR0913, PLR2004, SLF001
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+import src.api.bd2 as bd2_module
 from src.api.app import create_app
 from src.api.bd2 import BD2Library
 from src.api.service import FavApiService
@@ -274,6 +276,27 @@ def test_list_bd2_characters_returns_lightweight_summaries(tmp_path: Path) -> No
 
     assert costume_response.status_code == 200
     assert costume_response.json()['total'] == 1
+
+
+def test_bd2_library_loads_summary_from_disk_cache_without_rebuilding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = _create_bd2_fixture(tmp_path / 'bd2')
+    expected = BD2Library(root).list_characters()
+    assert (root / '_api' / 'summary-cache.json').is_file()
+
+    original_read_json_object = bd2_module._read_json_object
+
+    def _fail_manifest_read(path: Path) -> dict:
+        if path.name == 'manifest.json':
+            msg = f'Unexpected manifest rebuild: {path}'
+            raise AssertionError(msg)
+        return original_read_json_object(path)
+
+    monkeypatch.setattr(bd2_module, '_read_json_object', _fail_manifest_read)
+
+    assert BD2Library(root).list_characters() == expected
 
 
 def test_list_bd2_sidebar_characters_returns_sorted_light_payload(tmp_path: Path) -> None:
