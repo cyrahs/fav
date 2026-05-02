@@ -1,8 +1,9 @@
-# ruff: noqa: INP001, S101, S105, PLR2004, RUF001, SLF001
+# ruff: noqa: INP001, S101, S105, PLR0913, PLR2004, RUF001, SLF001
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +27,49 @@ _ROW_INDEX_BY_LABEL = {
 class _RuntimeService:
     def close(self) -> None:
         return None
+
+
+class _Live2DViewOverrideStore:
+    def __init__(self) -> None:
+        self._rows: dict[tuple[str, int, str, str], dict[str, Any]] = {}
+
+    def list_for_character(self, *, source: str, content_id: int) -> list[dict[str, Any]]:
+        return [row for key, row in sorted(self._rows.items()) if key[0] == source and key[1] == content_id]
+
+    def get(self, *, source: str, content_id: int, model_id: str, profile: str) -> dict[str, Any] | None:
+        return self._rows.get((source, content_id, model_id, profile))
+
+    def upsert(
+        self,
+        *,
+        source: str,
+        content_id: int,
+        model_id: str,
+        profile: str,
+        position: dict[str, float],
+        scale: float,
+        background_position: dict[str, float] | None,
+        background_scale: float | None,
+    ) -> dict[str, Any]:
+        key = (source, content_id, model_id, profile)
+        existing = self._rows.get(key)
+        row = {
+            'source': source,
+            'content_id': content_id,
+            'model_id': model_id,
+            'profile': profile,
+            'position': dict(position),
+            'scale': scale,
+            'background_position': dict(background_position) if background_position is not None else None,
+            'background_scale': background_scale,
+            'created_at': existing['created_at'] if existing is not None else '2026-04-30T00:00:00Z',
+            'updated_at': '2026-04-30T00:00:00Z',
+        }
+        self._rows[key] = row
+        return row
+
+    def delete(self, *, source: str, content_id: int, model_id: str, profile: str) -> bool:
+        return self._rows.pop((source, content_id, model_id, profile), None) is not None
 
 
 def _auth_headers(token: str = _VALID_TOKEN) -> dict[str, str]:
@@ -187,7 +231,7 @@ def _create_nikke_fixture(root: Path) -> Path:
     return root
 
 
-def _build_service(root: Path) -> FavApiService:
+def _build_service(root: Path, override_store: _Live2DViewOverrideStore | None = None) -> FavApiService:
     return FavApiService(
         dsn='postgresql://db.local/fav',
         token=_VALID_TOKEN,
@@ -196,6 +240,7 @@ def _build_service(root: Path) -> FavApiService:
         job_provider=list,
         runtime_service=_RuntimeService(),
         nikke_library=NikkeLibrary(root),
+        live2d_view_override_store=override_store or _Live2DViewOverrideStore(),
     )
 
 
@@ -336,10 +381,52 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     assert skin['voice_lines'] == [{'label': 'Greeting', 'text': 'Hello, Commander.', 'source_url': 'https://cdn.example.test/voice.mp3'}]
     model = skin['live2d_models'][0]
     assert model['live2d_key'] == 'model-a'
+    assert model['model_id'] == 'model-a'
+    assert model['view_overrides'] == {}
     assert model['assets']['atlas']['path'] == 'assets/live2d/model-a/model.atlas'
     assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)
     assert model['assets']['skel']['path'] == 'assets/live2d/model-a/model.skel'
     assert model['assets']['textures'][0]['path'] == 'assets/live2d/model-a/model.png'
+
+
+def test_nikke_live2d_view_override_save_and_detail_overlay(tmp_path: Path) -> None:
+    root = _create_nikke_fixture(tmp_path / 'nikke')
+    override_store = _Live2DViewOverrideStore()
+    service = _build_service(root, override_store=override_store)
+
+    with TestClient(create_app(service=service)) as client:
+        save_response = client.put(
+            '/api/v2/nikke/characters/101/live2d-models/model-a/view-overrides/mobile',
+            headers=_auth_headers(),
+            json={'position': {'x': -10, 'y': 22.5}, 'scale': 0.85},
+        )
+        detail_response = client.get('/api/v2/nikke/characters/101', headers=_auth_headers())
+        invalid_response = client.put(
+            '/api/v2/nikke/characters/101/live2d-models/model-a/view-overrides/mobile',
+            headers=_auth_headers(),
+            json={'position': {'x': 0, 'y': 0}, 'scale': 0},
+        )
+
+    assert save_response.status_code == 200
+    assert save_response.json() == {
+        'source': 'nikke',
+        'content_id': 101,
+        'model_id': 'model-a',
+        'profile': 'mobile',
+        'position': {'x': -10.0, 'y': 22.5},
+        'scale': 0.85,
+        'background_position': None,
+        'background_scale': None,
+        'created_at': '2026-04-30T00:00:00Z',
+        'updated_at': '2026-04-30T00:00:00Z',
+    }
+    assert detail_response.status_code == 200
+    model = detail_response.json()['skins'][0]['live2d_models'][0]
+    assert model['model_id'] == 'model-a'
+    assert model['view_overrides']['mobile']['position'] == {'x': -10.0, 'y': 22.5}
+    assert model['view_overrides']['mobile']['scale'] == 0.85
+    assert invalid_response.status_code == 422
+    assert invalid_response.json()['error']['code'] == 'validation_error'
 
 
 def test_get_nikke_asset_endpoint_is_removed(tmp_path: Path) -> None:

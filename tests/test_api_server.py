@@ -124,9 +124,21 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     payload = openapi_response.json()
     assert '/api/v2/bd2/characters' in payload['paths']
     assert '/api/v2/bd2/characters/{content_id}' in payload['paths']
+    assert '/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}' in payload['paths']
+    assert set(payload['paths']['/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}']) == {
+        'delete',
+        'get',
+        'put',
+    }
     assert '/api/v2/bd2/assets/{content_id}/{asset_path}' not in payload['paths']
     assert '304' in payload['paths']['/api/v2/bd2/sidebar/characters']['get']['responses']
     assert '/api/v2/nikke/assets/{content_id}/{asset_path}' not in payload['paths']
+    assert '/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}' in payload['paths']
+    assert set(payload['paths']['/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}']) == {
+        'delete',
+        'get',
+        'put',
+    }
     assert '304' in payload['paths']['/api/v2/nikke/sidebar/characters']['get']['responses']
     assert '/api/v2/jobs' in payload['paths']
     assert '/api/v2/hanime1/videos' in payload['paths']
@@ -163,7 +175,7 @@ def test_configured_cors_allows_frontend_origin_preflight() -> None:
             '/api/v2/jobs',
             headers={
                 'Origin': 'https://game-view.s117.me',
-                'Access-Control-Request-Method': 'GET',
+                'Access-Control-Request-Method': 'PUT',
                 'Access-Control-Request-Headers': 'Authorization',
             },
         )

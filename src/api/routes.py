@@ -21,6 +21,8 @@ from .schemas import (
     JobListResponse,
     JobRequest,
     JobRequestCreate,
+    Live2DViewOverride,
+    Live2DViewOverrideUpsert,
     NikkeCharacterDetail,
     NikkeCharacterListResponse,
     NikkeSidebarCharacter,
@@ -35,6 +37,8 @@ BD2OffsetQuery = Annotated[int, Query(ge=0)]
 NikkeSearchQuery = Annotated[str | None, Query(alias='q', min_length=1)]
 NikkeLimitQuery = Annotated[int, Query(ge=1, le=500)]
 NikkeOffsetQuery = Annotated[int, Query(ge=0)]
+Live2DModelIdPath = Annotated[str, Path(min_length=1, max_length=160, pattern=r'^[A-Za-z0-9_.:-]+$')]
+Live2DProfilePath = Annotated[str, Path(min_length=1, max_length=64, pattern=r'^[A-Za-z0-9_-]+$')]
 _DATE_PART_COUNT = 3
 _BD2_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
 _NIKKE_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
@@ -325,6 +329,66 @@ def get_bd2_character(
 
 
 @router.get(
+    '/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}',
+    operation_id='getBD2Live2DViewOverride',
+    response_model=Live2DViewOverride,
+    tags=[TAG_BD2],
+)
+def get_bd2_live2d_view_override(
+    content_id: Annotated[int, Path(gt=0)],
+    model_id: Live2DModelIdPath,
+    profile: Live2DProfilePath,
+    service: ApiServiceDep,
+) -> Live2DViewOverride:
+    return service.model_live2d_view_override(
+        service.get_live2d_view_override(source='bd2', content_id=content_id, model_id=model_id, profile=profile),
+    )
+
+
+@router.put(
+    '/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}',
+    operation_id='putBD2Live2DViewOverride',
+    response_model=Live2DViewOverride,
+    tags=[TAG_BD2],
+)
+def put_bd2_live2d_view_override(
+    content_id: Annotated[int, Path(gt=0)],
+    model_id: Live2DModelIdPath,
+    profile: Live2DProfilePath,
+    payload: Live2DViewOverrideUpsert,
+    service: ApiServiceDep,
+) -> Live2DViewOverride:
+    return service.model_live2d_view_override(
+        service.upsert_live2d_view_override(
+            source='bd2',
+            content_id=content_id,
+            model_id=model_id,
+            profile=profile,
+            position=payload.position.model_dump(),
+            scale=payload.scale,
+            background_position=payload.background_position.model_dump() if payload.background_position is not None else None,
+            background_scale=payload.background_scale,
+        ),
+    )
+
+
+@router.delete(
+    '/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}',
+    operation_id='deleteBD2Live2DViewOverride',
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=[TAG_BD2],
+)
+def delete_bd2_live2d_view_override(
+    content_id: Annotated[int, Path(gt=0)],
+    model_id: Live2DModelIdPath,
+    profile: Live2DProfilePath,
+    service: ApiServiceDep,
+) -> Response:
+    service.delete_live2d_view_override(source='bd2', content_id=content_id, model_id=model_id, profile=profile)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
     '/nikke/characters',
     operation_id='listNikkeCharacters',
     response_model=NikkeCharacterListResponse,
@@ -385,3 +449,63 @@ def get_nikke_character(
     service: ApiServiceDep,
 ) -> NikkeCharacterDetail:
     return service.model_nikke_character_detail(service.get_nikke_character(content_id))
+
+
+@router.get(
+    '/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}',
+    operation_id='getNikkeLive2DViewOverride',
+    response_model=Live2DViewOverride,
+    tags=[TAG_NIKKE],
+)
+def get_nikke_live2d_view_override(
+    content_id: Annotated[int, Path(gt=0)],
+    model_id: Live2DModelIdPath,
+    profile: Live2DProfilePath,
+    service: ApiServiceDep,
+) -> Live2DViewOverride:
+    return service.model_live2d_view_override(
+        service.get_live2d_view_override(source='nikke', content_id=content_id, model_id=model_id, profile=profile),
+    )
+
+
+@router.put(
+    '/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}',
+    operation_id='putNikkeLive2DViewOverride',
+    response_model=Live2DViewOverride,
+    tags=[TAG_NIKKE],
+)
+def put_nikke_live2d_view_override(
+    content_id: Annotated[int, Path(gt=0)],
+    model_id: Live2DModelIdPath,
+    profile: Live2DProfilePath,
+    payload: Live2DViewOverrideUpsert,
+    service: ApiServiceDep,
+) -> Live2DViewOverride:
+    return service.model_live2d_view_override(
+        service.upsert_live2d_view_override(
+            source='nikke',
+            content_id=content_id,
+            model_id=model_id,
+            profile=profile,
+            position=payload.position.model_dump(),
+            scale=payload.scale,
+            background_position=payload.background_position.model_dump() if payload.background_position is not None else None,
+            background_scale=payload.background_scale,
+        ),
+    )
+
+
+@router.delete(
+    '/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}',
+    operation_id='deleteNikkeLive2DViewOverride',
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=[TAG_NIKKE],
+)
+def delete_nikke_live2d_view_override(
+    content_id: Annotated[int, Path(gt=0)],
+    model_id: Live2DModelIdPath,
+    profile: Live2DProfilePath,
+    service: ApiServiceDep,
+) -> Response:
+    service.delete_live2d_view_override(source='nikke', content_id=content_id, model_id=model_id, profile=profile)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

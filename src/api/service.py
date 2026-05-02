@@ -14,7 +14,16 @@ from .bd2 import BD2CharacterNotFoundError, BD2Library
 from .config import fetch_hanime1_videos_from_db
 from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
 from .errors import ApiError
-from .helpers import serialize_control_request, serialize_job, serialize_seed, utc_now_iso_z
+from .helpers import serialize_control_request, serialize_datetime, serialize_job, serialize_seed, utc_now_iso_z
+from .live2d_overrides import (
+    Live2DViewOverrideStore,
+    PostgresLive2DViewOverrideStore,
+    apply_live2d_view_overrides,
+    assign_live2d_model_ids,
+    iter_live2d_models,
+    validate_live2d_profile,
+    validate_live2d_source,
+)
 from .nikke import NikkeCharacterNotFoundError, NikkeLibrary
 from .schemas import (
     BD2CharacterDetail,
@@ -24,6 +33,7 @@ from .schemas import (
     HealthResponse,
     JobRequest,
     JobSummary,
+    Live2DViewOverride,
     NikkeCharacterDetail,
     NikkeCharacterSummary,
 )
@@ -51,6 +61,7 @@ class FavApiService:
         runtime_service: Hanime1SeriesService | None = None,
         nikke_library: NikkeLibrary | None = None,
         bd2_library: BD2Library | None = None,
+        live2d_view_override_store: Live2DViewOverrideStore | None = None,
     ) -> None:
         self._dsn = dsn
         self._token = token
@@ -71,6 +82,7 @@ class FavApiService:
         )
         self._nikke_library = nikke_library or NikkeLibrary(app_config.web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(app_config.web.bd2.path)
+        self._live2d_view_override_store = live2d_view_override_store or PostgresLive2DViewOverrideStore(self._dsn)
 
     def close(self) -> None:
         close = getattr(self._runtime_service, 'close', None)
@@ -168,12 +180,14 @@ class FavApiService:
 
     def get_bd2_character(self, content_id: int) -> dict[str, object]:
         try:
-            return self._bd2_library.get_character(content_id)
+            character = self._bd2_library.get_character(content_id)
         except BD2CharacterNotFoundError:
             raise ApiError(status_code=404, code='bd2_character_not_found', message='BD2 character not found.') from None
         except Exception:
             log.exception('Failed to get BD2 character content_id=%d', content_id)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        self._apply_live2d_view_overrides(source='bd2', content_id=content_id, character=character)
+        return character
 
     def list_nikke_characters(self) -> list[dict[str, object]]:
         try:
@@ -184,12 +198,153 @@ class FavApiService:
 
     def get_nikke_character(self, content_id: int) -> dict[str, object]:
         try:
-            return self._nikke_library.get_character(content_id)
+            character = self._nikke_library.get_character(content_id)
         except NikkeCharacterNotFoundError:
             raise ApiError(status_code=404, code='nikke_character_not_found', message='Nikke character not found.') from None
         except Exception:
             log.exception('Failed to get Nikke character content_id=%d', content_id)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        self._apply_live2d_view_overrides(source='nikke', content_id=content_id, character=character)
+        return character
+
+    def get_live2d_view_override(self, *, source: str, content_id: int, model_id: str, profile: str) -> dict[str, object]:
+        source = self._normalize_live2d_source(source)
+        profile = self._normalize_live2d_profile(profile)
+        self._require_live2d_model(source=source, content_id=content_id, model_id=model_id)
+        try:
+            override = self._live2d_view_override_store.get(source=source, content_id=content_id, model_id=model_id, profile=profile)
+        except Exception:
+            log.exception(
+                'Failed to get Live2D view override source=%s content_id=%d model_id=%s profile=%s',
+                source,
+                content_id,
+                model_id,
+                profile,
+            )
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        if override is None:
+            raise ApiError(status_code=404, code='live2d_view_override_not_found', message='Live2D view override not found.')
+        return self._serialize_live2d_view_override(override)
+
+    def upsert_live2d_view_override(  # noqa: PLR0913
+        self,
+        *,
+        source: str,
+        content_id: int,
+        model_id: str,
+        profile: str,
+        position: dict[str, float],
+        scale: float,
+        background_position: dict[str, float] | None = None,
+        background_scale: float | None = None,
+    ) -> dict[str, object]:
+        source = self._normalize_live2d_source(source)
+        profile = self._normalize_live2d_profile(profile)
+        self._require_live2d_model(source=source, content_id=content_id, model_id=model_id)
+        try:
+            override = self._live2d_view_override_store.upsert(
+                source=source,
+                content_id=content_id,
+                model_id=model_id,
+                profile=profile,
+                position=position,
+                scale=scale,
+                background_position=background_position,
+                background_scale=background_scale,
+            )
+        except Exception:
+            log.exception(
+                'Failed to save Live2D view override source=%s content_id=%d model_id=%s profile=%s',
+                source,
+                content_id,
+                model_id,
+                profile,
+            )
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return self._serialize_live2d_view_override(override)
+
+    def delete_live2d_view_override(self, *, source: str, content_id: int, model_id: str, profile: str) -> None:
+        source = self._normalize_live2d_source(source)
+        profile = self._normalize_live2d_profile(profile)
+        self._require_live2d_model(source=source, content_id=content_id, model_id=model_id)
+        try:
+            deleted = self._live2d_view_override_store.delete(source=source, content_id=content_id, model_id=model_id, profile=profile)
+        except Exception:
+            log.exception(
+                'Failed to delete Live2D view override source=%s content_id=%d model_id=%s profile=%s',
+                source,
+                content_id,
+                model_id,
+                profile,
+            )
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        if not deleted:
+            raise ApiError(status_code=404, code='live2d_view_override_not_found', message='Live2D view override not found.')
+
+    def _apply_live2d_view_overrides(self, *, source: str, content_id: int, character: dict[str, object]) -> None:
+        try:
+            overrides = self._live2d_view_override_store.list_for_character(source=source, content_id=content_id)
+        except Exception:
+            log.exception('Failed to list Live2D view overrides source=%s content_id=%d', source, content_id)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        apply_live2d_view_overrides(character, [self._serialize_live2d_view_override(override) for override in overrides])
+
+    def _require_live2d_model(self, *, source: str, content_id: int, model_id: str) -> None:
+        character = self._load_character_for_live2d_source(source=source, content_id=content_id)
+        assign_live2d_model_ids(character)
+        if any(model.get('model_id') == model_id for model in iter_live2d_models(character)):
+            return
+        raise ApiError(
+            status_code=404,
+            code=f'{source}_live2d_model_not_found',
+            message='Live2D model not found.',
+            details={'source': source, 'content_id': content_id, 'model_id': model_id},
+        )
+
+    def _load_character_for_live2d_source(self, *, source: str, content_id: int) -> dict[str, object]:
+        try:
+            if source == 'bd2':
+                return self._bd2_library.get_character(content_id)
+            if source == 'nikke':
+                return self._nikke_library.get_character(content_id)
+        except BD2CharacterNotFoundError:
+            raise ApiError(status_code=404, code='bd2_character_not_found', message='BD2 character not found.') from None
+        except NikkeCharacterNotFoundError:
+            raise ApiError(status_code=404, code='nikke_character_not_found', message='Nikke character not found.') from None
+        except Exception:
+            log.exception('Failed to load Live2D source character source=%s content_id=%d', source, content_id)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+        raise ApiError(status_code=400, code='invalid_live2d_source', message='Unsupported Live2D source.')
+
+    @staticmethod
+    def _normalize_live2d_source(source: str) -> str:
+        try:
+            return validate_live2d_source(source)
+        except ValueError as exc:
+            raise ApiError(status_code=400, code='invalid_live2d_source', message=str(exc)) from None
+
+    @staticmethod
+    def _normalize_live2d_profile(profile: str) -> str:
+        try:
+            return validate_live2d_profile(profile)
+        except ValueError as exc:
+            raise ApiError(status_code=422, code='invalid_live2d_profile', message=str(exc)) from None
+
+    @staticmethod
+    def _serialize_live2d_view_override(override: dict[str, object]) -> dict[str, object]:
+        return {
+            'source': str(override.get('source') or ''),
+            'content_id': int(override.get('content_id') or 0),
+            'model_id': str(override.get('model_id') or ''),
+            'profile': str(override.get('profile') or ''),
+            'position': override.get('position') if isinstance(override.get('position'), dict) else {},
+            'scale': float(override.get('scale') or 0),
+            'background_position': override.get('background_position') if isinstance(override.get('background_position'), dict) else None,
+            'background_scale': float(override['background_scale']) if override.get('background_scale') is not None else None,
+            'created_at': _serialize_live2d_datetime(override.get('created_at')),
+            'updated_at': _serialize_live2d_datetime(override.get('updated_at')),
+        }
 
     @staticmethod
     def model_health(payload: dict[str, str]) -> HealthResponse:
@@ -226,3 +381,13 @@ class FavApiService:
     @staticmethod
     def model_nikke_character_detail(payload: dict[str, object]) -> NikkeCharacterDetail:
         return NikkeCharacterDetail.model_validate(payload)
+
+    @staticmethod
+    def model_live2d_view_override(payload: dict[str, object]) -> Live2DViewOverride:
+        return Live2DViewOverride.model_validate(payload)
+
+
+def _serialize_live2d_datetime(value: object) -> str:
+    if isinstance(value, datetime):
+        return serialize_datetime(value) or ''
+    return str(value or '')

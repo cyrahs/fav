@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ApiSchema(BaseModel):
@@ -97,6 +98,50 @@ class Hanime1SeedCreate(ApiSchema):
     seed: str = Field(min_length=1)
 
 
+class Live2DVector2(ApiSchema):
+    x: float
+    y: float
+
+    @field_validator('x', 'y')
+    @classmethod
+    def validate_finite(cls, value: float) -> float:
+        if not math.isfinite(value):
+            msg = 'coordinate must be finite'
+            raise ValueError(msg)
+        return value
+
+
+class Live2DViewOverrideUpsert(ApiSchema):
+    position: Live2DVector2
+    scale: float = Field(gt=0)
+    background_position: Live2DVector2 | None = None
+    background_scale: float | None = Field(default=None, gt=0)
+
+    @field_validator('scale', 'background_scale')
+    @classmethod
+    def validate_scale(cls, value: float | None) -> float | None:
+        if value is not None and not math.isfinite(value):
+            msg = 'scale must be finite'
+            raise ValueError(msg)
+        return value
+
+
+class Live2DViewOverrideValue(ApiSchema):
+    position: Live2DVector2
+    scale: float
+    background_position: Live2DVector2 | None = None
+    background_scale: float | None = None
+    created_at: str
+    updated_at: str
+
+
+class Live2DViewOverride(Live2DViewOverrideValue):
+    source: Literal['bd2', 'nikke']
+    content_id: int
+    model_id: str
+    profile: str
+
+
 class BD2Asset(ApiSchema):
     kind: str
     path: str
@@ -169,6 +214,7 @@ class BD2SidebarCharacterListResponse(ApiSchema):
 
 
 class BD2Live2DModel(ApiSchema):
+    model_id: str = ''
     label: str = ''
     section: str = ''
     style_index: int | None = None
@@ -197,6 +243,7 @@ class BD2Live2DModel(ApiSchema):
     source_page_url: str = ''
     position: dict[str, Any] = Field(default_factory=dict)
     bg_position: dict[str, Any] = Field(default_factory=dict)
+    view_overrides: dict[str, Live2DViewOverrideValue] = Field(default_factory=dict)
     source_urls: dict[str, Any] = Field(default_factory=dict)
     assets: dict[str, Any] = Field(default_factory=dict)
 
@@ -292,6 +339,7 @@ class NikkeSidebarCharacterListResponse(ApiSchema):
 
 
 class NikkeLive2DModel(ApiSchema):
+    model_id: str = ''
     label: str = ''
     section: str = ''
     row_index: int | None = None
@@ -309,6 +357,7 @@ class NikkeLive2DModel(ApiSchema):
     limit_age: bool = False
     position: dict[str, Any] = Field(default_factory=dict)
     bg_position: dict[str, Any] = Field(default_factory=dict)
+    view_overrides: dict[str, Live2DViewOverrideValue] = Field(default_factory=dict)
     source_urls: dict[str, Any] = Field(default_factory=dict)
     assets: dict[str, Any] = Field(default_factory=dict)
 

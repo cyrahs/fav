@@ -107,7 +107,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=list(resolved_config.cors_origins),
             allow_credentials=resolved_config.cors_allow_credentials,
-            allow_methods=['GET', 'POST', 'OPTIONS'],
+            allow_methods=['DELETE', 'GET', 'POST', 'PUT', 'OPTIONS'],
             allow_headers=['Authorization', 'Content-Type'],
         )
     _register_exception_handlers(app)
