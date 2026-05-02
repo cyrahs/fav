@@ -285,6 +285,7 @@ def test_viewer_supplement_fills_missing_interaction_live2d() -> None:
     assert model['field'] == 'interaction_live2d'
     assert model['row_index'] == _INTERACTION_LIVE2D_ROW
     assert model['source'] == 'bd2_l2d_viewer'
+    assert model['supplement_reason'] == 'empty_gamekee_slot'
     assert model['viewer_entry_id'] == '061492'
     assert model['viewer_stem'] == 'illust_dating12'
     assert model['urls']['atlas'].endswith('/061492/dating/illust_dating12.atlas')
@@ -352,10 +353,204 @@ def test_viewer_supplement_keeps_censored_as_model_variant() -> None:
     censored_model = live2d_models[-1]
     assert censored_model['field'] == 'standing_live2d'
     assert censored_model['variant'] == 'censored'
+    assert censored_model['supplement_reason'] == 'censored_variant'
     assert censored_model['style_index'] == 0
     assert censored_model['column_index'] == 1
     assert censored_model['viewer_entry_id'] == '101101_c'
     assert censored_model['viewer_stem'] == 'char101101_c'
+
+
+def test_viewer_supplement_adds_correction_for_mismatched_gamekee_slot() -> None:
+    assets: dict[tuple[str, str], Asset] = {}
+    content_json = {
+        'baseData': [
+            [_text('name_label', '角色名称'), _text('name_cn', '英格利得'), _text('name_en', 'Ingrid')],
+        ],
+        'styleData': [
+            {
+                'name': 'style-a',
+                'data': _style_rows(),
+            },
+        ],
+    }
+    live2d_models = [
+        {
+            'section': 'style',
+            'style_index': 0,
+            'style_name': 'style-a',
+            'costume_title': '卡迪斯的子弹',
+            'costume_category': '',
+            'row_index': 6,
+            'column_index': 1,
+            'label': 'Standing Live2D',
+            'field': 'standing_live2d',
+            'is_art_row': True,
+            'column_name': '卡迪斯的子弹',
+            'column_category': '',
+            'column_role': 'Live2D file',
+            'column_header': 'Live2D file',
+            'live2d_key': 'wrong-model',
+            'urls': {
+                'atlas': 'https://www.gamekee.com/spines/char004202.atlas',
+                'skel': 'https://www.gamekee.com/spines/char004202.skel',
+            },
+        },
+    ]
+    viewer_resources = (
+        ViewerResource(
+            entry_id='004202',
+            category='character',
+            stem='char004202',
+            char_name='Palette',
+            costume_name='Miracle Violet',
+            files=('004202/char004202.atlas', '004202/char004202.skel'),
+        ),
+        ViewerResource(
+            entry_id='063001',
+            category='character',
+            stem='char063001',
+            char_name='Ingrid',
+            costume_name="Kardis' Bullet",
+            files=('063001/char063001.atlas', '063001/char063001.skel'),
+        ),
+    )
+
+    added = supplement_live2d_models_from_viewer(
+        assets=assets,
+        live2d_models=live2d_models,
+        viewer_resources=viewer_resources,
+        content_json=content_json,
+        reverse_bind={},
+    )
+
+    assert added == 1
+    correction = live2d_models[-1]
+    assert correction['viewer_entry_id'] == '063001'
+    assert correction['viewer_stem'] == 'char063001'
+    assert correction['variant'] == 'viewer_correction'
+    assert correction['supplement_reason'] == 'mismatched_gamekee_slot'
+    assert correction['field'] == 'standing_live2d'
+    assert correction['column_index'] == 1
+
+
+def test_viewer_supplement_does_not_add_unpublished_same_character_costume() -> None:
+    assets: dict[tuple[str, str], Asset] = {}
+    content_json = {
+        'baseData': [
+            [_text('name_label', '角色名称'), _text('name_cn', '马莫尼勒'), _text('name_en', 'Mamonir')],
+        ],
+        'styleData': [
+            {
+                'name': 'style-a',
+                'data': _style_rows(),
+            },
+        ],
+    }
+    live2d_models = [
+        {
+            'section': 'style',
+            'style_index': 0,
+            'style_name': 'style-a',
+            'costume_title': '死之夜',
+            'costume_category': '',
+            'row_index': 6,
+            'column_index': 1,
+            'label': 'Standing Live2D',
+            'field': 'standing_live2d',
+            'is_art_row': True,
+            'column_name': '死之夜',
+            'column_category': '',
+            'column_role': 'Live2D file',
+            'column_header': 'Live2D file',
+            'live2d_key': 'mamonir-current',
+            'urls': {
+                'atlas': 'https://www.gamekee.com/spines/char067801.atlas',
+                'skel': 'https://www.gamekee.com/spines/char067801.skel',
+            },
+        },
+    ]
+    viewer_resources = (
+        ViewerResource(
+            entry_id='067801',
+            category='character',
+            stem='char067801',
+            char_name='Mamonir',
+            costume_name='Night of Death',
+            files=('067801/char067801.atlas', '067801/char067801.skel'),
+        ),
+        ViewerResource(
+            entry_id='067803',
+            category='character',
+            stem='char067803',
+            char_name='Mamonir',
+            costume_name='Miracle Marine',
+            files=('067803/char067803.atlas', '067803/char067803.skel'),
+        ),
+    )
+
+    added = supplement_live2d_models_from_viewer(
+        assets=assets,
+        live2d_models=live2d_models,
+        viewer_resources=viewer_resources,
+        content_json=content_json,
+        reverse_bind={},
+    )
+
+    assert added == 0
+    assert len(live2d_models) == 1
+
+
+def test_viewer_extra_resources_only_archives_minigame_entries() -> None:
+    resources = (
+        ViewerResource(
+            entry_id='minigame1',
+            category='character',
+            stem='RhythmHitAnim',
+            char_name='Minigame',
+            costume_name='Slap Slap Pop',
+            files=('minigame1/RhythmHitAnim.atlas', 'minigame1/RhythmHitAnim.skel'),
+        ),
+        ViewerResource(
+            entry_id='067803',
+            category='character',
+            stem='char067803',
+            char_name='Mamonir',
+            costume_name='Miracle Marine',
+            files=('067803/char067803.atlas', '067803/char067803.skel'),
+        ),
+    )
+
+    extras = bd2_module.viewer_extra_resources(resources)
+
+    assert [resource.entry_id for resource in extras] == ['minigame1']
+
+
+def test_archive_viewer_extra_resource_writes_extra_manifest(tmp_path: Path) -> None:
+    resource = ViewerResource(
+        entry_id='minigame1',
+        category='character',
+        stem='RhythmHitAnim',
+        char_name='Minigame',
+        costume_name='Slap Slap Pop',
+        files=('minigame1/RhythmHitAnim.atlas', 'minigame1/RhythmHitAnim.skel'),
+    )
+    crawler = bd2_module.BD2(path=tmp_path, viewer_resources=(resource,))
+
+    root = asyncio.run(crawler._archive_viewer_extra_resource(client=object(), resource=resource, skip_assets=True))
+
+    assert root == tmp_path / '_extra' / 'minigame1 - Minigame - Slap Slap Pop'
+    manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    assert manifest['collection_type'] == 'extra'
+    assert manifest['entry_id'] == 'minigame1'
+    assert manifest['viewer_resource']['stem'] == 'RhythmHitAnim'
+    model = manifest['live2d_models'][0]
+    assert model['section'] == 'extra'
+    assert model['field'] == 'extra_live2d'
+    assert model['variant'] == 'extra'
+    assert model['supplement_reason'] == 'viewer_extra'
+    assert model['viewer_entry_id'] == 'minigame1'
+    assert manifest['asset_counts'] == {'live2d_atlas': 1, 'live2d_skel': 1}
+    assert {asset['kind'] for asset in manifest['assets']} == {'live2d_atlas', 'live2d_skel'}
 
 
 def test_assign_asset_paths_routes_audio_to_audio_directory() -> None:

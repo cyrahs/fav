@@ -193,6 +193,13 @@ class ViewerSupplementTarget:
     label: str
 
 
+@dataclass(frozen=True, slots=True)
+class ViewerSupplementAnchor:
+    context: dict[str, Any]
+    reason: str
+    variant: str = ''
+
+
 ART_ROWS = {
     2: ArtRow(row_index=2, field='costume_sprite'),
     3: ArtRow(row_index=3, field='costume_portrait'),
@@ -209,6 +216,11 @@ ART_ROWS = {
 }
 
 _VIEWER_SUPPLEMENT_SOURCE = 'bd2_l2d_viewer'
+_VIEWER_SUPPLEMENT_REASON_EMPTY_SLOT = 'empty_gamekee_slot'
+_VIEWER_SUPPLEMENT_REASON_CENSORED_VARIANT = 'censored_variant'
+_VIEWER_SUPPLEMENT_REASON_MISMATCHED_SLOT = 'mismatched_gamekee_slot'
+_VIEWER_EXTRA_REASON = 'viewer_extra'
+_VIEWER_EXTRA_CONTENT_ID = 0
 _VIEWER_SUPPLEMENT_CORE_FIELD_BY_SUFFIX = {
     '.atlas': 'atlas',
     '.skel': 'skel',
@@ -782,6 +794,10 @@ def _viewer_resources_by_entry(viewer_resources: tuple[ViewerResource, ...]) -> 
     return grouped
 
 
+def _viewer_resources_by_stem(viewer_resources: tuple[ViewerResource, ...]) -> dict[str, ViewerResource]:
+    return {_stem_key(resource.stem): resource for resource in viewer_resources}
+
+
 def _viewer_anchor_entry_ids(resource: ViewerResource) -> tuple[str, ...]:
     entry_ids = [resource.entry_id]
     if resource.entry_id.endswith('_c'):
@@ -813,6 +829,126 @@ def _is_viewer_censored_resource(resource: ViewerResource) -> bool:
 
 def _viewer_supplement_target(resource: ViewerResource) -> ViewerSupplementTarget | None:
     return _VIEWER_SUPPLEMENT_TARGETS.get(resource.category)
+
+
+def _text_values_from_row(row: Any) -> tuple[str, ...]:
+    if not isinstance(row, list):
+        return ()
+    values: list[str] = []
+    for cell in row:
+        if not isinstance(cell, dict) or cell.get('type') != 'text':
+            continue
+        value = cell.get('value')
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    return tuple(values)
+
+
+def _page_character_names(content_json: dict[str, Any] | None) -> frozenset[str]:
+    if not isinstance(content_json, dict):
+        return frozenset()
+
+    base_rows = content_json.get('baseData')
+    if not isinstance(base_rows, list):
+        return frozenset()
+
+    names: set[str] = set()
+    for row in base_rows:
+        values = _text_values_from_row(row)
+        if not values:
+            continue
+        label = values[0].casefold()
+        if label not in {'角色名称', 'character name'}:
+            continue
+        names.update(value for value in values[1:] if value)
+    return frozenset(names)
+
+
+def _text_key(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _has_matching_page_character(content_json: dict[str, Any] | None, resource: ViewerResource) -> bool:
+    page_names = {_text_key(name) for name in _page_character_names(content_json)}
+    return bool(resource.char_name and _text_key(resource.char_name) in page_names)
+
+
+def _style_live2d_model_columns(style: StyleRows) -> tuple[int, ...]:
+    if len(style.rows) <= STYLE_LIVE2D_HEADER_ROW:
+        return (1,)
+
+    header_row = style.rows[STYLE_LIVE2D_HEADER_ROW]
+    if not isinstance(header_row, list):
+        return (1,)
+
+    columns: list[int] = []
+    for column_index in range(1, len(header_row)):
+        header = _style_column_header(style, column_index).casefold()
+        if 'live2d' not in header and 'live 2d' not in header:
+            continue
+        if any(token in header for token in ('头像', 'icon', 'avatar', '小人')):
+            continue
+        if any(token in header for token in ('文件', 'file')):
+            columns.append(column_index)
+    return tuple(columns) or (1,)
+
+
+def _page_live2d_slot_contexts(
+    *,
+    content_json: dict[str, Any],
+    reverse_bind: dict[str, str],
+    target: ViewerSupplementTarget,
+) -> tuple[dict[str, Any], ...]:
+    contexts: list[dict[str, Any]] = []
+    for style in style_rows(content_json):
+        if len(style.rows) <= target.row_index:
+            continue
+        row = style.rows[target.row_index]
+        if not isinstance(row, list):
+            continue
+        for column_index in _style_live2d_model_columns(style):
+            cell = row[column_index] if column_index < len(row) and isinstance(row[column_index], dict) else {'key': '', 'value': ''}
+            contexts.append(
+                _style_media_context(
+                    style=style,
+                    row=row,
+                    cell={**cell, 'type': 'live2d'},
+                    row_index=target.row_index,
+                    column_index=column_index,
+                    reverse_bind=reverse_bind,
+                ),
+            )
+    return tuple(contexts)
+
+
+def _slot_models(
+    *,
+    live2d_models: list[dict[str, Any]],
+    slot_context: dict[str, Any],
+    target: ViewerSupplementTarget,
+) -> tuple[dict[str, Any], ...]:
+    return tuple(model for model in live2d_models if _same_live2d_slot(model, slot_context, field_name=target.field))
+
+
+def _model_stem_keys(model: dict[str, Any]) -> set[str]:
+    return {_stem_key(stem) for url in _live2d_model_urls(model) if (stem := resource_stem_from_url(url))}
+
+
+def _slot_has_mismatched_viewer_owner(
+    *,
+    models: tuple[dict[str, Any], ...],
+    page_names: frozenset[str],
+    viewer_by_stem: dict[str, ViewerResource],
+) -> bool:
+    page_name_keys = {_text_key(name) for name in page_names}
+    for model in models:
+        for stem_key in _model_stem_keys(model):
+            owner = viewer_by_stem.get(stem_key)
+            if owner is None or not owner.char_name:
+                continue
+            if _text_key(owner.char_name) not in page_name_keys:
+                return True
+    return False
 
 
 def _viewer_core_urls(resource: ViewerResource) -> dict[str, str]:
@@ -862,12 +998,15 @@ def _viewer_supplement_model(
     anchor: dict[str, Any],
     resource: ViewerResource,
     target: ViewerSupplementTarget,
+    reason: str,
+    variant: str = '',
 ) -> dict[str, Any] | None:
     urls = _viewer_core_urls(resource)
     if not _has_required_live2d_core(urls):
         return None
 
-    variant = 'censored' if _is_viewer_censored_resource(resource) else ''
+    if not variant and _is_viewer_censored_resource(resource):
+        variant = 'censored'
     return {
         'section': anchor.get('section') or 'style',
         'style_index': anchor.get('style_index'),
@@ -893,6 +1032,7 @@ def _viewer_supplement_model(
         'bg_position': {},
         'source': _VIEWER_SUPPLEMENT_SOURCE,
         'variant': variant,
+        'supplement_reason': reason,
         'viewer_entry_id': resource.entry_id,
         'viewer_stem': resource.stem,
         'source_page_url': VIEWER_PAGE_URL,
@@ -911,15 +1051,57 @@ def _add_viewer_model_assets(assets: dict[tuple[str, str], Asset], model: dict[s
             add_asset(assets, url, f'live2d_{field_name}', _viewer_supplement_context(model, live2d_field=field_name))
 
 
+def _viewer_page_anchor(
+    *,
+    resource: ViewerResource,
+    live2d_models: list[dict[str, Any]],
+    viewer_by_stem: dict[str, ViewerResource],
+    content_json: dict[str, Any] | None,
+    reverse_bind: dict[str, str] | None,
+) -> ViewerSupplementAnchor | None:
+    if resource.category != 'character' or content_json is None or not _has_matching_page_character(content_json, resource):
+        return None
+
+    target = _viewer_supplement_target(resource)
+    if target is None:
+        return None
+
+    page_names = _page_character_names(content_json)
+    slots = _page_live2d_slot_contexts(content_json=content_json, reverse_bind=reverse_bind or {}, target=target)
+    candidates: list[ViewerSupplementAnchor] = []
+    for slot_context in slots:
+        models = _slot_models(live2d_models=live2d_models, slot_context=slot_context, target=target)
+        if not models:
+            candidates.append(ViewerSupplementAnchor(context=slot_context, reason=_VIEWER_SUPPLEMENT_REASON_EMPTY_SLOT))
+        elif _slot_has_mismatched_viewer_owner(models=models, page_names=page_names, viewer_by_stem=viewer_by_stem):
+            candidates.append(
+                ViewerSupplementAnchor(
+                    context=slot_context,
+                    reason=_VIEWER_SUPPLEMENT_REASON_MISMATCHED_SLOT,
+                    variant='viewer_correction',
+                ),
+            )
+
+    mismatched = [candidate for candidate in candidates if candidate.reason == _VIEWER_SUPPLEMENT_REASON_MISMATCHED_SLOT]
+    if len(mismatched) == 1:
+        return mismatched[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
 def supplement_live2d_models_from_viewer(
     *,
     assets: dict[tuple[str, str], Asset],
     live2d_models: list[dict[str, Any]],
     viewer_resources: tuple[ViewerResource, ...],
+    content_json: dict[str, Any] | None = None,
+    reverse_bind: dict[str, str] | None = None,
 ) -> int:
     models_by_stem = _live2d_models_by_stem(live2d_models)
     existing_stem_keys = set(models_by_stem)
     viewer_by_entry = _viewer_resources_by_entry(viewer_resources)
+    viewer_by_stem = _viewer_resources_by_stem(viewer_resources)
     added = 0
 
     for resource in viewer_resources:
@@ -930,9 +1112,30 @@ def supplement_live2d_models_from_viewer(
         if target is None:
             continue
         anchor = _viewer_anchor_model(resource=resource, viewer_by_entry=viewer_by_entry, models_by_stem=models_by_stem)
-        if anchor is None or _viewer_slot_is_filled(live2d_models=live2d_models, anchor=anchor, target=target, resource=resource):
+        if anchor is not None and not _viewer_slot_is_filled(live2d_models=live2d_models, anchor=anchor, target=target, resource=resource):
+            reason = (
+                _VIEWER_SUPPLEMENT_REASON_CENSORED_VARIANT
+                if _is_viewer_censored_resource(resource)
+                else _VIEWER_SUPPLEMENT_REASON_EMPTY_SLOT
+            )
+            supplement_anchor = ViewerSupplementAnchor(context=anchor, reason=reason)
+        else:
+            supplement_anchor = _viewer_page_anchor(
+                resource=resource,
+                live2d_models=live2d_models,
+                viewer_by_stem=viewer_by_stem,
+                content_json=content_json,
+                reverse_bind=reverse_bind,
+            )
+        if supplement_anchor is None:
             continue
-        model = _viewer_supplement_model(anchor=anchor, resource=resource, target=target)
+        model = _viewer_supplement_model(
+            anchor=supplement_anchor.context,
+            resource=resource,
+            target=target,
+            reason=supplement_anchor.reason,
+            variant=supplement_anchor.variant,
+        )
         if model is None:
             continue
         _add_viewer_model_assets(assets, model)
@@ -942,6 +1145,75 @@ def supplement_live2d_models_from_viewer(
         added += 1
 
     return added
+
+
+def is_viewer_extra_resource(resource: ViewerResource) -> bool:
+    return resource.entry_id.casefold().startswith('minigame') and not resource.missing_core_files
+
+
+def viewer_extra_resources(viewer_resources: tuple[ViewerResource, ...]) -> tuple[ViewerResource, ...]:
+    return tuple(resource for resource in viewer_resources if is_viewer_extra_resource(resource))
+
+
+def viewer_extra_title(resource: ViewerResource) -> str:
+    parts = [part for part in (resource.char_name, resource.costume_name) if part]
+    return ' - '.join(parts) or resource.stem or resource.entry_id
+
+
+def viewer_extra_root(base_dir: Path, resource: ViewerResource) -> Path:
+    safe_entry_id = sanitize(resource.entry_id, max_bytes=80) or 'viewer-extra'
+    safe_title = sanitize(viewer_extra_title(resource), max_bytes=120) or safe_entry_id
+    return base_dir / '_extra' / f'{safe_entry_id} - {safe_title}'
+
+
+def viewer_extra_live2d_model(resource: ViewerResource) -> dict[str, Any] | None:
+    urls = _viewer_core_urls(resource)
+    if not _has_required_live2d_core(urls):
+        return None
+
+    return {
+        'section': 'extra',
+        'style_index': None,
+        'style_name': 'extra',
+        'costume_title': viewer_extra_title(resource),
+        'costume_category': 'extra',
+        'row_index': None,
+        'column_index': None,
+        'label': 'Extra Live2D',
+        'field': 'extra_live2d',
+        'is_art_row': False,
+        'column_name': viewer_extra_title(resource),
+        'column_category': 'extra',
+        'column_role': 'Extra Live2D',
+        'column_header': '',
+        'key': '',
+        'stable_id': '',
+        'live2d_key': f'bd2-l2d-viewer-extra-{resource.entry_id}-{resource.stem}',
+        'animation': '',
+        'skin': '',
+        'limit_age': False,
+        'position': {},
+        'bg_position': {},
+        'source': _VIEWER_SUPPLEMENT_SOURCE,
+        'variant': 'extra',
+        'supplement_reason': _VIEWER_EXTRA_REASON,
+        'viewer_entry_id': resource.entry_id,
+        'viewer_stem': resource.stem,
+        'source_page_url': VIEWER_PAGE_URL,
+        'urls': urls,
+    }
+
+
+def _viewer_resource_payload(resource: ViewerResource) -> dict[str, Any]:
+    return {
+        'entry_id': resource.entry_id,
+        'category': resource.category,
+        'stem': resource.stem,
+        'char_name': resource.char_name,
+        'costume_name': resource.costume_name,
+        'files': list(resource.files),
+        'missing_core_files': list(resource.missing_core_files),
+    }
 
 
 def extension_for_kind(kind: str) -> str:
@@ -1101,6 +1373,7 @@ def live2d_atlas_texture_context(model: dict[str, Any]) -> dict[str, Any]:
         'live2d_field': 'atlas_texture',
         'source': model.get('source') or '',
         'variant': model.get('variant') or '',
+        'supplement_reason': model.get('supplement_reason') or '',
         'viewer_entry_id': model.get('viewer_entry_id') or '',
         'viewer_stem': model.get('viewer_stem') or '',
         'source_page_url': model.get('source_page_url') or '',
@@ -1756,6 +2029,54 @@ class BD2:
         statements.append(('UPDATE bd2_pages SET completed_at = NOW() WHERE content_id = ?;', (content_id,)))
         await database.query_db_transaction(statements)
 
+    async def _archive_viewer_extra_resource(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        resource: ViewerResource,
+        skip_assets: bool = False,
+    ) -> Path | None:
+        model = viewer_extra_live2d_model(resource)
+        if model is None:
+            return None
+
+        assets: dict[tuple[str, str], Asset] = {}
+        _add_viewer_model_assets(assets, model)
+
+        root = viewer_extra_root(self.path, resource)
+        write_json(root / 'raw/viewer-resource.json', _viewer_resource_payload(resource))
+
+        assign_asset_paths(assets, content_id=_VIEWER_EXTRA_CONTENT_ID)
+        if not skip_assets:
+            await self._expand_atlas_textures(client=client, root=root, assets=assets, live2d_models=[model])
+            assign_asset_paths(assets, content_id=_VIEWER_EXTRA_CONTENT_ID)
+            await self._process_assets(client=client, root=root, assets=assets)
+
+        manifest = {
+            'source_url': VIEWER_PAGE_URL,
+            'fetched_at': _utc_now_iso(),
+            'collection_type': 'extra',
+            'source': _VIEWER_SUPPLEMENT_SOURCE,
+            'title': viewer_extra_title(resource),
+            'entry_id': resource.entry_id,
+            'viewer_resource': _viewer_resource_payload(resource),
+            'live2d_models': [model],
+            'assets': relative_manifest_assets(assets),
+            'asset_counts': asset_counts(assets),
+        }
+        write_json(root / 'manifest.json', manifest)
+        return root
+
+    async def _archive_viewer_extras(self, *, client: httpx.AsyncClient, skip_assets: bool = False) -> list[Path]:
+        archived: list[Path] = []
+        for resource in viewer_extra_resources(await self._viewer_resources_for_supplement()):
+            root = await self._archive_viewer_extra_resource(client=client, resource=resource, skip_assets=skip_assets)
+            if root is not None:
+                archived.append(root)
+        if archived:
+            log.info('Archived %d BD2 L2D Viewer extra resources', len(archived))
+        return archived
+
     async def _crawl_page(
         self,
         *,
@@ -1775,6 +2096,8 @@ class BD2:
             assets=assets,
             live2d_models=live2d_models,
             viewer_resources=await self._viewer_resources_for_supplement(),
+            content_json=content_json,
+            reverse_bind=reverse_bind,
         )
         if viewer_added:
             log.info('Supplemented %d BD2 Live2D models from BD2-L2D-Viewer for content_id=%d', viewer_added, content_id)
@@ -1884,3 +2207,4 @@ class BD2:
                     if examples:
                         msg = f'{msg}: {examples}'
                     raise CrawlRunError(msg)
+                await self._archive_viewer_extras(client=client)

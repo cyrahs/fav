@@ -572,6 +572,7 @@ class BD2Library:
             'limit_age': bool(model.get('limit_age')),
             'source': _clean_text(model.get('source')),
             'variant': _clean_text(model.get('variant')),
+            'supplement_reason': _clean_text(model.get('supplement_reason')),
             'viewer_entry_id': _clean_text(model.get('viewer_entry_id')),
             'viewer_stem': _clean_text(model.get('viewer_stem')),
             'source_page_url': _clean_text(model.get('source_page_url')),

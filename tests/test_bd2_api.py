@@ -208,6 +208,7 @@ def _create_bd2_fixture(root: Path) -> Path:
             'limit_age': False,
             'source': 'bd2_l2d_viewer',
             'variant': 'censored',
+            'supplement_reason': 'censored_variant',
             'viewer_entry_id': '101101_c',
             'viewer_stem': 'char101101_c',
             'source_page_url': 'https://jelosus2.github.io/BD2-L2D-Viewer/',
@@ -392,6 +393,7 @@ def test_get_bd2_character_returns_costumes_assets_and_live2d_refs(tmp_path: Pat
     assert model['live2d_key'] == 'model-a'
     assert model['source'] == 'bd2_l2d_viewer'
     assert model['variant'] == 'censored'
+    assert model['supplement_reason'] == 'censored_variant'
     assert model['viewer_entry_id'] == '101101_c'
     assert model['viewer_stem'] == 'char101101_c'
     assert model['source_page_url'] == 'https://jelosus2.github.io/BD2-L2D-Viewer/'

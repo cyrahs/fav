@@ -191,6 +191,7 @@ class BD2Live2DModel(ApiSchema):
     limit_age: bool = False
     source: str = ''
     variant: str = ''
+    supplement_reason: str = ''
     viewer_entry_id: str = ''
     viewer_stem: str = ''
     source_page_url: str = ''
