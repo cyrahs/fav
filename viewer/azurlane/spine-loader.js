@@ -512,6 +512,30 @@
     }
   }
 
+  function shouldContinueLoad(options) {
+    return typeof options.shouldContinueLoad !== 'function' || options.shouldContinueLoad();
+  }
+
+  async function releaseStaleAssets(assetInfo, options) {
+    if (typeof options.onStaleAssets === 'function') {
+      await options.onStaleAssets(assetInfo);
+    }
+  }
+
+  function abortStaleLoad(spineModel, layer) {
+    if (typeof spineModel?.azurLaneTickerCleanup === 'function') {
+      spineModel.azurLaneTickerCleanup();
+      spineModel.azurLaneTickerCleanup = null;
+    }
+    if (typeof layer?.removeChild === 'function' && spineModel?.parent === layer) {
+      layer.removeChild(spineModel);
+    }
+    if (typeof spineModel?.destroy === 'function') {
+      spineModel.destroy({ children: true });
+    }
+    throw new DOMException('Spine load was superseded by a newer selection', 'AbortError');
+  }
+
   async function loadSpineEntry(entry, options = {}) {
     if (entry?.type && entry.type !== 'spine') {
       throw new TypeError(`Expected a spine entry, received ${entry.type}`);
@@ -527,7 +551,16 @@
     }
 
     const assetInfo = await loadSpineAssets(entry, resourceUrls, options);
+    if (!shouldContinueLoad(options)) {
+      await releaseStaleAssets(assetInfo, options);
+      throw new DOMException('Spine load was superseded by a newer selection', 'AbortError');
+    }
+
     const spineModel = createSpineContainer(Spine, assetInfo, options);
+    if (!shouldContinueLoad(options)) {
+      abortStaleLoad(spineModel, options.spineLayer);
+    }
+
     const previousVisibility = spineModel.visible;
     spineModel.visible = false;
     if (entry?.id) {
@@ -535,6 +568,9 @@
       spineModel.name = entry.id;
     }
     options.spineLayer.addChild(spineModel);
+    if (!shouldContinueLoad(options)) {
+      abortStaleLoad(spineModel, options.spineLayer);
+    }
 
     const defaultAnimation = startDefaultSpineAnimation(spineModel, {
       animationName: options.animationName ?? entry?.defaultAnimation ?? entry?.default_animation,
@@ -545,6 +581,10 @@
       stageLayout: options.stageLayout,
       layout: entry?.layout,
     });
+    if (!shouldContinueLoad(options)) {
+      abortStaleLoad(spineModel, options.spineLayer);
+    }
+
     spineModel.visible = previousVisibility !== false;
 
     return {

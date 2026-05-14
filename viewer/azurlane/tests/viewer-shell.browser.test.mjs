@@ -71,6 +71,58 @@ function calculateExpectedLayout(width, height) {
   };
 }
 
+function sampleCatalogPayload() {
+  return {
+    Master: [
+      {
+        gameId: 1,
+        gameName: 'Azur Lane',
+        character: [
+          {
+            charId: 101,
+            charKey: 'guanghui',
+            charName: '光辉',
+            charNameEn: 'Illustrious',
+            live2d: [
+              {
+                costumeId: 7,
+                costumeName: '永不落幕的茶会',
+                costumeNameEn: 'Never-Ending Tea Party',
+                path: 'https://static.l2d.su/live2d/azurlane/guanghui_7/guanghui_7.model3.json',
+              },
+              {
+                costumeId: 8,
+                costumeName: '破损条目',
+                costumeNameEn: 'Broken Entry',
+                path: 'https://static.l2d.su/live2d/azurlane/broken/broken.model3.json',
+                availability: {
+                  state: 'broken',
+                },
+              },
+            ],
+            spine: [],
+          },
+          {
+            charId: 202,
+            charKey: 'yilisi',
+            charName: '伊丽丝',
+            charNameEn: 'Elise',
+            live2d: [],
+            spine: [
+              {
+                costumeId: 2,
+                costumeName: '金色午后',
+                costumeNameEn: 'Golden Afternoon',
+                path: 'https://static.l2d.su/live2d/azurlane/yilisi_2_doa',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function assertClose(actual, expected, message, tolerance = 0.75) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${message}: expected ${expected}, received ${actual}`);
 }
@@ -152,10 +204,18 @@ page.on('request', (request) => {
     modelAssetRequests.push(requestUrl);
   }
 });
+await page.route('https://l2d.su/json/live2dMaster.json', async (route) => {
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json; charset=utf-8',
+    body: JSON.stringify(sampleCatalogPayload()),
+  });
+});
 
 try {
   await page.goto(`${url}?debugStage=1`, { waitUntil: 'networkidle' });
   await waitForFixedStageShell(page, 1280, 720);
+  await page.waitForFunction(() => window.azurLaneModelCatalogController?.state?.entries?.length === 3);
 
   const initialState = await page.evaluate(() => window.azurLaneViewerShell.getState());
   assert.equal(initialState.pixiApplicationCount, 1);
@@ -175,6 +235,209 @@ try {
   assert.ok(initialState.backgroundBounds.height >= 720);
   assertFixedStageState(initialState, 1280, 720, 'desktop');
   assert.equal(await page.locator('#pixi-root canvas').count(), 1);
+  assert.equal(await page.locator('.catalog-entry').count(), 2);
+  assert.equal(await page.locator('.catalog-entry', { hasText: 'Broken Entry' }).count(), 0);
+
+  await page.locator('#catalog-search').fill('光辉');
+  assert.deepEqual(await page.locator('.catalog-entry-title').allTextContents(), ['Illustrious 光辉']);
+  await page.locator('#catalog-search').fill('Golden Afternoon');
+  assert.deepEqual(await page.locator('.catalog-entry-subtitle').allTextContents(), ['Golden Afternoon 金色午后']);
+  await page.locator('[data-model-type="live2d"]').click();
+  assert.equal(await page.locator('.catalog-entry').count(), 0);
+  await page.locator('[data-model-type="spine"]').click();
+  assert.deepEqual(await page.locator('.catalog-entry-title').allTextContents(), ['Elise 伊丽丝']);
+  await page.locator('[data-model-type="all"]').click();
+  await page.locator('#catalog-search').fill('');
+
+  const selectionSmoke = await page.evaluate(async () => {
+    const liveModel = new window.PIXI.Container();
+    liveModel.anchor = {
+      x: 0,
+      y: 0,
+      set(x, y) {
+        this.x = x;
+        this.y = y;
+      },
+    };
+    liveModel.getLocalBounds = () => ({ x: -400, y: -200, width: 800, height: 400 });
+    window.PIXI.live2d = {
+      Live2DModel: {
+        async from(url) {
+          liveModel.azurLaneLoadedUrl = url;
+          return liveModel;
+        },
+      },
+    };
+
+    const spineModel = new window.PIXI.Container();
+    const animationCalls = [];
+    spineModel.pivot = {
+      x: 0,
+      y: 0,
+      set(x, y) {
+        this.x = x;
+        this.y = y;
+      },
+    };
+    spineModel.skeleton = {
+      data: {
+        animations: [{ name: 'normal' }],
+      },
+    };
+    spineModel.state = {
+      setAnimation(trackIndex, name, loop) {
+        animationCalls.push({ trackIndex, name, loop });
+      },
+    };
+    spineModel.update = () => {};
+    spineModel.getLocalBounds = () => ({ x: -500, y: -1000, width: 1000, height: 2000 });
+    window.spine = {
+      Spine: {
+        from() {
+          return spineModel;
+        },
+      },
+    };
+
+    const assetCalls = [];
+    window.PIXI.Assets.add = (descriptor) => assetCalls.push(['add', descriptor.alias, descriptor.src]);
+    window.PIXI.Assets.load = async (aliases) => {
+      assetCalls.push(['load', ...aliases]);
+      return {};
+    };
+    window.PIXI.Assets.unload = async (aliases) => {
+      assetCalls.push(['unload', ...aliases]);
+    };
+
+    const live2dEntry = window.azurLaneModelCatalogController.state.entries.find((entry) => entry.id === 'azurlane:live2d:guanghui:guanghui_7');
+    const spineEntry = window.azurLaneModelCatalogController.state.entries.find((entry) => entry.id === 'azurlane:spine:yilisi:yilisi_2_doa');
+    await window.azurLaneModelCatalogController.selectEntry(live2dEntry);
+    const afterLive2D = window.azurLaneViewerShell.getState();
+    await window.azurLaneModelCatalogController.selectEntry(spineEntry);
+    const afterSpine = window.azurLaneViewerShell.getState();
+
+    return {
+      live2dUrl: liveModel.azurLaneLoadedUrl,
+      afterLive2D: {
+        live2dLayerChildren: afterLive2D.live2dLayerChildren,
+        spineLayerChildren: afterLive2D.spineLayerChildren,
+        entryId: afterLive2D.live2d.current.entryId,
+      },
+      afterSpine: {
+        live2dLayerChildren: afterSpine.live2dLayerChildren,
+        spineLayerChildren: afterSpine.spineLayerChildren,
+        entryId: afterSpine.spine.current.entryId,
+      },
+      animationCalls,
+      assetCalls,
+    };
+  });
+
+  assert.equal(selectionSmoke.live2dUrl, 'https://static.l2d.su/live2d/azurlane/guanghui_7/guanghui_7.model3.json');
+  assert.deepEqual(selectionSmoke.afterLive2D, {
+    live2dLayerChildren: 1,
+    spineLayerChildren: 0,
+    entryId: 'azurlane:live2d:guanghui:guanghui_7',
+  });
+  assert.deepEqual(selectionSmoke.afterSpine, {
+    live2dLayerChildren: 0,
+    spineLayerChildren: 1,
+    entryId: 'azurlane:spine:yilisi:yilisi_2_doa',
+  });
+  assert.deepEqual(selectionSmoke.animationCalls, [{ trackIndex: 0, name: 'normal', loop: true }]);
+  assert.ok(selectionSmoke.assetCalls.some((call) => call[0] === 'load' && call.includes('azurlane:spine:yilisi:yilisi_2_doa:skeleton')));
+
+  const concurrentSelectionSmoke = await page.evaluate(async () => {
+    const live2dEntry = window.azurLaneModelCatalogController.state.entries.find((entry) => entry.id === 'azurlane:live2d:guanghui:guanghui_7');
+    const spineEntry = window.azurLaneModelCatalogController.state.entries.find((entry) => entry.id === 'azurlane:spine:yilisi:yilisi_2_doa');
+    let resolveLive2DLoad;
+    const slowLive2DLoad = new Promise((resolve) => {
+      resolveLive2DLoad = resolve;
+    });
+    const staleLiveModel = new window.PIXI.Container();
+    staleLiveModel.anchor = {
+      x: 0,
+      y: 0,
+      set(x, y) {
+        this.x = x;
+        this.y = y;
+      },
+    };
+    staleLiveModel.getLocalBounds = () => ({ x: -400, y: -200, width: 800, height: 400 });
+    staleLiveModel.destroyedByTest = false;
+    const originalDestroy = staleLiveModel.destroy.bind(staleLiveModel);
+    staleLiveModel.destroy = (options) => {
+      staleLiveModel.destroyedByTest = true;
+      originalDestroy(options);
+    };
+    window.PIXI.live2d = {
+      Live2DModel: {
+        async from() {
+          await slowLive2DLoad;
+          return staleLiveModel;
+        },
+      },
+    };
+
+    const spineModel = new window.PIXI.Container();
+    spineModel.pivot = {
+      x: 0,
+      y: 0,
+      set(x, y) {
+        this.x = x;
+        this.y = y;
+      },
+    };
+    spineModel.skeleton = {
+      data: {
+        animations: [{ name: 'normal' }],
+      },
+    };
+    spineModel.state = {
+      setAnimation() {},
+    };
+    spineModel.update = () => {};
+    spineModel.getLocalBounds = () => ({ x: -500, y: -1000, width: 1000, height: 2000 });
+    window.spine = {
+      Spine: {
+        from() {
+          return spineModel;
+        },
+      },
+    };
+    window.PIXI.Assets.add = () => {};
+    window.PIXI.Assets.load = async () => ({});
+    window.PIXI.Assets.unload = async () => {};
+
+    const staleSelection = window.azurLaneModelCatalogController.selectEntry(live2dEntry);
+    const currentSelection = window.azurLaneModelCatalogController.selectEntry(spineEntry);
+    await currentSelection;
+    resolveLive2DLoad();
+    await staleSelection;
+
+    const state = window.azurLaneViewerShell.getState();
+    return {
+      selectedEntryId: window.azurLaneModelCatalogController.state.selectedEntryId,
+      loadingEntryId: window.azurLaneModelCatalogController.state.loadingEntryId,
+      live2dLayerChildren: state.live2dLayerChildren,
+      spineLayerChildren: state.spineLayerChildren,
+      live2dCurrent: state.live2d.current,
+      spineCurrentEntryId: state.spine.current.entryId,
+      staleLiveDestroyed: staleLiveModel.destroyedByTest,
+      staleLiveParentLabel: staleLiveModel.parent?.label ?? '',
+    };
+  });
+
+  assert.deepEqual(concurrentSelectionSmoke, {
+    selectedEntryId: 'azurlane:spine:yilisi:yilisi_2_doa',
+    loadingEntryId: '',
+    live2dLayerChildren: 0,
+    spineLayerChildren: 1,
+    live2dCurrent: null,
+    spineCurrentEntryId: 'azurlane:spine:yilisi:yilisi_2_doa',
+    staleLiveDestroyed: true,
+    staleLiveParentLabel: '',
+  });
 
   const initialProbe = await page.evaluate(() => {
     const probe = new window.PIXI.Container();
@@ -467,7 +730,7 @@ try {
   );
   assert.deepEqual(
     spineLoads.map((load) => load.live2dLayerChildren),
-    [1, 1, 1],
+    [0, 0, 0],
   );
   assert.deepEqual(
     spineLoads.map((load) => load.current.entryId),

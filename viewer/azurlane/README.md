@@ -14,8 +14,9 @@ The shell is intentionally static for this step:
 - Loaded Live2D models are added only to `live2dLayer` and auto-fit after their dimensions are stable.
 - Spine entries can be loaded through `window.azurLaneViewerShell.loadSpineEntry(entry)`.
 - Loaded Spine models are added only to `spineLayer`, use `.skel`, `.atlas`, and texture assets derived from the catalog base path, and auto-fit from runtime bounds.
+- The DOM controls fetch and normalize the l2d.su Azur Lane catalog, then provide a utilitarian model picker with search and Live2D/Spine filters.
 - Add `?debugStage=1` to show the logical stage rectangle and center cross.
-- No model catalog or picker UI is loaded.
+- Broken catalog entries are hidden by default; add `?debugCatalog=1` to include them.
 
 Open `index.html` directly in a browser, or serve the directory with:
 

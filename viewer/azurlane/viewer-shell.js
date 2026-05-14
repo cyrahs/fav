@@ -126,8 +126,27 @@
     let resizeFrame = 0;
     let live2dLoadCount = 0;
     let spineLoadCount = 0;
+    let catalogLoadSequence = 0;
     let activeLive2D = null;
     let activeSpine = null;
+
+    async function unloadSpineAssets(result) {
+      const Assets = globalScope.PIXI?.Assets;
+      if (!Assets || typeof Assets.unload !== 'function') {
+        return;
+      }
+
+      const aliases = result?.assetInfo?.loadAliases;
+      if (!Array.isArray(aliases) || aliases.length === 0) {
+        return;
+      }
+
+      try {
+        await Assets.unload(aliases);
+      } catch {
+        // Pixi may already have released shared aliases; display objects are still destroyed by layer cleanup.
+      }
+    }
 
     function resizeShell() {
       const width = Math.max(1, app.screen.width);
@@ -166,6 +185,9 @@
         throw new Error('live2d-loader.js is required before loading Live2D entries');
       }
 
+      const previousSpine = activeSpine;
+      clearSpineLayer();
+      await unloadSpineAssets(previousSpine);
       setStatusText(controlsRoot, 'Loading Live2D');
       activeLive2D = null;
       try {
@@ -175,13 +197,20 @@
           stageLayout: globalScope.AzurLaneStageLayout,
           ...loadOptions,
         });
+        if (typeof loadOptions.shouldContinueLoad === 'function' && !loadOptions.shouldContinueLoad()) {
+          globalScope.AzurLaneLive2D?.removeLayerChildren?.(live2dLayer);
+          throw new DOMException('Live2D load was superseded by a newer selection', 'AbortError');
+        }
+
         activeLive2D = result;
         live2dLoadCount += 1;
         setStatusText(controlsRoot, 'Live2D');
         app.render();
         return result;
       } catch (error) {
-        setStatusText(controlsRoot, 'Live2D Error');
+        if (error?.name !== 'AbortError' || typeof loadOptions.shouldContinueLoad !== 'function' || loadOptions.shouldContinueLoad()) {
+          setStatusText(controlsRoot, 'Live2D Error');
+        }
         throw error;
       }
     }
@@ -202,6 +231,10 @@
         throw new Error('spine-loader.js is required before loading Spine entries');
       }
 
+      clearLive2DLayer();
+      const previousSpine = activeSpine;
+      clearSpineLayer();
+      await unloadSpineAssets(previousSpine);
       setStatusText(controlsRoot, 'Loading Spine');
       activeSpine = null;
       try {
@@ -210,7 +243,14 @@
           spineLayer,
           stageLayout: globalScope.AzurLaneStageLayout,
           ...loadOptions,
+          clearLayer: false,
         });
+        if (typeof loadOptions.shouldContinueLoad === 'function' && !loadOptions.shouldContinueLoad()) {
+          await unloadSpineAssets(result);
+          globalScope.AzurLaneSpine?.removeLayerChildren?.(spineLayer);
+          throw new DOMException('Spine load was superseded by a newer selection', 'AbortError');
+        }
+
         activeSpine = result;
         spineLoadCount += 1;
         setStatusText(controlsRoot, 'Spine');
@@ -218,7 +258,9 @@
         app.render();
         return result;
       } catch (error) {
-        setStatusText(controlsRoot, 'Spine Error');
+        if (error?.name !== 'AbortError' || typeof loadOptions.shouldContinueLoad !== 'function' || loadOptions.shouldContinueLoad()) {
+          setStatusText(controlsRoot, 'Spine Error');
+        }
         throw error;
       }
     }
@@ -232,6 +274,31 @@
       activeSpine = null;
       setStatusText(controlsRoot, 'Shell');
       app.render();
+    }
+
+    async function loadCatalogEntry(entry, loadOptions = {}) {
+      const sequence = catalogLoadSequence + 1;
+      catalogLoadSequence = sequence;
+      const shouldContinueLoad = () => sequence === catalogLoadSequence;
+
+      if (entry?.type === 'live2d') {
+        return loadLive2DEntry(entry, {
+          ...(loadOptions.live2d ?? loadOptions),
+          shouldContinueLoad,
+        });
+      }
+
+      if (entry?.type === 'spine') {
+        return loadSpineEntry(entry, {
+          ...(loadOptions.spine ?? loadOptions),
+          shouldContinueLoad,
+          onStaleAssets(assetInfo) {
+            return unloadSpineAssets({ assetInfo });
+          },
+        });
+      }
+
+      throw new TypeError(`Unsupported catalog entry type: ${entry?.type ?? 'unknown'}`);
     }
 
     function live2dState() {
@@ -296,6 +363,7 @@
       overlayLayer,
       loadLive2DEntry,
       loadSpineEntry,
+      loadCatalogEntry,
       clearLive2DLayer,
       clearSpineLayer,
       resize: resizeShell,

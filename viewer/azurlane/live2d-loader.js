@@ -336,6 +336,20 @@
     }
   }
 
+  function shouldContinueLoad(options) {
+    return typeof options.shouldContinueLoad !== 'function' || options.shouldContinueLoad();
+  }
+
+  function abortStaleLoad(model, layer) {
+    if (typeof layer?.removeChild === 'function' && model?.parent === layer) {
+      layer.removeChild(model);
+    }
+    if (typeof model?.destroy === 'function') {
+      model.destroy({ children: true });
+    }
+    throw new DOMException('Live2D load was superseded by a newer selection', 'AbortError');
+  }
+
   async function loadLive2DEntry(entry, options = {}) {
     if (entry?.type && entry.type !== 'live2d') {
       throw new TypeError(`Expected a live2d entry, received ${entry.type}`);
@@ -361,6 +375,10 @@
       ...(options.modelOptions ?? {}),
     };
     const model = await Live2DModel.from(modelUrl, modelOptions);
+    if (!shouldContinueLoad(options)) {
+      abortStaleLoad(model, options.live2dLayer);
+    }
+
     const layout = prepareLive2DModelForMeasurement(model, entry?.layout);
     const previousVisibility = model.visible;
     model.visible = false;
@@ -371,6 +389,10 @@
       requestFrame: options.requestFrame,
       ...(options.dimensionOptions ?? {}),
     });
+    if (!shouldContinueLoad(options)) {
+      abortStaleLoad(model, options.live2dLayer);
+    }
+
     const fit = fitLive2DModelIntoStage(model, dimensions, {
       stageLayout: options.stageLayout,
       layout,

@@ -18,13 +18,29 @@
     <script src="./spine-runtime-compat.js"></script>
     <script src="./spine-loader.js"></script>
     <script src="./viewer-shell.js" defer></script>
+    <script src="./model-catalog.js" defer></script>
   </head>
   <body>
     <main class="viewer-shell" aria-label="Azur Lane viewer shell">
       <div id="pixi-root" class="pixi-root"></div>
       <div id="viewer-controls" class="viewer-controls" data-controls-runtime="dom" aria-label="Viewer controls">
-        <span class="viewer-title">Azur Lane</span>
-        <span class="viewer-state" id="viewer-state">Shell</span>
+        <div class="viewer-toolbar">
+          <span class="viewer-title">Azur Lane</span>
+          <span class="viewer-state" id="viewer-state">Shell</span>
+        </div>
+        <div class="catalog-panel" id="catalog-panel">
+          <div class="catalog-search-row">
+            <label class="visually-hidden" for="catalog-search">Search models</label>
+            <input id="catalog-search" class="catalog-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search character or costume">
+          </div>
+          <div class="catalog-filter-row" aria-label="Model type filter">
+            <button class="catalog-type-button is-active" type="button" data-model-type="all">All</button>
+            <button class="catalog-type-button" type="button" data-model-type="live2d">Live2D</button>
+            <button class="catalog-type-button" type="button" data-model-type="spine">Spine</button>
+          </div>
+          <div class="catalog-meta" id="catalog-meta">Loading catalog</div>
+          <div class="catalog-list" id="catalog-list" role="listbox" aria-label="Model catalog"></div>
+        </div>
       </div>
     </main>
   </body>
