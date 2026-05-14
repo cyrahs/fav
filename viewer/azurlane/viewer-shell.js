@@ -84,6 +84,7 @@
 
     await app.init({
       resizeTo: mount,
+      preference: 'webgl',
       autoDensity: true,
       resolution: Math.min(globalScope.devicePixelRatio || 1, 2),
       antialias: true,
@@ -116,6 +117,8 @@
 
     let lastLayout = null;
     let resizeFrame = 0;
+    let live2dLoadCount = 0;
+    let activeLive2D = null;
 
     function resizeShell() {
       const width = Math.max(1, app.screen.width);
@@ -149,6 +152,65 @@
     resizeShell();
     setStatusText(controlsRoot, 'Shell');
 
+    async function loadLive2DEntry(entry, loadOptions = {}) {
+      if (!globalScope.AzurLaneLive2D) {
+        throw new Error('live2d-loader.js is required before loading Live2D entries');
+      }
+
+      setStatusText(controlsRoot, 'Loading Live2D');
+      activeLive2D = null;
+      try {
+        const result = await globalScope.AzurLaneLive2D.loadLive2DEntry(entry, {
+          app,
+          live2dLayer,
+          stageLayout: globalScope.AzurLaneStageLayout,
+          ...loadOptions,
+        });
+        activeLive2D = result;
+        live2dLoadCount += 1;
+        setStatusText(controlsRoot, 'Live2D');
+        app.render();
+        return result;
+      } catch (error) {
+        setStatusText(controlsRoot, 'Live2D Error');
+        throw error;
+      }
+    }
+
+    function clearLive2DLayer() {
+      if (!globalScope.AzurLaneLive2D) {
+        live2dLayer.removeChildren();
+      } else {
+        globalScope.AzurLaneLive2D.removeLayerChildren(live2dLayer);
+      }
+      activeLive2D = null;
+      setStatusText(controlsRoot, 'Shell');
+      app.render();
+    }
+
+    function live2dState() {
+      const model = activeLive2D?.model;
+      return {
+        loadCount: live2dLoadCount,
+        layerChildren: live2dLayer.children.length,
+        current: model
+          ? {
+              entryId: activeLive2D.entry?.id ?? '',
+              modelUrl: activeLive2D.modelUrl,
+              visible: model.visible,
+              x: model.position?.x ?? 0,
+              y: model.position?.y ?? 0,
+              scaleX: model.scale?.x ?? 0,
+              scaleY: model.scale?.y ?? 0,
+              anchorX: model.anchor?.x ?? 0,
+              anchorY: model.anchor?.y ?? 0,
+              fit: activeLive2D.fit,
+              dimensions: activeLive2D.dimensions,
+            }
+          : null,
+      };
+    }
+
     const shell = {
       ready: true,
       controlsRuntime: 'dom',
@@ -160,6 +222,8 @@
       live2dLayer,
       stageDebugLayer,
       overlayLayer,
+      loadLive2DEntry,
+      clearLive2DLayer,
       resize: resizeShell,
       setDebugStageVisible(visible) {
         stageDebugVisible = Boolean(visible);
@@ -172,6 +236,7 @@
         }
         resizeObserver.disconnect();
         globalScope.removeEventListener('resize', requestResize);
+        clearLive2DLayer();
         app.destroy(true, { children: true });
       },
       getState() {
@@ -183,7 +248,7 @@
         return {
           ready: true,
           controlsRuntime: 'dom',
-          modelLoadingRequested: false,
+          modelLoadingRequested: live2dLoadCount > 0,
           pixiApplicationCount: 1,
           backgroundColor: BACKGROUND_COLOR,
           design: {
@@ -215,6 +280,9 @@
             scaleY: overlayLayer.scale.y,
           },
           backgroundLayerChildren: canvasBackgroundLayer.children.length,
+          spineLayerChildren: spineLayer.children.length,
+          live2dLayerChildren: live2dLayer.children.length,
+          live2d: live2dState(),
           backgroundBounds: {
             x: backgroundBounds.x,
             y: backgroundBounds.y,

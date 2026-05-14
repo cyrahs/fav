@@ -165,6 +165,10 @@ try {
   assert.equal(initialState.modelLoadingRequested, false);
   assert.equal(initialState.backgroundColor, 0x151815);
   assert.equal(initialState.backgroundLayerChildren, 1);
+  assert.equal(initialState.spineLayerChildren, 0);
+  assert.equal(initialState.live2dLayerChildren, 0);
+  assert.equal(initialState.live2d.loadCount, 0);
+  assert.equal(initialState.live2d.current, null);
   assert.ok(initialState.backgroundBounds.width >= 1280);
   assert.ok(initialState.backgroundBounds.height >= 720);
   assertFixedStageState(initialState, 1280, 720, 'desktop');
@@ -205,6 +209,143 @@ try {
     assertFixedStageState(viewportState.state, viewport.width, viewport.height, viewport.name);
     assert.deepEqual(viewportState.probe, { x: 800, y: 450 }, viewport.name);
   }
+
+  const live2dLoads = await page.evaluate(async () => {
+    const cases = [
+      {
+        id: 'azurlane:live2d:xingdengbao:xingdengbao_2',
+        url: 'https://static.l2d.su/live2d/azurlane/xingdengbao_2/xingdengbao_2.model3.json',
+        bounds: { x: -400, y: -200, width: 800, height: 400 },
+      },
+      {
+        id: 'azurlane:live2d:yuanchou:yuanchou_3',
+        url: 'https://static.l2d.su/live2d/azurlane/yuanchou_3/yuanchou_3.model3.json',
+        bounds: { x: -225, y: -600, width: 450, height: 1200 },
+      },
+      {
+        id: 'azurlane:live2d:mingji:mingji_2',
+        url: 'https://static.l2d.su/live2d/azurlane/mingji_2/mingji_2.model3.json',
+        bounds: { x: -250, y: -250, width: 500, height: 500 },
+      },
+    ];
+    const loads = [];
+
+    for (const testCase of cases) {
+      const runtime = {
+        Live2DModel: {
+          async from(url, options) {
+            const model = new window.PIXI.Container();
+            model.label = testCase.id;
+            model.name = testCase.id;
+            model.anchor = {
+              x: 0,
+              y: 0,
+              set(x, y) {
+                this.x = x;
+                this.y = y;
+              },
+            };
+            model.getLocalBounds = () => ({ ...testCase.bounds });
+            model.azurLaneLoadOptions = options;
+            model.azurLaneLoadedUrl = url;
+            return model;
+          },
+        },
+      };
+
+      const result = await window.azurLaneViewerShell.loadLive2DEntry(
+        {
+          id: testCase.id,
+          type: 'live2d',
+          resources: {
+            primary_url: testCase.url,
+          },
+          layout: {
+            mode: 'auto-fit',
+            anchor: [0.5, 0.5],
+          },
+        },
+        {
+          runtime,
+          dimensionOptions: {
+            stableFrames: 2,
+            maxFrames: 6,
+          },
+        },
+      );
+      const state = window.azurLaneViewerShell.getState();
+      loads.push({
+        id: testCase.id,
+        parentLabel: result.model.parent.label,
+        loadedUrl: result.model.azurLaneLoadedUrl,
+        loadOptions: result.model.azurLaneLoadOptions,
+        live2dLayerChildren: state.live2dLayerChildren,
+        spineLayerChildren: state.spineLayerChildren,
+        current: state.live2d.current,
+      });
+    }
+
+    return loads;
+  });
+
+  assert.equal(live2dLoads.length, 3);
+  assert.deepEqual(
+    live2dLoads.map((load) => load.parentLabel),
+    ['live2dLayer', 'live2dLayer', 'live2dLayer'],
+  );
+  assert.deepEqual(
+    live2dLoads.map((load) => load.loadedUrl),
+    [
+      'https://static.l2d.su/live2d/azurlane/xingdengbao_2/xingdengbao_2.model3.json',
+      'https://static.l2d.su/live2d/azurlane/yuanchou_3/yuanchou_3.model3.json',
+      'https://static.l2d.su/live2d/azurlane/mingji_2/mingji_2.model3.json',
+    ],
+  );
+  assert.deepEqual(
+    live2dLoads.map((load) => load.loadOptions),
+    [
+      { autoInteract: false, autoFocus: false, autoHitTest: false },
+      { autoInteract: false, autoFocus: false, autoHitTest: false },
+      { autoInteract: false, autoFocus: false, autoHitTest: false },
+    ],
+  );
+  assert.deepEqual(
+    live2dLoads.map((load) => load.spineLayerChildren),
+    [0, 0, 0],
+  );
+  assert.deepEqual(
+    live2dLoads.map((load) => load.live2dLayerChildren),
+    [1, 1, 1],
+  );
+  assert.deepEqual(
+    live2dLoads.map((load) => load.current.entryId),
+    [
+      'azurlane:live2d:xingdengbao:xingdengbao_2',
+      'azurlane:live2d:yuanchou:yuanchou_3',
+      'azurlane:live2d:mingji:mingji_2',
+    ],
+  );
+  assertClose(live2dLoads[0].current.scaleX, 2, 'wide Live2D fit');
+  assertClose(live2dLoads[1].current.scaleX, 0.75, 'tall Live2D fit');
+  assertClose(live2dLoads[2].current.scaleX, 1.8, 'square Live2D fit');
+  for (const load of live2dLoads) {
+    assertClose(load.current.x, 800, `${load.id} logical x`);
+    assertClose(load.current.y, 450, `${load.id} logical y`);
+    assertClose(load.current.scaleX, load.current.scaleY, `${load.id} uniform scale`);
+    assert.equal(load.current.visible, true);
+    assert.equal(load.current.fit.dimensions.timedOut, false);
+  }
+
+  const live2dBeforeResize = await page.evaluate(() => window.azurLaneViewerShell.getState().live2d.current);
+  await page.setViewportSize({ width: 1920, height: 720 });
+  await waitForFixedStageShell(page, 1920, 720);
+  const live2dAfterResize = await page.evaluate(() => window.azurLaneViewerShell.getState().live2d.current);
+
+  assert.equal(live2dAfterResize.entryId, live2dBeforeResize.entryId);
+  assertClose(live2dAfterResize.x, live2dBeforeResize.x, 'Live2D logical x after resize');
+  assertClose(live2dAfterResize.y, live2dBeforeResize.y, 'Live2D logical y after resize');
+  assertClose(live2dAfterResize.scaleX, live2dBeforeResize.scaleX, 'Live2D scale x after resize');
+  assertClose(live2dAfterResize.scaleY, live2dBeforeResize.scaleY, 'Live2D scale y after resize');
 
   assert.deepEqual(modelAssetRequests, []);
   assert.deepEqual(pageErrors, []);
