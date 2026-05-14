@@ -25,3 +25,44 @@ Open `index.html` directly in a browser, or serve the directory with:
 ```bash
 python -m http.server 5174 --directory viewer/azurlane
 ```
+
+## Visual Regression Checklist
+
+The fixed visual smoke set lives in `visual-regression-set.js` and is checked by `tests/visual-regression.browser.test.mjs`.
+
+Model set:
+
+- `azurlane:live2d:xingdengbao:xingdengbao_2`: shared older Nagami/l2d.su Live2D model.
+- `azurlane:live2d:yuanchou:yuanchou_3`: newer l2d.su Live2D-only model.
+- `azurlane:spine:aerbien:aerbien_4`: Spine/Dynamic model with visible background attachments.
+- `azurlane:spine:yilisi:yilisi_2_doa`: large wide aspect-ratio model.
+
+Viewport matrix:
+
+- `1600x900`
+- `1920x1080`
+- `1366x768`
+- `390x844`
+
+Run the deterministic browser check with the local Playwright install used by the viewer tests:
+
+```bash
+NODE_PATH=/tmp/fav-playwright-GGKkpk/node_modules node --test viewer/azurlane/tests/visual-regression.browser.test.mjs
+```
+
+The test uses fake Live2D and Spine runtimes, captures the viewer canvas at every model/viewport pair, and checks:
+
+- the canvas is not blank by counting deterministic marker pixels;
+- Spine background attachment markers are visible;
+- model logical center and scale do not drift across viewport resizes;
+- projected model bounds stay inside the fixed `1600x900` logical stage.
+
+To save local screenshots and a JSON report for manual comparison, set `AZURLANE_VISUAL_OUTPUT_DIR`:
+
+```bash
+AZURLANE_VISUAL_OUTPUT_DIR=/tmp/azurlane-visual \
+NODE_PATH=/tmp/fav-playwright-GGKkpk/node_modules \
+node --test viewer/azurlane/tests/visual-regression.browser.test.mjs
+```
+
+Generated screenshots are local artifacts only and should not be committed unless a future review explicitly needs image baselines.
