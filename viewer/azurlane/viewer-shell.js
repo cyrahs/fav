@@ -65,6 +65,12 @@
     });
   }
 
+  function nextAnimationFrame() {
+    return new Promise((resolve) => {
+      globalScope.requestAnimationFrame(resolve);
+    });
+  }
+
   async function createAzurLaneViewerShell(options = {}) {
     if (!globalScope.PIXI) {
       throw new Error('PixiJS is required before viewer-shell.js is loaded');
@@ -91,6 +97,7 @@
       background: BACKGROUND_COLOR,
       backgroundColor: BACKGROUND_COLOR,
     });
+    globalScope.AzurLaneSpineRuntimeCompat?.patchApplication?.(app);
 
     app.canvas.dataset.viewerCanvas = 'azurlane';
     app.canvas.setAttribute('aria-label', 'Azur Lane viewer canvas');
@@ -118,7 +125,9 @@
     let lastLayout = null;
     let resizeFrame = 0;
     let live2dLoadCount = 0;
+    let spineLoadCount = 0;
     let activeLive2D = null;
+    let activeSpine = null;
 
     function resizeShell() {
       const width = Math.max(1, app.screen.width);
@@ -188,6 +197,43 @@
       app.render();
     }
 
+    async function loadSpineEntry(entry, loadOptions = {}) {
+      if (!globalScope.AzurLaneSpine) {
+        throw new Error('spine-loader.js is required before loading Spine entries');
+      }
+
+      setStatusText(controlsRoot, 'Loading Spine');
+      activeSpine = null;
+      try {
+        const result = await globalScope.AzurLaneSpine.loadSpineEntry(entry, {
+          app,
+          spineLayer,
+          stageLayout: globalScope.AzurLaneStageLayout,
+          ...loadOptions,
+        });
+        activeSpine = result;
+        spineLoadCount += 1;
+        setStatusText(controlsRoot, 'Spine');
+        await nextAnimationFrame();
+        app.render();
+        return result;
+      } catch (error) {
+        setStatusText(controlsRoot, 'Spine Error');
+        throw error;
+      }
+    }
+
+    function clearSpineLayer() {
+      if (!globalScope.AzurLaneSpine) {
+        spineLayer.removeChildren();
+      } else {
+        globalScope.AzurLaneSpine.removeLayerChildren(spineLayer);
+      }
+      activeSpine = null;
+      setStatusText(controlsRoot, 'Shell');
+      app.render();
+    }
+
     function live2dState() {
       const model = activeLive2D?.model;
       return {
@@ -211,6 +257,32 @@
       };
     }
 
+    function spineState() {
+      const spine = activeSpine?.spine;
+      return {
+        loadCount: spineLoadCount,
+        layerChildren: spineLayer.children.length,
+        current: spine
+          ? {
+              entryId: activeSpine.entry?.id ?? '',
+              baseUrl: activeSpine.resourceUrls?.baseUrl,
+              skelUrl: activeSpine.resourceUrls?.skelUrl,
+              atlasUrl: activeSpine.resourceUrls?.atlasUrl,
+              textureUrls: activeSpine.resourceUrls?.textureUrls ?? [],
+              visible: spine.visible,
+              x: spine.position?.x ?? 0,
+              y: spine.position?.y ?? 0,
+              pivotX: spine.pivot?.x ?? 0,
+              pivotY: spine.pivot?.y ?? 0,
+              scaleX: spine.scale?.x ?? 0,
+              scaleY: spine.scale?.y ?? 0,
+              fit: activeSpine.fit,
+              defaultAnimation: activeSpine.defaultAnimation,
+            }
+          : null,
+      };
+    }
+
     const shell = {
       ready: true,
       controlsRuntime: 'dom',
@@ -223,7 +295,9 @@
       stageDebugLayer,
       overlayLayer,
       loadLive2DEntry,
+      loadSpineEntry,
       clearLive2DLayer,
+      clearSpineLayer,
       resize: resizeShell,
       setDebugStageVisible(visible) {
         stageDebugVisible = Boolean(visible);
@@ -236,6 +310,7 @@
         }
         resizeObserver.disconnect();
         globalScope.removeEventListener('resize', requestResize);
+        clearSpineLayer();
         clearLive2DLayer();
         app.destroy(true, { children: true });
       },
@@ -248,7 +323,7 @@
         return {
           ready: true,
           controlsRuntime: 'dom',
-          modelLoadingRequested: live2dLoadCount > 0,
+          modelLoadingRequested: live2dLoadCount > 0 || spineLoadCount > 0,
           pixiApplicationCount: 1,
           backgroundColor: BACKGROUND_COLOR,
           design: {
@@ -282,6 +357,7 @@
           backgroundLayerChildren: canvasBackgroundLayer.children.length,
           spineLayerChildren: spineLayer.children.length,
           live2dLayerChildren: live2dLayer.children.length,
+          spine: spineState(),
           live2d: live2dState(),
           backgroundBounds: {
             x: backgroundBounds.x,

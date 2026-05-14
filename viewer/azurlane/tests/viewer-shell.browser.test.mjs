@@ -167,6 +167,8 @@ try {
   assert.equal(initialState.backgroundLayerChildren, 1);
   assert.equal(initialState.spineLayerChildren, 0);
   assert.equal(initialState.live2dLayerChildren, 0);
+  assert.equal(initialState.spine.loadCount, 0);
+  assert.equal(initialState.spine.current, null);
   assert.equal(initialState.live2d.loadCount, 0);
   assert.equal(initialState.live2d.current, null);
   assert.ok(initialState.backgroundBounds.width >= 1280);
@@ -346,6 +348,179 @@ try {
   assertClose(live2dAfterResize.y, live2dBeforeResize.y, 'Live2D logical y after resize');
   assertClose(live2dAfterResize.scaleX, live2dBeforeResize.scaleX, 'Live2D scale x after resize');
   assertClose(live2dAfterResize.scaleY, live2dBeforeResize.scaleY, 'Live2D scale y after resize');
+
+  const spineLoads = await page.evaluate(async () => {
+    const cases = [
+      {
+        id: 'azurlane:spine:aerbien:aerbien_4',
+        baseUrl: 'https://static.l2d.su/live2d/azurlane/aerbien_4-spine',
+        bounds: { x: -500, y: -1000, width: 1000, height: 2000 },
+        backgroundSlots: ['bj_background', 'bj_window'],
+      },
+      {
+        id: 'azurlane:spine:yilisi:yilisi_2_doa',
+        baseUrl: 'https://static.l2d.su/live2d/azurlane/yilisi_2_doa',
+        bounds: { x: -800, y: -300, width: 1600, height: 600 },
+        backgroundSlots: ['bj_sea'],
+      },
+      {
+        id: 'azurlane:spine:zhuzi:zhuzi_2_doa',
+        baseUrl: 'https://static.l2d.su/live2d/azurlane/zhuzi_2_doa',
+        bounds: { x: -350, y: -350, width: 700, height: 700 },
+        backgroundSlots: ['bj_room', 'bj_light'],
+      },
+    ];
+    const loads = [];
+
+    for (const testCase of cases) {
+      const assetCalls = {
+        add: [],
+        load: [],
+      };
+      const animationCalls = [];
+      const assets = {
+        add(descriptor) {
+          assetCalls.add.push({
+            alias: descriptor.alias,
+            src: descriptor.src,
+            data: descriptor.data,
+          });
+        },
+        async load(aliases) {
+          assetCalls.load.push(aliases);
+          return {};
+        },
+      };
+      const runtime = {
+        Spine: {
+          from(options) {
+            const model = new window.PIXI.Container();
+            model.label = testCase.id;
+            model.name = testCase.id;
+            model.azurLaneSpineOptions = options;
+            model.azurLaneAnimationCalls = animationCalls;
+            model.skeleton = {
+              data: {
+                slots: testCase.backgroundSlots.map((name) => ({ name })),
+                animations: [{ name: 'touch' }, { name: 'normal' }],
+              },
+            };
+            model.state = {
+              setAnimation(trackIndex, name, loop) {
+                animationCalls.push({ trackIndex, name, loop });
+              },
+            };
+            model.getLocalBounds = () => ({ ...testCase.bounds });
+            for (const slotName of testCase.backgroundSlots) {
+              const attachment = new window.PIXI.Graphics();
+              attachment.label = slotName;
+              attachment.name = slotName;
+              attachment.rect(-80, -40, 160, 80).fill({ color: 0x406fb2, alpha: 0.6 });
+              model.addChild(attachment);
+            }
+            return model;
+          },
+        },
+      };
+
+      const result = await window.azurLaneViewerShell.loadSpineEntry(
+        {
+          id: testCase.id,
+          type: 'spine',
+          resources: {
+            primary_url: testCase.baseUrl,
+          },
+          layout: {
+            mode: 'auto-fit',
+          },
+        },
+        {
+          runtime,
+          assets,
+        },
+      );
+      const state = window.azurLaneViewerShell.getState();
+      loads.push({
+        id: testCase.id,
+        parentLabel: result.spine.parent.label,
+        runtimeOptions: result.spine.azurLaneSpineOptions,
+        assetCalls,
+        animationCalls,
+        childLabels: result.spine.children.map((child) => child.label || child.name),
+        spineLayerChildren: state.spineLayerChildren,
+        live2dLayerChildren: state.live2dLayerChildren,
+        current: state.spine.current,
+      });
+    }
+
+    return loads;
+  });
+
+  assert.equal(spineLoads.length, 3);
+  assert.deepEqual(
+    spineLoads.map((load) => load.parentLabel),
+    ['spineLayer', 'spineLayer', 'spineLayer'],
+  );
+  assert.deepEqual(
+    spineLoads.map((load) => load.spineLayerChildren),
+    [1, 1, 1],
+  );
+  assert.deepEqual(
+    spineLoads.map((load) => load.live2dLayerChildren),
+    [1, 1, 1],
+  );
+  assert.deepEqual(
+    spineLoads.map((load) => load.current.entryId),
+    [
+      'azurlane:spine:aerbien:aerbien_4',
+      'azurlane:spine:yilisi:yilisi_2_doa',
+      'azurlane:spine:zhuzi:zhuzi_2_doa',
+    ],
+  );
+  assert.deepEqual(spineLoads[0].assetCalls.add.map((call) => call.src), [
+    'https://static.l2d.su/live2d/azurlane/aerbien_4-spine/aerbien_4.skel',
+    'https://static.l2d.su/live2d/azurlane/aerbien_4-spine/aerbien_4.atlas',
+  ]);
+  assert.deepEqual(spineLoads[0].assetCalls.add[1].data.images, {
+    'aerbien_4.webp': 'https://static.l2d.su/live2d/azurlane/aerbien_4-spine/aerbien_4.webp',
+  });
+  assert.deepEqual(spineLoads[1].assetCalls.add.map((call) => call.src), [
+    'https://static.l2d.su/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.skel',
+    'https://static.l2d.su/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.atlas',
+  ]);
+  assert.deepEqual(spineLoads[2].assetCalls.add.map((call) => call.src), [
+    'https://static.l2d.su/live2d/azurlane/zhuzi_2_doa/zhuzi_2_doa.skel',
+    'https://static.l2d.su/live2d/azurlane/zhuzi_2_doa/zhuzi_2_doa.atlas',
+  ]);
+  for (const load of spineLoads) {
+    assert.equal(load.assetCalls.load.length, 1, load.id);
+    assert.equal(load.assetCalls.load[0].length, 2, load.id);
+    assert.equal(load.runtimeOptions.autoUpdate, true, load.id);
+    assert.equal(load.runtimeOptions.skeleton, load.assetCalls.load[0][0], load.id);
+    assert.equal(load.runtimeOptions.atlas, load.assetCalls.load[0][1], load.id);
+    assert.deepEqual(load.animationCalls, [{ trackIndex: 0, name: 'normal', loop: true }], load.id);
+    assert.ok(load.childLabels.some((label) => label.startsWith('bj_')), load.id);
+    assert.equal(load.current.defaultAnimation.name, 'normal', load.id);
+    assert.equal(load.current.defaultAnimation.started, true, load.id);
+    assertClose(load.current.x, 800, `${load.id} logical x`);
+    assertClose(load.current.y, 450, `${load.id} logical y`);
+    assertClose(load.current.scaleX, load.current.scaleY, `${load.id} uniform scale`);
+    assert.equal(load.current.visible, true);
+  }
+  assertClose(spineLoads[0].current.scaleX, 0.45, 'tall Spine fit');
+  assertClose(spineLoads[1].current.scaleX, 1, 'wide Spine fit');
+  assertClose(spineLoads[2].current.scaleX, 900 / 700, 'square Spine fit');
+
+  const spineBeforeResize = await page.evaluate(() => window.azurLaneViewerShell.getState().spine.current);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitForFixedStageShell(page, 390, 844);
+  const spineAfterResize = await page.evaluate(() => window.azurLaneViewerShell.getState().spine.current);
+
+  assert.equal(spineAfterResize.entryId, spineBeforeResize.entryId);
+  assertClose(spineAfterResize.x, spineBeforeResize.x, 'Spine logical x after resize');
+  assertClose(spineAfterResize.y, spineBeforeResize.y, 'Spine logical y after resize');
+  assertClose(spineAfterResize.scaleX, spineBeforeResize.scaleX, 'Spine scale x after resize');
+  assertClose(spineAfterResize.scaleY, spineBeforeResize.scaleY, 'Spine scale y after resize');
 
   assert.deepEqual(modelAssetRequests, []);
   assert.deepEqual(pageErrors, []);
