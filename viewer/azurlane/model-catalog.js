@@ -5,6 +5,7 @@
   const AZUR_LANE_GAME_ID = 1;
   const MODEL_TYPES = Object.freeze(['live2d', 'spine']);
   const READY_STATES = Object.freeze(new Set(['valid', 'fallback-only', 'unchecked', '']));
+  const OVERRIDE_LAYOUT_FIELDS = Object.freeze(['scaleOverride', 'offsetX', 'offsetY']);
 
   function normalizeSearchText(value) {
     return String(value ?? '').normalize('NFKC').toLocaleLowerCase();
@@ -131,15 +132,16 @@
 
   function normalizeCatalogPayload(payload, options = {}) {
     if (Array.isArray(payload?.entries)) {
+      const entries = payload.entries.map(normalizeEntry).sort((left, right) => left.id.localeCompare(right.id));
       return {
         ...payload,
-        entries: payload.entries.map(normalizeEntry).sort((left, right) => left.id.localeCompare(right.id)),
+        entries: applyModelOverrides(entries, options.overrides),
       };
     }
     if (Array.isArray(payload?.catalog?.entries)) {
       return normalizeCatalogPayload(payload.catalog, options);
     }
-    return normalizeL2DSuCatalog(payload, options);
+    return applyOverridesToCatalog(normalizeL2DSuCatalog(payload, options), options.overrides);
   }
 
   function camelOrSnake(item, camelName, snakeName, fallback = '') {
@@ -185,6 +187,107 @@
         checked_at: camelOrSnake(availability, 'checkedAt', 'checked_at'),
         message: availability.message ?? '',
       },
+    };
+  }
+
+  function finiteOverrideNumber(value) {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+  }
+
+  function normalizeModelOverrides(overrides = globalScope.AzurLaneModelOverrides ?? {}) {
+    const source = overrides?.entries && typeof overrides.entries === 'object' ? overrides.entries : overrides;
+    if (!source || typeof source !== 'object') {
+      return {};
+    }
+
+    const normalized = {};
+    for (const [rawId, rawOverride] of Object.entries(source)) {
+      const id = String(rawId ?? '').trim();
+      if (!id || !rawOverride || typeof rawOverride !== 'object') {
+        continue;
+      }
+
+      const override = {};
+      for (const field of OVERRIDE_LAYOUT_FIELDS) {
+        const value = finiteOverrideNumber(rawOverride[field]);
+        if (value !== null) {
+          override[field] = value;
+        }
+      }
+
+      const defaultMotion = String(rawOverride.defaultMotion ?? rawOverride.default_motion ?? '').trim();
+      if (defaultMotion) {
+        override.defaultMotion = defaultMotion;
+      }
+
+      const notes = String(rawOverride.notes ?? '').trim();
+      if (notes) {
+        override.notes = notes;
+      }
+
+      if (Object.keys(override).length > 0) {
+        normalized[id] = override;
+      }
+    }
+
+    return normalized;
+  }
+
+  function applyModelOverride(entry, override) {
+    const normalizedEntry = normalizeEntry(entry);
+    if (!override) {
+      return normalizedEntry;
+    }
+
+    const nextEntry = {
+      ...normalizedEntry,
+      layout: {
+        ...(normalizedEntry.layout ?? {}),
+      },
+      override: {
+        ...(normalizedEntry.override ?? {}),
+        source: 'model-overrides',
+      },
+    };
+
+    let hasLayoutOverride = false;
+    for (const field of OVERRIDE_LAYOUT_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(override, field)) {
+        nextEntry.layout[field] = override[field];
+        hasLayoutOverride = true;
+      }
+    }
+
+    if (hasLayoutOverride && !nextEntry.layout.mode) {
+      nextEntry.layout.mode = 'auto-fit';
+    }
+
+    if (override.defaultMotion) {
+      nextEntry.defaultAnimation = override.defaultMotion;
+      nextEntry.default_animation = override.defaultMotion;
+      nextEntry.override.defaultMotion = override.defaultMotion;
+    }
+
+    if (override.notes) {
+      nextEntry.override.notes = override.notes;
+    }
+
+    return nextEntry;
+  }
+
+  function applyModelOverrides(entries, overrides = globalScope.AzurLaneModelOverrides ?? {}) {
+    const normalizedOverrides = normalizeModelOverrides(overrides);
+    return entries.map((entry) => {
+      const normalizedEntry = normalizeEntry(entry);
+      return applyModelOverride(normalizedEntry, normalizedOverrides[normalizedEntry.id]);
+    });
+  }
+
+  function applyOverridesToCatalog(catalog, overrides = globalScope.AzurLaneModelOverrides ?? {}) {
+    return {
+      ...catalog,
+      entries: applyModelOverrides(catalog?.entries ?? [], overrides),
     };
   }
 
@@ -423,12 +526,12 @@
         render();
       },
       setEntries(entries) {
-        state.entries = entries.map(normalizeEntry);
+        state.entries = applyModelOverrides(entries, options.overrides);
         render();
       },
       async load(url = catalogUrlFromLocation()) {
         setMeta('Loading catalog');
-        const catalog = await fetchCatalog(url, options);
+        const catalog = applyOverridesToCatalog(await fetchCatalog(url, options), options.overrides);
         state.entries = catalog.entries;
         render();
         return catalog;
@@ -500,9 +603,13 @@
   const api = Object.freeze({
     DEFAULT_CATALOG_URL,
     filterCatalogEntries,
+    applyModelOverride,
+    applyModelOverrides,
     debugModeFromLocation,
     normalizeCatalogPayload,
     normalizeL2DSuCatalog,
+    normalizeModelOverrides,
+    applyOverridesToCatalog,
     normalizeSearchText,
     createCatalogController,
     fetchCatalog,

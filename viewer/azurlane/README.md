@@ -16,6 +16,7 @@ The shell is intentionally static for this step:
 - Loaded Spine models are added only to `spineLayer`, use `.skel`, `.atlas`, and texture assets derived from the catalog base path, and auto-fit from runtime bounds.
 - The DOM controls fetch and normalize the l2d.su Azur Lane catalog, then provide a utilitarian model picker with search and Live2D/Spine filters.
 - Loaded models can be dragged and zoomed on the fixed logical stage; per-entry transforms are saved in browser storage and can be cleared with Reset.
+- Exceptional model framing can be corrected in `model-overrides.js` by entry id without editing upstream catalog records.
 - Add `?debugStage=1` to show the logical stage rectangle and center cross.
 - Broken catalog entries are hidden by default; add `?debugCatalog=1` to include them.
 
