@@ -12,7 +12,7 @@ Maintainer: step-orchestrator coordinator
 
 - Plan file: `plan.md`
 - Requested steps: `1-13`
-- Current step: `2. Normalize Catalog`
+- Current step: `3. Validate Resource URLs`
 - Current status: `Done`
 
 ## Harness References
@@ -40,8 +40,8 @@ Maintainer: step-orchestrator coordinator
 ## Relevant Project State
 
 - Key areas: `src/`, `tests/`, `script/`, `README.md`
-- Recent approved commits: `step 1: Fetch Source Snapshots` - source snapshot fetchers and tests; `step 2: Normalize Catalog` - catalog normalization and tests.
-- Pending work: steps `3-13` in `plan.md`.
+- Recent approved commits: `step 1: Fetch Source Snapshots` - source snapshot fetchers and tests; `step 2: Normalize Catalog` - catalog normalization and tests; `step 3: Validate Resource URLs` - resource validation and tests.
+- Pending work: steps `4-13` in `plan.md`.
 - Known risks or blockers: frontend/runtime dependencies are not yet present in the repo.
 
 ## Verification
@@ -56,6 +56,10 @@ Maintainer: step-orchestrator coordinator
   - Step 2 reviewer1: rejected unsafe Nagami fallback matching for l2d.su variants such as `/adaerbote_3_fhx/adaerbote_3.model3.json`.
   - Step 2 worker2: `uv run pytest tests/test_azurlane_l2d_sources.py` passed, `uv run pytest` passed, touched-file Ruff passed.
   - Step 2 reviewer2 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed, `uv run pytest` passed, touched-file Ruff passed.
+  - Step 3 worker1: `uv run pytest tests/test_azurlane_l2d_sources.py` passed, `uv run pytest` passed, touched-file Ruff passed.
+  - Step 3 reviewer1: rejected because `*-spine` catalog paths probed `*-spine.skel`/`.atlas` instead of files without the suffix.
+  - Step 3 worker2: `uv run pytest tests/test_azurlane_l2d_sources.py` passed, `uv run pytest` passed, touched-file Ruff passed.
+  - Step 3 reviewer2 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed, `uv run pytest` passed, touched-file Ruff passed; repo-wide Ruff still has unrelated pre-existing failures.
 
 ## Subagent Notes
 

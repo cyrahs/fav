@@ -6,10 +6,14 @@ import unicodedata
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import blake2b
-from typing import Any, Literal
-from urllib.parse import urlsplit
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 L2D_SU_CATALOG_URL = 'https://l2d.su/json/live2dMaster.json'
 NAGAMI_MAPPING_BUNDLE_URL = 'https://azurlane.nagami.moe/_app/immutable/chunks/l2d_mapping.oLieetCb.js'
@@ -23,9 +27,22 @@ CATALOG_VARIANT_TOKEN_SIZE = 6
 SourceErrorKind = Literal['network', 'parse', 'schema']
 L2DSuModelKind = Literal['live2d', 'spine']
 CatalogSource = Literal['l2d.su', 'nagami', 'merged']
+AvailabilityState = Literal['valid', 'fallback-only', 'broken', 'unchecked']
+ResourceValidationStatus = Literal['ok', 'missing', 'network', 'parse', 'schema', 'unchecked']
+ResourceValidationSource = Literal['primary', 'fallback']
+ResourceAssetKind = Literal[
+    'live2d.model3',
+    'live2d.moc3',
+    'live2d.texture',
+    'live2d.display-info',
+    'spine.skel',
+    'spine.atlas',
+    'spine.texture',
+]
 
 _MODEL_TYPES: tuple[L2DSuModelKind, ...] = ('live2d', 'spine')
 _CATALOG_SOURCES: tuple[CatalogSource, ...] = ('l2d.su', 'nagami', 'merged')
+_AVAILABILITY_STATES: tuple[AvailabilityState, ...] = ('valid', 'fallback-only', 'broken', 'unchecked')
 _NAGAMI_COSTUME_SUFFIX_RE = re.compile(r'_\d+$')
 
 
@@ -193,6 +210,10 @@ class ModelResources:
 
 @dataclass(frozen=True, slots=True)
 class ModelCapabilities:
+    moc3: str = ''
+    textures: tuple[str, ...] = ()
+    physics: str = ''
+    display_info: str = ''
     motions: tuple[str, ...] = ()
     expressions: tuple[str, ...] = ()
     has_audio: bool = False
@@ -210,6 +231,14 @@ class ModelLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelAvailability:
+    state: AvailabilityState = 'unchecked'
+    validated_url: str = ''
+    checked_at: str = ''
+    message: str = ''
+
+
+@dataclass(frozen=True, slots=True)
 class ModelEntry:
     id: str
     type: L2DSuModelKind
@@ -219,9 +248,34 @@ class ModelEntry:
     resources: ModelResources
     capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
     layout: ModelLayout = field(default_factory=ModelLayout)
+    availability: ModelAvailability = field(default_factory=ModelAvailability)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceCheck:
+    kind: ResourceAssetKind
+    url: str
+    ok: bool
+    status: ResourceValidationStatus
+    http_status: int | None = None
+    message: str = ''
+    source: ResourceValidationSource | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceValidationEntry:
+    entry_id: str
+    entry_type: L2DSuModelKind
+    availability: ModelAvailability
+    resources: ModelResources
+    capabilities: ModelCapabilities
+    checks: tuple[ResourceCheck, ...] = ()
+
+    def is_renderer_ready(self) -> bool:
+        return self.availability.state in {'valid', 'fallback-only'}
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +321,68 @@ class AzurLaneModelCatalog:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class AzurLaneResourceValidationReport:
+    checked_at: str
+    catalog: AzurLaneModelCatalog
+    entries: tuple[ResourceValidationEntry, ...]
+
+    def summary(self) -> dict[str, Any]:
+        by_state = dict.fromkeys(_AVAILABILITY_STATES, 0)
+        by_type_state = {model_type: dict.fromkeys(_AVAILABILITY_STATES, 0) for model_type in _MODEL_TYPES}
+
+        for entry in self.entries:
+            by_state[entry.availability.state] += 1
+            by_type_state[entry.entry_type][entry.availability.state] += 1
+
+        return {
+            'entry_count': len(self.entries),
+            'by_state': by_state,
+            'by_type_state': by_type_state,
+        }
+
+    def broken_entries(self) -> tuple[ResourceValidationEntry, ...]:
+        return tuple(entry for entry in self.entries if entry.availability.state == 'broken')
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class Live2DResourceManifest:
+    moc3_url: str
+    texture_urls: tuple[str, ...]
+    physics_url: str = ''
+    display_info_url: str = ''
+    motion_names: tuple[str, ...] = ()
+    expression_names: tuple[str, ...] = ()
+    has_audio: bool = False
+    has_text: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SpineResourceManifest:
+    skel_url: str
+    atlas_url: str
+    texture_urls: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceCandidateValidation:
+    ok: bool
+    url: str
+    capabilities: ModelCapabilities
+    display_info_url: str
+    checks: tuple[ResourceCheck, ...]
+    message: str = ''
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceRequestContext:
+    timeout: float
+    client: httpx.Client
 
 
 def parse_l2d_su_catalog(source: str, *, game_id: int = AZUR_LANE_GAME_ID) -> L2DSuCatalogData:
@@ -418,6 +534,502 @@ def build_azurlane_model_catalog(snapshots: AzurLaneSourceSnapshots) -> AzurLane
 
 def build_nagami_fallback_candidates(snapshot: NagamiSourceSnapshot) -> tuple[NagamiFallbackCandidate, ...]:
     return tuple(_nagami_fallback_candidate(entry) for entry in sorted(snapshot.entries, key=lambda item: _catalog_key(item.key)))
+
+
+def validate_azurlane_model_catalog_resources(
+    catalog: AzurLaneModelCatalog,
+    *,
+    timeout: float = 30.0,
+    client: httpx.Client | None = None,
+    entry_ids: Iterable[str] | None = None,
+) -> AzurLaneResourceValidationReport:
+    checked_at = _utc_now_iso()
+    selected_ids = set(entry_ids) if entry_ids is not None else None
+
+    if client is not None:
+        return _validate_catalog_resources(catalog, checked_at=checked_at, timeout=timeout, client=client, selected_ids=selected_ids)
+
+    with httpx.Client(follow_redirects=True, timeout=timeout, headers=_request_headers()) as owned_client:
+        return _validate_catalog_resources(catalog, checked_at=checked_at, timeout=timeout, client=owned_client, selected_ids=selected_ids)
+
+
+def _validate_catalog_resources(
+    catalog: AzurLaneModelCatalog,
+    *,
+    checked_at: str,
+    timeout: float,
+    client: httpx.Client,
+    selected_ids: set[str] | None,
+) -> AzurLaneResourceValidationReport:
+    updated_entries: list[ModelEntry] = []
+    validation_entries: list[ResourceValidationEntry] = []
+
+    for entry in catalog.entries:
+        if selected_ids is not None and entry.id not in selected_ids:
+            unchecked_entry = _unchecked_catalog_entry(entry, checked_at=checked_at)
+            updated_entries.append(unchecked_entry)
+            validation_entries.append(_resource_validation_entry(unchecked_entry, checks=()))
+            continue
+
+        validated_entry, validation_entry = _validate_catalog_entry_resources(entry, checked_at=checked_at, timeout=timeout, client=client)
+        updated_entries.append(validated_entry)
+        validation_entries.append(validation_entry)
+
+    validated_catalog = replace(catalog, entries=tuple(updated_entries))
+    return AzurLaneResourceValidationReport(checked_at=checked_at, catalog=validated_catalog, entries=tuple(validation_entries))
+
+
+def _validate_catalog_entry_resources(
+    entry: ModelEntry,
+    *,
+    checked_at: str,
+    timeout: float,
+    client: httpx.Client,
+) -> tuple[ModelEntry, ResourceValidationEntry]:
+    primary_validation = _validate_resource_candidate(
+        entry,
+        url=entry.resources.primary_url,
+        source='primary',
+        timeout=timeout,
+        client=client,
+    )
+    validations = [primary_validation]
+    if primary_validation.ok:
+        return _validated_entry_result(
+            entry,
+            validation=primary_validation,
+            all_checks=primary_validation.checks,
+            state='valid',
+            checked_at=checked_at,
+        )
+
+    fallback_url = entry.resources.fallback_url
+    if fallback_url:
+        fallback_validation = _validate_resource_candidate(entry, url=fallback_url, source='fallback', timeout=timeout, client=client)
+        validations.append(fallback_validation)
+        if fallback_validation.ok:
+            return _validated_entry_result(
+                entry,
+                validation=fallback_validation,
+                all_checks=(*primary_validation.checks, *fallback_validation.checks),
+                state='fallback-only',
+                checked_at=checked_at,
+            )
+
+    checks = tuple(check for validation in validations for check in validation.checks)
+    message = '; '.join(validation.message for validation in validations if validation.message)
+    broken_entry = replace(
+        entry,
+        availability=ModelAvailability(state='broken', checked_at=checked_at, message=message or 'No valid resource URL found'),
+    )
+    return broken_entry, _resource_validation_entry(broken_entry, checks=checks)
+
+
+def _validate_resource_candidate(
+    entry: ModelEntry,
+    *,
+    url: str,
+    source: ResourceValidationSource,
+    timeout: float,
+    client: httpx.Client,
+) -> ResourceCandidateValidation:
+    if entry.type == 'live2d':
+        return _validate_live2d_resource_candidate(url=url, source=source, timeout=timeout, client=client)
+    return _validate_spine_resource_candidate(url=url, source=source, timeout=timeout, client=client)
+
+
+def _validated_entry_result(
+    entry: ModelEntry,
+    *,
+    validation: ResourceCandidateValidation,
+    all_checks: tuple[ResourceCheck, ...],
+    state: AvailabilityState,
+    checked_at: str,
+) -> tuple[ModelEntry, ResourceValidationEntry]:
+    resources = replace(entry.resources, display_info_url=validation.display_info_url)
+    availability = ModelAvailability(state=state, validated_url=validation.url, checked_at=checked_at)
+    updated_entry = replace(entry, resources=resources, capabilities=validation.capabilities, availability=availability)
+    return updated_entry, _resource_validation_entry(updated_entry, checks=all_checks)
+
+
+def _unchecked_catalog_entry(entry: ModelEntry, *, checked_at: str) -> ModelEntry:
+    return replace(
+        entry,
+        availability=ModelAvailability(state='unchecked', checked_at=checked_at, message='Entry was not selected for validation'),
+    )
+
+
+def _resource_validation_entry(entry: ModelEntry, *, checks: tuple[ResourceCheck, ...]) -> ResourceValidationEntry:
+    return ResourceValidationEntry(
+        entry_id=entry.id,
+        entry_type=entry.type,
+        availability=entry.availability,
+        resources=entry.resources,
+        capabilities=entry.capabilities,
+        checks=checks,
+    )
+
+
+def _validate_live2d_resource_candidate(
+    *,
+    url: str,
+    source: ResourceValidationSource,
+    timeout: float,
+    client: httpx.Client,
+) -> ResourceCandidateValidation:
+    context = ResourceRequestContext(timeout=timeout, client=client)
+    response, model3_check = _request_resource(method='GET', url=url, kind='live2d.model3', source=source, context=context)
+    if not model3_check.ok or response is None:
+        return _failed_candidate(url=url, check=model3_check)
+
+    try:
+        manifest = _parse_live2d_model3(response.text, model3_url=url)
+    except SourceParseError as exc:
+        failed_check = replace(model3_check, ok=False, status='parse', message=str(exc))
+        return _failed_candidate(url=url, check=failed_check)
+    except SourceSchemaError as exc:
+        failed_check = replace(model3_check, ok=False, status='schema', message=str(exc))
+        return _failed_candidate(url=url, check=failed_check)
+
+    checks = [model3_check]
+    checks.append(_probe_resource(url=manifest.moc3_url, kind='live2d.moc3', source=source, context=context))
+    checks.extend(
+        _probe_resource(url=texture_url, kind='live2d.texture', source=source, context=context) for texture_url in manifest.texture_urls
+    )
+
+    display_info_url = _validated_display_info_url(
+        manifest=manifest,
+        model3_url=url,
+        source=source,
+        context=context,
+        checks=checks,
+    )
+    required_checks_ok = all(check.ok for check in checks if check.kind in {'live2d.model3', 'live2d.moc3', 'live2d.texture'})
+    capabilities = ModelCapabilities(
+        moc3=manifest.moc3_url,
+        textures=manifest.texture_urls,
+        physics=manifest.physics_url,
+        display_info=display_info_url or manifest.display_info_url,
+        motions=manifest.motion_names,
+        expressions=manifest.expression_names,
+        has_audio=manifest.has_audio,
+        has_text=manifest.has_text,
+        has_display_info=bool(display_info_url),
+    )
+    if required_checks_ok:
+        return ResourceCandidateValidation(
+            ok=True,
+            url=url,
+            capabilities=capabilities,
+            display_info_url=display_info_url,
+            checks=tuple(checks),
+        )
+
+    message = _resource_failure_message(checks)
+    return ResourceCandidateValidation(
+        ok=False,
+        url=url,
+        capabilities=capabilities,
+        display_info_url=display_info_url,
+        checks=tuple(checks),
+        message=message,
+    )
+
+
+def _validate_spine_resource_candidate(
+    *,
+    url: str,
+    source: ResourceValidationSource,
+    timeout: float,
+    client: httpx.Client,
+) -> ResourceCandidateValidation:
+    context = ResourceRequestContext(timeout=timeout, client=client)
+    manifest = _spine_resource_manifest(url)
+    checks = [
+        _probe_resource(url=manifest.skel_url, kind='spine.skel', source=source, context=context),
+    ]
+
+    response, atlas_check = _request_resource(
+        method='GET',
+        url=manifest.atlas_url,
+        kind='spine.atlas',
+        source=source,
+        context=context,
+    )
+    checks.append(atlas_check)
+
+    texture_urls = manifest.texture_urls
+    if atlas_check.ok and response is not None:
+        try:
+            texture_urls = _parse_spine_atlas_texture_urls(response.text, atlas_url=manifest.atlas_url)
+        except SourceParseError as exc:
+            checks[-1] = replace(atlas_check, ok=False, status='parse', message=str(exc))
+            texture_urls = ()
+        except SourceSchemaError as exc:
+            checks[-1] = replace(atlas_check, ok=False, status='schema', message=str(exc))
+            texture_urls = ()
+
+    checks.extend(_probe_resource(url=texture_url, kind='spine.texture', source=source, context=context) for texture_url in texture_urls)
+    capabilities = ModelCapabilities(textures=texture_urls)
+    if all(check.ok for check in checks):
+        return ResourceCandidateValidation(ok=True, url=url, capabilities=capabilities, display_info_url='', checks=tuple(checks))
+
+    return ResourceCandidateValidation(
+        ok=False,
+        url=url,
+        capabilities=capabilities,
+        display_info_url='',
+        checks=tuple(checks),
+        message=_resource_failure_message(checks),
+    )
+
+
+def _failed_candidate(*, url: str, check: ResourceCheck) -> ResourceCandidateValidation:
+    return ResourceCandidateValidation(
+        ok=False,
+        url=url,
+        capabilities=ModelCapabilities(),
+        display_info_url='',
+        checks=(check,),
+        message=check.message,
+    )
+
+
+def _validated_display_info_url(
+    *,
+    manifest: Live2DResourceManifest,
+    model3_url: str,
+    source: ResourceValidationSource,
+    context: ResourceRequestContext,
+    checks: list[ResourceCheck],
+) -> str:
+    display_info_url = manifest.display_info_url or _same_name_display_info_url(model3_url)
+    if not display_info_url:
+        return ''
+
+    check = _probe_resource(url=display_info_url, kind='live2d.display-info', source=source, context=context)
+    checks.append(check)
+    return display_info_url if check.ok else ''
+
+
+def _request_resource(
+    *,
+    method: str,
+    url: str,
+    kind: ResourceAssetKind,
+    source: ResourceValidationSource,
+    context: ResourceRequestContext,
+) -> tuple[httpx.Response | None, ResourceCheck]:
+    try:
+        response = context.client.request(method, url, timeout=context.timeout)
+    except httpx.HTTPError as exc:
+        message = f'Failed to fetch {url}: {exc}'
+        return None, ResourceCheck(kind=kind, url=url, ok=False, status='network', message=message, source=source)
+
+    if response.status_code >= HTTP_ERROR_MIN:
+        message = f'HTTP {response.status_code} while fetching {url}'
+        return response, ResourceCheck(
+            kind=kind,
+            url=url,
+            ok=False,
+            status='missing',
+            http_status=response.status_code,
+            message=message,
+            source=source,
+        )
+
+    return response, ResourceCheck(kind=kind, url=str(response.url), ok=True, status='ok', http_status=response.status_code, source=source)
+
+
+def _probe_resource(
+    *,
+    url: str,
+    kind: ResourceAssetKind,
+    source: ResourceValidationSource,
+    context: ResourceRequestContext,
+) -> ResourceCheck:
+    response, check = _request_resource(method='HEAD', url=url, kind=kind, source=source, context=context)
+    if check.ok or response is None or response.status_code not in {405, 501}:
+        return check
+
+    _response, fallback_check = _request_resource(method='GET', url=url, kind=kind, source=source, context=context)
+    return fallback_check
+
+
+def _parse_live2d_model3(source: str, *, model3_url: str) -> Live2DResourceManifest:
+    try:
+        payload = json.loads(source)
+    except json.JSONDecodeError as exc:
+        msg = f'Live2D model3 JSON is invalid: {exc.msg}'
+        raise SourceParseError(msg) from exc
+
+    if not isinstance(payload, dict):
+        msg = 'Live2D model3 root must be an object'
+        raise SourceSchemaError(msg)
+    file_references = payload.get('FileReferences')
+    if not isinstance(file_references, dict):
+        msg = 'Live2D model3 FileReferences must be an object'
+        raise SourceSchemaError(msg)
+
+    moc3_url = _required_resource_reference(file_references, 'Moc', base_url=model3_url, context='Live2D model3 FileReferences')
+    texture_urls = _required_resource_reference_list(
+        file_references,
+        'Textures',
+        base_url=model3_url,
+        context='Live2D model3 FileReferences',
+    )
+    physics_url = _optional_resource_reference(file_references, 'Physics', base_url=model3_url)
+    display_info_url = _optional_resource_reference(file_references, 'DisplayInfo', base_url=model3_url)
+    motion_names, has_audio, has_text = _parse_live2d_motion_metadata(file_references.get('Motions'))
+
+    return Live2DResourceManifest(
+        moc3_url=moc3_url,
+        texture_urls=texture_urls,
+        physics_url=physics_url,
+        display_info_url=display_info_url,
+        motion_names=motion_names,
+        expression_names=_parse_live2d_expression_names(file_references.get('Expressions')),
+        has_audio=has_audio,
+        has_text=has_text,
+    )
+
+
+def _required_resource_reference(item: dict[str, Any], field_name: str, *, base_url: str, context: str) -> str:
+    url = _optional_resource_reference(item, field_name, base_url=base_url)
+    if url:
+        return url
+    msg = f'{context}.{field_name} must be a non-empty string'
+    raise SourceSchemaError(msg)
+
+
+def _required_resource_reference_list(item: dict[str, Any], field_name: str, *, base_url: str, context: str) -> tuple[str, ...]:
+    values = item.get(field_name)
+    if not isinstance(values, list):
+        msg = f'{context}.{field_name} must be a list'
+        raise SourceSchemaError(msg)
+
+    urls = tuple(_resolve_resource_url(base_url, value) for value in values if isinstance(value, str) and value.strip())
+    if urls:
+        return urls
+    msg = f'{context}.{field_name} must contain at least one non-empty string'
+    raise SourceSchemaError(msg)
+
+
+def _optional_resource_reference(item: dict[str, Any], field_name: str, *, base_url: str) -> str:
+    value = item.get(field_name)
+    if not isinstance(value, str) or not value.strip():
+        return ''
+    return _resolve_resource_url(base_url, value)
+
+
+def _parse_live2d_motion_metadata(value: Any) -> tuple[tuple[str, ...], bool, bool]:
+    if not isinstance(value, dict):
+        return (), False, False
+
+    names: list[str] = []
+    has_audio = False
+    has_text = False
+    for group_name, motions in value.items():
+        normalized_group = group_name.strip() if isinstance(group_name, str) else ''
+        if normalized_group:
+            names.append(normalized_group)
+        if not isinstance(motions, list):
+            continue
+        for motion in motions:
+            if not isinstance(motion, dict):
+                continue
+            if not normalized_group:
+                names.append(_resource_basename(motion.get('File')))
+            has_audio = has_audio or _has_non_empty_str(motion.get('Sound'))
+            has_text = has_text or _has_non_empty_str(motion.get('Text'))
+
+    return _unique_non_empty(names), has_audio, has_text
+
+
+def _parse_live2d_expression_names(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+
+    names: list[str] = []
+    for expression in value:
+        if not isinstance(expression, dict):
+            continue
+        name = expression.get('Name')
+        names.append(name.strip() if isinstance(name, str) else _resource_basename(expression.get('File')))
+    return _unique_non_empty(names)
+
+
+def _spine_resource_manifest(url: str) -> SpineResourceManifest:
+    base_url = url.rstrip('/')
+    path_name = PurePosixPath(urlsplit(base_url).path).name
+    if base_url.endswith('.skel'):
+        stem_url = base_url.removesuffix('.skel')
+    elif base_url.endswith('.atlas'):
+        stem_url = base_url.removesuffix('.atlas')
+    else:
+        file_stem = path_name.removesuffix('-spine') if path_name.endswith('-spine') else path_name
+        stem_url = f'{base_url}/{file_stem}'
+    return SpineResourceManifest(skel_url=f'{stem_url}.skel', atlas_url=f'{stem_url}.atlas', texture_urls=())
+
+
+def _parse_spine_atlas_texture_urls(source: str, *, atlas_url: str) -> tuple[str, ...]:
+    texture_paths = _parse_spine_atlas_texture_paths(source)
+    return tuple(_resolve_resource_url(atlas_url, texture_path) for texture_path in texture_paths)
+
+
+def _parse_spine_atlas_texture_paths(source: str) -> tuple[str, ...]:
+    if not source.strip():
+        msg = 'Spine atlas is empty'
+        raise SourceParseError(msg)
+
+    texture_paths: list[str] = []
+    next_non_empty_line_is_page = True
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not line:
+            next_non_empty_line_is_page = True
+            continue
+        if raw_line[:1].isspace() or ':' in line:
+            continue
+        if next_non_empty_line_is_page:
+            texture_paths.append(line)
+            next_non_empty_line_is_page = False
+
+    texture_paths = list(_unique_non_empty(texture_paths))
+    if texture_paths:
+        return tuple(texture_paths)
+
+    msg = 'Spine atlas does not contain a texture page'
+    raise SourceSchemaError(msg)
+
+
+def _resolve_resource_url(base_url: str, value: str) -> str:
+    return urljoin(base_url, value.strip())
+
+
+def _same_name_display_info_url(model3_url: str) -> str:
+    if not model3_url.endswith('.model3.json'):
+        return ''
+    return f'{model3_url.removesuffix(".model3.json")}.cdi3.json'
+
+
+def _resource_basename(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ''
+    return PurePosixPath(urlsplit(value).path or value).name
+
+
+def _has_non_empty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _unique_non_empty(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(value for value in values if value))
+
+
+def _resource_failure_message(checks: Iterable[ResourceCheck]) -> str:
+    failures = [f'{check.kind} {check.status}: {check.url}' for check in checks if not check.ok]
+    return '; '.join(failures)
 
 
 def _l2d_su_entry(

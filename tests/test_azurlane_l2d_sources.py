@@ -24,6 +24,7 @@ from src.tool.azurlane_l2d_sources import (
     fetch_source_snapshots,
     parse_l2d_su_catalog,
     parse_nagami_mapping_bundle,
+    validate_azurlane_model_catalog_resources,
 )
 
 
@@ -99,6 +100,41 @@ def _catalog_payload(characters: list[dict[str, object]]) -> str:
         },
         ensure_ascii=False,
     )
+
+
+def _live2d_model3_payload(*, display_info: str | None = None) -> str:
+    file_references: dict[str, object] = {
+        'Moc': 'test_model.moc3',
+        'Textures': [
+            'textures/texture_00.webp',
+            'textures/texture_01.webp',
+        ],
+        'Physics': 'test_model.physics3.json',
+        'Expressions': [
+            {
+                'Name': 'smile',
+                'File': 'expressions/smile.exp3.json',
+            },
+        ],
+        'Motions': {
+            'Idle': [
+                {
+                    'File': 'motions/idle.motion3.json',
+                    'Sound': 'voice/idle.wav',
+                },
+            ],
+            'TapBody': [
+                {
+                    'File': 'motions/tap_body.motion3.json',
+                    'Text': 'tap-body',
+                },
+            ],
+        },
+    }
+    if display_info is not None:
+        file_references['DisplayInfo'] = display_info
+
+    return json.dumps({'Version': 3, 'FileReferences': file_references})
 
 
 def _source_snapshots(l2d_su_payload: str, nagami_mapping: dict[str, str]) -> AzurLaneSourceSnapshots:
@@ -459,6 +495,301 @@ def test_catalog_merges_duplicate_assets_and_keeps_different_assets_as_variants(
     assert {entry.resources.primary_url for entry in catalog.entries} == {
         'https://static.l2d.su/live2d/azurlane/biaoqiang/biaoqiang.model3.json',
         'https://mirror.example/live2d/azurlane/biaoqiang/biaoqiang.model3.json',
+    }
+
+
+def test_validate_catalog_resources_marks_live2d_valid_and_populates_capabilities() -> None:
+    primary_url = 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'guanghui',
+                    'charName': '光辉',
+                    'charNameEn': 'Illustrious',
+                    'live2d': [
+                        {
+                            'costumeId': 7,
+                            'costumeName': '私人茶会',
+                            'costumeNameEn': 'Our Private Study Session',
+                            'path': primary_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {},
+    )
+    expected_head_urls = {
+        'https://static.example/live2d/azurlane/guanghui_7/test_model.moc3',
+        'https://static.example/live2d/azurlane/guanghui_7/textures/texture_00.webp',
+        'https://static.example/live2d/azurlane/guanghui_7/textures/texture_01.webp',
+        'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.cdi3.json',
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if request.method == 'GET' and url == primary_url:
+            return httpx.Response(200, text=_live2d_model3_payload())
+        if request.method == 'HEAD' and url in expected_head_urls:
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        report = validate_azurlane_model_catalog_resources(catalog, client=client)
+
+    validation = report.entries[0]
+    entry = report.catalog.entries[0]
+    assert validation.is_renderer_ready()
+    assert entry.availability.state == 'valid'
+    assert entry.availability.validated_url == primary_url
+    assert entry.capabilities.moc3 == 'https://static.example/live2d/azurlane/guanghui_7/test_model.moc3'
+    assert entry.capabilities.textures == (
+        'https://static.example/live2d/azurlane/guanghui_7/textures/texture_00.webp',
+        'https://static.example/live2d/azurlane/guanghui_7/textures/texture_01.webp',
+    )
+    assert entry.capabilities.physics == 'https://static.example/live2d/azurlane/guanghui_7/test_model.physics3.json'
+    assert entry.capabilities.motions == ('Idle', 'TapBody')
+    assert entry.capabilities.expressions == ('smile',)
+    assert entry.capabilities.has_audio is True
+    assert entry.capabilities.has_text is True
+    assert entry.capabilities.has_display_info is True
+    assert entry.resources.display_info_url == 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.cdi3.json'
+    assert {check.kind for check in validation.checks} == {
+        'live2d.model3',
+        'live2d.moc3',
+        'live2d.texture',
+        'live2d.display-info',
+    }
+
+
+def test_validate_catalog_resources_marks_live2d_fallback_only_when_primary_is_broken() -> None:
+    primary_url = 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
+    fallback_url = 'https://cdn.nagami.moe/live2d/guanghui_7/guanghui_7.model3.json'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'guanghui',
+                    'charName': '光辉',
+                    'charNameEn': 'Illustrious',
+                    'live2d': [
+                        {
+                            'costumeId': 7,
+                            'costumeName': '私人茶会',
+                            'costumeNameEn': 'Our Private Study Session',
+                            'path': primary_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {'guanghui_7': 'Illustrious - Our Private Study Session'},
+    )
+    fallback_head_urls = {
+        'https://cdn.nagami.moe/live2d/guanghui_7/test_model.moc3',
+        'https://cdn.nagami.moe/live2d/guanghui_7/textures/texture_00.webp',
+        'https://cdn.nagami.moe/live2d/guanghui_7/textures/texture_01.webp',
+        'https://cdn.nagami.moe/live2d/guanghui_7/display.cdi3.json',
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if request.method == 'GET' and url == primary_url:
+            return httpx.Response(404)
+        if request.method == 'GET' and url == fallback_url:
+            return httpx.Response(200, text=_live2d_model3_payload(display_info='display.cdi3.json'))
+        if request.method == 'HEAD' and url in fallback_head_urls:
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        report = validate_azurlane_model_catalog_resources(catalog, client=client)
+
+    entry = report.catalog.entries[0]
+    assert entry.availability.state == 'fallback-only'
+    assert entry.availability.validated_url == fallback_url
+    assert entry.capabilities.moc3 == 'https://cdn.nagami.moe/live2d/guanghui_7/test_model.moc3'
+    assert entry.resources.display_info_url == 'https://cdn.nagami.moe/live2d/guanghui_7/display.cdi3.json'
+    assert [check.source for check in report.entries[0].checks if check.kind == 'live2d.model3'] == ['primary', 'fallback']
+
+
+def test_validate_catalog_resources_marks_spine_valid_and_checks_atlas_texture() -> None:
+    spine_base_url = 'https://static.example/live2d/azurlane/yilisi_2_doa'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 2,
+                    'charKey': 'yilisi',
+                    'charName': '伊莉丝',
+                    'charNameEn': 'Iris',
+                    'live2d': [],
+                    'spine': [
+                        {
+                            'costumeId': 2,
+                            'costumeName': '某位女神的午后',
+                            'costumeNameEn': 'Afternoon of a Goddess',
+                            'path': spine_base_url,
+                        },
+                    ],
+                },
+            ],
+        ),
+        {},
+    )
+    skel_url = 'https://static.example/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.skel'
+    atlas_url = 'https://static.example/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.atlas'
+    texture_url = 'https://static.example/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.webp'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if request.method == 'HEAD' and url == skel_url:
+            return httpx.Response(200)
+        if request.method == 'GET' and url == atlas_url:
+            return httpx.Response(200, text='\nyilisi_2_doa.webp\nsize: 4096,4096\nformat: RGBA8888\n')
+        if request.method == 'HEAD' and url == texture_url:
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        report = validate_azurlane_model_catalog_resources(catalog, client=client)
+
+    entry = report.catalog.entries[0]
+    assert entry.availability.state == 'valid'
+    assert entry.availability.validated_url == spine_base_url
+    assert entry.capabilities.textures == (texture_url,)
+    assert {check.kind for check in report.entries[0].checks} == {'spine.skel', 'spine.atlas', 'spine.texture'}
+
+
+def test_validate_catalog_resources_checks_l2d_su_spine_suffix_assets_without_suffix() -> None:
+    spine_base_url = 'https://static.example/live2d/azurlane/aerbien_4-spine'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 3,
+                    'charKey': 'aerbien',
+                    'charName': 'Albion',
+                    'charNameEn': 'Albion',
+                    'live2d': [],
+                    'spine': [
+                        {
+                            'costumeId': 4,
+                            'costumeName': 'Silvermoon Faerie Princess',
+                            'costumeNameEn': 'Silvermoon Faerie Princess',
+                            'path': spine_base_url,
+                        },
+                    ],
+                },
+            ],
+        ),
+        {},
+    )
+    skel_url = 'https://static.example/live2d/azurlane/aerbien_4-spine/aerbien_4.skel'
+    atlas_url = 'https://static.example/live2d/azurlane/aerbien_4-spine/aerbien_4.atlas'
+    texture_url = 'https://static.example/live2d/azurlane/aerbien_4-spine/aerbien_4.webp'
+    seen_requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        seen_requests.append((request.method, url))
+        if request.method == 'HEAD' and url == skel_url:
+            return httpx.Response(200)
+        if request.method == 'GET' and url == atlas_url:
+            return httpx.Response(200, text='\naerbien_4.webp\nsize: 4096,4096\nformat: RGBA8888\n')
+        if request.method == 'HEAD' and url == texture_url:
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        report = validate_azurlane_model_catalog_resources(catalog, client=client)
+
+    entry = report.catalog.entries[0]
+    assert entry.availability.state == 'valid'
+    assert entry.availability.validated_url == spine_base_url
+    assert entry.capabilities.textures == (texture_url,)
+    assert [(check.kind, check.url) for check in report.entries[0].checks] == [
+        ('spine.skel', skel_url),
+        ('spine.atlas', atlas_url),
+        ('spine.texture', texture_url),
+    ]
+    assert seen_requests == [
+        ('HEAD', skel_url),
+        ('GET', atlas_url),
+        ('HEAD', texture_url),
+    ]
+
+
+def test_validate_catalog_resources_records_broken_urls_and_leaves_unselected_entries_unchecked() -> None:
+    broken_url = 'https://static.example/live2d/azurlane/missing/missing.model3.json'
+    unchecked_url = 'https://static.example/live2d/azurlane/unchecked/unchecked.model3.json'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'missing',
+                    'charName': '失踪',
+                    'charNameEn': 'Missing',
+                    'live2d': [
+                        {
+                            'costumeId': 1,
+                            'costumeName': 'Missing',
+                            'costumeNameEn': 'Missing',
+                            'path': broken_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+                {
+                    'charId': 2,
+                    'charKey': 'unchecked',
+                    'charName': '未检查',
+                    'charNameEn': 'Unchecked',
+                    'live2d': [
+                        {
+                            'costumeId': 2,
+                            'costumeName': 'Unchecked',
+                            'costumeNameEn': 'Unchecked',
+                            'path': unchecked_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {},
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == broken_url
+        return httpx.Response(404)
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    selected_id = 'azurlane:live2d:missing:missing'
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        report = validate_azurlane_model_catalog_resources(catalog, client=client, entry_ids={selected_id})
+
+    entries = {entry.entry_id: entry for entry in report.entries}
+    assert entries[selected_id].availability.state == 'broken'
+    assert entries[selected_id].checks[0].url == broken_url
+    assert entries[selected_id].checks[0].http_status == 404
+    assert entries['azurlane:live2d:unchecked:unchecked'].availability.state == 'unchecked'
+    assert entries['azurlane:live2d:unchecked:unchecked'].checks == ()
+    assert report.summary()['by_state'] == {
+        'valid': 0,
+        'fallback-only': 0,
+        'broken': 1,
+        'unchecked': 1,
     }
 
 
