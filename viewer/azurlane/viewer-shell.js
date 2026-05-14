@@ -42,6 +42,13 @@
     }
   }
 
+  function setShareButtonEnabled(controlsRoot, enabled) {
+    const button = controlsRoot?.querySelector?.('#share-link');
+    if (button) {
+      button.disabled = !enabled;
+    }
+  }
+
   function setPoint(point, x, y) {
     if (typeof point?.set === 'function') {
       point.set(x, y);
@@ -225,6 +232,10 @@
       setResetButtonEnabled(controlsRoot, Boolean(getActiveResult()?.userTransformed));
     }
 
+    function updateShareButton() {
+      setShareButtonEnabled(controlsRoot, Boolean(getActiveResult()));
+    }
+
     function cancelInteractions() {
       for (const pointerId of activePointers.keys()) {
         app.canvas.releasePointerCapture?.(pointerId);
@@ -314,6 +325,7 @@
       active.userTransformed = true;
       active.savedTransform = writeSavedTransform(active.entry, transform);
       setResetButtonEnabled(controlsRoot, true);
+      updateShareButton();
       app.render();
       return active.savedTransform;
     }
@@ -333,7 +345,24 @@
       result.savedTransform = applyDisplayTransform(displayObject, savedTransform);
       result.userTransformed = true;
       updateResetButton();
+      updateShareButton();
       return true;
+    }
+
+    function applyActiveTransform(transform, options = {}) {
+      const active = getActiveResult();
+      const displayObject = getActiveDisplayObject(active);
+      const normalized = applyDisplayTransform(displayObject, transform);
+      if (!active || !normalized) {
+        return null;
+      }
+
+      active.userTransformed = true;
+      active.savedTransform = options.persist ? writeSavedTransform(active.entry, normalized) : normalized;
+      updateResetButton();
+      updateShareButton();
+      app.render();
+      return active.savedTransform;
     }
 
     function resetActiveTransform() {
@@ -353,6 +382,7 @@
         rotation: 0,
       });
       updateResetButton();
+      updateShareButton();
       app.render();
       return readDisplayTransform(displayObject);
     }
@@ -531,6 +561,7 @@
 
     controlsRoot?.querySelector?.('#reset-transform')?.addEventListener('click', resetActiveTransform);
     setResetButtonEnabled(controlsRoot, false);
+    setShareButtonEnabled(controlsRoot, false);
 
     async function unloadSpineAssets(result) {
       const Assets = globalScope.PIXI?.Assets;
@@ -609,6 +640,7 @@
         activeLive2D = result;
         applySavedTransform(result);
         live2dLoadCount += 1;
+        updateShareButton();
         setStatusText(controlsRoot, 'Live2D');
         app.render();
         return result;
@@ -629,6 +661,7 @@
       }
       activeLive2D = null;
       updateResetButton();
+      updateShareButton();
       setStatusText(controlsRoot, 'Shell');
       app.render();
     }
@@ -663,6 +696,7 @@
         activeSpine = result;
         applySavedTransform(result);
         spineLoadCount += 1;
+        updateShareButton();
         setStatusText(controlsRoot, 'Spine');
         await nextAnimationFrame();
         app.render();
@@ -684,6 +718,7 @@
       }
       activeSpine = null;
       updateResetButton();
+      updateShareButton();
       setStatusText(controlsRoot, 'Shell');
       app.render();
     }
@@ -712,6 +747,72 @@
 
       throw new TypeError(`Unsupported catalog entry type: ${entry?.type ?? 'unknown'}`);
     }
+
+    function activeResultState() {
+      const active = getActiveResult();
+      if (!active) {
+        return {};
+      }
+
+      return {
+        backgroundColor: BACKGROUND_COLOR,
+        ...(active === activeSpine && active.defaultAnimation?.name ? { motion: active.defaultAnimation.name } : {}),
+      };
+    }
+
+    function createActiveSharePayload() {
+      const active = getActiveResult();
+      const transform = readDisplayTransform(getActiveDisplayObject(active));
+      const shareLink = globalScope.AzurLaneShareLink;
+
+      if (!shareLink) {
+        throw new Error('share-link.js is required before creating share links');
+      }
+      if (!active || !transform) {
+        throw new Error('Select a model before creating a share link');
+      }
+
+      return shareLink.createSharePayload({
+        entry: active.entry,
+        transform,
+        state: activeResultState(),
+      });
+    }
+
+    function createActiveShareUrl(urlLike = globalScope.location?.href) {
+      const shareLink = globalScope.AzurLaneShareLink;
+      if (!shareLink) {
+        throw new Error('share-link.js is required before creating share links');
+      }
+      return shareLink.createShareUrl(urlLike, createActiveSharePayload());
+    }
+
+    async function copyActiveShareUrl() {
+      const shareUrl = createActiveShareUrl();
+      try {
+        if (globalScope.navigator?.clipboard?.writeText) {
+          await globalScope.navigator.clipboard.writeText(shareUrl);
+          setStatusText(controlsRoot, 'Link copied');
+          return { copied: true, url: shareUrl };
+        }
+      } catch {
+        // Falling back to the visible URL keeps sharing usable when Clipboard API access is blocked.
+      }
+
+      try {
+        globalScope.location.hash = new URL(shareUrl).hash;
+      } catch {
+        // Some test environments expose a partial Location object; the generated URL is still returned.
+      }
+      setStatusText(controlsRoot, 'Link ready');
+      return { copied: false, url: shareUrl };
+    }
+
+    controlsRoot?.querySelector?.('#share-link')?.addEventListener('click', () => {
+      copyActiveShareUrl().catch((error) => {
+        setStatusText(controlsRoot, error instanceof Error ? error.message : 'Share Error');
+      });
+    });
 
     function live2dState() {
       const model = activeLive2D?.model;
@@ -785,6 +886,10 @@
       clearLive2DLayer,
       clearSpineLayer,
       resetActiveTransform,
+      applyActiveTransform,
+      createActiveSharePayload,
+      createActiveShareUrl,
+      copyActiveShareUrl,
       readActiveTransform() {
         return readDisplayTransform(getActiveDisplayObject());
       },

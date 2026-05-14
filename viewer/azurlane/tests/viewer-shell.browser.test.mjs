@@ -439,6 +439,156 @@ try {
     staleLiveParentLabel: '',
   });
 
+  const shareSmoke = await page.evaluate(async () => {
+    const liveModel = new window.PIXI.Container();
+    liveModel.anchor = {
+      x: 0,
+      y: 0,
+      set(x, y) {
+        this.x = x;
+        this.y = y;
+      },
+    };
+    liveModel.getLocalBounds = () => ({ x: -400, y: -200, width: 800, height: 400 });
+    window.PIXI.live2d = {
+      Live2DModel: {
+        async from() {
+          return liveModel;
+        },
+      },
+    };
+
+    const entry = window.azurLaneModelCatalogController.state.entries.find((candidate) => candidate.id === 'azurlane:live2d:guanghui:guanghui_7');
+    await window.azurLaneModelCatalogController.selectEntry(entry);
+    const restored = window.azurLaneViewerShell.applyActiveTransform({
+      x: 930,
+      y: 510,
+      scale: 1.42,
+      rotation: 0.125,
+    });
+    const url = window.azurLaneViewerShell.createActiveShareUrl(window.location.href);
+    const decoded = window.AzurLaneShareLink.decodeShareUrl(url);
+
+    return {
+      restored,
+      url,
+      decoded,
+      shareDisabled: document.querySelector('#share-link').disabled,
+    };
+  });
+
+  assert.equal(shareSmoke.shareDisabled, false);
+  assert.deepEqual(shareSmoke.restored, {
+    x: 930,
+    y: 510,
+    scale: 1.42,
+    rotation: 0.125,
+  });
+  assert.equal(shareSmoke.decoded.ok, true);
+  assert.deepEqual(shareSmoke.decoded.payload, {
+    version: 1,
+    model: {
+      id: 'azurlane:live2d:guanghui:guanghui_7',
+      type: 'live2d',
+    },
+    transform: {
+      x: 930,
+      y: 510,
+      scale: 1.42,
+      rotation: 0.125,
+    },
+    state: {
+      backgroundColor: 0x151815,
+    },
+  });
+
+  const restorePageErrors = [];
+  const restorePage = await browser.newPage({ viewport: { width: 900, height: 900 } });
+  restorePage.on('pageerror', (error) => restorePageErrors.push(error.message));
+  await restorePage.addInitScript(() => {
+    const installRuntime = () => {
+      if (!window.PIXI?.Container) {
+        window.requestAnimationFrame(installRuntime);
+        return;
+      }
+
+      window.PIXI.live2d = {
+        Live2DModel: {
+          async from(url) {
+            const model = new window.PIXI.Container();
+            model.anchor = {
+              x: 0,
+              y: 0,
+              set(x, y) {
+                this.x = x;
+                this.y = y;
+              },
+            };
+            model.azurLaneLoadedUrl = url;
+            model.getLocalBounds = () => ({ x: -400, y: -200, width: 800, height: 400 });
+            return model;
+          },
+        },
+      };
+    };
+
+    installRuntime();
+  });
+  await restorePage.route('https://l2d.su/json/live2dMaster.json', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(sampleCatalogPayload()),
+    });
+  });
+  await restorePage.goto(shareSmoke.url, { waitUntil: 'networkidle' });
+  await waitForFixedStageShell(restorePage, 900, 900);
+  await restorePage.waitForFunction(() => window.azurLaneModelCatalogController?.state?.selectedEntryId === 'azurlane:live2d:guanghui:guanghui_7');
+
+  const restoredShareState = await restorePage.evaluate(() => ({
+    current: window.azurLaneViewerShell.getState().live2d.current,
+    selectedEntryId: window.azurLaneModelCatalogController.state.selectedEntryId,
+    meta: document.querySelector('#catalog-meta').textContent,
+  }));
+  await restorePage.close();
+
+  assert.equal(restoredShareState.selectedEntryId, 'azurlane:live2d:guanghui:guanghui_7');
+  assert.equal(restoredShareState.current.entryId, 'azurlane:live2d:guanghui:guanghui_7');
+  assert.equal(restoredShareState.current.userTransformed, true);
+  assertClose(restoredShareState.current.x, 930, 'share link logical x on different viewport');
+  assertClose(restoredShareState.current.y, 510, 'share link logical y on different viewport');
+  assertClose(restoredShareState.current.scaleX, 1.42, 'share link logical scale on different viewport');
+  assertClose(restoredShareState.current.rotation, 0.125, 'share link logical rotation on different viewport', 0.001);
+  assert.match(restoredShareState.meta, /Share link restored/u);
+  assert.deepEqual(restorePageErrors, []);
+
+  const malformedSharePageErrors = [];
+  const malformedSharePage = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  malformedSharePage.on('pageerror', (error) => malformedSharePageErrors.push(error.message));
+  await malformedSharePage.route('https://l2d.su/json/live2dMaster.json', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: JSON.stringify(sampleCatalogPayload()),
+    });
+  });
+  await malformedSharePage.goto(`${url}#azls=not-json`, { waitUntil: 'networkidle' });
+  await waitForFixedStageShell(malformedSharePage, 1280, 720);
+  await malformedSharePage.waitForFunction(() => window.azurLaneModelCatalogController?.state?.entries?.length === 3);
+  const malformedShareState = await malformedSharePage.evaluate(() => ({
+    selectedEntryId: window.azurLaneModelCatalogController.state.selectedEntryId,
+    meta: document.querySelector('#catalog-meta').textContent,
+    live2dCurrent: window.azurLaneViewerShell.getState().live2d.current,
+    spineCurrent: window.azurLaneViewerShell.getState().spine.current,
+  }));
+  await malformedSharePage.close();
+
+  assert.equal(malformedShareState.selectedEntryId, '');
+  assert.equal(malformedShareState.live2dCurrent, null);
+  assert.equal(malformedShareState.spineCurrent, null);
+  assert.match(malformedShareState.meta, /Share link ignored:/u);
+  assert.deepEqual(malformedSharePageErrors, []);
+
   const initialProbe = await page.evaluate(() => {
     const probe = new window.PIXI.Container();
     probe.label = 'logicalProbe';

@@ -297,6 +297,7 @@
       loadingEntryId: '',
       selectedEntryId: '',
       error: null,
+      notice: '',
       loadSequence: 0,
     };
 
@@ -318,7 +319,8 @@
         button.setAttribute('aria-pressed', String(button.dataset.modelType === state.type));
       }
 
-      setMeta(`${state.filteredEntries.length} of ${state.entries.length} models`);
+      const countText = `${state.filteredEntries.length} of ${state.entries.length} models`;
+      setMeta(state.notice ? `${state.notice} · ${countText}` : countText);
       if (!list) {
         return;
       }
@@ -365,6 +367,7 @@
       state.loadSequence = sequence;
       state.loadingEntryId = entry.id;
       state.error = null;
+      state.notice = '';
       setMeta(`Loading ${entry.type === 'live2d' ? 'Live2D' : 'Spine'}`);
       render();
 
@@ -415,6 +418,10 @@
       state,
       render,
       selectEntry,
+      setNotice(message) {
+        state.notice = String(message ?? '').trim();
+        render();
+      },
       setEntries(entries) {
         state.entries = entries.map(normalizeEntry);
         render();
@@ -429,6 +436,45 @@
     };
   }
 
+  async function restoreShareLinkSelection(controller) {
+    const shareLink = globalScope.AzurLaneShareLink;
+    const shell = controller?.state ? globalScope.azurLaneViewerShell : null;
+    if (!shareLink || !shell) {
+      return null;
+    }
+
+    const decoded = shareLink.decodeShareUrl(globalScope.location?.href);
+    if (!decoded.ok) {
+      controller.setNotice(`Share link ignored: ${decoded.error.message}`);
+      return null;
+    }
+    if (!decoded.payload) {
+      return null;
+    }
+
+    const { model, transform } = decoded.payload;
+    const entry = controller.state.entries.find((candidate) => candidate.id === model.id && candidate.type === model.type);
+    if (!entry) {
+      controller.setNotice('Share link model is not available in this catalog');
+      return null;
+    }
+
+    try {
+      await controller.selectEntry(entry);
+      const restoredTransform = shell.applyActiveTransform?.(transform, { persist: false });
+      if (!restoredTransform) {
+        controller.setNotice('Share link model loaded without its transform');
+        return null;
+      }
+      controller.setNotice('Share link restored');
+      return { entry, payload: decoded.payload };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      controller.setNotice(`Share link load failed: ${message}`);
+      return null;
+    }
+  }
+
   async function bootCatalogController() {
     const shell = globalScope.azurLaneViewerShell;
     if (!shell?.ready) {
@@ -440,6 +486,7 @@
     globalScope.azurLaneModelCatalogController = controller;
     try {
       await controller.load();
+      await restoreShareLinkSelection(controller);
     } catch (error) {
       controller.state.error = error;
       const message = error instanceof Error ? error.message : String(error);
@@ -459,6 +506,7 @@
     normalizeSearchText,
     createCatalogController,
     fetchCatalog,
+    restoreShareLinkSelection,
   });
 
   if (typeof module !== 'undefined' && module.exports) {

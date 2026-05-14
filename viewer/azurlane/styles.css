@@ -96,6 +96,7 @@ body {
   content: "";
 }
 
+.viewer-tool-button,
 .reset-transform-button {
   margin-left: auto;
   min-width: 58px;
@@ -109,11 +110,17 @@ body {
   cursor: pointer;
 }
 
+.reset-transform-button {
+  margin-left: 0;
+}
+
+.viewer-tool-button:disabled,
 .reset-transform-button:disabled {
   cursor: default;
   opacity: 0.45;
 }
 
+.viewer-tool-button:not(:disabled):hover,
 .reset-transform-button:not(:disabled):hover {
   border-color: var(--accent);
   background: var(--control-bg-active);
