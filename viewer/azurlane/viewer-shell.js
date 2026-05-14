@@ -6,7 +6,10 @@
   const CONTENT_ROOT_LABEL = 'contentRoot';
   const SPINE_LAYER_LABEL = 'spineLayer';
   const LIVE2D_LAYER_LABEL = 'live2dLayer';
+  const STAGE_DEBUG_LAYER_LABEL = 'stageDebugLayer';
   const OVERLAY_LAYER_LABEL = 'overlayLayer';
+  const DEBUG_LINE_COLOR = 0x7ed0b2;
+  const DEBUG_CENTER_COLOR = 0xf5d76e;
 
   function setLayerLabel(container, label) {
     container.label = label;
@@ -27,6 +30,39 @@
     if (status) {
       status.textContent = text;
     }
+  }
+
+  function resolveDebugStageVisible(options) {
+    if (typeof options.debugStage === 'boolean') {
+      return options.debugStage;
+    }
+
+    try {
+      return new URLSearchParams(globalScope.location?.search ?? '').has('debugStage');
+    } catch {
+      return false;
+    }
+  }
+
+  function drawStageDebug(graphics, stageLayout) {
+    const { DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_CENTER_X, DESIGN_CENTER_Y } = stageLayout;
+    const edge = 3;
+    const crossArm = 42;
+    const crossThickness = 3;
+
+    graphics.clear();
+    graphics.rect(0, 0, DESIGN_WIDTH, edge).fill({ color: DEBUG_LINE_COLOR, alpha: 0.76 });
+    graphics.rect(0, DESIGN_HEIGHT - edge, DESIGN_WIDTH, edge).fill({ color: DEBUG_LINE_COLOR, alpha: 0.76 });
+    graphics.rect(0, 0, edge, DESIGN_HEIGHT).fill({ color: DEBUG_LINE_COLOR, alpha: 0.76 });
+    graphics.rect(DESIGN_WIDTH - edge, 0, edge, DESIGN_HEIGHT).fill({ color: DEBUG_LINE_COLOR, alpha: 0.76 });
+    graphics.rect(DESIGN_CENTER_X - crossArm, DESIGN_CENTER_Y - crossThickness / 2, crossArm * 2, crossThickness).fill({
+      color: DEBUG_CENTER_COLOR,
+      alpha: 0.88,
+    });
+    graphics.rect(DESIGN_CENTER_X - crossThickness / 2, DESIGN_CENTER_Y - crossArm, crossThickness, crossArm * 2).fill({
+      color: DEBUG_CENTER_COLOR,
+      alpha: 0.88,
+    });
   }
 
   async function createAzurLaneViewerShell(options = {}) {
@@ -64,11 +100,18 @@
     const contentRoot = setLayerLabel(new globalScope.PIXI.Container(), CONTENT_ROOT_LABEL);
     const spineLayer = setLayerLabel(new globalScope.PIXI.Container(), SPINE_LAYER_LABEL);
     const live2dLayer = setLayerLabel(new globalScope.PIXI.Container(), LIVE2D_LAYER_LABEL);
+    const stageDebugLayer = setLayerLabel(new globalScope.PIXI.Container(), STAGE_DEBUG_LAYER_LABEL);
     const overlayLayer = setLayerLabel(new globalScope.PIXI.Container(), OVERLAY_LAYER_LABEL);
     const backgroundFill = new globalScope.PIXI.Graphics();
+    const stageDebugGraphics = new globalScope.PIXI.Graphics();
+    let stageDebugVisible = resolveDebugStageVisible(options);
 
     canvasBackgroundLayer.addChild(backgroundFill);
-    contentRoot.addChild(spineLayer, live2dLayer);
+    drawStageDebug(stageDebugGraphics, globalScope.AzurLaneStageLayout);
+    stageDebugLayer.visible = stageDebugVisible;
+    stageDebugLayer.eventMode = 'none';
+    stageDebugLayer.addChild(stageDebugGraphics);
+    contentRoot.addChild(spineLayer, live2dLayer, stageDebugLayer);
     app.stage.addChild(canvasBackgroundLayer, contentRoot, overlayLayer);
 
     let lastLayout = null;
@@ -81,7 +124,7 @@
       backgroundFill.clear();
       backgroundFill.rect(0, 0, width, height).fill({ color: BACKGROUND_COLOR });
 
-      lastLayout = globalScope.AzurLaneStageLayout.applyCenteredRoot(contentRoot, width, height);
+      lastLayout = globalScope.AzurLaneStageLayout.applyFixedStageRoot(contentRoot, width, height);
       overlayLayer.position.set(0, 0);
       overlayLayer.scale.set(1, 1);
       app.render();
@@ -115,8 +158,14 @@
       contentRoot,
       spineLayer,
       live2dLayer,
+      stageDebugLayer,
       overlayLayer,
       resize: resizeShell,
+      setDebugStageVisible(visible) {
+        stageDebugVisible = Boolean(visible);
+        stageDebugLayer.visible = stageDebugVisible;
+        app.render();
+      },
       destroy() {
         if (resizeFrame) {
           globalScope.cancelAnimationFrame(resizeFrame);
@@ -128,6 +177,8 @@
       getState() {
         const canvasRect = app.canvas.getBoundingClientRect();
         const backgroundBounds = backgroundFill.getBounds();
+        const stageDebugBounds = stageDebugGraphics.getBounds();
+        const { DESIGN_WIDTH, DESIGN_HEIGHT, DESIGN_CENTER_X, DESIGN_CENTER_Y } = globalScope.AzurLaneStageLayout;
 
         return {
           ready: true,
@@ -135,6 +186,12 @@
           modelLoadingRequested: false,
           pixiApplicationCount: 1,
           backgroundColor: BACKGROUND_COLOR,
+          design: {
+            width: DESIGN_WIDTH,
+            height: DESIGN_HEIGHT,
+            centerX: DESIGN_CENTER_X,
+            centerY: DESIGN_CENTER_Y,
+          },
           screen: {
             width: app.screen.width,
             height: app.screen.height,
@@ -163,6 +220,25 @@
             y: backgroundBounds.y,
             width: backgroundBounds.width,
             height: backgroundBounds.height,
+          },
+          stageDebug: {
+            visible: stageDebugVisible,
+            logicalBounds: {
+              x: 0,
+              y: 0,
+              width: DESIGN_WIDTH,
+              height: DESIGN_HEIGHT,
+            },
+            logicalCenter: {
+              x: DESIGN_CENTER_X,
+              y: DESIGN_CENTER_Y,
+            },
+            bounds: {
+              x: stageDebugBounds.x,
+              y: stageDebugBounds.y,
+              width: stageDebugBounds.width,
+              height: stageDebugBounds.height,
+            },
           },
           lastLayout,
         };
