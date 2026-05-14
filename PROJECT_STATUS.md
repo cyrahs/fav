@@ -12,7 +12,7 @@ Maintainer: step-orchestrator coordinator
 
 - Plan file: `plan.md`
 - Requested steps: `1-13`
-- Current step: `8. Model Selection UI`
+- Current step: `9. Interaction And Transform Persistence`
 - Current status: `Done`
 
 ## Harness References
@@ -40,8 +40,8 @@ Maintainer: step-orchestrator coordinator
 ## Relevant Project State
 
 - Key areas: `src/`, `tests/`, `script/`, `README.md`
-- Recent approved commits: `step 1: Fetch Source Snapshots` - source snapshot fetchers and tests; `step 2: Normalize Catalog` - catalog normalization and tests; `step 3: Validate Resource URLs` - resource validation and tests; `step 4: Build Pixi Viewer Shell` - isolated Pixi shell and tests; `step 5: Fixed Logical Stage` - 1600x900 stage scaling and tests; `step 6: Live2D Loading And Auto-Fit` - Live2D loader and auto-fit tests; `step 7: Spine Loading And Auto-Fit` - Spine loader and runtime compatibility path; `step 8: Model Selection UI` - catalog picker, search/filtering, and one-model-at-a-time loading.
-- Pending work: steps `9-13` in `plan.md`.
+- Recent approved commits: `step 1: Fetch Source Snapshots` - source snapshot fetchers and tests; `step 2: Normalize Catalog` - catalog normalization and tests; `step 3: Validate Resource URLs` - resource validation and tests; `step 4: Build Pixi Viewer Shell` - isolated Pixi shell and tests; `step 5: Fixed Logical Stage` - 1600x900 stage scaling and tests; `step 6: Live2D Loading And Auto-Fit` - Live2D loader and auto-fit tests; `step 7: Spine Loading And Auto-Fit` - Spine loader and runtime compatibility path; `step 8: Model Selection UI` - catalog picker, search/filtering, and one-model-at-a-time loading; `step 9: Interaction And Transform Persistence` - logical drag/zoom, persisted transforms, and reset-to-auto-fit.
+- Pending work: steps `10-13` in `plan.md`.
 - Known risks or blockers: the viewer uses a static CDN-based frontend shell; no package-managed frontend build system is present.
 
 ## Verification
@@ -72,6 +72,8 @@ Maintainer: step-orchestrator coordinator
   - Step 7 reviewer2 approved: syntax checks, unit tests, browser smoke, and live runtime smoke for three real Spine models passed.
   - Step 8 reviewer2 approved: syntax checks, focused node tests, browser smoke with temporary Playwright, combined viewer tests, and `git diff --check` passed.
   - Step 8 coordinator verification: `node --check` for touched JS files passed, `node --test viewer/azurlane/tests/model-catalog.test.js viewer/azurlane/tests/live2d-loader.test.js viewer/azurlane/tests/spine-loader.test.js viewer/azurlane/tests/stage-layout.test.js` passed, `NODE_PATH=/tmp/fav-playwright-GGKkpk/node_modules node --test viewer/azurlane/tests/viewer-shell.browser.test.mjs` passed, and `git diff --check` passed.
+  - Step 9 reviewer1 approved: syntax checks, focused node tests, browser smoke with temporary Playwright, and `git diff --check` passed.
+  - Step 9 coordinator verification: `node --check viewer/azurlane/viewer-shell.js`, `node --check viewer/azurlane/tests/viewer-shell.browser.test.mjs`, focused node tests, browser smoke through temporary Playwright, and `git diff --check` passed.
 
 ## Subagent Notes
 

@@ -612,6 +612,117 @@ try {
   assertClose(live2dAfterResize.scaleX, live2dBeforeResize.scaleX, 'Live2D scale x after resize');
   assertClose(live2dAfterResize.scaleY, live2dBeforeResize.scaleY, 'Live2D scale y after resize');
 
+  const interactionStart = await page.evaluate(() => {
+    const state = window.azurLaneViewerShell.getState();
+    return {
+      root: state.contentRoot,
+      current: state.live2d.current,
+      resetDisabled: document.querySelector('#reset-transform').disabled,
+    };
+  });
+  assert.equal(interactionStart.resetDisabled, true);
+  const dragStartX = interactionStart.root.x + interactionStart.current.x * interactionStart.root.scaleX;
+  const dragStartY = interactionStart.root.y + interactionStart.current.y * interactionStart.root.scaleY;
+  await page.mouse.move(dragStartX, dragStartY);
+  await page.mouse.down();
+  await page.mouse.move(dragStartX + 160, dragStartY + 80, { steps: 4 });
+  await page.mouse.up();
+
+  const afterDrag = await page.evaluate(() => {
+    const state = window.azurLaneViewerShell.getState();
+    return {
+      current: state.live2d.current,
+      resetDisabled: document.querySelector('#reset-transform').disabled,
+    };
+  });
+  assert.equal(afterDrag.resetDisabled, false);
+  assert.equal(afterDrag.current.userTransformed, true);
+  assertClose(afterDrag.current.x, interactionStart.current.x + 200, 'Live2D logical x after drag');
+  assertClose(afterDrag.current.y, interactionStart.current.y + 100, 'Live2D logical y after drag');
+  assertClose(afterDrag.current.scaleX, interactionStart.current.scaleX, 'Live2D drag keeps scale');
+
+  await page.mouse.move(dragStartX + 160, dragStartY + 80);
+  await page.mouse.wheel(0, -240);
+  const afterWheel = await page.evaluate(() => {
+    const state = window.azurLaneViewerShell.getState();
+    return {
+      current: state.live2d.current,
+      stored: JSON.parse(localStorage.getItem(`azurlane-viewer-transform:${encodeURIComponent(state.live2d.current.entryId)}`)),
+    };
+  });
+  assert.equal(afterWheel.current.userTransformed, true);
+  assert.ok(afterWheel.current.scaleX > afterDrag.current.scaleX, 'wheel zoom increases scale');
+  assert.deepEqual(afterWheel.current.savedTransform, afterWheel.stored);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await waitForFixedStageShell(page, 390, 844);
+  const afterInteractionResize = await page.evaluate(() => window.azurLaneViewerShell.getState().live2d.current);
+  assert.equal(afterInteractionResize.entryId, afterWheel.current.entryId);
+  assertClose(afterInteractionResize.x, afterWheel.current.x, 'dragged Live2D x survives resize');
+  assertClose(afterInteractionResize.y, afterWheel.current.y, 'dragged Live2D y survives resize');
+  assertClose(afterInteractionResize.scaleX, afterWheel.current.scaleX, 'zoomed Live2D scale survives resize');
+
+  const restoredTransform = await page.evaluate(async () => {
+    const entry = {
+      id: 'azurlane:live2d:mingji:mingji_2',
+      type: 'live2d',
+      resources: {
+        primary_url: 'https://static.l2d.su/live2d/azurlane/mingji_2/mingji_2.model3.json',
+      },
+      layout: {
+        mode: 'auto-fit',
+        anchor: [0.5, 0.5],
+      },
+    };
+    const runtime = {
+      Live2DModel: {
+        async from() {
+          const model = new window.PIXI.Container();
+          model.anchor = {
+            x: 0,
+            y: 0,
+            set(x, y) {
+              this.x = x;
+              this.y = y;
+            },
+          };
+          model.getLocalBounds = () => ({ x: -250, y: -250, width: 500, height: 500 });
+          return model;
+        },
+      },
+    };
+
+    await window.azurLaneViewerShell.loadLive2DEntry(entry, {
+      runtime,
+      dimensionOptions: {
+        stableFrames: 2,
+        maxFrames: 6,
+      },
+    });
+    return window.azurLaneViewerShell.getState().live2d.current;
+  });
+  assert.equal(restoredTransform.userTransformed, true);
+  assertClose(restoredTransform.x, afterWheel.current.x, 'saved Live2D x restores on different viewport');
+  assertClose(restoredTransform.y, afterWheel.current.y, 'saved Live2D y restores on different viewport');
+  assertClose(restoredTransform.scaleX, afterWheel.current.scaleX, 'saved Live2D scale restores on different viewport');
+
+  await page.locator('#reset-transform').click();
+  const afterReset = await page.evaluate(() => {
+    const state = window.azurLaneViewerShell.getState();
+    return {
+      current: state.live2d.current,
+      stored: localStorage.getItem(`azurlane-viewer-transform:${encodeURIComponent(state.live2d.current.entryId)}`),
+      resetDisabled: document.querySelector('#reset-transform').disabled,
+    };
+  });
+  assert.equal(afterReset.resetDisabled, true);
+  assert.equal(afterReset.current.userTransformed, false);
+  assert.equal(afterReset.current.savedTransform, null);
+  assert.equal(afterReset.stored, null);
+  assertClose(afterReset.current.x, afterReset.current.fit.x, 'Live2D reset restores fit x');
+  assertClose(afterReset.current.y, afterReset.current.fit.y, 'Live2D reset restores fit y');
+  assertClose(afterReset.current.scaleX, afterReset.current.fit.scale, 'Live2D reset restores fit scale');
+
   const spineLoads = await page.evaluate(async () => {
     const cases = [
       {

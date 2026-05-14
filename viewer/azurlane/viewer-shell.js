@@ -10,6 +10,9 @@
   const OVERLAY_LAYER_LABEL = 'overlayLayer';
   const DEBUG_LINE_COLOR = 0x7ed0b2;
   const DEBUG_CENTER_COLOR = 0xf5d76e;
+  const TRANSFORM_STORAGE_PREFIX = 'azurlane-viewer-transform:';
+  const MIN_MODEL_SCALE = 0.02;
+  const MAX_MODEL_SCALE = 12;
 
   function setLayerLabel(container, label) {
     container.label = label;
@@ -29,6 +32,83 @@
     const status = controlsRoot?.querySelector?.('#viewer-state');
     if (status) {
       status.textContent = text;
+    }
+  }
+
+  function setResetButtonEnabled(controlsRoot, enabled) {
+    const button = controlsRoot?.querySelector?.('#reset-transform');
+    if (button) {
+      button.disabled = !enabled;
+    }
+  }
+
+  function setPoint(point, x, y) {
+    if (typeof point?.set === 'function') {
+      point.set(x, y);
+      return;
+    }
+    if (!point) {
+      return;
+    }
+    point.x = x;
+    point.y = y;
+  }
+
+  function setUniformScale(scale, value) {
+    if (typeof scale?.set === 'function') {
+      scale.set(value, value);
+      return;
+    }
+    if (!scale) {
+      return;
+    }
+    scale.x = value;
+    scale.y = value;
+  }
+
+  function finiteNumberOr(value, fallback) {
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.min(maximum, Math.max(minimum, value));
+  }
+
+  function storageKeyForEntry(entry) {
+    const id = String(entry?.id ?? '').trim();
+    return id ? `${TRANSFORM_STORAGE_PREFIX}${encodeURIComponent(id)}` : '';
+  }
+
+  function normalizeTransform(transform) {
+    if (!transform || typeof transform !== 'object') {
+      return null;
+    }
+
+    const x = Number(transform.x);
+    const y = Number(transform.y);
+    const scale = Number(transform.scale);
+    const rotation = Number(transform.rotation);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(scale) || scale <= 0) {
+      return null;
+    }
+
+    return {
+      x,
+      y,
+      scale: clamp(scale, MIN_MODEL_SCALE, MAX_MODEL_SCALE),
+      ...(Number.isFinite(rotation) ? { rotation } : {}),
+    };
+  }
+
+  function resolveTransformStorage(globalScope, options) {
+    if (options.transformStorage !== undefined) {
+      return options.transformStorage;
+    }
+
+    try {
+      return globalScope.localStorage ?? null;
+    } catch {
+      return null;
     }
   }
 
@@ -129,6 +209,328 @@
     let catalogLoadSequence = 0;
     let activeLive2D = null;
     let activeSpine = null;
+    let interactionState = null;
+    const activePointers = new Map();
+    const transformStorage = resolveTransformStorage(globalScope, options);
+
+    function getActiveResult() {
+      return activeLive2D ?? activeSpine ?? null;
+    }
+
+    function getActiveDisplayObject(result = getActiveResult()) {
+      return result?.model ?? result?.spine ?? null;
+    }
+
+    function updateResetButton() {
+      setResetButtonEnabled(controlsRoot, Boolean(getActiveResult()?.userTransformed));
+    }
+
+    function cancelInteractions() {
+      for (const pointerId of activePointers.keys()) {
+        app.canvas.releasePointerCapture?.(pointerId);
+      }
+      activePointers.clear();
+      interactionState = null;
+    }
+
+    function readSavedTransform(entry) {
+      const key = storageKeyForEntry(entry);
+      if (!key || !transformStorage || typeof transformStorage.getItem !== 'function') {
+        return null;
+      }
+
+      try {
+        return normalizeTransform(JSON.parse(transformStorage.getItem(key)));
+      } catch {
+        return null;
+      }
+    }
+
+    function writeSavedTransform(entry, transform) {
+      const normalized = normalizeTransform(transform);
+      const key = storageKeyForEntry(entry);
+      if (!normalized || !key || !transformStorage || typeof transformStorage.setItem !== 'function') {
+        return normalized;
+      }
+
+      try {
+        transformStorage.setItem(key, JSON.stringify(normalized));
+      } catch {
+        // Browser storage can be disabled or full; the in-memory transform still applies.
+      }
+      return normalized;
+    }
+
+    function clearSavedTransform(entry) {
+      const key = storageKeyForEntry(entry);
+      if (!key || !transformStorage || typeof transformStorage.removeItem !== 'function') {
+        return;
+      }
+
+      try {
+        transformStorage.removeItem(key);
+      } catch {
+        // Storage errors should not block restoring the visible auto-fit.
+      }
+    }
+
+    function readDisplayTransform(displayObject) {
+      if (!displayObject) {
+        return null;
+      }
+
+      const scale = finiteNumberOr(displayObject.scale?.x, 1);
+      const rotation = finiteNumberOr(displayObject.rotation, 0);
+      return {
+        x: finiteNumberOr(displayObject.position?.x, 0),
+        y: finiteNumberOr(displayObject.position?.y, 0),
+        scale,
+        ...(rotation ? { rotation } : {}),
+      };
+    }
+
+    function applyDisplayTransform(displayObject, transform) {
+      const normalized = normalizeTransform(transform);
+      if (!displayObject || !normalized) {
+        return null;
+      }
+
+      setPoint(displayObject.position, normalized.x, normalized.y);
+      setUniformScale(displayObject.scale, normalized.scale);
+      if (Number.isFinite(normalized.rotation)) {
+        displayObject.rotation = normalized.rotation;
+      }
+      return normalized;
+    }
+
+    function markActiveTransformChanged() {
+      const active = getActiveResult();
+      const displayObject = getActiveDisplayObject(active);
+      const transform = readDisplayTransform(displayObject);
+      if (!active || !transform) {
+        return null;
+      }
+
+      active.userTransformed = true;
+      active.savedTransform = writeSavedTransform(active.entry, transform);
+      setResetButtonEnabled(controlsRoot, true);
+      app.render();
+      return active.savedTransform;
+    }
+
+    function applySavedTransform(result) {
+      const displayObject = getActiveDisplayObject(result);
+      const savedTransform = readSavedTransform(result?.entry);
+      if (!displayObject || !savedTransform) {
+        if (result) {
+          result.userTransformed = false;
+          result.savedTransform = null;
+        }
+        updateResetButton();
+        return false;
+      }
+
+      result.savedTransform = applyDisplayTransform(displayObject, savedTransform);
+      result.userTransformed = true;
+      updateResetButton();
+      return true;
+    }
+
+    function resetActiveTransform() {
+      const active = getActiveResult();
+      const displayObject = getActiveDisplayObject(active);
+      if (!active || !displayObject || !active.fit) {
+        return null;
+      }
+
+      clearSavedTransform(active.entry);
+      active.savedTransform = null;
+      active.userTransformed = false;
+      applyDisplayTransform(displayObject, {
+        x: active.fit.x,
+        y: active.fit.y,
+        scale: active.fit.scale,
+        rotation: 0,
+      });
+      updateResetButton();
+      app.render();
+      return readDisplayTransform(displayObject);
+    }
+
+    function canvasPointToLogical(clientX, clientY) {
+      const rect = app.canvas.getBoundingClientRect();
+      const rootScale = contentRoot.scale?.x || 1;
+      return {
+        x: (clientX - rect.left - contentRoot.position.x) / rootScale,
+        y: (clientY - rect.top - contentRoot.position.y) / rootScale,
+      };
+    }
+
+    function pointerSnapshot(event) {
+      return {
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        logical: canvasPointToLogical(event.clientX, event.clientY),
+      };
+    }
+
+    function distanceBetween(left, right) {
+      return Math.hypot(right.clientX - left.clientX, right.clientY - left.clientY);
+    }
+
+    function midpointLogical(left, right) {
+      return canvasPointToLogical((left.clientX + right.clientX) / 2, (left.clientY + right.clientY) / 2);
+    }
+
+    function beginPinchInteraction() {
+      const active = getActiveResult();
+      const displayObject = getActiveDisplayObject(active);
+      const pointers = Array.from(activePointers.values());
+      if (!active || !displayObject || pointers.length < 2) {
+        return;
+      }
+
+      const [first, second] = pointers;
+      interactionState = {
+        type: 'pinch',
+        initialDistance: Math.max(1, distanceBetween(first, second)),
+        initialTransform: readDisplayTransform(displayObject),
+        initialCenter: midpointLogical(first, second),
+      };
+    }
+
+    function beginDragInteraction(event) {
+      const active = getActiveResult();
+      const displayObject = getActiveDisplayObject(active);
+      if (!active || !displayObject || event.button !== 0) {
+        return false;
+      }
+
+      const pointer = pointerSnapshot(event);
+      activePointers.set(event.pointerId, pointer);
+      interactionState = {
+        type: 'drag',
+        pointerId: event.pointerId,
+        startPointer: pointer,
+        initialTransform: readDisplayTransform(displayObject),
+      };
+      app.canvas.setPointerCapture?.(event.pointerId);
+      return true;
+    }
+
+    function handlePointerDown(event) {
+      if (!beginDragInteraction(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      if (activePointers.size >= 2) {
+        beginPinchInteraction();
+      }
+    }
+
+    function handlePointerMove(event) {
+      if (!activePointers.has(event.pointerId)) {
+        return;
+      }
+
+      activePointers.set(event.pointerId, pointerSnapshot(event));
+      const active = getActiveResult();
+      const displayObject = getActiveDisplayObject(active);
+      if (!active || !displayObject || !interactionState?.initialTransform) {
+        return;
+      }
+
+      event.preventDefault();
+      if (activePointers.size >= 2) {
+        if (interactionState.type !== 'pinch') {
+          beginPinchInteraction();
+        }
+
+        const pointers = Array.from(activePointers.values());
+        const [first, second] = pointers;
+        const currentCenter = midpointLogical(first, second);
+        const ratio = distanceBetween(first, second) / interactionState.initialDistance;
+        const initial = interactionState.initialTransform;
+        const scale = clamp(initial.scale * ratio, MIN_MODEL_SCALE, MAX_MODEL_SCALE);
+        const scaleRatio = scale / initial.scale;
+        const x = currentCenter.x - (interactionState.initialCenter.x - initial.x) * scaleRatio;
+        const y = currentCenter.y - (interactionState.initialCenter.y - initial.y) * scaleRatio;
+
+        applyDisplayTransform(displayObject, { x, y, scale, rotation: initial.rotation });
+        markActiveTransformChanged();
+        return;
+      }
+
+      if (interactionState.type !== 'drag' || interactionState.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const pointer = activePointers.get(event.pointerId);
+      const initial = interactionState.initialTransform;
+      applyDisplayTransform(displayObject, {
+        x: initial.x + pointer.logical.x - interactionState.startPointer.logical.x,
+        y: initial.y + pointer.logical.y - interactionState.startPointer.logical.y,
+        scale: initial.scale,
+        rotation: initial.rotation,
+      });
+      markActiveTransformChanged();
+    }
+
+    function finishPointerInteraction(event) {
+      if (activePointers.has(event.pointerId)) {
+        activePointers.delete(event.pointerId);
+      }
+      app.canvas.releasePointerCapture?.(event.pointerId);
+
+      if (activePointers.size >= 2) {
+        beginPinchInteraction();
+        return;
+      }
+
+      if (activePointers.size === 1) {
+        const [pointer] = activePointers.values();
+        const displayObject = getActiveDisplayObject();
+        interactionState = {
+          type: 'drag',
+          pointerId: pointer.pointerId,
+          startPointer: pointer,
+          initialTransform: readDisplayTransform(displayObject),
+        };
+        return;
+      }
+
+      interactionState = null;
+    }
+
+    function handleWheel(event) {
+      const active = getActiveResult();
+      const displayObject = getActiveDisplayObject(active);
+      const initial = readDisplayTransform(displayObject);
+      if (!active || !displayObject || !initial) {
+        return;
+      }
+
+      event.preventDefault();
+      const logicalPoint = canvasPointToLogical(event.clientX, event.clientY);
+      const factor = Math.exp(-event.deltaY * 0.001);
+      const scale = clamp(initial.scale * factor, MIN_MODEL_SCALE, MAX_MODEL_SCALE);
+      const scaleRatio = scale / initial.scale;
+      const x = logicalPoint.x - (logicalPoint.x - initial.x) * scaleRatio;
+      const y = logicalPoint.y - (logicalPoint.y - initial.y) * scaleRatio;
+      applyDisplayTransform(displayObject, { x, y, scale, rotation: initial.rotation });
+      markActiveTransformChanged();
+    }
+
+    app.canvas.addEventListener('pointerdown', handlePointerDown);
+    app.canvas.addEventListener('pointermove', handlePointerMove);
+    app.canvas.addEventListener('pointerup', finishPointerInteraction);
+    app.canvas.addEventListener('pointercancel', finishPointerInteraction);
+    app.canvas.addEventListener('wheel', handleWheel, { passive: false });
+
+    controlsRoot?.querySelector?.('#reset-transform')?.addEventListener('click', resetActiveTransform);
+    setResetButtonEnabled(controlsRoot, false);
 
     async function unloadSpineAssets(result) {
       const Assets = globalScope.PIXI?.Assets;
@@ -185,11 +587,13 @@
         throw new Error('live2d-loader.js is required before loading Live2D entries');
       }
 
+      cancelInteractions();
       const previousSpine = activeSpine;
       clearSpineLayer();
       await unloadSpineAssets(previousSpine);
       setStatusText(controlsRoot, 'Loading Live2D');
       activeLive2D = null;
+      updateResetButton();
       try {
         const result = await globalScope.AzurLaneLive2D.loadLive2DEntry(entry, {
           app,
@@ -203,6 +607,7 @@
         }
 
         activeLive2D = result;
+        applySavedTransform(result);
         live2dLoadCount += 1;
         setStatusText(controlsRoot, 'Live2D');
         app.render();
@@ -216,12 +621,14 @@
     }
 
     function clearLive2DLayer() {
+      cancelInteractions();
       if (!globalScope.AzurLaneLive2D) {
         live2dLayer.removeChildren();
       } else {
         globalScope.AzurLaneLive2D.removeLayerChildren(live2dLayer);
       }
       activeLive2D = null;
+      updateResetButton();
       setStatusText(controlsRoot, 'Shell');
       app.render();
     }
@@ -231,12 +638,14 @@
         throw new Error('spine-loader.js is required before loading Spine entries');
       }
 
+      cancelInteractions();
       clearLive2DLayer();
       const previousSpine = activeSpine;
       clearSpineLayer();
       await unloadSpineAssets(previousSpine);
       setStatusText(controlsRoot, 'Loading Spine');
       activeSpine = null;
+      updateResetButton();
       try {
         const result = await globalScope.AzurLaneSpine.loadSpineEntry(entry, {
           app,
@@ -252,6 +661,7 @@
         }
 
         activeSpine = result;
+        applySavedTransform(result);
         spineLoadCount += 1;
         setStatusText(controlsRoot, 'Spine');
         await nextAnimationFrame();
@@ -266,12 +676,14 @@
     }
 
     function clearSpineLayer() {
+      cancelInteractions();
       if (!globalScope.AzurLaneSpine) {
         spineLayer.removeChildren();
       } else {
         globalScope.AzurLaneSpine.removeLayerChildren(spineLayer);
       }
       activeSpine = null;
+      updateResetButton();
       setStatusText(controlsRoot, 'Shell');
       app.render();
     }
@@ -315,10 +727,13 @@
               y: model.position?.y ?? 0,
               scaleX: model.scale?.x ?? 0,
               scaleY: model.scale?.y ?? 0,
+              rotation: model.rotation ?? 0,
               anchorX: model.anchor?.x ?? 0,
               anchorY: model.anchor?.y ?? 0,
               fit: activeLive2D.fit,
               dimensions: activeLive2D.dimensions,
+              userTransformed: Boolean(activeLive2D.userTransformed),
+              savedTransform: activeLive2D.savedTransform ?? null,
             }
           : null,
       };
@@ -343,8 +758,11 @@
               pivotY: spine.pivot?.y ?? 0,
               scaleX: spine.scale?.x ?? 0,
               scaleY: spine.scale?.y ?? 0,
+              rotation: spine.rotation ?? 0,
               fit: activeSpine.fit,
               defaultAnimation: activeSpine.defaultAnimation,
+              userTransformed: Boolean(activeSpine.userTransformed),
+              savedTransform: activeSpine.savedTransform ?? null,
             }
           : null,
       };
@@ -366,6 +784,10 @@
       loadCatalogEntry,
       clearLive2DLayer,
       clearSpineLayer,
+      resetActiveTransform,
+      readActiveTransform() {
+        return readDisplayTransform(getActiveDisplayObject());
+      },
       resize: resizeShell,
       setDebugStageVisible(visible) {
         stageDebugVisible = Boolean(visible);
@@ -376,8 +798,14 @@
         if (resizeFrame) {
           globalScope.cancelAnimationFrame(resizeFrame);
         }
+        cancelInteractions();
         resizeObserver.disconnect();
         globalScope.removeEventListener('resize', requestResize);
+        app.canvas.removeEventListener('pointerdown', handlePointerDown);
+        app.canvas.removeEventListener('pointermove', handlePointerMove);
+        app.canvas.removeEventListener('pointerup', finishPointerInteraction);
+        app.canvas.removeEventListener('pointercancel', finishPointerInteraction);
+        app.canvas.removeEventListener('wheel', handleWheel);
         clearSpineLayer();
         clearLive2DLayer();
         app.destroy(true, { children: true });
