@@ -12,7 +12,7 @@ Maintainer: step-orchestrator coordinator
 
 - Plan file: `plan.md`
 - Requested steps: `1-13`
-- Current step: `3. Validate Resource URLs`
+- Current step: `4. Build Pixi Viewer Shell`
 - Current status: `Done`
 
 ## Harness References
@@ -40,9 +40,9 @@ Maintainer: step-orchestrator coordinator
 ## Relevant Project State
 
 - Key areas: `src/`, `tests/`, `script/`, `README.md`
-- Recent approved commits: `step 1: Fetch Source Snapshots` - source snapshot fetchers and tests; `step 2: Normalize Catalog` - catalog normalization and tests; `step 3: Validate Resource URLs` - resource validation and tests.
-- Pending work: steps `4-13` in `plan.md`.
-- Known risks or blockers: frontend/runtime dependencies are not yet present in the repo.
+- Recent approved commits: `step 1: Fetch Source Snapshots` - source snapshot fetchers and tests; `step 2: Normalize Catalog` - catalog normalization and tests; `step 3: Validate Resource URLs` - resource validation and tests; `step 4: Build Pixi Viewer Shell` - isolated Pixi shell and tests.
+- Pending work: steps `5-13` in `plan.md`.
+- Known risks or blockers: the viewer uses a static CDN-based frontend shell; no package-managed frontend build system is present.
 
 ## Verification
 
@@ -60,6 +60,8 @@ Maintainer: step-orchestrator coordinator
   - Step 3 reviewer1: rejected because `*-spine` catalog paths probed `*-spine.skel`/`.atlas` instead of files without the suffix.
   - Step 3 worker2: `uv run pytest tests/test_azurlane_l2d_sources.py` passed, `uv run pytest` passed, touched-file Ruff passed.
   - Step 3 reviewer2 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed, `uv run pytest` passed, touched-file Ruff passed; repo-wide Ruff still has unrelated pre-existing failures.
+  - Step 4 worker1: `node --test viewer/azurlane/tests/stage-layout.test.js` passed; browser smoke test passed.
+  - Step 4 reviewer1 approved: unit/syntax/diff checks passed; coordinator browser smoke test passed through temporary Playwright install.
 
 ## Subagent Notes
 

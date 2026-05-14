@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Azur Lane Viewer Shell</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.18.1/dist/pixi.min.js" crossorigin="anonymous"></script>
+    <script src="./stage-layout.js"></script>
+    <script src="./viewer-shell.js" defer></script>
+  </head>
+  <body>
+    <main class="viewer-shell" aria-label="Azur Lane viewer shell">
+      <div id="pixi-root" class="pixi-root"></div>
+      <div id="viewer-controls" class="viewer-controls" data-controls-runtime="dom" aria-label="Viewer controls">
+        <span class="viewer-title">Azur Lane</span>
+        <span class="viewer-state" id="viewer-state">Shell</span>
+      </div>
+    </main>
+  </body>
+</html>
