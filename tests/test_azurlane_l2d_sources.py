@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from dataclasses import replace
 from datetime import datetime
 
 import httpx
@@ -18,7 +19,9 @@ from src.tool.azurlane_l2d_sources import (
     NagamiSourceSnapshot,
     SourceFetchMetadata,
     SourceSchemaError,
+    build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
+    fetch_azurlane_l2d_health_report,
     fetch_l2d_su_snapshot,
     fetch_nagami_snapshot,
     fetch_source_snapshots,
@@ -791,6 +794,199 @@ def test_validate_catalog_resources_records_broken_urls_and_leaves_unselected_en
         'broken': 1,
         'unchecked': 1,
     }
+
+
+def test_health_report_detects_source_catalog_and_resource_drift() -> None:
+    previous_url = 'https://static.example/live2d/azurlane/old/old.model3.json'
+    recovered_url = 'https://static.example/live2d/azurlane/old/old.model3.json'
+    new_url = 'https://static.example/live2d/azurlane/new/new.model3.json'
+    previous_snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'old',
+                    'charName': 'Old',
+                    'charNameEn': 'Old',
+                    'live2d': [
+                        {
+                            'costumeId': 1,
+                            'costumeName': 'Old',
+                            'costumeNameEn': 'Old',
+                            'path': previous_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {},
+    )
+    current_snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'old',
+                    'charName': 'Old',
+                    'charNameEn': 'Old',
+                    'live2d': [
+                        {
+                            'costumeId': 1,
+                            'costumeName': 'Old',
+                            'costumeNameEn': 'Old',
+                            'path': recovered_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+                {
+                    'charId': 2,
+                    'charKey': 'new',
+                    'charName': 'New',
+                    'charNameEn': 'New',
+                    'live2d': [
+                        {
+                            'costumeId': 2,
+                            'costumeName': 'New',
+                            'costumeNameEn': 'New',
+                            'path': new_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {},
+    )
+    previous_snapshots = replace(
+        previous_snapshots,
+        l2d_su=replace(previous_snapshots.l2d_su, metadata=SourceFetchMetadata.for_url(L2D_SU_CATALOG_URL, http_status=200, etag='"old"')),
+    )
+    current_snapshots = replace(
+        current_snapshots,
+        l2d_su=replace(current_snapshots.l2d_su, metadata=SourceFetchMetadata.for_url(L2D_SU_CATALOG_URL, http_status=200, etag='"new"')),
+    )
+
+    previous_catalog = build_azurlane_model_catalog(previous_snapshots)
+
+    def previous_handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == previous_url
+        return httpx.Response(404)
+
+    with httpx.Client(transport=httpx.MockTransport(previous_handler)) as client:
+        previous_validation = validate_azurlane_model_catalog_resources(previous_catalog, client=client)
+    previous_health = build_azurlane_l2d_health_report(
+        snapshots=previous_snapshots,
+        catalog=previous_catalog,
+        resource_validation=previous_validation,
+    )
+
+    current_catalog = build_azurlane_model_catalog(current_snapshots)
+    recovered_head_urls = {
+        'https://static.example/live2d/azurlane/old/test_model.moc3',
+        'https://static.example/live2d/azurlane/old/textures/texture_00.webp',
+        'https://static.example/live2d/azurlane/old/textures/texture_01.webp',
+        'https://static.example/live2d/azurlane/old/old.cdi3.json',
+    }
+
+    def current_handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if request.method == 'GET' and url == recovered_url:
+            return httpx.Response(200, text=_live2d_model3_payload())
+        if request.method == 'HEAD' and url in recovered_head_urls:
+            return httpx.Response(200)
+        if request.method == 'GET' and url == new_url:
+            return httpx.Response(404)
+        return httpx.Response(404)
+
+    with httpx.Client(transport=httpx.MockTransport(current_handler)) as client:
+        current_validation = validate_azurlane_model_catalog_resources(current_catalog, client=client)
+    current_health = build_azurlane_l2d_health_report(
+        snapshots=current_snapshots,
+        catalog=current_catalog,
+        resource_validation=current_validation,
+        previous_report=previous_health,
+        renderer_errors=('renderer failed separately',),
+    )
+
+    assert current_health.drift_summary.l2d_su.etag_changed is True
+    assert current_health.drift_summary.l2d_su.entry_count_delta == 1
+    assert current_health.catalog_health.new_entry_ids == ('azurlane:live2d:new:new',)
+    assert current_health.drift_summary.newly_added_resource_count == 1
+    assert current_health.resource_health.broken_resource_count == 1
+    assert current_health.resource_health.newly_broken_entry_ids == ('azurlane:live2d:new:new',)
+    assert current_health.resource_health.recovered_entry_ids == ('azurlane:live2d:old:old',)
+    assert current_health.renderer_health.errors == ('renderer failed separately',)
+
+
+def test_health_report_marks_source_changed_when_only_entry_count_delta_changes() -> None:
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'same',
+                    'charName': 'Same',
+                    'charNameEn': 'Same',
+                    'live2d': [
+                        {
+                            'costumeId': 1,
+                            'costumeName': 'Same',
+                            'costumeNameEn': 'Same',
+                            'path': 'https://static.example/live2d/azurlane/same/same.model3.json',
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {},
+    )
+    metadata = SourceFetchMetadata.for_url(
+        L2D_SU_CATALOG_URL,
+        http_status=200,
+        etag='"same"',
+        last_modified='Thu, 14 May 2026 00:00:00 GMT',
+    )
+    snapshots = replace(snapshots, l2d_su=replace(snapshots.l2d_su, metadata=metadata))
+
+    previous_health = build_azurlane_l2d_health_report(snapshots=snapshots)
+    previous_health = replace(
+        previous_health,
+        source_health=replace(
+            previous_health.source_health,
+            l2d_su=replace(previous_health.source_health.l2d_su, entry_count=previous_health.source_health.l2d_su.entry_count + 1),
+        ),
+    )
+
+    current_health = build_azurlane_l2d_health_report(snapshots=snapshots, previous_report=previous_health)
+
+    assert current_health.source_health.l2d_su.entry_ids == previous_health.source_health.l2d_su.entry_ids
+    assert current_health.drift_summary.l2d_su.entry_count_delta == -1
+    assert current_health.drift_summary.l2d_su.added_entry_ids == ()
+    assert current_health.drift_summary.l2d_su.removed_entry_ids == ()
+    assert current_health.drift_summary.l2d_su.etag_changed is False
+    assert current_health.drift_summary.l2d_su.last_modified_changed is False
+    assert current_health.drift_summary.l2d_su.http_status_changed is False
+    assert current_health.drift_summary.l2d_su.changed is True
+
+
+def test_fetch_health_report_records_source_errors_without_raising() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == L2D_SU_CATALOG_URL:
+            message = 'l2d unavailable'
+            raise httpx.ConnectError(message, request=request)
+        message = 'nagami unavailable'
+        raise httpx.ConnectError(message, request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        report = fetch_azurlane_l2d_health_report(client=client)
+
+    assert report.source_health.l2d_su.ok is False
+    assert report.source_health.nagami.ok is False
+    assert report.catalog_health.entry_count == 0
+    assert report.resource_health.broken_resource_count == 0
 
 
 def test_build_azurlane_model_catalog_live_counts_and_source_merges() -> None:

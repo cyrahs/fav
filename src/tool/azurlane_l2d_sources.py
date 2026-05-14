@@ -351,6 +351,124 @@ class AzurLaneResourceValidationReport:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceEndpointHealth:
+    source: Literal['l2d.su', 'nagami']
+    url: str
+    http_status: int | None
+    etag: str
+    last_modified: str
+    fetched_at: str
+    entry_count: int
+    entry_ids: tuple[str, ...] = ()
+    errors: tuple[SourceSnapshotError, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors and self.http_status is not None and self.http_status < HTTP_ERROR_MIN
+
+
+@dataclass(frozen=True, slots=True)
+class SourceDrift:
+    source: Literal['l2d.su', 'nagami']
+    previous_entry_count: int | None
+    current_entry_count: int
+    entry_count_delta: int | None
+    added_entry_ids: tuple[str, ...] = ()
+    removed_entry_ids: tuple[str, ...] = ()
+    etag_changed: bool = False
+    last_modified_changed: bool = False
+    http_status_changed: bool = False
+
+    @property
+    def changed(self) -> bool:
+        return bool(
+            self.entry_count_delta
+            or self.added_entry_ids
+            or self.removed_entry_ids
+            or self.etag_changed
+            or self.last_modified_changed
+            or self.http_status_changed,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceHealthReport:
+    l2d_su: SourceEndpointHealth
+    nagami: SourceEndpointHealth
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogHealthReport:
+    entry_count: int
+    by_type: dict[str, int]
+    by_source: dict[str, int]
+    entry_ids: tuple[str, ...] = ()
+    new_entry_ids: tuple[str, ...] = ()
+    removed_entry_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceHealthReport:
+    checked_at: str
+    entry_count: int
+    broken_resource_count: int
+    unchecked_resource_count: int
+    fallback_only_count: int
+    broken_entry_ids: tuple[str, ...] = ()
+    newly_broken_entry_ids: tuple[str, ...] = ()
+    recovered_entry_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RendererHealthReport:
+    errors: tuple[str, ...] = ()
+
+    @property
+    def error_count(self) -> int:
+        return len(self.errors)
+
+
+@dataclass(frozen=True, slots=True)
+class DriftSummary:
+    l2d_su: SourceDrift
+    nagami: SourceDrift
+    previous_catalog_entry_count: int | None
+    current_catalog_entry_count: int
+    catalog_entry_count_delta: int | None
+    newly_added_resource_count: int
+    broken_resource_count_delta: int | None
+
+    @property
+    def changed(self) -> bool:
+        return bool(
+            self.l2d_su.changed
+            or self.nagami.changed
+            or self.catalog_entry_count_delta
+            or self.newly_added_resource_count
+            or self.broken_resource_count_delta,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AzurLaneL2DHealthReport:
+    checked_at: str
+    source_health: SourceHealthReport
+    catalog_health: CatalogHealthReport
+    resource_health: ResourceHealthReport
+    drift_summary: DriftSummary
+    renderer_health: RendererHealthReport = field(default_factory=RendererHealthReport)
+    snapshots: AzurLaneSourceSnapshots | None = None
+    catalog: AzurLaneModelCatalog | None = None
+    resource_validation: AzurLaneResourceValidationReport | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class Live2DResourceManifest:
     moc3_url: str
     texture_urls: tuple[str, ...]
@@ -551,6 +669,227 @@ def validate_azurlane_model_catalog_resources(
 
     with httpx.Client(follow_redirects=True, timeout=timeout, headers=_request_headers()) as owned_client:
         return _validate_catalog_resources(catalog, checked_at=checked_at, timeout=timeout, client=owned_client, selected_ids=selected_ids)
+
+
+def fetch_azurlane_l2d_health_report(
+    *,
+    timeout: float = 30.0,
+    client: httpx.Client | None = None,
+    validate_entry_ids: Iterable[str] | Literal['all'] | None = None,
+    previous_report: AzurLaneL2DHealthReport | None = None,
+    renderer_errors: Iterable[str] = (),
+) -> AzurLaneL2DHealthReport:
+    snapshots = fetch_source_snapshots(timeout=timeout, client=client)
+    catalog = build_azurlane_model_catalog(snapshots)
+    resource_validation = None
+    if validate_entry_ids is not None:
+        entry_ids = None if validate_entry_ids == 'all' else validate_entry_ids
+        resource_validation = validate_azurlane_model_catalog_resources(catalog, timeout=timeout, client=client, entry_ids=entry_ids)
+        catalog = resource_validation.catalog
+    return build_azurlane_l2d_health_report(
+        snapshots=snapshots,
+        catalog=catalog,
+        resource_validation=resource_validation,
+        previous_report=previous_report,
+        renderer_errors=renderer_errors,
+    )
+
+
+def build_azurlane_l2d_health_report(
+    *,
+    snapshots: AzurLaneSourceSnapshots,
+    catalog: AzurLaneModelCatalog | None = None,
+    resource_validation: AzurLaneResourceValidationReport | None = None,
+    previous_report: AzurLaneL2DHealthReport | None = None,
+    renderer_errors: Iterable[str] = (),
+) -> AzurLaneL2DHealthReport:
+    current_catalog = catalog or build_azurlane_model_catalog(snapshots)
+    current_resource_validation = resource_validation
+    source_health = SourceHealthReport(
+        l2d_su=_l2d_su_endpoint_health(snapshots.l2d_su),
+        nagami=_nagami_endpoint_health(snapshots.nagami),
+    )
+    catalog_health = _catalog_health_report(current_catalog, previous_report=previous_report)
+    resource_health = _resource_health_report(
+        catalog=current_catalog,
+        resource_validation=current_resource_validation,
+        previous_report=previous_report,
+    )
+    drift_summary = _drift_summary(
+        source_health=source_health,
+        snapshots=snapshots,
+        catalog_health=catalog_health,
+        resource_health=resource_health,
+        previous_report=previous_report,
+    )
+    return AzurLaneL2DHealthReport(
+        checked_at=_utc_now_iso(),
+        source_health=source_health,
+        catalog_health=catalog_health,
+        resource_health=resource_health,
+        drift_summary=drift_summary,
+        renderer_health=RendererHealthReport(errors=tuple(renderer_errors)),
+        snapshots=snapshots,
+        catalog=current_catalog,
+        resource_validation=current_resource_validation,
+    )
+
+
+def _l2d_su_endpoint_health(snapshot: L2DSuSourceSnapshot) -> SourceEndpointHealth:
+    entry_ids = _l2d_su_source_entry_ids(snapshot)
+    return SourceEndpointHealth(
+        source='l2d.su',
+        url=snapshot.metadata.url,
+        http_status=snapshot.metadata.http_status,
+        etag=snapshot.metadata.etag,
+        last_modified=snapshot.metadata.last_modified,
+        fetched_at=snapshot.metadata.fetched_at,
+        entry_count=sum(len(character.live2d) + len(character.spine) for character in snapshot.characters),
+        entry_ids=entry_ids,
+        errors=snapshot.errors,
+    )
+
+
+def _nagami_endpoint_health(snapshot: NagamiSourceSnapshot) -> SourceEndpointHealth:
+    entry_ids = _nagami_source_entry_ids(snapshot)
+    return SourceEndpointHealth(
+        source='nagami',
+        url=snapshot.metadata.url,
+        http_status=snapshot.metadata.http_status,
+        etag=snapshot.metadata.etag,
+        last_modified=snapshot.metadata.last_modified,
+        fetched_at=snapshot.metadata.fetched_at,
+        entry_count=len(snapshot.entries),
+        entry_ids=entry_ids,
+        errors=snapshot.errors,
+    )
+
+
+def _catalog_health_report(
+    catalog: AzurLaneModelCatalog,
+    *,
+    previous_report: AzurLaneL2DHealthReport | None,
+) -> CatalogHealthReport:
+    summary = catalog.summary()
+    entry_ids = tuple(entry.id for entry in catalog.entries)
+    previous_ids = previous_report.catalog_health.entry_ids if previous_report is not None else entry_ids
+    return CatalogHealthReport(
+        entry_count=len(entry_ids),
+        by_type=dict(summary['by_type']),
+        by_source=dict(summary['by_source']),
+        entry_ids=entry_ids,
+        new_entry_ids=_sorted_delta(entry_ids, previous_ids),
+        removed_entry_ids=_sorted_delta(previous_ids, entry_ids),
+    )
+
+
+def _resource_health_report(
+    *,
+    catalog: AzurLaneModelCatalog,
+    resource_validation: AzurLaneResourceValidationReport | None,
+    previous_report: AzurLaneL2DHealthReport | None,
+) -> ResourceHealthReport:
+    if resource_validation is None:
+        state_by_entry_id = {entry.id: entry.availability.state for entry in catalog.entries}
+        checked_at = ''
+    else:
+        state_by_entry_id = {entry.entry_id: entry.availability.state for entry in resource_validation.entries}
+        checked_at = resource_validation.checked_at
+
+    broken_ids = tuple(sorted(entry_id for entry_id, state in state_by_entry_id.items() if state == 'broken'))
+    previous_broken_ids = previous_report.resource_health.broken_entry_ids if previous_report is not None else broken_ids
+    return ResourceHealthReport(
+        checked_at=checked_at,
+        entry_count=len(state_by_entry_id),
+        broken_resource_count=len(broken_ids),
+        unchecked_resource_count=sum(1 for state in state_by_entry_id.values() if state == 'unchecked'),
+        fallback_only_count=sum(1 for state in state_by_entry_id.values() if state == 'fallback-only'),
+        broken_entry_ids=broken_ids,
+        newly_broken_entry_ids=_sorted_delta(broken_ids, previous_broken_ids),
+        recovered_entry_ids=_sorted_delta(previous_broken_ids, broken_ids),
+    )
+
+
+def _drift_summary(
+    *,
+    source_health: SourceHealthReport,
+    snapshots: AzurLaneSourceSnapshots,
+    catalog_health: CatalogHealthReport,
+    resource_health: ResourceHealthReport,
+    previous_report: AzurLaneL2DHealthReport | None,
+) -> DriftSummary:
+    previous_catalog_count = previous_report.catalog_health.entry_count if previous_report is not None else None
+    previous_broken_count = previous_report.resource_health.broken_resource_count if previous_report is not None else None
+    return DriftSummary(
+        l2d_su=_source_drift(
+            current=source_health.l2d_su,
+            previous=previous_report.source_health.l2d_su if previous_report is not None else None,
+            current_entry_ids=_l2d_su_source_entry_ids(snapshots.l2d_su),
+        ),
+        nagami=_source_drift(
+            current=source_health.nagami,
+            previous=previous_report.source_health.nagami if previous_report is not None else None,
+            current_entry_ids=_nagami_source_entry_ids(snapshots.nagami),
+        ),
+        previous_catalog_entry_count=previous_catalog_count,
+        current_catalog_entry_count=catalog_health.entry_count,
+        catalog_entry_count_delta=_optional_delta(catalog_health.entry_count, previous_catalog_count),
+        newly_added_resource_count=len(catalog_health.new_entry_ids),
+        broken_resource_count_delta=_optional_delta(resource_health.broken_resource_count, previous_broken_count),
+    )
+
+
+def _source_drift(
+    *,
+    current: SourceEndpointHealth,
+    previous: SourceEndpointHealth | None,
+    current_entry_ids: tuple[str, ...],
+) -> SourceDrift:
+    if previous is None:
+        return SourceDrift(
+            source=current.source,
+            previous_entry_count=None,
+            current_entry_count=current.entry_count,
+            entry_count_delta=None,
+            added_entry_ids=(),
+            removed_entry_ids=(),
+        )
+
+    return SourceDrift(
+        source=current.source,
+        previous_entry_count=previous.entry_count,
+        current_entry_count=current.entry_count,
+        entry_count_delta=current.entry_count - previous.entry_count,
+        added_entry_ids=_sorted_delta(current_entry_ids, previous.entry_ids),
+        removed_entry_ids=_sorted_delta(previous.entry_ids, current_entry_ids),
+        etag_changed=current.etag != previous.etag,
+        last_modified_changed=current.last_modified != previous.last_modified,
+        http_status_changed=current.http_status != previous.http_status,
+    )
+
+
+def _optional_delta(current: int, previous: int | None) -> int | None:
+    return None if previous is None else current - previous
+
+
+def _sorted_delta(current: Iterable[str], previous: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted(set(current) - set(previous)))
+
+
+def _l2d_su_source_entry_ids(snapshot: L2DSuSourceSnapshot) -> tuple[str, ...]:
+    entry_ids = [
+        _catalog_entry_id(model.kind, character.char_key, _l2d_su_model_key(model))
+        for character in snapshot.characters
+        for model in (*character.live2d, *character.spine)
+    ]
+    return tuple(sorted(set(entry_ids)))
+
+
+def _nagami_source_entry_ids(snapshot: NagamiSourceSnapshot) -> tuple[str, ...]:
+    entry_ids = (
+        _catalog_entry_id('live2d', _nagami_character_key(_catalog_key(entry.key)), _catalog_key(entry.key)) for entry in snapshot.entries
+    )
+    return tuple(sorted(set(entry_ids)))
 
 
 def _validate_catalog_resources(
