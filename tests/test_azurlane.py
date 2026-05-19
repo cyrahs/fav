@@ -302,8 +302,8 @@ class FakeAzurLaneDatabase:
         raise AssertionError(sql)
 
 
-def _job_cfg(*, enabled: bool = True) -> SimpleNamespace:
-    return SimpleNamespace(cron='0 */6 * * *', enabled=enabled, run_on_start=False)
+def _job_cfg(*, enabled: bool = True, cron: str = '0 */6 * * *', run_on_start: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(cron=cron, enabled=enabled, run_on_start=run_on_start)
 
 
 def _catalog_payload(characters: list[dict[str, object]]) -> str:
@@ -388,7 +388,7 @@ def test_azurlane_config_defaults_to_disabled_collection_path() -> None:
 def test_scheduler_registration_includes_azurlane(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_config = SimpleNamespace(
         web=SimpleNamespace(
-            azurlane=_job_cfg(enabled=False),
+            azurlane=_job_cfg(enabled=False, cron='5 1 * * *', run_on_start=True),
             bd2=_job_cfg(),
             bilibili=_job_cfg(),
             hanime1=_job_cfg(),
@@ -404,7 +404,9 @@ def test_scheduler_registration_includes_azurlane(monkeypatch: pytest.MonkeyPatc
     azurlane_job = next(job for job in jobs if job.key == 'azurlane')
 
     assert azurlane_job.name == 'Azur Lane'
+    assert azurlane_job.cron == '5 1 * * *'
     assert azurlane_job.enabled is False
+    assert azurlane_job.run_on_start is True
     assert azurlane_job.required_commands == ()
     assert azurlane_job.factory is jobs_module.AzurLane
 

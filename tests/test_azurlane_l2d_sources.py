@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
@@ -31,6 +32,13 @@ from src.tool.azurlane_l2d_sources import (
     parse_nagami_mapping_bundle,
     validate_azurlane_model_catalog_resources,
 )
+
+_LIVE_SOURCE_SMOKE_ENV = 'FAV_RUN_LIVE_AZURLANE_SOURCE_SMOKE'
+
+
+def _skip_unless_live_source_smoke_enabled() -> None:
+    if os.getenv(_LIVE_SOURCE_SMOKE_ENV) != '1':
+        pytest.skip(f'Set {_LIVE_SOURCE_SMOKE_ENV}=1 to run the live Azur Lane source smoke test.')
 
 
 def _l2d_su_payload() -> str:
@@ -287,6 +295,7 @@ def test_fetch_nagami_snapshot_returns_schema_error() -> None:
 
 
 def test_fetch_source_snapshots_live_counts_close_to_plan_baseline() -> None:
+    _skip_unless_live_source_smoke_enabled()
     snapshots = fetch_source_snapshots(timeout=30.0)
     errors = (*snapshots.l2d_su.errors, *snapshots.nagami.errors)
     network_errors = [error for error in errors if error.kind == 'network']
@@ -1236,6 +1245,7 @@ def test_fetch_health_report_records_source_errors_without_raising() -> None:
 
 
 def test_build_azurlane_model_catalog_live_counts_and_source_merges() -> None:
+    _skip_unless_live_source_smoke_enabled()
     snapshots = fetch_source_snapshots(timeout=30.0)
     errors = (*snapshots.l2d_su.errors, *snapshots.nagami.errors)
     network_errors = [error for error in errors if error.kind == 'network']
