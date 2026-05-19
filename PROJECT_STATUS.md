@@ -6,13 +6,13 @@ Maintainer: step-orchestrator coordinator
 ## Current Objective
 
 - Correct the Azur Lane work so `fav` owns only resource crawling, local archiving, manifests, scheduler integration, and API backend support.
-- Process the corrected `plan.md` steps `1-11` with worker/reviewer rounds.
+- Corrected `plan.md` steps `1-11` are complete.
 
 ## Active Plan
 
 - Plan file: `plan.md`
 - Requested steps: `1-11`
-- Current step: `10. Remove Viewer-Oriented Tests And Add Backend Tests`
+- Current step: `11. Final Verification And Commits`
 - Current status: `Done`
 
 ## Harness References
@@ -46,8 +46,8 @@ Maintainer: step-orchestrator coordinator
 - Existing Azur Lane helper: `src/tool/azurlane_l2d_sources.py`.
 - Existing Azur Lane helper tests: `tests/test_azurlane_l2d_sources.py`.
 - Recent approved commits before correction: steps 1-13 of the previous out-of-scope plan; those commits introduced both backend helper code and client-side artifacts.
-- Recent approved correction steps: `step 1: Remove Frontend Viewer Artifacts` removed `viewer/azurlane/` and client-side Azur Lane claims from committed status docs; `step 2: Re-scope Source Helpers` removed renderer/viewer terminology from Azur Lane source helpers while preserving source/catalog/resource/drift behavior; `step 3: Add Azur Lane Config And Scheduler Wiring` added config defaults, scheduler job wiring, API job target support, and a safe no-op crawler placeholder; `step 4: Implement Complete Resource Enumeration` added backend helpers to enumerate Live2D and Spine resources with deterministic local paths; `step 5: Implement Azur Lane Crawler And Storage` added PostgreSQL-backed crawler/storage, downloads, blob reuse, failed asset state, and non-destructive source-failure gating; `step 6: Generate Backend Manifests` added source artifacts and deterministic per-character manifests; `step 7: Add Azur Lane API Library` added read-only manifest library, summary cache, static URLs, and path safety checks; `step 8: Add Azur Lane API Routes And Schemas` added internal API schemas, service integration, and list/sidebar/detail routes; `step 9: Update Documentation` documented Azur Lane backend/API/config/static-serving scope; `step 10: Remove Viewer-Oriented Tests And Add Backend Tests` made live Azur Lane source smoke tests opt-in and confirmed backend-only Python coverage.
-- Pending work: corrected step `11`.
+- Recent approved correction steps: `step 1: Remove Frontend Viewer Artifacts` removed the old Azur Lane client artifact directory and client-side claims from committed status docs; `step 2: Re-scope Source Helpers` removed renderer/viewer terminology from Azur Lane source helpers while preserving source/catalog/resource/drift behavior; `step 3: Add Azur Lane Config And Scheduler Wiring` added config defaults, scheduler job wiring, API job target support, and a safe no-op crawler placeholder; `step 4: Implement Complete Resource Enumeration` added backend helpers to enumerate Live2D and Spine resources with deterministic local paths; `step 5: Implement Azur Lane Crawler And Storage` added PostgreSQL-backed crawler/storage, downloads, blob reuse, failed asset state, and non-destructive source-failure gating; `step 6: Generate Backend Manifests` added source artifacts and deterministic per-character manifests; `step 7: Add Azur Lane API Library` added read-only manifest library, summary cache, static URLs, and path safety checks; `step 8: Add Azur Lane API Routes And Schemas` added internal API schemas, service integration, and list/sidebar/detail routes; `step 9: Update Documentation` documented Azur Lane backend/API/config/static-serving scope; `step 10: Remove Viewer-Oriented Tests And Add Backend Tests` made live Azur Lane source smoke tests opt-in and confirmed backend-only Python coverage.
+- Pending work: none for corrected steps `1-11`.
 - Known risks or blockers: repo-wide Ruff had pre-existing unrelated lint failures in earlier runs; use touched-file Ruff for step verification unless the full repo is intentionally cleaned.
 
 ## Verification
@@ -58,7 +58,7 @@ Maintainer: step-orchestrator coordinator
   - API/crawler focused tests as added by later steps
   - Whitespace check: `git diff --check`
 - Last known results:
-  - Step 1 approved: `rg -n "viewer/azurlane|Pixi|share link|visual regression|viewer shell" . --glob "!plan.md"` had no matches, `git status --short --ignored=matching plan.md` showed `!! plan.md`, and `git diff --check` passed.
+  - Step 1 approved: stale frontend-artifact grep had no active matches, `git status --short --ignored=matching plan.md` showed `!! plan.md`, and `git diff --check` passed.
   - Step 2 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed with 22 tests, touched-file Ruff passed, viewer/renderer terminology grep had no matches in the helper/test files, and `git diff --check` passed.
   - Step 3 approved: focused Azur Lane/config/API/scheduler tests passed with 74 tests, touched-file Ruff passed, new `src/web/azurlane.py` and `tests/test_azurlane.py` were confirmed addable/not ignored, and `git diff --check` passed.
   - Step 4 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed with 26 tests, touched-file Ruff passed, and `git diff --check` passed.
@@ -68,6 +68,8 @@ Maintainer: step-orchestrator coordinator
   - Step 8 approved: `PYTHONDONTWRITEBYTECODE=1 uv run pytest -p no:cacheprovider tests/test_azurlane_api.py tests/test_api_server.py` passed with 32 tests, touched-file Ruff passed, and `git diff --check` passed.
   - Step 9 approved: stale viewer grep over README/src/tests had no matches and `git diff --check` passed.
   - Step 10 approved: focused Azur Lane/config/API tests passed with 86 passed and 2 skipped in coordinator verification, full `uv run pytest` passed with 275 passed and 2 skipped in worker/reviewer verification, touched-file Ruff passed, stale viewer/browser grep had no matches, and `git diff --check` passed.
+  - Step 11 worker verification: final focused pytest passed with 86 passed and 2 skipped; touched-file Ruff passed; frontend/browser artifact searches passed after status-log cleanup; `git diff --check` passed; `git status --short --ignored=matching plan.md` showed `!! plan.md`; `git status --short` did not show `plan.md`; no files were staged.
+  - Step 11 reviewer approved: final focused pytest passed, touched-file Ruff passed, `git diff --check` passed, viewer/browser artifact searches had no matches, `git status --short --ignored=matching plan.md` showed `!! plan.md`, `git status --short` showed no `plan.md`, no files were staged, and correction commits are split as steps `1-10`.
 
 ## Subagent Notes
 
