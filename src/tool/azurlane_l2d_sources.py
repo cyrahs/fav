@@ -12,6 +12,8 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from src.tool.filename import sanitize
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -34,7 +36,13 @@ ResourceAssetKind = Literal[
     'live2d.model3',
     'live2d.moc3',
     'live2d.texture',
+    'live2d.physics',
+    'live2d.pose',
     'live2d.display-info',
+    'live2d.expression',
+    'live2d.motion',
+    'live2d.audio',
+    'live2d.text',
     'spine.skel',
     'spine.atlas',
     'spine.texture',
@@ -44,6 +52,21 @@ _MODEL_TYPES: tuple[L2DSuModelKind, ...] = ('live2d', 'spine')
 _CATALOG_SOURCES: tuple[CatalogSource, ...] = ('l2d.su', 'nagami', 'merged')
 _AVAILABILITY_STATES: tuple[AvailabilityState, ...] = ('valid', 'fallback-only', 'broken', 'unchecked')
 _NAGAMI_COSTUME_SUFFIX_RE = re.compile(r'_\d+$')
+_RESOURCE_EXTENSION_BY_KIND: dict[ResourceAssetKind, str] = {
+    'live2d.model3': '.model3.json',
+    'live2d.moc3': '.moc3',
+    'live2d.texture': '.webp',
+    'live2d.physics': '.physics3.json',
+    'live2d.pose': '.pose3.json',
+    'live2d.display-info': '.cdi3.json',
+    'live2d.expression': '.exp3.json',
+    'live2d.motion': '.motion3.json',
+    'live2d.audio': '.wav',
+    'live2d.text': '.txt',
+    'spine.skel': '.skel',
+    'spine.atlas': '.atlas',
+    'spine.texture': '.webp',
+}
 
 
 class SourceParseError(ValueError):
@@ -239,6 +262,47 @@ class ModelEntry:
     resources: ModelResources
     resource_summary: ModelResourceSummary = field(default_factory=ModelResourceSummary)
     availability: ModelAvailability = field(default_factory=ModelAvailability)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class AzurLaneEnumeratedResource:
+    model_id: str
+    model_type: L2DSuModelKind
+    character_key: str
+    costume_key: str
+    kind: ResourceAssetKind
+    source_url: str
+    fallback_url: str = ''
+    local_path: str = ''
+    original_filename: str = ''
+    contexts: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def context(self) -> dict[str, Any]:
+        return self.contexts[0] if self.contexts else {}
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceEnumerationIssue:
+    model_id: str
+    kind: ResourceAssetKind
+    message: str
+    context: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class AzurLaneModelResourceEnumeration:
+    model_id: str
+    model_type: L2DSuModelKind
+    character_key: str
+    costume_key: str
+    source_url: str
+    fallback_url: str
+    assets: tuple[AzurLaneEnumeratedResource, ...]
+    issues: tuple[ResourceEnumerationIssue, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -449,15 +513,29 @@ class AzurLaneL2DHealthReport:
 
 
 @dataclass(frozen=True, slots=True)
+class ResourceReference:
+    kind: ResourceAssetKind
+    url: str
+    raw_path: str
+    context: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class Live2DResourceManifest:
     moc3_url: str
     texture_urls: tuple[str, ...]
     physics_url: str = ''
+    pose_url: str = ''
     display_info_url: str = ''
+    expression_urls: tuple[str, ...] = ()
+    motion_urls: tuple[str, ...] = ()
+    audio_urls: tuple[str, ...] = ()
+    text_urls: tuple[str, ...] = ()
     motion_names: tuple[str, ...] = ()
     expression_names: tuple[str, ...] = ()
     has_audio: bool = False
     has_text: bool = False
+    references: tuple[ResourceReference, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,6 +559,31 @@ class ResourceCandidateValidation:
 class ResourceRequestContext:
     timeout: float
     client: httpx.Client
+
+
+@dataclass(frozen=True, slots=True)
+class _ResourceSpec:
+    kind: ResourceAssetKind
+    source_url: str
+    fallback_url: str
+    base_url: str
+    context: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class _Live2DReferenceSpec:
+    kind: ResourceAssetKind
+    base_url: str
+    metadata: dict[str, Any]
+    metadata_key: str = ''
+
+
+@dataclass(frozen=True, slots=True)
+class _Live2DMotionReferences:
+    motion: ResourceReference | None = None
+    audio: ResourceReference | None = None
+    text: ResourceReference | None = None
+    name: str = ''
 
 
 def parse_l2d_su_catalog(source: str, *, game_id: int = AZUR_LANE_GAME_ID) -> L2DSuCatalogData:
@@ -632,6 +735,31 @@ def build_azurlane_model_catalog(snapshots: AzurLaneSourceSnapshots) -> AzurLane
 
 def build_nagami_fallback_candidates(snapshot: NagamiSourceSnapshot) -> tuple[NagamiFallbackCandidate, ...]:
     return tuple(_nagami_fallback_candidate(entry) for entry in sorted(snapshot.entries, key=lambda item: _catalog_key(item.key)))
+
+
+def enumerate_azurlane_model_resources(
+    entry: ModelEntry,
+    *,
+    model3_source: str | None = None,
+    atlas_source: str | None = None,
+) -> AzurLaneModelResourceEnumeration:
+    if entry.type == 'live2d':
+        if model3_source is None:
+            msg = f'Live2D entry {entry.id} requires model3_source for resource enumeration'
+            raise SourceSchemaError(msg)
+        specs = _live2d_resource_specs(entry, model3_source=model3_source)
+    else:
+        specs = _spine_resource_specs(entry, atlas_source=atlas_source)
+
+    return AzurLaneModelResourceEnumeration(
+        model_id=entry.id,
+        model_type=entry.type,
+        character_key=entry.character.key,
+        costume_key=entry.costume.key,
+        source_url=entry.resources.primary_url,
+        fallback_url=entry.resources.fallback_url,
+        assets=_enumerated_resources_from_specs(entry, specs),
+    )
 
 
 def validate_azurlane_model_catalog_resources(
@@ -1099,6 +1227,192 @@ def _validate_spine_resource_candidate(
     )
 
 
+def _live2d_resource_specs(entry: ModelEntry, *, model3_source: str) -> tuple[_ResourceSpec, ...]:
+    manifest = _parse_live2d_model3(model3_source, model3_url=entry.resources.primary_url)
+    specs = [
+        _ResourceSpec(
+            kind='live2d.model3',
+            source_url=entry.resources.primary_url,
+            fallback_url=entry.resources.fallback_url,
+            base_url=entry.resources.primary_url,
+            context=_asset_context(entry, {'live2d_field': 'model3'}),
+        ),
+    ]
+    specs.extend(
+        _ResourceSpec(
+            kind=reference.kind,
+            source_url=reference.url,
+            fallback_url=_fallback_live2d_resource_url(entry.resources.fallback_url, reference.raw_path),
+            base_url=entry.resources.primary_url,
+            context=_asset_context(entry, reference.context),
+        )
+        for reference in manifest.references
+    )
+    if entry.resources.display_info_url and not any(spec.kind == 'live2d.display-info' for spec in specs):
+        specs.append(
+            _ResourceSpec(
+                kind='live2d.display-info',
+                source_url=entry.resources.display_info_url,
+                fallback_url=_same_name_display_info_url(entry.resources.fallback_url),
+                base_url=entry.resources.primary_url,
+                context=_asset_context(entry, {'live2d_field': 'display_info', 'inferred': True}),
+            ),
+        )
+    return tuple(specs)
+
+
+def _spine_resource_specs(entry: ModelEntry, *, atlas_source: str | None) -> tuple[_ResourceSpec, ...]:
+    manifest = _spine_resource_manifest(entry.resources.primary_url)
+    fallback_manifest = _spine_resource_manifest(entry.resources.fallback_url) if entry.resources.fallback_url else None
+    specs = [
+        _ResourceSpec(
+            kind='spine.skel',
+            source_url=manifest.skel_url,
+            fallback_url=fallback_manifest.skel_url if fallback_manifest is not None else '',
+            base_url=manifest.skel_url,
+            context=_asset_context(entry, {'spine_field': 'skel'}),
+        ),
+        _ResourceSpec(
+            kind='spine.atlas',
+            source_url=manifest.atlas_url,
+            fallback_url=fallback_manifest.atlas_url if fallback_manifest is not None else '',
+            base_url=manifest.atlas_url,
+            context=_asset_context(entry, {'spine_field': 'atlas'}),
+        ),
+    ]
+
+    if atlas_source is None:
+        return tuple(specs)
+
+    for page_index, texture_path in enumerate(_parse_spine_atlas_texture_paths(atlas_source)):
+        specs.append(
+            _ResourceSpec(
+                kind='spine.texture',
+                source_url=_resolve_resource_url(manifest.atlas_url, texture_path),
+                fallback_url=_resolve_resource_url(fallback_manifest.atlas_url, texture_path) if fallback_manifest is not None else '',
+                base_url=manifest.atlas_url,
+                context=_asset_context(
+                    entry,
+                    {
+                        'spine_field': 'texture',
+                        'atlas_page': texture_path,
+                        'page_index': page_index,
+                    },
+                ),
+            ),
+        )
+    return tuple(specs)
+
+
+def _enumerated_resources_from_specs(entry: ModelEntry, specs: tuple[_ResourceSpec, ...]) -> tuple[AzurLaneEnumeratedResource, ...]:
+    used_paths: dict[str, str] = {}
+    resources: list[AzurLaneEnumeratedResource] = []
+    for spec in specs:
+        original_filename = _resource_filename(spec.source_url, spec.kind)
+        local_path = _resource_local_path(entry, spec, original_filename=original_filename, used_paths=used_paths)
+        resources.append(
+            AzurLaneEnumeratedResource(
+                model_id=entry.id,
+                model_type=entry.type,
+                character_key=entry.character.key,
+                costume_key=entry.costume.key,
+                kind=spec.kind,
+                source_url=spec.source_url,
+                fallback_url=spec.fallback_url,
+                local_path=local_path,
+                original_filename=original_filename,
+                contexts=(spec.context,),
+            ),
+        )
+    return tuple(resources)
+
+
+def _asset_context(entry: ModelEntry, metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'model_id': entry.id,
+        'model_type': entry.type,
+        'character_key': entry.character.key,
+        'character_id': entry.character.id,
+        'character_name_zh': entry.character.name_zh,
+        'character_name_en': entry.character.name_en,
+        'costume_key': entry.costume.key,
+        'costume_id': entry.costume.id,
+        'costume_name_zh': entry.costume.name_zh,
+        'costume_name_en': entry.costume.name_en,
+        'catalog_source': entry.source,
+        'source_model_url': entry.resources.primary_url,
+        'fallback_model_url': entry.resources.fallback_url,
+        **metadata,
+    }
+
+
+def _fallback_live2d_resource_url(fallback_model3_url: str, raw_path: str) -> str:
+    if not fallback_model3_url:
+        return ''
+    return _resolve_resource_url(fallback_model3_url, raw_path)
+
+
+def _resource_local_path(
+    entry: ModelEntry,
+    spec: _ResourceSpec,
+    *,
+    original_filename: str,
+    used_paths: dict[str, str],
+) -> str:
+    resource_dir = _model_resource_directory(entry)
+    relative_path = _relative_resource_path(spec.source_url, base_url=spec.base_url, fallback_filename=original_filename)
+    local_path = (resource_dir / relative_path).as_posix()
+    collision_key = f'{spec.kind}:{spec.source_url}'
+    if local_path in used_paths and used_paths[local_path] != collision_key:
+        local_path = _disambiguated_local_path(local_path, collision_key)
+    while local_path in used_paths and used_paths[local_path] != collision_key:
+        collision_key = f'{collision_key}:{len(used_paths)}'
+        local_path = _disambiguated_local_path(local_path, collision_key)
+    used_paths[local_path] = collision_key
+    return local_path
+
+
+def _model_resource_directory(entry: ModelEntry) -> PurePosixPath:
+    model_key = _safe_path_segment(entry.costume.key, fallback='unknown')
+    canonical_id = _catalog_entry_id(entry.type, entry.character.key, entry.costume.key)
+    if entry.id != canonical_id:
+        token = blake2b(entry.id.encode(), digest_size=4).hexdigest()
+        model_key = _safe_path_segment(f'{model_key}-{token}', fallback=model_key)
+    return PurePosixPath('assets', entry.type, model_key)
+
+
+def _relative_resource_path(source_url: str, *, base_url: str, fallback_filename: str) -> PurePosixPath:
+    source_path = PurePosixPath(urlsplit(source_url).path)
+    base_path = PurePosixPath(urlsplit(base_url).path)
+    base_dir = base_path.parent if base_path.name else base_path
+    try:
+        relative = source_path.relative_to(base_dir)
+    except ValueError:
+        relative = PurePosixPath(fallback_filename)
+    segments = [_safe_path_segment(segment, fallback='asset') for segment in relative.parts if segment not in {'', '/', '.', '..'}]
+    if not segments:
+        segments = [_safe_path_segment(fallback_filename, fallback='asset')]
+    return PurePosixPath(*segments)
+
+
+def _resource_filename(url: str, kind: ResourceAssetKind) -> str:
+    filename = PurePosixPath(urlsplit(url).path).name
+    if filename:
+        return _safe_path_segment(filename, fallback=f'asset{_RESOURCE_EXTENSION_BY_KIND[kind]}')
+    return f'asset{_RESOURCE_EXTENSION_BY_KIND[kind]}'
+
+
+def _safe_path_segment(value: str, *, fallback: str) -> str:
+    sanitized = sanitize(value, max_bytes=120)
+    return sanitized or fallback
+
+
+def _disambiguated_local_path(local_path: str, value: str) -> str:
+    path = PurePosixPath(local_path)
+    digest = blake2b(value.encode(), digest_size=4).hexdigest()
+    return path.with_stem(f'{path.stem}-{digest}').as_posix()
+
+
 def _failed_candidate(*, url: str, check: ResourceCheck) -> ResourceCandidateValidation:
     return ResourceCandidateValidation(
         ok=False,
@@ -1186,92 +1500,258 @@ def _parse_live2d_model3(source: str, *, model3_url: str) -> Live2DResourceManif
         msg = 'Live2D model3 FileReferences must be an object'
         raise SourceSchemaError(msg)
 
-    moc3_url = _required_resource_reference(file_references, 'Moc', base_url=model3_url, context='Live2D model3 FileReferences')
-    texture_urls = _required_resource_reference_list(
+    moc3_reference = _required_live2d_reference(
         file_references,
-        'Textures',
-        base_url=model3_url,
+        'Moc',
+        spec=_Live2DReferenceSpec(kind='live2d.moc3', base_url=model3_url, metadata={'live2d_field': 'moc3'}),
         context='Live2D model3 FileReferences',
     )
-    physics_url = _optional_resource_reference(file_references, 'Physics', base_url=model3_url)
-    display_info_url = _optional_resource_reference(file_references, 'DisplayInfo', base_url=model3_url)
-    motion_names, has_audio, has_text = _parse_live2d_motion_metadata(file_references.get('Motions'))
+    texture_references = _required_live2d_reference_list(
+        file_references,
+        'Textures',
+        spec=_Live2DReferenceSpec(
+            kind='live2d.texture',
+            base_url=model3_url,
+            metadata={'live2d_field': 'texture'},
+            metadata_key='texture_index',
+        ),
+        context='Live2D model3 FileReferences',
+    )
+    physics_reference = _optional_live2d_reference(
+        file_references,
+        'Physics',
+        kind='live2d.physics',
+        base_url=model3_url,
+        metadata={'live2d_field': 'physics'},
+    )
+    pose_reference = _optional_live2d_reference(
+        file_references,
+        'Pose',
+        kind='live2d.pose',
+        base_url=model3_url,
+        metadata={'live2d_field': 'pose'},
+    )
+    display_info_reference = _optional_live2d_reference(
+        file_references,
+        'DisplayInfo',
+        kind='live2d.display-info',
+        base_url=model3_url,
+        metadata={'live2d_field': 'display_info'},
+    )
+    expression_references = _parse_live2d_expression_references(file_references.get('Expressions'), base_url=model3_url)
+    motion_references, audio_references, text_references, motion_names, has_audio, has_text = _parse_live2d_motion_references(
+        file_references.get('Motions'),
+        base_url=model3_url,
+    )
 
     return Live2DResourceManifest(
-        moc3_url=moc3_url,
-        texture_urls=texture_urls,
-        physics_url=physics_url,
-        display_info_url=display_info_url,
+        moc3_url=moc3_reference.url,
+        texture_urls=tuple(reference.url for reference in texture_references),
+        physics_url=physics_reference.url if physics_reference is not None else '',
+        pose_url=pose_reference.url if pose_reference is not None else '',
+        display_info_url=display_info_reference.url if display_info_reference is not None else '',
+        expression_urls=tuple(reference.url for reference in expression_references),
+        motion_urls=tuple(reference.url for reference in motion_references),
+        audio_urls=tuple(reference.url for reference in audio_references),
+        text_urls=tuple(reference.url for reference in text_references),
         motion_names=motion_names,
-        expression_names=_parse_live2d_expression_names(file_references.get('Expressions')),
+        expression_names=tuple(_context_text(reference.context, 'expression_name') for reference in expression_references),
         has_audio=has_audio,
         has_text=has_text,
+        references=tuple(
+            reference
+            for reference in (
+                moc3_reference,
+                *texture_references,
+                physics_reference,
+                pose_reference,
+                display_info_reference,
+                *expression_references,
+                *motion_references,
+                *audio_references,
+                *text_references,
+            )
+            if reference is not None
+        ),
     )
 
 
-def _required_resource_reference(item: dict[str, Any], field_name: str, *, base_url: str, context: str) -> str:
-    url = _optional_resource_reference(item, field_name, base_url=base_url)
-    if url:
-        return url
+def _required_live2d_reference(
+    item: dict[str, Any],
+    field_name: str,
+    *,
+    spec: _Live2DReferenceSpec,
+    context: str,
+) -> ResourceReference:
+    raw_path = _optional_resource_reference_path(item, field_name)
+    if raw_path:
+        return _resource_reference(kind=spec.kind, raw_path=raw_path, base_url=spec.base_url, metadata=spec.metadata)
     msg = f'{context}.{field_name} must be a non-empty string'
     raise SourceSchemaError(msg)
 
 
-def _required_resource_reference_list(item: dict[str, Any], field_name: str, *, base_url: str, context: str) -> tuple[str, ...]:
+def _required_live2d_reference_list(
+    item: dict[str, Any],
+    field_name: str,
+    *,
+    spec: _Live2DReferenceSpec,
+    context: str,
+) -> tuple[ResourceReference, ...]:
     values = item.get(field_name)
     if not isinstance(values, list):
         msg = f'{context}.{field_name} must be a list'
         raise SourceSchemaError(msg)
 
-    urls = tuple(_resolve_resource_url(base_url, value) for value in values if isinstance(value, str) and value.strip())
-    if urls:
-        return urls
+    references = tuple(
+        _resource_reference(
+            kind=spec.kind,
+            raw_path=value,
+            base_url=spec.base_url,
+            metadata={**spec.metadata, spec.metadata_key: index},
+        )
+        for index, value in enumerate(values)
+        if isinstance(value, str) and value.strip()
+    )
+    if references:
+        return references
     msg = f'{context}.{field_name} must contain at least one non-empty string'
     raise SourceSchemaError(msg)
 
 
-def _optional_resource_reference(item: dict[str, Any], field_name: str, *, base_url: str) -> str:
+def _optional_live2d_reference(
+    item: dict[str, Any],
+    field_name: str,
+    *,
+    kind: ResourceAssetKind,
+    base_url: str,
+    metadata: dict[str, Any],
+) -> ResourceReference | None:
+    raw_path = _optional_resource_reference_path(item, field_name)
+    if not raw_path:
+        return None
+    return _resource_reference(kind=kind, raw_path=raw_path, base_url=base_url, metadata=metadata)
+
+
+def _optional_resource_reference_path(item: dict[str, Any], field_name: str) -> str:
     value = item.get(field_name)
     if not isinstance(value, str) or not value.strip():
         return ''
-    return _resolve_resource_url(base_url, value)
+    return value.strip()
 
 
-def _parse_live2d_motion_metadata(value: Any) -> tuple[tuple[str, ...], bool, bool]:
+def _resource_reference(*, kind: ResourceAssetKind, raw_path: str, base_url: str, metadata: dict[str, Any]) -> ResourceReference:
+    return ResourceReference(kind=kind, raw_path=raw_path.strip(), url=_resolve_resource_url(base_url, raw_path), context=metadata)
+
+
+def _parse_live2d_expression_references(value: Any, *, base_url: str) -> tuple[ResourceReference, ...]:
+    if not isinstance(value, list):
+        return ()
+
+    references: list[ResourceReference] = []
+    for index, expression in enumerate(value):
+        if not isinstance(expression, dict):
+            continue
+        raw_path = _optional_resource_reference_path(expression, 'File')
+        if not raw_path:
+            continue
+        name = expression.get('Name')
+        expression_name = name.strip() if isinstance(name, str) and name.strip() else _resource_basename(raw_path)
+        references.append(
+            _resource_reference(
+                kind='live2d.expression',
+                raw_path=raw_path,
+                base_url=base_url,
+                metadata={
+                    'live2d_field': 'expression',
+                    'expression_index': index,
+                    'expression_name': expression_name,
+                },
+            ),
+        )
+    return tuple(references)
+
+
+def _parse_live2d_motion_references(
+    value: Any,
+    *,
+    base_url: str,
+) -> tuple[tuple[ResourceReference, ...], tuple[ResourceReference, ...], tuple[ResourceReference, ...], tuple[str, ...], bool, bool]:
     if not isinstance(value, dict):
-        return (), False, False
+        return (), (), (), (), False, False
 
     names: list[str] = []
     has_audio = False
     has_text = False
+    motion_references: list[ResourceReference] = []
+    audio_references: list[ResourceReference] = []
+    text_references: list[ResourceReference] = []
     for group_name, motions in value.items():
         normalized_group = group_name.strip() if isinstance(group_name, str) else ''
         if normalized_group:
             names.append(normalized_group)
         if not isinstance(motions, list):
             continue
-        for motion in motions:
-            if not isinstance(motion, dict):
-                continue
-            if not normalized_group:
-                names.append(_resource_basename(motion.get('File')))
-            has_audio = has_audio or _has_non_empty_str(motion.get('Sound'))
-            has_text = has_text or _has_non_empty_str(motion.get('Text'))
+        for motion_index, motion in enumerate(motions):
+            parsed = _parse_live2d_motion_item(motion, base_url=base_url, group=normalized_group, index=motion_index)
+            if parsed.name and not normalized_group:
+                names.append(parsed.name)
+            if parsed.motion is not None:
+                motion_references.append(parsed.motion)
+            if parsed.audio is not None:
+                has_audio = True
+                audio_references.append(parsed.audio)
+            if parsed.text is not None:
+                has_text = True
+                text_references.append(parsed.text)
 
-    return _unique_non_empty(names), has_audio, has_text
+    return tuple(motion_references), tuple(audio_references), tuple(text_references), _unique_non_empty(names), has_audio, has_text
 
 
-def _parse_live2d_expression_names(value: Any) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        return ()
+def _parse_live2d_motion_item(motion: Any, *, base_url: str, group: str, index: int) -> _Live2DMotionReferences:
+    if not isinstance(motion, dict):
+        return _Live2DMotionReferences()
 
-    names: list[str] = []
-    for expression in value:
-        if not isinstance(expression, dict):
-            continue
-        name = expression.get('Name')
-        names.append(name.strip() if isinstance(name, str) else _resource_basename(expression.get('File')))
-    return _unique_non_empty(names)
+    context = {
+        'live2d_field': 'motion',
+        'motion_group': group,
+        'motion_index': index,
+    }
+    motion_file = _optional_resource_reference_path(motion, 'File')
+    sound_file = _optional_resource_reference_path(motion, 'Sound')
+    text_file = _optional_resource_reference_path(motion, 'Text')
+    return _Live2DMotionReferences(
+        motion=_optional_motion_reference(kind='live2d.motion', raw_path=motion_file, base_url=base_url, metadata=context),
+        audio=_optional_motion_reference(
+            kind='live2d.audio',
+            raw_path=sound_file,
+            base_url=base_url,
+            metadata={**context, 'live2d_field': 'audio'},
+        ),
+        text=_optional_motion_reference(
+            kind='live2d.text',
+            raw_path=text_file,
+            base_url=base_url,
+            metadata={**context, 'live2d_field': 'text'},
+        ),
+        name=_resource_basename(motion_file),
+    )
+
+
+def _optional_motion_reference(
+    *,
+    kind: ResourceAssetKind,
+    raw_path: str,
+    base_url: str,
+    metadata: dict[str, Any],
+) -> ResourceReference | None:
+    if not raw_path:
+        return None
+    return _resource_reference(kind=kind, raw_path=raw_path, base_url=base_url, metadata=metadata)
+
+
+def _context_text(context: dict[str, Any], key: str) -> str:
+    value = context.get(key)
+    return value if isinstance(value, str) else ''
 
 
 def _spine_resource_manifest(url: str) -> SpineResourceManifest:

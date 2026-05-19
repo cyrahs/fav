@@ -16,11 +16,13 @@ from src.tool.azurlane_l2d_sources import (
     AzurLaneModelCatalog,
     AzurLaneSourceSnapshots,
     L2DSuSourceSnapshot,
+    ModelEntry,
     NagamiSourceSnapshot,
     SourceFetchMetadata,
     SourceSchemaError,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
+    enumerate_azurlane_model_resources,
     fetch_azurlane_l2d_health_report,
     fetch_l2d_su_snapshot,
     fetch_nagami_snapshot,
@@ -160,6 +162,10 @@ def _source_snapshots(l2d_su_payload: str, nagami_mapping: dict[str, str]) -> Az
 
 def _catalog_entry_by_costume_key(catalog: AzurLaneModelCatalog, costume_key: str) -> list[str]:
     return [entry.id for entry in catalog.entries if entry.costume.key == costume_key]
+
+
+def _catalog_entry(catalog: AzurLaneModelCatalog, entry_id: str) -> ModelEntry:
+    return {entry.id: entry for entry in catalog.entries}[entry_id]
 
 
 def test_parse_l2d_su_catalog_returns_azur_lane_snapshot_data() -> None:
@@ -500,6 +506,236 @@ def test_catalog_merges_duplicate_assets_and_keeps_different_assets_as_variants(
         'https://static.l2d.su/live2d/azurlane/biaoqiang/biaoqiang.model3.json',
         'https://mirror.example/live2d/azurlane/biaoqiang/biaoqiang.model3.json',
     }
+
+
+def test_enumerate_live2d_model3_resources_with_paths_and_contexts() -> None:
+    primary_url = 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'guanghui',
+                    'charName': '光辉',
+                    'charNameEn': 'Illustrious',
+                    'live2d': [
+                        {
+                            'costumeId': 7,
+                            'costumeName': '私人茶会',
+                            'costumeNameEn': 'Our Private Study Session',
+                            'path': primary_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {'guanghui_7': 'Illustrious - Our Private Study Session'},
+    )
+    model3_source = json.dumps(
+        {
+            'Version': 3,
+            'FileReferences': {
+                'Moc': 'guanghui_7.moc3',
+                'Textures': ['textures/texture_00.webp', 'textures/texture_01.webp'],
+                'Physics': 'guanghui_7.physics3.json',
+                'Pose': 'guanghui_7.pose3.json',
+                'DisplayInfo': 'display.cdi3.json',
+                'Expressions': [{'Name': 'smile', 'File': 'expressions/smile.exp3.json'}],
+                'Motions': {
+                    'Idle': [{'File': 'motions/idle.motion3.json', 'Sound': 'voice/idle.wav', 'Text': 'texts/idle.txt'}],
+                    'TapBody': [{'File': 'motions/tap_body.motion3.json'}],
+                },
+            },
+        },
+    )
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    entry = _catalog_entry(catalog, 'azurlane:live2d:guanghui:guanghui_7')
+    enumeration = enumerate_azurlane_model_resources(entry, model3_source=model3_source)
+
+    assert enumeration.model_id == entry.id
+    assert enumeration.source_url == primary_url
+    assert enumeration.fallback_url == 'https://cdn.nagami.moe/live2d/guanghui_7/guanghui_7.model3.json'
+    assert [asset.kind for asset in enumeration.assets] == [
+        'live2d.model3',
+        'live2d.moc3',
+        'live2d.texture',
+        'live2d.texture',
+        'live2d.physics',
+        'live2d.pose',
+        'live2d.display-info',
+        'live2d.expression',
+        'live2d.motion',
+        'live2d.motion',
+        'live2d.audio',
+        'live2d.text',
+    ]
+
+    assets_by_field = {asset.context.get('live2d_field'): asset for asset in enumeration.assets if asset.kind != 'live2d.texture'}
+    assert assets_by_field['model3'].local_path == 'assets/live2d/guanghui_7/guanghui_7.model3.json'
+    assert assets_by_field['physics'].source_url == 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.physics3.json'
+    assert assets_by_field['pose'].local_path == 'assets/live2d/guanghui_7/guanghui_7.pose3.json'
+    assert assets_by_field['expression'].context['expression_name'] == 'smile'
+    assert assets_by_field['audio'].fallback_url == 'https://cdn.nagami.moe/live2d/guanghui_7/voice/idle.wav'
+    assert assets_by_field['text'].local_path == 'assets/live2d/guanghui_7/texts/idle.txt'
+    assert assets_by_field['motion'].context['motion_group'] == 'TapBody'
+    assert all(asset.context['model_id'] == entry.id for asset in enumeration.assets)
+    assert all(asset.context['character_key'] == 'guanghui' for asset in enumeration.assets)
+    assert all(asset.context['costume_key'] == 'guanghui_7' for asset in enumeration.assets)
+
+
+def test_enumerate_spine_resources_parses_atlas_texture_pages() -> None:
+    spine_base_url = 'https://static.example/live2d/azurlane/yilisi_2_doa'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 2,
+                    'charKey': 'yilisi',
+                    'charName': '伊莉丝',
+                    'charNameEn': 'Iris',
+                    'live2d': [],
+                    'spine': [
+                        {
+                            'costumeId': 2,
+                            'costumeName': '某位女神的午后',
+                            'costumeNameEn': 'Afternoon of a Goddess',
+                            'path': spine_base_url,
+                        },
+                    ],
+                },
+            ],
+        ),
+        {},
+    )
+    atlas_source = """
+yilisi_2_doa.webp
+size: 4096,4096
+format: RGBA8888
+
+effects/glow.png
+size: 1024,1024
+format: RGBA8888
+"""
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    entry = _catalog_entry(catalog, 'azurlane:spine:yilisi:yilisi_2_doa')
+    enumeration = enumerate_azurlane_model_resources(entry, atlas_source=atlas_source)
+
+    assert [asset.kind for asset in enumeration.assets] == ['spine.skel', 'spine.atlas', 'spine.texture', 'spine.texture']
+    assert [asset.source_url for asset in enumeration.assets] == [
+        'https://static.example/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.skel',
+        'https://static.example/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.atlas',
+        'https://static.example/live2d/azurlane/yilisi_2_doa/yilisi_2_doa.webp',
+        'https://static.example/live2d/azurlane/yilisi_2_doa/effects/glow.png',
+    ]
+    assert [asset.local_path for asset in enumeration.assets] == [
+        'assets/spine/yilisi_2_doa/yilisi_2_doa.skel',
+        'assets/spine/yilisi_2_doa/yilisi_2_doa.atlas',
+        'assets/spine/yilisi_2_doa/yilisi_2_doa.webp',
+        'assets/spine/yilisi_2_doa/effects/glow.png',
+    ]
+    assert enumeration.assets[-1].context['atlas_page'] == 'effects/glow.png'
+    assert enumeration.assets[-1].context['page_index'] == 1
+
+
+def test_enumerate_live2d_missing_optional_resources_does_not_fail() -> None:
+    primary_url = 'https://static.example/live2d/azurlane/minimal/minimal.model3.json'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 3,
+                    'charKey': 'minimal',
+                    'charName': 'Minimal',
+                    'charNameEn': 'Minimal',
+                    'live2d': [
+                        {
+                            'costumeId': 1,
+                            'costumeName': 'Minimal',
+                            'costumeNameEn': 'Minimal',
+                            'path': primary_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {},
+    )
+    model3_source = json.dumps(
+        {
+            'Version': 3,
+            'FileReferences': {
+                'Moc': 'minimal.moc3',
+                'Textures': ['texture.webp'],
+                'Physics': None,
+                'Pose': {},
+                'Expressions': {},
+                'Motions': [],
+            },
+        },
+    )
+
+    entry = build_azurlane_model_catalog(snapshots).entries[0]
+    enumeration = enumerate_azurlane_model_resources(entry, model3_source=model3_source)
+
+    assert [asset.kind for asset in enumeration.assets] == ['live2d.model3', 'live2d.moc3', 'live2d.texture']
+    assert [asset.local_path for asset in enumeration.assets] == [
+        'assets/live2d/minimal/minimal.model3.json',
+        'assets/live2d/minimal/minimal.moc3',
+        'assets/live2d/minimal/texture.webp',
+    ]
+
+
+def test_enumerated_resource_paths_are_deterministic_and_variant_safe() -> None:
+    primary_url = 'https://static.example/live2d/azurlane/biaoqiang/biaoqiang.model3.json'
+    snapshots = _source_snapshots(
+        _catalog_payload(
+            [
+                {
+                    'charId': 4,
+                    'charKey': 'biaoqiang',
+                    'charName': '标枪',
+                    'charNameEn': 'Javelin',
+                    'live2d': [
+                        {
+                            'costumeId': 1,
+                            'costumeName': '默认',
+                            'costumeNameEn': 'Default',
+                            'path': primary_url,
+                        },
+                    ],
+                    'spine': [],
+                },
+            ],
+        ),
+        {},
+    )
+    model3_source = json.dumps(
+        {
+            'Version': 3,
+            'FileReferences': {
+                'Moc': 'biaoqiang.moc3',
+                'Textures': ['textures/texture.webp'],
+            },
+        },
+    )
+
+    entry = build_azurlane_model_catalog(snapshots).entries[0]
+    first = enumerate_azurlane_model_resources(entry, model3_source=model3_source)
+    second = enumerate_azurlane_model_resources(entry, model3_source=model3_source)
+    variant_resources = replace(entry.resources, primary_url=primary_url.replace('static', 'mirror'))
+    variant = replace(entry, id=f'{entry.id}:asset-test', resources=variant_resources)
+    variant_first = enumerate_azurlane_model_resources(variant, model3_source=model3_source)
+    variant_second = enumerate_azurlane_model_resources(variant, model3_source=model3_source)
+
+    assert [asset.local_path for asset in first.assets] == [asset.local_path for asset in second.assets]
+    assert [asset.local_path for asset in variant_first.assets] == [asset.local_path for asset in variant_second.assets]
+    assert first.assets[0].local_path == 'assets/live2d/biaoqiang/biaoqiang.model3.json'
+    assert variant_first.assets[0].local_path.startswith('assets/live2d/biaoqiang-')
+    assert variant_first.assets[0].local_path.endswith('/biaoqiang.model3.json')
 
 
 def test_validate_catalog_resources_marks_live2d_valid_and_populates_resource_summary() -> None:

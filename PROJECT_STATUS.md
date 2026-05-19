@@ -12,7 +12,7 @@ Maintainer: step-orchestrator coordinator
 
 - Plan file: `plan.md`
 - Requested steps: `1-11`
-- Current step: `3. Add Azur Lane Config And Scheduler Wiring`
+- Current step: `4. Implement Complete Resource Enumeration`
 - Current status: `Done`
 
 ## Harness References
@@ -46,8 +46,8 @@ Maintainer: step-orchestrator coordinator
 - Existing Azur Lane helper: `src/tool/azurlane_l2d_sources.py`.
 - Existing Azur Lane helper tests: `tests/test_azurlane_l2d_sources.py`.
 - Recent approved commits before correction: steps 1-13 of the previous out-of-scope plan; those commits introduced both backend helper code and client-side artifacts.
-- Recent approved correction steps: `step 1: Remove Frontend Viewer Artifacts` removed `viewer/azurlane/` and client-side Azur Lane claims from committed status docs; `step 2: Re-scope Source Helpers` removed renderer/viewer terminology from Azur Lane source helpers while preserving source/catalog/resource/drift behavior; `step 3: Add Azur Lane Config And Scheduler Wiring` added config defaults, scheduler job wiring, API job target support, and a safe no-op crawler placeholder.
-- Pending work: corrected steps `4-11`.
+- Recent approved correction steps: `step 1: Remove Frontend Viewer Artifacts` removed `viewer/azurlane/` and client-side Azur Lane claims from committed status docs; `step 2: Re-scope Source Helpers` removed renderer/viewer terminology from Azur Lane source helpers while preserving source/catalog/resource/drift behavior; `step 3: Add Azur Lane Config And Scheduler Wiring` added config defaults, scheduler job wiring, API job target support, and a safe no-op crawler placeholder; `step 4: Implement Complete Resource Enumeration` added backend helpers to enumerate Live2D and Spine resources with deterministic local paths.
+- Pending work: corrected steps `5-11`.
 - Known risks or blockers: repo-wide Ruff had pre-existing unrelated lint failures in earlier runs; use touched-file Ruff for step verification unless the full repo is intentionally cleaned.
 
 ## Verification
@@ -61,6 +61,7 @@ Maintainer: step-orchestrator coordinator
   - Step 1 approved: `rg -n "viewer/azurlane|Pixi|share link|visual regression|viewer shell" . --glob "!plan.md"` had no matches, `git status --short --ignored=matching plan.md` showed `!! plan.md`, and `git diff --check` passed.
   - Step 2 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed with 22 tests, touched-file Ruff passed, viewer/renderer terminology grep had no matches in the helper/test files, and `git diff --check` passed.
   - Step 3 approved: focused Azur Lane/config/API/scheduler tests passed with 74 tests, touched-file Ruff passed, new `src/web/azurlane.py` and `tests/test_azurlane.py` were confirmed addable/not ignored, and `git diff --check` passed.
+  - Step 4 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed with 26 tests, touched-file Ruff passed, and `git diff --check` passed.
 
 ## Subagent Notes
 
