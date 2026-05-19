@@ -12,7 +12,7 @@ Maintainer: step-orchestrator coordinator
 
 - Plan file: `plan.md`
 - Requested steps: `1-11`
-- Current step: `1. Remove Frontend Viewer Artifacts`
+- Current step: `2. Re-scope Source Helpers`
 - Current status: `Done`
 
 ## Harness References
@@ -46,8 +46,8 @@ Maintainer: step-orchestrator coordinator
 - Existing Azur Lane helper: `src/tool/azurlane_l2d_sources.py`.
 - Existing Azur Lane helper tests: `tests/test_azurlane_l2d_sources.py`.
 - Recent approved commits before correction: steps 1-13 of the previous out-of-scope plan; those commits introduced both backend helper code and client-side artifacts.
-- Recent approved correction steps: `step 1: Remove Frontend Viewer Artifacts` removed `viewer/azurlane/` and client-side Azur Lane claims from committed status docs.
-- Pending work: corrected steps `2-11`.
+- Recent approved correction steps: `step 1: Remove Frontend Viewer Artifacts` removed `viewer/azurlane/` and client-side Azur Lane claims from committed status docs; `step 2: Re-scope Source Helpers` removed renderer/viewer terminology from Azur Lane source helpers while preserving source/catalog/resource/drift behavior.
+- Pending work: corrected steps `3-11`.
 - Known risks or blockers: repo-wide Ruff had pre-existing unrelated lint failures in earlier runs; use touched-file Ruff for step verification unless the full repo is intentionally cleaned.
 
 ## Verification
@@ -59,6 +59,7 @@ Maintainer: step-orchestrator coordinator
   - Whitespace check: `git diff --check`
 - Last known results:
   - Step 1 approved: `rg -n "viewer/azurlane|Pixi|share link|visual regression|viewer shell" . --glob "!plan.md"` had no matches, `git status --short --ignored=matching plan.md` showed `!! plan.md`, and `git diff --check` passed.
+  - Step 2 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed with 22 tests, touched-file Ruff passed, viewer/renderer terminology grep had no matches in the helper/test files, and `git diff --check` passed.
 
 ## Subagent Notes
 

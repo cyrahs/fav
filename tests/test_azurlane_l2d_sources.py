@@ -362,6 +362,7 @@ def test_build_azurlane_model_catalog_merges_exact_nagami_fallback_and_prefers_l
     assert merged.source == 'merged'
     assert merged.resources.primary_url == 'https://static.l2d.su/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
     assert merged.resources.fallback_url == 'https://cdn.nagami.moe/live2d/guanghui_7/guanghui_7.model3.json'
+    assert set(merged.to_dict()) == {'id', 'type', 'source', 'character', 'costume', 'resources', 'resource_summary', 'availability'}
 
     nagami_only = entries['azurlane:live2d:shengluyisi:shengluyisi_2']
     assert nagami_only.source == 'nagami'
@@ -501,7 +502,7 @@ def test_catalog_merges_duplicate_assets_and_keeps_different_assets_as_variants(
     }
 
 
-def test_validate_catalog_resources_marks_live2d_valid_and_populates_capabilities() -> None:
+def test_validate_catalog_resources_marks_live2d_valid_and_populates_resource_summary() -> None:
     primary_url = 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
     snapshots = _source_snapshots(
         _catalog_payload(
@@ -546,20 +547,21 @@ def test_validate_catalog_resources_marks_live2d_valid_and_populates_capabilitie
 
     validation = report.entries[0]
     entry = report.catalog.entries[0]
-    assert validation.is_renderer_ready()
+    assert validation.has_available_resources()
+    assert validation.resource_summary == entry.resource_summary
     assert entry.availability.state == 'valid'
     assert entry.availability.validated_url == primary_url
-    assert entry.capabilities.moc3 == 'https://static.example/live2d/azurlane/guanghui_7/test_model.moc3'
-    assert entry.capabilities.textures == (
+    assert entry.resource_summary.moc3 == 'https://static.example/live2d/azurlane/guanghui_7/test_model.moc3'
+    assert entry.resource_summary.textures == (
         'https://static.example/live2d/azurlane/guanghui_7/textures/texture_00.webp',
         'https://static.example/live2d/azurlane/guanghui_7/textures/texture_01.webp',
     )
-    assert entry.capabilities.physics == 'https://static.example/live2d/azurlane/guanghui_7/test_model.physics3.json'
-    assert entry.capabilities.motions == ('Idle', 'TapBody')
-    assert entry.capabilities.expressions == ('smile',)
-    assert entry.capabilities.has_audio is True
-    assert entry.capabilities.has_text is True
-    assert entry.capabilities.has_display_info is True
+    assert entry.resource_summary.physics == 'https://static.example/live2d/azurlane/guanghui_7/test_model.physics3.json'
+    assert entry.resource_summary.motions == ('Idle', 'TapBody')
+    assert entry.resource_summary.expressions == ('smile',)
+    assert entry.resource_summary.has_audio is True
+    assert entry.resource_summary.has_text is True
+    assert entry.resource_summary.has_display_info is True
     assert entry.resources.display_info_url == 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.cdi3.json'
     assert {check.kind for check in validation.checks} == {
         'live2d.model3',
@@ -618,7 +620,7 @@ def test_validate_catalog_resources_marks_live2d_fallback_only_when_primary_is_b
     entry = report.catalog.entries[0]
     assert entry.availability.state == 'fallback-only'
     assert entry.availability.validated_url == fallback_url
-    assert entry.capabilities.moc3 == 'https://cdn.nagami.moe/live2d/guanghui_7/test_model.moc3'
+    assert entry.resource_summary.moc3 == 'https://cdn.nagami.moe/live2d/guanghui_7/test_model.moc3'
     assert entry.resources.display_info_url == 'https://cdn.nagami.moe/live2d/guanghui_7/display.cdi3.json'
     assert [check.source for check in report.entries[0].checks if check.kind == 'live2d.model3'] == ['primary', 'fallback']
 
@@ -668,7 +670,7 @@ def test_validate_catalog_resources_marks_spine_valid_and_checks_atlas_texture()
     entry = report.catalog.entries[0]
     assert entry.availability.state == 'valid'
     assert entry.availability.validated_url == spine_base_url
-    assert entry.capabilities.textures == (texture_url,)
+    assert entry.resource_summary.textures == (texture_url,)
     assert {check.kind for check in report.entries[0].checks} == {'spine.skel', 'spine.atlas', 'spine.texture'}
 
 
@@ -719,7 +721,7 @@ def test_validate_catalog_resources_checks_l2d_su_spine_suffix_assets_without_su
     entry = report.catalog.entries[0]
     assert entry.availability.state == 'valid'
     assert entry.availability.validated_url == spine_base_url
-    assert entry.capabilities.textures == (texture_url,)
+    assert entry.resource_summary.textures == (texture_url,)
     assert [(check.kind, check.url) for check in report.entries[0].checks] == [
         ('spine.skel', skel_url),
         ('spine.atlas', atlas_url),
@@ -907,7 +909,6 @@ def test_health_report_detects_source_catalog_and_resource_drift() -> None:
         catalog=current_catalog,
         resource_validation=current_validation,
         previous_report=previous_health,
-        renderer_errors=('renderer failed separately',),
     )
 
     assert current_health.drift_summary.l2d_su.etag_changed is True
@@ -917,7 +918,16 @@ def test_health_report_detects_source_catalog_and_resource_drift() -> None:
     assert current_health.resource_health.broken_resource_count == 1
     assert current_health.resource_health.newly_broken_entry_ids == ('azurlane:live2d:new:new',)
     assert current_health.resource_health.recovered_entry_ids == ('azurlane:live2d:old:old',)
-    assert current_health.renderer_health.errors == ('renderer failed separately',)
+    assert set(current_health.to_dict()) == {
+        'checked_at',
+        'source_health',
+        'catalog_health',
+        'resource_health',
+        'drift_summary',
+        'snapshots',
+        'catalog',
+        'resource_validation',
+    }
 
 
 def test_health_report_marks_source_changed_when_only_entry_count_delta_changes() -> None:

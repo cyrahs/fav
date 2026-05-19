@@ -209,7 +209,7 @@ class ModelResources:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelCapabilities:
+class ModelResourceSummary:
     moc3: str = ''
     textures: tuple[str, ...] = ()
     physics: str = ''
@@ -219,15 +219,6 @@ class ModelCapabilities:
     has_audio: bool = False
     has_text: bool = False
     has_display_info: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ModelLayout:
-    mode: Literal['auto-fit'] = 'auto-fit'
-    anchor: tuple[float, float] = (0.5, 0.5)
-    scale_override: float | None = None
-    offset_x: float | None = None
-    offset_y: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,8 +237,7 @@ class ModelEntry:
     character: ModelCharacter
     costume: ModelCostume
     resources: ModelResources
-    capabilities: ModelCapabilities = field(default_factory=ModelCapabilities)
-    layout: ModelLayout = field(default_factory=ModelLayout)
+    resource_summary: ModelResourceSummary = field(default_factory=ModelResourceSummary)
     availability: ModelAvailability = field(default_factory=ModelAvailability)
 
     def to_dict(self) -> dict[str, Any]:
@@ -271,10 +261,10 @@ class ResourceValidationEntry:
     entry_type: L2DSuModelKind
     availability: ModelAvailability
     resources: ModelResources
-    capabilities: ModelCapabilities
+    resource_summary: ModelResourceSummary
     checks: tuple[ResourceCheck, ...] = ()
 
-    def is_renderer_ready(self) -> bool:
+    def has_available_resources(self) -> bool:
         return self.availability.state in {'valid', 'fallback-only'}
 
 
@@ -423,15 +413,6 @@ class ResourceHealthReport:
 
 
 @dataclass(frozen=True, slots=True)
-class RendererHealthReport:
-    errors: tuple[str, ...] = ()
-
-    @property
-    def error_count(self) -> int:
-        return len(self.errors)
-
-
-@dataclass(frozen=True, slots=True)
 class DriftSummary:
     l2d_su: SourceDrift
     nagami: SourceDrift
@@ -459,7 +440,6 @@ class AzurLaneL2DHealthReport:
     catalog_health: CatalogHealthReport
     resource_health: ResourceHealthReport
     drift_summary: DriftSummary
-    renderer_health: RendererHealthReport = field(default_factory=RendererHealthReport)
     snapshots: AzurLaneSourceSnapshots | None = None
     catalog: AzurLaneModelCatalog | None = None
     resource_validation: AzurLaneResourceValidationReport | None = None
@@ -491,7 +471,7 @@ class SpineResourceManifest:
 class ResourceCandidateValidation:
     ok: bool
     url: str
-    capabilities: ModelCapabilities
+    resource_summary: ModelResourceSummary
     display_info_url: str
     checks: tuple[ResourceCheck, ...]
     message: str = ''
@@ -677,7 +657,6 @@ def fetch_azurlane_l2d_health_report(
     client: httpx.Client | None = None,
     validate_entry_ids: Iterable[str] | Literal['all'] | None = None,
     previous_report: AzurLaneL2DHealthReport | None = None,
-    renderer_errors: Iterable[str] = (),
 ) -> AzurLaneL2DHealthReport:
     snapshots = fetch_source_snapshots(timeout=timeout, client=client)
     catalog = build_azurlane_model_catalog(snapshots)
@@ -691,7 +670,6 @@ def fetch_azurlane_l2d_health_report(
         catalog=catalog,
         resource_validation=resource_validation,
         previous_report=previous_report,
-        renderer_errors=renderer_errors,
     )
 
 
@@ -701,7 +679,6 @@ def build_azurlane_l2d_health_report(
     catalog: AzurLaneModelCatalog | None = None,
     resource_validation: AzurLaneResourceValidationReport | None = None,
     previous_report: AzurLaneL2DHealthReport | None = None,
-    renderer_errors: Iterable[str] = (),
 ) -> AzurLaneL2DHealthReport:
     current_catalog = catalog or build_azurlane_model_catalog(snapshots)
     current_resource_validation = resource_validation
@@ -728,7 +705,6 @@ def build_azurlane_l2d_health_report(
         catalog_health=catalog_health,
         resource_health=resource_health,
         drift_summary=drift_summary,
-        renderer_health=RendererHealthReport(errors=tuple(renderer_errors)),
         snapshots=snapshots,
         catalog=current_catalog,
         resource_validation=current_resource_validation,
@@ -987,7 +963,7 @@ def _validated_entry_result(
 ) -> tuple[ModelEntry, ResourceValidationEntry]:
     resources = replace(entry.resources, display_info_url=validation.display_info_url)
     availability = ModelAvailability(state=state, validated_url=validation.url, checked_at=checked_at)
-    updated_entry = replace(entry, resources=resources, capabilities=validation.capabilities, availability=availability)
+    updated_entry = replace(entry, resources=resources, resource_summary=validation.resource_summary, availability=availability)
     return updated_entry, _resource_validation_entry(updated_entry, checks=all_checks)
 
 
@@ -1004,7 +980,7 @@ def _resource_validation_entry(entry: ModelEntry, *, checks: tuple[ResourceCheck
         entry_type=entry.type,
         availability=entry.availability,
         resources=entry.resources,
-        capabilities=entry.capabilities,
+        resource_summary=entry.resource_summary,
         checks=checks,
     )
 
@@ -1044,7 +1020,7 @@ def _validate_live2d_resource_candidate(
         checks=checks,
     )
     required_checks_ok = all(check.ok for check in checks if check.kind in {'live2d.model3', 'live2d.moc3', 'live2d.texture'})
-    capabilities = ModelCapabilities(
+    resource_summary = ModelResourceSummary(
         moc3=manifest.moc3_url,
         textures=manifest.texture_urls,
         physics=manifest.physics_url,
@@ -1059,7 +1035,7 @@ def _validate_live2d_resource_candidate(
         return ResourceCandidateValidation(
             ok=True,
             url=url,
-            capabilities=capabilities,
+            resource_summary=resource_summary,
             display_info_url=display_info_url,
             checks=tuple(checks),
         )
@@ -1068,7 +1044,7 @@ def _validate_live2d_resource_candidate(
     return ResourceCandidateValidation(
         ok=False,
         url=url,
-        capabilities=capabilities,
+        resource_summary=resource_summary,
         display_info_url=display_info_url,
         checks=tuple(checks),
         message=message,
@@ -1109,14 +1085,14 @@ def _validate_spine_resource_candidate(
             texture_urls = ()
 
     checks.extend(_probe_resource(url=texture_url, kind='spine.texture', source=source, context=context) for texture_url in texture_urls)
-    capabilities = ModelCapabilities(textures=texture_urls)
+    resource_summary = ModelResourceSummary(textures=texture_urls)
     if all(check.ok for check in checks):
-        return ResourceCandidateValidation(ok=True, url=url, capabilities=capabilities, display_info_url='', checks=tuple(checks))
+        return ResourceCandidateValidation(ok=True, url=url, resource_summary=resource_summary, display_info_url='', checks=tuple(checks))
 
     return ResourceCandidateValidation(
         ok=False,
         url=url,
-        capabilities=capabilities,
+        resource_summary=resource_summary,
         display_info_url='',
         checks=tuple(checks),
         message=_resource_failure_message(checks),
@@ -1127,7 +1103,7 @@ def _failed_candidate(*, url: str, check: ResourceCheck) -> ResourceCandidateVal
     return ResourceCandidateValidation(
         ok=False,
         url=url,
-        capabilities=ModelCapabilities(),
+        resource_summary=ModelResourceSummary(),
         display_info_url='',
         checks=(check,),
         message=check.message,
