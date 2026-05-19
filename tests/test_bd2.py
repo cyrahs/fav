@@ -103,6 +103,7 @@ def test_bd2_config_defaults_to_disabled_collection_bd2_path() -> None:
 def test_scheduler_registration_includes_bd2(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_config = SimpleNamespace(
         web=SimpleNamespace(
+            azurlane=_job_cfg(),
             bd2=_job_cfg(enabled=False),
             bilibili=_job_cfg(),
             hanime1=_job_cfg(),

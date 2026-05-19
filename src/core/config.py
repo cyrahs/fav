@@ -198,6 +198,12 @@ class BD2(ScheduleJob):
     cron: str = '0 */6 * * *'
 
 
+class AzurLane(ScheduleJob):
+    enabled: bool = False
+    path: Path = Path('./collection/azurlane')
+    cron: str = '0 */6 * * *'
+
+
 class Hanime1Ranking(BaseModel):
     enabled: bool = False
     periods: list[Literal['weekly', 'monthly']] = Field(default_factory=lambda: ['weekly', 'monthly'])
@@ -286,6 +292,7 @@ class Web(BaseModel):
     stellasora: Stellasora = Field(default_factory=Stellasora)
     nikke: Nikke = Field(default_factory=Nikke)
     bd2: BD2 = Field(default_factory=BD2)
+    azurlane: AzurLane = Field(default_factory=AzurLane)
     hanime1: Hanime1 = Field(default_factory=Hanime1)
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono

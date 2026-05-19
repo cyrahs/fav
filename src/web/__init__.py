@@ -1,3 +1,4 @@
+from .azurlane import AzurLane
 from .bd2 import BD2
 from .bilibili import Bilibili
 from .hanime1 import Hanime1
@@ -7,4 +8,4 @@ from .nikke import Nikke
 from .stellasora import StellaSora
 from .telegram import Telegram
 
-__all__ = ['BD2', 'Bilibili', 'Hanime1', 'Jandan', 'Kemono', 'Nikke', 'StellaSora', 'Telegram']
+__all__ = ['BD2', 'AzurLane', 'Bilibili', 'Hanime1', 'Jandan', 'Kemono', 'Nikke', 'StellaSora', 'Telegram']

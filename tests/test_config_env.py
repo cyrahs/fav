@@ -14,6 +14,15 @@ def test_env_nested_override_web_bilibili_path(monkeypatch, tmp_path) -> None:  
     assert cfg.web.bilibili.path == Path(overridden_path)
 
 
+def test_env_nested_override_web_azurlane_path(monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    overridden_path = tmp_path / 'azurlane-from-env'
+    monkeypatch.setenv('WEB__AZURLANE__PATH', str(overridden_path))
+
+    cfg = Config()
+
+    assert cfg.web.azurlane.path == Path(overridden_path)
+
+
 def test_env_nested_override_api_token(monkeypatch) -> None:  # noqa: ANN001
     monkeypatch.setenv('API__TOKEN', 'token-from-env')
 

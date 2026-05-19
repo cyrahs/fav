@@ -262,6 +262,21 @@ def test_create_job_request_accepts_disabled_target() -> None:
     }
 
 
+def test_create_job_request_accepts_azurlane_target() -> None:
+    created = _build_request(target='azurlane', status='pending')
+    service = _build_service(
+        token=_VALID_TOKEN,
+        jobs=[_job(key='azurlane', enabled=False)],
+        request_creator=lambda kind, target: created,
+    )
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post('/api/v2/job-requests', headers=_auth_headers(), json={'target': 'azurlane'})
+
+    assert response.status_code == 202
+    assert response.json()['target'] == 'azurlane'
+
+
 def test_create_job_request_rejects_invalid_target_as_validation_error() -> None:
     service = _build_service(token=_VALID_TOKEN, jobs=[_job(key='bilibili')])
 
