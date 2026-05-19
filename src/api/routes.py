@@ -8,9 +8,13 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 
-from .constants import API_V2_PREFIX, TAG_BD2, TAG_HANIME1, TAG_JOBS, TAG_NIKKE
+from .constants import API_V2_PREFIX, TAG_AZURLANE, TAG_BD2, TAG_HANIME1, TAG_JOBS, TAG_NIKKE
 from .dependencies import get_api_service, require_api_token
 from .schemas import (
+    AzurLaneCharacterDetail,
+    AzurLaneCharacterListResponse,
+    AzurLaneSidebarCharacter,
+    AzurLaneSidebarCharacterListResponse,
     BD2CharacterDetail,
     BD2CharacterListResponse,
     BD2SidebarCharacter,
@@ -31,6 +35,10 @@ from .schemas import (
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
 ApiServiceDep = Annotated[Any, Depends(get_api_service)]
+AzurLaneCharacterKeyPath = Annotated[str, Path(min_length=1, max_length=200)]
+AzurLaneSearchQuery = Annotated[str | None, Query(alias='q', min_length=1)]
+AzurLaneLimitQuery = Annotated[int, Query(ge=1, le=500)]
+AzurLaneOffsetQuery = Annotated[int, Query(ge=0)]
 BD2SearchQuery = Annotated[str | None, Query(alias='q', min_length=1)]
 BD2LimitQuery = Annotated[int, Query(ge=1, le=500)]
 BD2OffsetQuery = Annotated[int, Query(ge=0)]
@@ -40,11 +48,48 @@ NikkeOffsetQuery = Annotated[int, Query(ge=0)]
 Live2DModelIdPath = Annotated[str, Path(min_length=1, max_length=160, pattern=r'^[A-Za-z0-9_.:-]+$')]
 Live2DProfilePath = Annotated[str, Path(min_length=1, max_length=64, pattern=r'^[A-Za-z0-9_-]+$')]
 _DATE_PART_COUNT = 3
+_AZURLANE_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
 _BD2_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
 _NIKKE_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
 _SIDEBAR_RESPONSES = {
     304: {'description': 'Not modified'},
 }
+
+
+def _matches_azurlane_query(character: dict[str, Any], query: str) -> bool:
+    normalized = query.casefold()
+    haystack: list[str] = [
+        str(character.get('character_key') or ''),
+        str(character.get('source_id') or ''),
+        str(character.get('title') or ''),
+        str(character.get('display_name') or ''),
+        str(character.get('name_zh') or ''),
+        str(character.get('name_en') or ''),
+        str(character.get('directory_name') or ''),
+    ]
+    tags = character.get('tags')
+    if isinstance(tags, dict):
+        haystack.extend(str(value) for value in tags.values())
+    source_metadata = character.get('source_metadata')
+    if isinstance(source_metadata, dict):
+        haystack.extend(json.dumps(value, ensure_ascii=False, sort_keys=True) for value in source_metadata.values())
+    return normalized in ' '.join(haystack).casefold()
+
+
+def _azurlane_sidebar_character_payload(character: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'character_key': character.get('character_key') or '',
+        'title': character.get('title') or '',
+        'display_name': character.get('display_name') or character.get('title') or '',
+        'name_zh': character.get('name_zh') or '',
+        'name_en': character.get('name_en') or '',
+        'representative_asset': character.get('representative_asset') if isinstance(character.get('representative_asset'), dict) else None,
+        'model_count': character.get('model_count') or 0,
+        'model_counts': character.get('model_counts') if isinstance(character.get('model_counts'), dict) else {},
+        'source_counts': character.get('source_counts') if isinstance(character.get('source_counts'), dict) else {},
+        'fetched_at': character.get('fetched_at'),
+        'completed_at': character.get('completed_at'),
+    }
 
 
 def _matches_bd2_query(character: dict[str, Any], query: str) -> bool:
@@ -190,7 +235,17 @@ def _bd2_sidebar_sort_key(item: BD2SidebarCharacter) -> tuple[float, float, int]
     )
 
 
-def _sidebar_response_etag(payload: BD2SidebarCharacterListResponse | NikkeSidebarCharacterListResponse) -> str:
+def _azurlane_sidebar_sort_key(item: AzurLaneSidebarCharacter) -> tuple[float, float, str]:
+    return (
+        _sort_timestamp(item.completed_at),
+        _sort_timestamp(item.fetched_at),
+        item.character_key,
+    )
+
+
+def _sidebar_response_etag(
+    payload: AzurLaneSidebarCharacterListResponse | BD2SidebarCharacterListResponse | NikkeSidebarCharacterListResponse,
+) -> str:
     body = json.dumps(payload.model_dump(mode='json'), ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
     return f'"{hashlib.sha256(body).hexdigest()}"'
 
@@ -263,6 +318,69 @@ def create_hanime1_seed(
     service: ApiServiceDep,
 ) -> Hanime1Seed:
     return service.model_hanime1_seed(service.add_hanime1_seed(payload.seed))
+
+
+@router.get(
+    '/azurlane/characters',
+    operation_id='listAzurLaneCharacters',
+    response_model=AzurLaneCharacterListResponse,
+    tags=[TAG_AZURLANE],
+)
+def list_azurlane_characters(
+    service: ApiServiceDep,
+    query: AzurLaneSearchQuery = None,
+    limit: AzurLaneLimitQuery = 200,
+    offset: AzurLaneOffsetQuery = 0,
+) -> AzurLaneCharacterListResponse:
+    characters = service.list_azurlane_characters()
+    if query:
+        characters = [character for character in characters if _matches_azurlane_query(character, query)]
+    total = len(characters)
+    page = characters[offset : offset + limit]
+    items = [service.model_azurlane_character_summary(character) for character in page]
+    return AzurLaneCharacterListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get(
+    '/azurlane/sidebar/characters',
+    operation_id='listAzurLaneSidebarCharacters',
+    response_model=AzurLaneSidebarCharacterListResponse,
+    responses=_SIDEBAR_RESPONSES,
+    tags=[TAG_AZURLANE],
+)
+def list_azurlane_sidebar_characters(
+    request: Request,
+    response: Response,
+    service: ApiServiceDep,
+    query: AzurLaneSearchQuery = None,
+) -> AzurLaneSidebarCharacterListResponse | Response:
+    characters = service.list_azurlane_characters()
+    if query:
+        characters = [character for character in characters if _matches_azurlane_query(character, query)]
+
+    items = [AzurLaneSidebarCharacter.model_validate(_azurlane_sidebar_character_payload(character)) for character in characters]
+    items = sorted(items, key=_azurlane_sidebar_sort_key, reverse=True)
+    payload = AzurLaneSidebarCharacterListResponse(items=items, total=len(items))
+    etag = _sidebar_response_etag(payload)
+    headers = {'Cache-Control': _AZURLANE_SIDEBAR_CACHE_CONTROL, 'ETag': etag}
+    if _etag_matches(request.headers.get('if-none-match'), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    response.headers.update(headers)
+    return payload
+
+
+@router.get(
+    '/azurlane/characters/{character_key}',
+    operation_id='getAzurLaneCharacter',
+    response_model=AzurLaneCharacterDetail,
+    tags=[TAG_AZURLANE],
+)
+def get_azurlane_character(
+    character_key: AzurLaneCharacterKeyPath,
+    service: ApiServiceDep,
+) -> AzurLaneCharacterDetail:
+    return service.model_azurlane_character_detail(service.get_azurlane_character(character_key))
 
 
 @router.get(

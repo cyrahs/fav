@@ -12,6 +12,7 @@ HEADER_WWW_AUTHENTICATE = 'WWW-Authenticate'
 MAX_PORT = 65535
 OPENAPI_URL = '/openapi.json'
 TAG_BD2 = 'bd2'
+TAG_AZURLANE = 'azurlane'
 TAG_HANIME1 = 'hanime1'
 TAG_JOBS = 'jobs'
 TAG_NIKKE = 'nikke'

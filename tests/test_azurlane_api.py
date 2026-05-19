@@ -1,17 +1,32 @@
-# ruff: noqa: INP001, S101, PLR0913, PLR2004, SLF001
+# ruff: noqa: INP001, S101, S105, PLR0913, PLR2004, SLF001
 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 import src.api.azurlane as azurlane_module
+from src.api.app import create_app
 from src.api.azurlane import AzurLaneAssetNotFoundError, AzurLaneCharacterNotFoundError, AzurLaneLibrary
+from src.api.service import FavApiService
 
+_VALID_TOKEN = 'token-for-tests'
+_FIXED_NOW = datetime(2026, 5, 19, 0, 0, tzinfo=UTC)
 _STATIC_CHARACTER_PREFIX = '/static/azurlane/javelin%20-%20Javelin'
+
+
+class _RuntimeService:
+    def close(self) -> None:
+        return None
+
+
+def _auth_headers(token: str = _VALID_TOKEN) -> dict[str, str]:
+    return {'Authorization': f'Bearer {token}'}
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -240,6 +255,46 @@ def _create_azurlane_fixture(root: Path) -> Path:
     return root
 
 
+def _add_minimal_azurlane_character(
+    root: Path,
+    *,
+    character_key: str,
+    name_en: str,
+    completed_at: str,
+    source_id: int,
+) -> None:
+    _write_json(
+        root / f'{character_key} - {name_en}' / 'manifest.json',
+        {
+            'schema_version': 1,
+            'source': 'azurlane',
+            'character_key': character_key,
+            'source_id': source_id,
+            'name_zh': '',
+            'name_en': name_en,
+            'source_metadata': {'sources': ['l2d.su']},
+            'fetched_at': completed_at,
+            'completed_at': completed_at,
+            'active': True,
+            'model_counts': {'live2d': 0, 'spine': 0, 'total': 0},
+            'asset_counts': {},
+            'models': [],
+        },
+    )
+
+
+def _build_service(root: Path) -> FavApiService:
+    return FavApiService(
+        dsn='postgresql://db.local/fav',
+        token=_VALID_TOKEN,
+        hanime1_video_fetcher=lambda _dsn: [],
+        now_provider=lambda: _FIXED_NOW,
+        job_provider=list,
+        runtime_service=_RuntimeService(),
+        azurlane_library=AzurLaneLibrary(root),
+    )
+
+
 def test_azurlane_library_discovers_manifests_and_uses_summary_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -295,9 +350,7 @@ def test_get_azurlane_character_shapes_models_and_asset_urls(tmp_path: Path) -> 
     assert live2d['source_urls']['fallback'] == 'https://fallback.example/live2d/azurlane/javelin/javelin.model3.json'
     assert live2d['availability']['archive_state'] == 'complete'
     assert live2d['files']['model3']['path'] == 'assets/live2d/javelin/javelin.model3.json'
-    assert live2d['files']['model3']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/javelin/javelin.model3.json?v=' + (
-        'b' * 64
-    )
+    assert live2d['files']['model3']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/javelin/javelin.model3.json?v=' + ('b' * 64)
     assert live2d['files']['textures'][0]['content_type'] == 'image/webp'
     assert live2d['files']['textures'][0]['available'] is True
     assert live2d['files']['textures'][0]['field'] == 'texture'
@@ -307,6 +360,139 @@ def test_get_azurlane_character_shapes_models_and_asset_urls(tmp_path: Path) -> 
 
     with pytest.raises(AzurLaneCharacterNotFoundError):
         library.get_character('missing')
+
+
+def test_azurlane_character_routes_require_authorization(tmp_path: Path) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        missing_auth_response = client.get('/api/v2/azurlane/characters')
+        invalid_token_response = client.get('/api/v2/azurlane/characters', headers=_auth_headers('wrong-token'))
+
+    assert missing_auth_response.status_code == 401
+    assert missing_auth_response.headers['WWW-Authenticate'] == 'Bearer realm="fav-api"'
+    assert missing_auth_response.json()['error']['code'] == 'missing_authorization'
+    assert invalid_token_response.status_code == 403
+    assert invalid_token_response.json()['error']['code'] == 'invalid_token'
+
+
+def test_list_azurlane_characters_supports_pagination_and_search(tmp_path: Path) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    _add_minimal_azurlane_character(
+        root,
+        character_key='z23',
+        name_en='Z23',
+        completed_at='2026-05-19T00:01:00+00:00',
+        source_id=23,
+    )
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        page_response = client.get('/api/v2/azurlane/characters?limit=1&offset=1', headers=_auth_headers())
+        search_response = client.get('/api/v2/azurlane/characters?q=javelin', headers=_auth_headers())
+        source_response = client.get('/api/v2/azurlane/characters?q=merged', headers=_auth_headers())
+
+    assert page_response.status_code == 200
+    assert page_response.json()['total'] == 2
+    assert page_response.json()['limit'] == 1
+    assert page_response.json()['offset'] == 1
+    assert [item['character_key'] for item in page_response.json()['items']] == ['z23']
+    assert search_response.status_code == 200
+    assert search_response.json()['total'] == 1
+    assert search_response.json()['items'][0]['character_key'] == 'javelin'
+    assert source_response.status_code == 200
+    assert source_response.json()['total'] == 1
+    assert source_response.json()['items'][0]['character_key'] == 'javelin'
+
+
+def test_list_azurlane_sidebar_characters_returns_etagged_light_payload(tmp_path: Path) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    _add_minimal_azurlane_character(
+        root,
+        character_key='z23',
+        name_en='Z23',
+        completed_at='2026-05-19T00:01:00+00:00',
+        source_id=23,
+    )
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/azurlane/sidebar/characters', headers=_auth_headers())
+        query_response = client.get('/api/v2/azurlane/sidebar/characters?q=标枪', headers=_auth_headers())
+        cached_response = client.get(
+            '/api/v2/azurlane/sidebar/characters',
+            headers={**_auth_headers(), 'If-None-Match': response.headers['etag']},
+        )
+
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'public, max-age=300'
+    assert response.headers['etag'].startswith('"')
+    payload = response.json()
+    assert payload['total'] == 2
+    assert [item['character_key'] for item in payload['items']] == ['z23', 'javelin']
+    javelin = payload['items'][1]
+    assert set(javelin) == {
+        'character_key',
+        'title',
+        'display_name',
+        'name_zh',
+        'name_en',
+        'representative_asset',
+        'model_count',
+        'model_counts',
+        'source_counts',
+        'fetched_at',
+        'completed_at',
+    }
+    assert javelin['representative_asset']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/javelin/textures/texture_00.webp?v=' + (
+        'c' * 64
+    )
+    assert query_response.status_code == 200
+    assert query_response.json()['total'] == 1
+    assert query_response.json()['items'][0]['character_key'] == 'javelin'
+    assert cached_response.status_code == 304
+    assert cached_response.content == b''
+    assert cached_response.headers['cache-control'] == 'public, max-age=300'
+    assert cached_response.headers['etag'] == response.headers['etag']
+
+
+def test_get_azurlane_character_route_returns_models_and_assets(tmp_path: Path) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/azurlane/characters/javelin', headers=_auth_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['character_key'] == 'javelin'
+    assert payload['active'] is True
+    assert payload['model_counts'] == {'live2d': 1, 'spine': 1, 'total': 2}
+    assert [model['model_id'] for model in payload['models']] == [
+        'azurlane:live2d:javelin:javelin',
+        'azurlane:spine:javelin:javelin_spine',
+    ]
+    assert payload['live2d_models'][0]['files']['model3']['path'] == 'assets/live2d/javelin/javelin.model3.json'
+    assert payload['spine_models'][0]['files']['atlas']['path'] == 'assets/spine/javelin_spine/javelin_spine.atlas'
+    assert len(payload['assets']) == 7
+
+
+def test_get_azurlane_character_route_returns_not_found(tmp_path: Path) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/azurlane/characters/missing', headers=_auth_headers())
+
+    assert response.status_code == 404
+    assert response.json() == {
+        'error': {
+            'code': 'azurlane_character_not_found',
+            'message': 'Azur Lane character not found.',
+            'details': None,
+        },
+    }
 
 
 def test_azurlane_asset_resolution_is_static_and_root_safe(tmp_path: Path) -> None:

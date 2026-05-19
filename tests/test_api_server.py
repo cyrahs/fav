@@ -122,6 +122,12 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     assert docs_response.status_code == 200
     assert openapi_response.status_code == 200
     payload = openapi_response.json()
+    assert '/api/v2/azurlane/characters' in payload['paths']
+    assert '/api/v2/azurlane/sidebar/characters' in payload['paths']
+    assert '/api/v2/azurlane/characters/{character_key}' in payload['paths']
+    assert '304' in payload['paths']['/api/v2/azurlane/sidebar/characters']['get']['responses']
+    assert '/api/v2/azurlane/assets/{character_key}/{asset_path}' not in payload['paths']
+    assert '/api/v2/azurlane/characters/{character_key}/live2d-models/{model_id}/view-overrides/{profile}' not in payload['paths']
     assert '/api/v2/bd2/characters' in payload['paths']
     assert '/api/v2/bd2/characters/{content_id}' in payload['paths']
     assert '/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}' in payload['paths']

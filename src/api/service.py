@@ -10,6 +10,7 @@ from src.service.jobs import ScheduledJob, build_jobs
 from src.tool.control_queue import ControlRequest, create_control_request_sync, get_control_request_sync
 from src.tool.hanime1_series import Hanime1SeriesService
 
+from .azurlane import AzurLaneCharacterNotFoundError, AzurLaneLibrary
 from .bd2 import BD2CharacterNotFoundError, BD2Library
 from .config import fetch_hanime1_videos_from_db
 from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
@@ -26,6 +27,8 @@ from .live2d_overrides import (
 )
 from .nikke import NikkeCharacterNotFoundError, NikkeLibrary
 from .schemas import (
+    AzurLaneCharacterDetail,
+    AzurLaneCharacterSummary,
     BD2CharacterDetail,
     BD2CharacterSummary,
     Hanime1Seed,
@@ -59,6 +62,7 @@ class FavApiService:
         control_request_creator: ControlRequestCreator | None = None,
         control_request_getter: ControlRequestGetter | None = None,
         runtime_service: Hanime1SeriesService | None = None,
+        azurlane_library: AzurLaneLibrary | None = None,
         nikke_library: NikkeLibrary | None = None,
         bd2_library: BD2Library | None = None,
         live2d_view_override_store: Live2DViewOverrideStore | None = None,
@@ -80,6 +84,7 @@ class FavApiService:
             user_lang=app_config.web.hanime1.user_lang,
             proxy=app_config.proxy or None,
         )
+        self._azurlane_library = azurlane_library or AzurLaneLibrary(app_config.web.azurlane.path)
         self._nikke_library = nikke_library or NikkeLibrary(app_config.web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(app_config.web.bd2.path)
         self._live2d_view_override_store = live2d_view_override_store or PostgresLive2DViewOverrideStore(self._dsn)
@@ -170,6 +175,22 @@ class FavApiService:
             log.exception('Failed to add Hanime1 series seed')
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
         return serialize_seed(created_seed)
+
+    def list_azurlane_characters(self) -> list[dict[str, object]]:
+        try:
+            return self._azurlane_library.list_characters()
+        except Exception:
+            log.exception('Failed to list Azur Lane characters')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+    def get_azurlane_character(self, character_key: str) -> dict[str, object]:
+        try:
+            return self._azurlane_library.get_character(character_key)
+        except AzurLaneCharacterNotFoundError:
+            raise ApiError(status_code=404, code='azurlane_character_not_found', message='Azur Lane character not found.') from None
+        except Exception:
+            log.exception('Failed to get Azur Lane character character_key=%s', character_key)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
     def list_bd2_characters(self) -> list[dict[str, object]]:
         try:
@@ -365,6 +386,14 @@ class FavApiService:
     @staticmethod
     def model_hanime1_video(payload: dict[str, str | None]) -> Hanime1Video:
         return Hanime1Video.model_validate(payload)
+
+    @staticmethod
+    def model_azurlane_character_summary(payload: dict[str, object]) -> AzurLaneCharacterSummary:
+        return AzurLaneCharacterSummary.model_validate(payload)
+
+    @staticmethod
+    def model_azurlane_character_detail(payload: dict[str, object]) -> AzurLaneCharacterDetail:
+        return AzurLaneCharacterDetail.model_validate(payload)
 
     @staticmethod
     def model_bd2_character_summary(payload: dict[str, object]) -> BD2CharacterSummary:

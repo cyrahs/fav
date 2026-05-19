@@ -143,6 +143,114 @@ class Live2DViewOverride(Live2DViewOverrideValue):
     profile: str
 
 
+class AzurLaneAsset(ApiSchema):
+    kind: str
+    path: str
+    url: str
+    source_url: str = ''
+    normalized_url: str = ''
+    downloaded_url: str = ''
+    fallback_url: str = ''
+    source_urls: dict[str, Any] = Field(default_factory=dict)
+    original_filename: str = ''
+    content_type: str = ''
+    size: int = 0
+    sha256: str = ''
+    status: str = ''
+    available: bool = False
+    failed_count: int = 0
+    error: str = ''
+    last_attempt_at: str | None = None
+    next_retry_at: str | None = None
+    last_seen_at: str | None = None
+    model_id: str = ''
+    model_type: str = ''
+    character_key: str = ''
+    costume_key: str = ''
+    field: str = ''
+    catalog_source: str = ''
+    context_hashes: list[str] = Field(default_factory=list)
+    contexts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AzurLaneCharacterSummary(ApiSchema):
+    schema_version: int = 0
+    source: str = 'azurlane'
+    character_key: str
+    source_id: int | None = None
+    title: str
+    display_name: str
+    name_zh: str = ''
+    name_en: str = ''
+    directory_name: str = ''
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
+    fetched_at: str | None = None
+    completed_at: str | None = None
+    model_counts: dict[str, int] = Field(default_factory=dict)
+    asset_counts: dict[str, int] = Field(default_factory=dict)
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    tags: dict[str, str] = Field(default_factory=dict)
+    representative_asset: AzurLaneAsset | None = None
+    model_count: int = 0
+
+
+class AzurLaneCharacterListResponse(ApiSchema):
+    items: list[AzurLaneCharacterSummary]
+    total: int
+    limit: int | None = None
+    offset: int = 0
+
+
+class AzurLaneSidebarCharacter(ApiSchema):
+    character_key: str
+    title: str
+    display_name: str
+    name_zh: str = ''
+    name_en: str = ''
+    representative_asset: AzurLaneAsset | None = None
+    model_count: int = 0
+    model_counts: dict[str, int] = Field(default_factory=dict)
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    fetched_at: str | None = None
+    completed_at: str | None = None
+
+
+class AzurLaneSidebarCharacterListResponse(ApiSchema):
+    items: list[AzurLaneSidebarCharacter]
+    total: int
+
+
+class AzurLaneCostume(ApiSchema):
+    key: str = ''
+    id: int | None = None
+    name_zh: str = ''
+    name_en: str = ''
+
+
+class AzurLaneModel(ApiSchema):
+    model_id: str = ''
+    type: str = ''
+    source: str = ''
+    character_key: str = ''
+    costume: AzurLaneCostume = Field(default_factory=AzurLaneCostume)
+    source_urls: dict[str, Any] = Field(default_factory=dict)
+    availability: dict[str, Any] = Field(default_factory=dict)
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
+    fetched_at: str | None = None
+    completed_at: str | None = None
+    asset_counts: dict[str, int] = Field(default_factory=dict)
+    files: dict[str, Any] = Field(default_factory=dict)
+    assets: list[AzurLaneAsset] = Field(default_factory=list)
+
+
+class AzurLaneCharacterDetail(AzurLaneCharacterSummary):
+    active: bool = True
+    models: list[AzurLaneModel] = Field(default_factory=list)
+    live2d_models: list[AzurLaneModel] = Field(default_factory=list)
+    spine_models: list[AzurLaneModel] = Field(default_factory=list)
+    assets: list[AzurLaneAsset] = Field(default_factory=list)
+
+
 class BD2Asset(ApiSchema):
     kind: str
     path: str
