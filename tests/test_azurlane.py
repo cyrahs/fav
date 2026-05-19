@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101
+# ruff: noqa: INP001, S101, SLF001
 
 from __future__ import annotations
 
@@ -53,6 +53,88 @@ class FakeAzurLaneDatabase:
     async def query_db(self, query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:  # noqa: C901, PLR0911, PLR0912, PLR0915
         sql = ' '.join(query.split())
         self.queries.append(sql)
+        if sql.startswith('SELECT character_key, source_id, name_zh, name_en, manifest_path'):
+            return [
+                {
+                    'character_key': key,
+                    'source_id': row.get('source_id'),
+                    'name_zh': row.get('name_zh', ''),
+                    'name_en': row.get('name_en', ''),
+                    'manifest_path': row.get('manifest_path', ''),
+                    'active': row.get('active', True),
+                    'source_metadata': row.get('source_metadata', {}),
+                    'fetched_at': row.get('fetched_at'),
+                    'completed_at': 'completed' if row.get('completed') else None,
+                }
+                for key, row in sorted(self.characters.items())
+                if row.get('active', True)
+            ]
+        if sql.startswith('SELECT model_id, model_type, source, character_key'):
+            return [
+                {
+                    'model_id': model_id,
+                    'model_type': row.get('model_type', ''),
+                    'source': row.get('source', ''),
+                    'character_key': row.get('character_key', ''),
+                    'costume_key': row.get('costume_key', ''),
+                    'costume_id': row.get('costume_id'),
+                    'costume_name_zh': row.get('costume_name_zh', ''),
+                    'costume_name_en': row.get('costume_name_en', ''),
+                    'primary_url': row.get('primary_url', ''),
+                    'fallback_url': row.get('fallback_url', ''),
+                    'display_info_url': row.get('display_info_url', ''),
+                    'availability_state': row.get('availability_state', 'unchecked'),
+                    'active': row.get('active', True),
+                    'source_metadata': row.get('source_metadata', {}),
+                    'fetched_at': row.get('fetched_at'),
+                    'completed_at': 'completed' if row.get('completed') else None,
+                }
+                for model_id, row in sorted(
+                    self.models.items(),
+                    key=lambda item: (
+                        str(item[1].get('character_key', '')),
+                        str(item[1].get('model_type', '')),
+                        str(item[1].get('costume_key', '')),
+                        item[0],
+                    ),
+                )
+                if row.get('active', True)
+            ]
+        if 'FROM azurlane_model_assets AS ma JOIN azurlane_assets AS a' in sql:
+            model_ids = {str(model_id) for model_id in params[0]}
+            rows: list[dict[str, Any]] = []
+            for relation in self.model_assets:
+                if relation['model_id'] not in model_ids:
+                    continue
+                asset = self.assets[relation['url']]
+                rows.append(
+                    {
+                        'model_id': relation['model_id'],
+                        'url': relation['url'],
+                        'kind': relation['kind'],
+                        'context_hash': relation['context_hash'],
+                        'local_path': relation['local_path'],
+                        'original_filename': relation['original_filename'],
+                        'relation_fallback_url': relation['fallback_url'],
+                        'context_json': relation['context_json'],
+                        'normalized_url': asset.get('normalized_url', ''),
+                        'downloaded_url': asset.get('downloaded_url', ''),
+                        'asset_fallback_url': asset.get('fallback_url', ''),
+                        'sha256': asset.get('sha256', ''),
+                        'size': asset.get('size', 0),
+                        'content_type': asset.get('content_type', ''),
+                        'status': asset.get('status', 'pending'),
+                        'failed_count': asset.get('failed_count', 0),
+                        'last_error': asset.get('last_error', ''),
+                        'last_attempt_at': asset.get('last_attempt_at'),
+                        'next_retry_at': asset.get('next_retry_at'),
+                        'last_seen_at': asset.get('last_seen_at'),
+                    },
+                )
+            return sorted(
+                rows,
+                key=lambda row: (row['model_id'], row['kind'], row['local_path'], row['url'], row['context_hash']),
+            )
         if sql.startswith('UPDATE azurlane_characters SET active = FALSE'):
             for row in self.characters.values():
                 row['active'] = False
@@ -397,6 +479,99 @@ def test_azurlane_update_downloads_live2d_assets(tmp_path: Path, monkeypatch: py
     assert fake_db.assets[texture_url]['status'] == 'downloaded'
 
 
+def test_azurlane_update_writes_backend_manifests_and_source_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_database(monkeypatch)
+    model3_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
+    moc_url = 'https://static.example/live2d/azurlane/javelin/javelin.moc3'
+    texture_url = 'https://static.example/live2d/azurlane/javelin/textures/texture_00.webp'
+    model3_payload = _live2d_model3_payload()
+    catalog = _catalog_payload(
+        [
+            {
+                'charId': 1,
+                'charKey': 'javelin',
+                'charName': '标枪',
+                'charNameEn': 'Javelin',
+                'live2d': [
+                    {
+                        'costumeId': 1,
+                        'costumeName': '默认',
+                        'costumeNameEn': 'Default',
+                        'path': model3_url,
+                    },
+                ],
+                'spine': [],
+            },
+        ],
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == L2D_SU_CATALOG_URL:
+            return httpx.Response(200, text=catalog, headers={'etag': '"l2d"'})
+        if url == NAGAMI_MAPPING_BUNDLE_URL:
+            return httpx.Response(200, text=_nagami_bundle({'javelin': 'Javelin'}), headers={'etag': '"nagami"'})
+        if url == model3_url:
+            return httpx.Response(200, text=model3_payload, headers={'content-type': 'application/json'})
+        if url == moc_url:
+            return httpx.Response(200, content=b'moc-bytes', headers={'content-type': 'application/octet-stream'})
+        if url == texture_url:
+            return httpx.Response(200, content=b'webp-bytes', headers={'content-type': 'image/webp'})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    source_root = tmp_path / '_source'
+    l2d_snapshot = json.loads((source_root / 'l2d-su-snapshot.json').read_text(encoding='utf-8'))
+    nagami_snapshot = json.loads((source_root / 'nagami-snapshot.json').read_text(encoding='utf-8'))
+    health_report = json.loads((source_root / 'health-report.json').read_text(encoding='utf-8'))
+    manifest = json.loads((tmp_path / 'javelin - Javelin/manifest.json').read_text(encoding='utf-8'))
+    character = json.loads((tmp_path / 'javelin - Javelin/character.json').read_text(encoding='utf-8'))
+
+    assert l2d_snapshot['metadata']['etag'] == '"l2d"'
+    assert nagami_snapshot['metadata']['etag'] == '"nagami"'
+    assert health_report['catalog_health']['entry_count'] == 1
+    assert manifest['schema_version'] == 1
+    assert manifest['character_key'] == 'javelin'
+    assert manifest['model_counts'] == {'live2d': 1, 'spine': 0, 'total': 1}
+    assert character['models'][0]['model_id'] == 'azurlane:live2d:javelin:javelin'
+
+    model = manifest['models'][0]
+    assert model['source'] == 'merged'
+    assert model['source_urls'] == {
+        'primary': model3_url,
+        'fallback': 'https://cdn.nagami.moe/live2d/javelin/javelin.model3.json',
+        'display_info': '',
+    }
+    assert model['availability']['archive_state'] == 'complete'
+    assert model['availability']['asset_status_counts'] == {'downloaded': 3}
+
+    assets_by_kind = {asset['kind']: asset for asset in model['assets']}
+    assert assets_by_kind['live2d.model3']['sha256'] == hashlib.sha256(model3_payload.encode()).hexdigest()
+    assert assets_by_kind['live2d.model3']['fallback_url'] == 'https://cdn.nagami.moe/live2d/javelin/javelin.model3.json'
+    assert assets_by_kind['live2d.moc3']['fallback_url'] == 'https://cdn.nagami.moe/live2d/javelin/javelin.moc3'
+    assert assets_by_kind['live2d.texture']['content_type'] == 'image/webp'
+    assert assets_by_kind['live2d.texture']['source_urls']['primary'] == texture_url
+    assert assets_by_kind['live2d.texture']['available'] is True
+    assert assets_by_kind['live2d.texture']['contexts'][0]['fallback_model_url'] == (
+        'https://cdn.nagami.moe/live2d/javelin/javelin.model3.json'
+    )
+
+
 def test_azurlane_update_downloads_spine_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_db = _install_fake_database(monkeypatch)
     spine_url = 'https://static.example/live2d/azurlane/iris_2'
@@ -678,3 +853,102 @@ def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplet
     assert fake_db.models[model_id]['source_metadata'] == source_metadata
     assert all(not sql.startswith('UPDATE azurlane_characters SET active = FALSE') for sql in fake_db.queries)
     assert all(not sql.startswith('UPDATE azurlane_models SET active = FALSE') for sql in fake_db.queries)
+
+
+def test_azurlane_backend_manifests_are_deterministically_ordered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    manifest_path = tmp_path / 'javelin - Javelin/manifest.json'
+    live2d_model_id = 'azurlane:live2d:javelin:javelin'
+    spine_model_id = 'azurlane:spine:javelin:javelin_spine'
+    model3_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
+    moc_url = 'https://static.example/live2d/azurlane/javelin/javelin.moc3'
+    texture_url = 'https://static.example/live2d/azurlane/javelin/textures/texture_00.webp'
+
+    fake_db.characters['javelin'] = {
+        'character_key': 'javelin',
+        'source_id': 1,
+        'name_zh': '标枪',
+        'name_en': 'Javelin',
+        'manifest_path': manifest_path.as_posix(),
+        'source_metadata': {'sources': ['l2d.su'], 'model_ids': [spine_model_id, live2d_model_id]},
+        'active': True,
+    }
+    fake_db.models[spine_model_id] = {
+        'model_id': spine_model_id,
+        'model_type': 'spine',
+        'source': 'l2d.su',
+        'character_key': 'javelin',
+        'costume_key': 'javelin_spine',
+        'costume_id': 2,
+        'costume_name_zh': '动态',
+        'costume_name_en': 'Dynamic',
+        'primary_url': 'https://static.example/live2d/azurlane/javelin_spine',
+        'fallback_url': '',
+        'availability_state': 'unchecked',
+        'source_metadata': {'id': spine_model_id},
+        'active': True,
+    }
+    fake_db.models[live2d_model_id] = {
+        'model_id': live2d_model_id,
+        'model_type': 'live2d',
+        'source': 'l2d.su',
+        'character_key': 'javelin',
+        'costume_key': 'javelin',
+        'costume_id': 1,
+        'costume_name_zh': '默认',
+        'costume_name_en': 'Default',
+        'primary_url': model3_url,
+        'fallback_url': '',
+        'availability_state': 'unchecked',
+        'source_metadata': {'id': live2d_model_id},
+        'active': True,
+        'completed': True,
+    }
+    for url, kind, local_path, content in (
+        (texture_url, 'live2d.texture', 'assets/live2d/javelin/textures/texture_00.webp', b'texture'),
+        (moc_url, 'live2d.moc3', 'assets/live2d/javelin/javelin.moc3', b'moc'),
+        (model3_url, 'live2d.model3', 'assets/live2d/javelin/javelin.model3.json', b'model3'),
+    ):
+        sha256 = hashlib.sha256(content).hexdigest()
+        fake_db.assets[url] = {
+            'url': url,
+            'normalized_url': url,
+            'kind': kind,
+            'status': 'downloaded',
+            'sha256': sha256,
+            'size': len(content),
+            'content_type': 'application/octet-stream',
+            'downloaded_url': url,
+            'failed_count': 0,
+            'last_error': '',
+        }
+        fake_db.model_assets.insert(
+            0,
+            {
+                'model_id': live2d_model_id,
+                'url': url,
+                'kind': kind,
+                'context_hash': f'hash-{kind}',
+                'local_path': local_path,
+                'original_filename': Path(local_path).name,
+                'fallback_url': '',
+                'context_json': {'kind': kind, 'model_id': live2d_model_id},
+            },
+        )
+
+    crawler = AzurLane(path=tmp_path, api_request_interval_seconds=0, cdn_request_interval_seconds=0, asset_process_concurrency=1)
+
+    asyncio.run(crawler._write_backend_manifests())
+    first_manifest = manifest_path.read_text(encoding='utf-8')
+    asyncio.run(crawler._write_backend_manifests())
+    second_manifest = manifest_path.read_text(encoding='utf-8')
+
+    assert second_manifest == first_manifest
+    payload = json.loads(first_manifest)
+    assert [model['model_id'] for model in payload['models']] == [live2d_model_id, spine_model_id]
+    assert [asset['kind'] for asset in payload['models'][0]['assets']] == ['live2d.model3', 'live2d.moc3', 'live2d.texture']
+    assert [asset['local_path'] for asset in payload['models'][0]['assets']] == [
+        'assets/live2d/javelin/javelin.model3.json',
+        'assets/live2d/javelin/javelin.moc3',
+        'assets/live2d/javelin/textures/texture_00.webp',
+    ]

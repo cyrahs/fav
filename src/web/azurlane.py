@@ -27,6 +27,7 @@ from src.tool.azurlane_l2d_sources import (
     AzurLaneSourceSnapshots,
     ModelEntry,
     SourceSchemaError,
+    build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     enumerate_azurlane_model_resources,
     fetch_source_snapshots,
@@ -68,6 +69,28 @@ _JSON_ASSET_KINDS = {
     'live2d.display-info',
     'live2d.expression',
     'live2d.motion',
+}
+_MANIFEST_SCHEMA_VERSION = 1
+_ASSET_AVAILABLE_STATUS = 'downloaded'
+_ASSET_KIND_ORDER = {
+    kind: index
+    for index, kind in enumerate(
+        (
+            'live2d.model3',
+            'live2d.moc3',
+            'live2d.texture',
+            'live2d.physics',
+            'live2d.pose',
+            'live2d.display-info',
+            'live2d.expression',
+            'live2d.motion',
+            'live2d.audio',
+            'live2d.text',
+            'spine.skel',
+            'spine.atlas',
+            'spine.texture',
+        ),
+    )
 }
 
 _CREATE_SCHEMA_SQL = """
@@ -243,6 +266,21 @@ class _CircuitBreaker:
 
 def _json_dumps(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str)
+
+
+def _pretty_json(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True, default=str) + '\n'
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'.{path.name}.tmp-{os.getpid()}-{secrets.token_hex(4)}')
+    try:
+        tmp.write_text(_pretty_json(data), encoding='utf-8')
+        tmp.replace(path)
+    finally:
+        with suppress(FileNotFoundError):
+            tmp.unlink()
 
 
 def _asset_key(url: str, kind: str) -> tuple[str, str]:
@@ -452,6 +490,257 @@ def _source_snapshots_complete(snapshots: AzurLaneSourceSnapshots) -> bool:
     return not _source_snapshot_errors(snapshots) and _primary_source_model_count(snapshots) > 0
 
 
+def _row_text(row: dict[str, Any], key: str) -> str:
+    value = row.get(key)
+    if value is None:
+        return ''
+    return str(value).strip()
+
+
+def _row_int(row: dict[str, Any], key: str) -> int | None:
+    value = row.get(key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _timestamp_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    text = str(value).strip()
+    return text or None
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _character_manifest_root(base_dir: Path, row: dict[str, Any]) -> Path:
+    manifest_path = _row_text(row, 'manifest_path')
+    if manifest_path:
+        return Path(manifest_path).parent
+
+    character_key = _row_text(row, 'character_key')
+    name = _row_text(row, 'name_en') or _row_text(row, 'name_zh') or character_key
+    safe_name = sanitize(name, max_bytes=120) or character_key
+    return base_dir / f'{character_key} - {safe_name}'
+
+
+def _status_counts(items: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item] = counts.get(item, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
+
+
+def _asset_available(asset: dict[str, Any]) -> bool:
+    return (
+        asset['status'] == _ASSET_AVAILABLE_STATUS
+        and bool(asset['local_path'])
+        and bool(asset['sha256'])
+        and int(asset['size']) > 0
+    )
+
+
+def _archive_state(assets: list[dict[str, Any]]) -> str:
+    if not assets:
+        return 'no-assets'
+    if all(_asset_available(asset) for asset in assets):
+        return 'complete'
+    if any(_asset_available(asset) for asset in assets):
+        return 'partial'
+    return 'unavailable'
+
+
+def _asset_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    url = _row_text(row, 'url')
+    fallback_url = _row_text(row, 'relation_fallback_url') or _row_text(row, 'asset_fallback_url')
+    status = _row_text(row, 'status') or 'pending'
+    return {
+        'url': url,
+        'normalized_url': _row_text(row, 'normalized_url') or url,
+        'downloaded_url': _row_text(row, 'downloaded_url'),
+        'fallback_url': fallback_url,
+        'source_urls': {
+            'primary': url,
+            'fallback': fallback_url,
+            'downloaded': _row_text(row, 'downloaded_url'),
+        },
+        'kind': _row_text(row, 'kind'),
+        'local_path': _row_text(row, 'local_path'),
+        'original_filename': _row_text(row, 'original_filename'),
+        'sha256': _row_text(row, 'sha256'),
+        'size': _row_int(row, 'size') or 0,
+        'content_type': _row_text(row, 'content_type'),
+        'status': status,
+        'available': status == _ASSET_AVAILABLE_STATUS,
+        'failed_count': _row_int(row, 'failed_count') or 0,
+        'error': _row_text(row, 'last_error'),
+        'last_attempt_at': _timestamp_value(row.get('last_attempt_at')),
+        'next_retry_at': _timestamp_value(row.get('next_retry_at')),
+        'last_seen_at': _timestamp_value(row.get('last_seen_at')),
+        'context_hashes': [],
+        'contexts': [],
+    }
+
+
+def _merge_asset_row(assets_by_key: dict[tuple[str, str, str], dict[str, Any]], row: dict[str, Any]) -> None:
+    key = (_row_text(row, 'url'), _row_text(row, 'kind'), _row_text(row, 'local_path'))
+    asset = assets_by_key.setdefault(key, _asset_payload_from_row(row))
+    context_hash = _row_text(row, 'context_hash')
+    context = _json_object(row.get('context_json'))
+    if context_hash and context_hash not in asset['context_hashes']:
+        asset['context_hashes'].append(context_hash)
+    if context and context not in asset['contexts']:
+        asset['contexts'].append(context)
+
+
+def _asset_sort_key(row: dict[str, Any]) -> tuple[int, str, str, str]:
+    return (
+        _ASSET_KIND_ORDER.get(_row_text(row, 'kind'), len(_ASSET_KIND_ORDER)),
+        _row_text(row, 'local_path'),
+        _row_text(row, 'url'),
+        _row_text(row, 'context_hash'),
+    )
+
+
+def _model_assets(asset_rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    assets_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in sorted(asset_rows, key=_asset_sort_key):
+        _merge_asset_row(assets_by_key, row)
+
+    assets = list(assets_by_key.values())
+    for asset in assets:
+        asset['context_hashes'] = sorted(asset['context_hashes'])
+        asset['contexts'] = sorted(asset['contexts'], key=_json_dumps)
+        asset['available'] = _asset_available(asset)
+    return sorted(assets, key=_asset_sort_key)
+
+
+def _model_payload(row: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, Any]:
+    status_counts = _status_counts(asset['status'] for asset in assets)
+    model_id = _row_text(row, 'model_id')
+    primary_url = _row_text(row, 'primary_url')
+    fallback_url = _row_text(row, 'fallback_url')
+    display_info_url = _row_text(row, 'display_info_url')
+    return {
+        'model_id': model_id,
+        'type': _row_text(row, 'model_type'),
+        'source': _row_text(row, 'source'),
+        'character_key': _row_text(row, 'character_key'),
+        'costume': {
+            'key': _row_text(row, 'costume_key'),
+            'id': _row_int(row, 'costume_id'),
+            'name_zh': _row_text(row, 'costume_name_zh'),
+            'name_en': _row_text(row, 'costume_name_en'),
+        },
+        'source_urls': {
+            'primary': primary_url,
+            'fallback': fallback_url,
+            'display_info': display_info_url,
+        },
+        'availability': {
+            'source_state': _row_text(row, 'availability_state') or 'unchecked',
+            'archive_state': _archive_state(assets),
+            'asset_status_counts': status_counts,
+            'available_asset_count': sum(1 for asset in assets if _asset_available(asset)),
+            'asset_count': len(assets),
+            'completed_at': _timestamp_value(row.get('completed_at')),
+        },
+        'source_metadata': _json_object(row.get('source_metadata')),
+        'fetched_at': _timestamp_value(row.get('fetched_at')),
+        'completed_at': _timestamp_value(row.get('completed_at')),
+        'assets': assets,
+        'asset_counts': _status_counts(asset['kind'] for asset in assets),
+    }
+
+
+def _manifest_asset_counts(models: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for model in models:
+        for asset in model['assets']:
+            kind = str(asset.get('kind') or '')
+            if not kind:
+                continue
+            counts[kind] = counts.get(kind, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
+
+
+def _model_counts(models: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts = {'live2d': 0, 'spine': 0, 'total': 0}
+    for model in models:
+        model_type = str(model.get('type') or '')
+        if model_type in counts:
+            counts[model_type] += 1
+        counts['total'] += 1
+    return counts
+
+
+def _character_payload(row: dict[str, Any], models: list[dict[str, Any]], root: Path) -> dict[str, Any]:
+    character_key = _row_text(row, 'character_key')
+    source_id = _row_int(row, 'source_id')
+    return {
+        'schema_version': _MANIFEST_SCHEMA_VERSION,
+        'source': 'azurlane',
+        'character_key': character_key,
+        'source_id': source_id,
+        'name_zh': _row_text(row, 'name_zh'),
+        'name_en': _row_text(row, 'name_en'),
+        'directory_name': root.name,
+        'manifest_path': (root / 'manifest.json').as_posix(),
+        'source_metadata': _json_object(row.get('source_metadata')),
+        'fetched_at': _timestamp_value(row.get('fetched_at')),
+        'completed_at': _timestamp_value(row.get('completed_at')),
+        'active': bool(row.get('active', True)),
+        'model_counts': _model_counts(models),
+        'asset_counts': _manifest_asset_counts(models),
+        'models': models,
+    }
+
+
+def _character_summary_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    models = manifest['models']
+    return {
+        'schema_version': manifest['schema_version'],
+        'source': manifest['source'],
+        'character_key': manifest['character_key'],
+        'source_id': manifest['source_id'],
+        'name_zh': manifest['name_zh'],
+        'name_en': manifest['name_en'],
+        'directory_name': manifest['directory_name'],
+        'source_metadata': manifest['source_metadata'],
+        'fetched_at': manifest['fetched_at'],
+        'completed_at': manifest['completed_at'],
+        'model_counts': manifest['model_counts'],
+        'asset_counts': manifest['asset_counts'],
+        'models': [
+            {
+                'model_id': model['model_id'],
+                'type': model['type'],
+                'source': model['source'],
+                'costume': model['costume'],
+                'source_urls': model['source_urls'],
+                'availability': model['availability'],
+            }
+            for model in models
+        ],
+    }
+
+
 class AzurLane:
     def __init__(  # noqa: PLR0913
         self,
@@ -492,6 +781,120 @@ class AzurLane:
         if self._source_client is not None:
             return fetch_source_snapshots(timeout=self._source_timeout, client=self._source_client)
         return await asyncio.to_thread(fetch_source_snapshots, timeout=self._source_timeout)
+
+    def _write_source_artifacts(self, *, snapshots: AzurLaneSourceSnapshots, catalog: AzurLaneModelCatalog) -> None:
+        health_report = build_azurlane_l2d_health_report(snapshots=snapshots, catalog=catalog)
+        source_root = self.path / '_source'
+        _write_json(source_root / 'l2d-su-snapshot.json', snapshots.l2d_su.to_dict())
+        _write_json(source_root / 'nagami-snapshot.json', snapshots.nagami.to_dict())
+        _write_json(source_root / 'health-report.json', health_report.to_dict())
+
+    async def _manifest_character_rows(self) -> list[dict[str, Any]]:
+        return await database.query_db(
+            """
+            SELECT
+                character_key,
+                source_id,
+                name_zh,
+                name_en,
+                manifest_path,
+                active,
+                source_metadata,
+                fetched_at,
+                completed_at
+            FROM azurlane_characters
+            WHERE active = TRUE
+            ORDER BY character_key;
+            """,
+        )
+
+    async def _manifest_model_rows(self) -> list[dict[str, Any]]:
+        return await database.query_db(
+            """
+            SELECT
+                model_id,
+                model_type,
+                source,
+                character_key,
+                costume_key,
+                costume_id,
+                costume_name_zh,
+                costume_name_en,
+                primary_url,
+                fallback_url,
+                display_info_url,
+                availability_state,
+                active,
+                source_metadata,
+                fetched_at,
+                completed_at
+            FROM azurlane_models
+            WHERE active = TRUE
+            ORDER BY character_key, model_type, costume_key, model_id;
+            """,
+        )
+
+    async def _manifest_asset_rows(self, model_ids: list[str]) -> list[dict[str, Any]]:
+        if not model_ids:
+            return []
+        return await database.query_db(
+            """
+            SELECT
+                ma.model_id,
+                ma.url,
+                ma.kind,
+                ma.context_hash,
+                ma.local_path,
+                ma.original_filename,
+                ma.fallback_url AS relation_fallback_url,
+                ma.context_json,
+                a.normalized_url,
+                a.downloaded_url,
+                a.fallback_url AS asset_fallback_url,
+                a.sha256,
+                a.size,
+                a.content_type,
+                a.status,
+                a.failed_count,
+                a.last_error,
+                a.last_attempt_at,
+                a.next_retry_at,
+                a.last_seen_at
+            FROM azurlane_model_assets AS ma
+            JOIN azurlane_assets AS a ON a.url = ma.url
+            WHERE ma.model_id = ANY(?)
+            ORDER BY ma.model_id, ma.kind, ma.local_path, ma.url, ma.context_hash;
+            """,
+            (model_ids,),
+        )
+
+    async def _write_backend_manifests(self) -> None:
+        character_rows = await self._manifest_character_rows()
+        if not character_rows:
+            return
+
+        model_rows = await self._manifest_model_rows()
+        asset_rows = await self._manifest_asset_rows([_row_text(row, 'model_id') for row in model_rows])
+
+        assets_by_model_id: dict[str, list[dict[str, Any]]] = {}
+        for row in asset_rows:
+            assets_by_model_id.setdefault(_row_text(row, 'model_id'), []).append(row)
+
+        models_by_character_key: dict[str, list[dict[str, Any]]] = {}
+        for row in model_rows:
+            model_id = _row_text(row, 'model_id')
+            assets = _model_assets(assets_by_model_id.get(model_id, []))
+            models_by_character_key.setdefault(_row_text(row, 'character_key'), []).append(_model_payload(row, assets))
+
+        for row in sorted(character_rows, key=lambda item: _row_text(item, 'character_key')):
+            root = _character_manifest_root(self.path, row)
+            models = sorted(
+                models_by_character_key.get(_row_text(row, 'character_key'), []),
+                key=lambda item: (item['type'], item['costume']['key'], item['model_id']),
+            )
+            manifest = _character_payload(row, models, root)
+            _write_json(root / 'manifest.json', manifest)
+            _write_json(root / 'character.json', _character_summary_payload(manifest))
 
     async def _upsert_catalog_state(self, catalog: AzurLaneModelCatalog) -> None:
         character_metadata: dict[str, dict[str, Any]] = {}
@@ -1077,6 +1480,7 @@ class AzurLane:
             self.path.mkdir(parents=True, exist_ok=True)
             snapshots = await self._fetch_source_snapshots()
             catalog = build_azurlane_model_catalog(snapshots)
+            self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
             if not catalog.entries:
                 log.warning('Azur Lane source catalog returned no model entries')
                 return
@@ -1093,6 +1497,7 @@ class AzurLane:
             log.info('Found %d Azur Lane model entries', len(catalog.entries))
             async with self._http_client() as client:
                 failed_model_ids = await self.download_models(catalog.entries, client=client)
+            await self._write_backend_manifests()
             if failed_model_ids:
                 examples = ', '.join(failed_model_ids[:5])
                 msg = f'{len(failed_model_ids)} Azur Lane models failed'
