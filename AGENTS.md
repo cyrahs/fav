@@ -70,6 +70,11 @@ path = "./collection/stellasora"
 enabled = true
 cron = "0 */6 * * *"
 
+[web.azurlane]
+path = "./collection/azurlane"
+enabled = false
+cron = "0 */6 * * *"
+
 [web.kemono]
 enabled = false
 cron = "0 */6 * * *"
@@ -96,6 +101,7 @@ It schedules jobs using cron expressions from `config.toml`:
 - `web.bilibili.cron` -> `src/web/bilibili.py` (`Bilibili().update()`)
 - `web.telegram.cron` -> `src/web/telegram.py` (`Telegram().update()`)
 - `web.stellasora.cron` -> `src/web/stellasora.py` (`StellaSora().update()`)
+- `web.azurlane.cron` -> `src/web/azurlane.py` (`AzurLane().update()`)
 
 Kemono is implemented in `src/web/kemono.py` but is not called from `run.py` in the current version.
 

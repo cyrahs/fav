@@ -4,7 +4,7 @@ Automation toolkit for collecting content from multiple sources and deduplicatin
 
 ## API Backend
 
-This repository exposes an internal FastAPI backend for control and Hanime1 scan-target creation.
+This repository exposes an internal FastAPI backend for control, archived catalog reads, and Hanime1 scan-target creation.
 
 - `run.py` remains the worker and scheduler process.
 - `python -m src.api` starts the FastAPI server with OpenAPI support.
@@ -32,6 +32,9 @@ Protected endpoints:
 - `GET /api/v2/bd2/characters`
 - `GET /api/v2/bd2/sidebar/characters`
 - `GET /api/v2/bd2/characters/{content_id}`
+- `GET /api/v2/azurlane/characters`
+- `GET /api/v2/azurlane/sidebar/characters`
+- `GET /api/v2/azurlane/characters/{character_key}`
 
 All `/api/v2/*` endpoints require:
 
@@ -39,7 +42,10 @@ All `/api/v2/*` endpoints require:
 
 The API contract is OpenAPI-first. Use `/openapi.json` or `/docs` for the exact request and response schema.
 
-NIKKE and BD2 asset URLs in API responses point to `/static/{source}/{directory_name}/assets/...` and are intended to be served by the deployment's static file service, not by FastAPI.
+NIKKE, BD2, and Azur Lane asset URLs in API responses point to `/static/{source}/{directory_name}/assets/...` and are intended to be served by the deployment's static file service, not by FastAPI.
+For Azur Lane specifically, map `/static/azurlane/` to the configured `web.azurlane.path` directory so returned URLs resolve to archived files under each character directory.
+
+Azur Lane support is backend-only in this repository. The crawler archives Live2D and Spine resources, writes deterministic manifests, and the API returns metadata plus static asset URLs. Browser rendering, model display, and any Azur Lane client UI belong in a separate application that consumes the API.
 
 ## BD2 L2D Viewer comparison
 
@@ -94,6 +100,17 @@ webhook_token = "replace-with-webhook-bearer-token"
 ```
 
 Use `cors_allow_credentials = true` only if the browser needs to send cookies or other credentialed requests to the API origin.
+
+Azur Lane crawler/archive settings:
+
+```toml
+[web.azurlane]
+enabled = false
+path = "./collection/azurlane"
+cron = "0 */6 * * *"
+```
+
+Set `enabled = true` to schedule Azur Lane archive updates. The API reads Azur Lane manifests from `web.azurlane.path` even when the scheduled job is disabled.
 
 ### Run
 
