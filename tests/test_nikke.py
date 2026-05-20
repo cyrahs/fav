@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -166,6 +167,55 @@ def test_validate_asset_response_rejects_empty_and_html() -> None:
         )
         == 'cdn rejection response'
     )
+
+
+def test_load_content_json_uses_content_cdn_when_inline_content_is_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    crawler = Nikke(path=tmp_path)
+    requests: list[tuple[str, int, str]] = []
+
+    async def _fake_fetch_cdn_json(_client: object, url: str, *, content_id: int, label: str) -> dict[str, object]:
+        requests.append((url, content_id, label))
+        return {'content': json.dumps({'styleData': [{'name': 'default', 'data': []}]})}
+
+    monkeypatch.setattr(crawler, '_fetch_cdn_json', _fake_fetch_cdn_json)
+
+    content_json = asyncio.run(
+        crawler._load_content_json(
+            object(),
+            {'content_json': '', 'content_cdn': '//api-cdn.example.test/content/1.json'},
+            content_id=1,
+        ),
+    )
+
+    assert content_json == {'styleData': [{'name': 'default', 'data': []}]}
+    assert requests == [('https://api-cdn.example.test/content/1.json', 1, 'content_cdn')]
+
+
+def test_load_content_json_rejects_empty_inline_content_without_cdn(tmp_path: Path) -> None:
+    crawler = Nikke(path=tmp_path)
+
+    with pytest.raises(RuntimeError, match='content_json is empty'):
+        asyncio.run(crawler._load_content_json(object(), {'content_json': ''}, content_id=1))
+
+
+def test_load_reverse_bind_uses_entry_data_bind_cdn(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    crawler = Nikke(path=tmp_path)
+
+    async def _fake_fetch_cdn_json(_client: object, _url: str, *, content_id: int, label: str) -> dict[str, object]:
+        _ = content_id, label
+        return {'entry_data_bind': {'stable-image': 'dynamic-image'}}
+
+    monkeypatch.setattr(crawler, '_fetch_cdn_json', _fake_fetch_cdn_json)
+
+    reverse_bind = asyncio.run(
+        crawler._load_reverse_bind(
+            object(),
+            {'entry_data_bind_cdn': '//api-cdn.example.test/entry_binding/entry_bind_data.json'},
+            content_id=1,
+        ),
+    )
+
+    assert reverse_bind == {'dynamic-image': 'stable-image'}
 
 
 def test_assign_asset_paths_splits_live2d_dir_on_same_basename_collision() -> None:

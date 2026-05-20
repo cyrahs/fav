@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 GAMEKEE_BASE_URL = 'https://www.gamekee.com'
 DEFAULT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+CDN_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
 MEDIA_CELL_TYPES = {'image', 'video', 'live2d'}
 IMAGE_LIST_FIELDS = ('icon', 'icon1', 'icon2')
 LIVE2D_URL_FIELDS = ('atlas', 'skel', 'json')
@@ -59,6 +60,7 @@ _HTTP_NOT_ACCEPTABLE = 406
 _HTTP_REQUEST_TIMEOUT = 408
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVICE_UNAVAILABLE = 503
+_HTTP_TENCENT_EDGE_RESTRICTED = 567
 
 _CREATE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS nikke_pages (
@@ -271,6 +273,25 @@ def request_headers(content_id: int | None = None) -> dict[str, str]:
     }
 
 
+def cdn_request_headers() -> dict[str, str]:
+    return {
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en,zh;q=0.9,zh-CN;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Origin': GAMEKEE_BASE_URL,
+        'Pragma': 'no-cache',
+        'Priority': 'u=1, i',
+        'Referer': f'{GAMEKEE_BASE_URL}/',
+        'Sec-CH-UA': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+        'Sec-CH-UA-Mobile': '?0',
+        'Sec-CH-UA-Platform': '"macOS"',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site',
+        'User-Agent': CDN_USER_AGENT,
+    }
+
+
 def asset_headers() -> dict[str, str]:
     return {
         'Accept': '*/*',
@@ -354,9 +375,35 @@ def parse_content_json(detail: dict[str, Any]) -> dict[str, Any]:
     return _coerce_json_object(detail.get('content_json'))
 
 
+def content_json_from_cdn_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    content = payload.get('content')
+    if isinstance(content, dict):
+        return content
+    if isinstance(content, str):
+        return _coerce_json_object(content)
+    if isinstance(payload.get('baseData'), list) or isinstance(payload.get('styleData'), list):
+        return payload
+    return {}
+
+
+def cdn_json_url(detail: dict[str, Any], field: str) -> str:
+    value = detail.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return ''
+    return normalize_url(value)
+
+
+def reverse_bind_from_object(entry_data_bind: Any) -> dict[str, str]:
+    bind = _coerce_json_object(entry_data_bind)
+    return {str(dynamic_key): str(stable_id) for stable_id, dynamic_key in bind.items()}
+
+
+def reverse_bind_from_cdn_payload(payload: dict[str, Any]) -> dict[str, str]:
+    return reverse_bind_from_object(payload.get('entry_data_bind', payload))
+
+
 def reverse_bind_map(detail: dict[str, Any]) -> dict[str, str]:
-    entry_data_bind = _coerce_json_object(detail.get('entry_data_bind'))
-    return {str(dynamic_key): str(stable_id) for stable_id, dynamic_key in entry_data_bind.items()}
+    return reverse_bind_from_object(detail.get('entry_data_bind'))
 
 
 def first_text(row: list[Any]) -> str:
@@ -910,7 +957,7 @@ def retry_delay_seconds(attempt: int, response: httpx.Response | None = None) ->
 
 
 def max_attempts_for_status(status_code: int) -> int:
-    if status_code == _HTTP_NOT_FOUND:
+    if status_code in {_HTTP_NOT_FOUND, _HTTP_TENCENT_EDGE_RESTRICTED}:
         return 1
     if status_code in {_HTTP_FORBIDDEN, _HTTP_NOT_ACCEPTABLE}:
         return _LIMITED_RETRY_ATTEMPTS
@@ -1027,6 +1074,49 @@ class Nikke:
             bucket='api',
         )
         return response_json(response)
+
+    async def _fetch_cdn_json(self, client: httpx.AsyncClient, url: str, *, content_id: int, label: str) -> dict[str, Any]:
+        response = await self._request(
+            client,
+            'GET',
+            url,
+            headers=cdn_request_headers(),
+            bucket='api',
+        )
+        data = response.json()
+        if not isinstance(data, dict):
+            msg = f'GameKee {label} returned a non-object JSON response for content_id={content_id}'
+            raise TypeError(msg)
+        return data
+
+    async def _load_content_json(self, client: httpx.AsyncClient, detail: dict[str, Any], *, content_id: int) -> dict[str, Any]:
+        content_json = parse_content_json(detail)
+        if content_json:
+            return content_json
+
+        url = cdn_json_url(detail, 'content_cdn')
+        if url:
+            content_json = content_json_from_cdn_payload(
+                await self._fetch_cdn_json(client, url, content_id=content_id, label='content_cdn'),
+            )
+            if content_json:
+                return content_json
+            msg = f'GameKee content_cdn is empty for content_id={content_id}'
+            raise RuntimeError(msg)
+
+        msg = f'GameKee detail content_json is empty for content_id={content_id}'
+        raise RuntimeError(msg)
+
+    async def _load_reverse_bind(self, client: httpx.AsyncClient, detail: dict[str, Any], *, content_id: int) -> dict[str, str]:
+        reverse_bind = reverse_bind_map(detail)
+        if reverse_bind:
+            return reverse_bind
+
+        url = cdn_json_url(detail, 'entry_data_bind_cdn')
+        if not url:
+            return {}
+
+        return reverse_bind_from_cdn_payload(await self._fetch_cdn_json(client, url, content_id=content_id, label='entry_data_bind_cdn'))
 
     async def _fetch_tj_list_rows(self, client: httpx.AsyncClient) -> list[dict[str, Any]]:
         payload = await self._fetch_json(client, '/v1/entry/tj-list')
@@ -1469,8 +1559,8 @@ class Nikke:
     ) -> Path:
         detail_response = await self._fetch_detail_response(client, content_id)
         detail = detail_response['data']
-        content_json = parse_content_json(detail)
-        reverse_bind = reverse_bind_map(detail)
+        content_json = await self._load_content_json(client, detail, content_id=content_id)
+        reverse_bind = await self._load_reverse_bind(client, detail, content_id=content_id)
         content_summary = summarize_content(content_json, reverse_bind)
         base_info = base_info_from_summary(content_summary)
         assets, live2d_models = extract_resources(content_json=content_json, tj_list_row=tj_list_row, reverse_bind=reverse_bind)
