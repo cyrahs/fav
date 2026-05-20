@@ -548,12 +548,7 @@ def _status_counts(items: Iterable[str]) -> dict[str, int]:
 
 
 def _asset_available(asset: dict[str, Any]) -> bool:
-    return (
-        asset['status'] == _ASSET_AVAILABLE_STATUS
-        and bool(asset['local_path'])
-        and bool(asset['sha256'])
-        and int(asset['size']) > 0
-    )
+    return asset['status'] == _ASSET_AVAILABLE_STATUS and bool(asset['local_path']) and bool(asset['sha256']) and int(asset['size']) > 0
 
 
 def _archive_state(assets: list[dict[str, Any]]) -> str:
