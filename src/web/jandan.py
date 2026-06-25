@@ -49,6 +49,8 @@ _SINAIMG_FORBIDDEN_STATUS = 403
 _LARGE_VARIANT_HOST_SUFFIXES = ('sinaimg.cn', 'wangmoyu.com')
 _MW_VARIANT_SEGMENT_RE = re.compile(r'/mw\d+/')
 _FULL_HIT_STOP_PAGES = 2
+_API_RETRY_DELAYS_SECONDS = (2.0, 5.0)
+_API_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 _FAV_LIST_KEYS_BY_TYPE: dict[int, tuple[str, ...]] = {
     1: ('pics',),
     2: ('girls',),
@@ -281,6 +283,14 @@ def build_image_download_candidates(content_url: str) -> list[str]:
     if large_url == base_url:
         return [base_url]
     return [large_url, base_url]
+
+
+def should_retry_jandan_api_status(status_code: int) -> bool:
+    return status_code in _API_RETRYABLE_STATUS_CODES
+
+
+def should_retry_jandan_api_exception(exc: Exception) -> bool:
+    return isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError))
 
 
 class Jandan:
@@ -568,14 +578,7 @@ class Jandan:
         plain_payload = json.dumps(request_payload, ensure_ascii=False, separators=(',', ':'))
         data_value = encrypt_data_field(plain_payload)
 
-        response = await self.client.post(
-            cfg.api_url,
-            content=f'data={data_value}',
-            headers={
-                'Accept-version': _ACCEPT_VERSION,
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-        )
+        response = await self._post_fav_api(data_value=data_value, fav_type=fav_type)
         response.raise_for_status()
 
         payload = response.json()
@@ -596,6 +599,58 @@ class Jandan:
         if not isinstance(fav, dict):
             return []
         return extract_fav_items(fav_type=fav_type, fav=fav)
+
+    async def _post_fav_api(self, *, data_value: str, fav_type: int) -> httpx.Response:
+        headers = {
+            'Accept-version': _ACCEPT_VERSION,
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+        last_exc: Exception | None = None
+        attempts = len(_API_RETRY_DELAYS_SECONDS) + 1
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await self.client.post(
+                    cfg.api_url,
+                    content=f'data={data_value}',
+                    headers=headers,
+                )
+            except Exception as exc:
+                if not should_retry_jandan_api_exception(exc) or attempt >= attempts:
+                    raise
+                last_exc = exc
+                delay = _API_RETRY_DELAYS_SECONDS[attempt - 1]
+                log.warning(
+                    'Jandan API request failed favType=%s attempt=%s/%s, retry in %.1fs: %s: %s',
+                    fav_type,
+                    attempt,
+                    attempts,
+                    delay,
+                    exc.__class__.__name__,
+                    exc,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            if not should_retry_jandan_api_status(response.status_code) or attempt >= attempts:
+                return response
+
+            delay = _API_RETRY_DELAYS_SECONDS[attempt - 1]
+            log.warning(
+                'Jandan API returned HTTP %s favType=%s attempt=%s/%s, retry in %.1fs',
+                response.status_code,
+                fav_type,
+                attempt,
+                attempts,
+                delay,
+            )
+            await response.aclose()
+            await asyncio.sleep(delay)
+
+        if last_exc is not None:
+            raise last_exc
+        msg = 'Jandan API request failed without response'
+        raise RuntimeError(msg)
 
     async def _download_image(self, image: JandanImage) -> Path:
         dst_path = self._build_output_path(image)

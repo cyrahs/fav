@@ -1,9 +1,11 @@
-# ruff: noqa: INP001, S101
+# ruff: noqa: ANN001, EM101, INP001, PLR2004, S101, SLF001, TRY003
 
-import json
 import asyncio
+import json
+from types import SimpleNamespace
 
 import httpx
+import pytest
 
 import src.web.jandan as jandan_module
 from src.web.jandan import (
@@ -18,6 +20,8 @@ from src.web.jandan import (
     extract_pic_images,
     infer_image_extension,
     should_mark_unavailable_http,
+    should_retry_jandan_api_exception,
+    should_retry_jandan_api_status,
     zulu_to_offset,
 )
 
@@ -189,6 +193,25 @@ def test_should_mark_unavailable_http_supports_sinaimg_403() -> None:
     assert should_mark_unavailable_http(status_code=429, url_host='tva4.sinaimg.cn') is False
 
 
+def test_should_retry_jandan_api_status_only_transient_errors() -> None:
+    assert should_retry_jandan_api_status(429) is True
+    assert should_retry_jandan_api_status(502) is True
+    assert should_retry_jandan_api_status(503) is True
+    assert should_retry_jandan_api_status(504) is True
+    assert should_retry_jandan_api_status(400) is False
+    assert should_retry_jandan_api_status(404) is False
+
+
+def test_should_retry_jandan_api_exception_only_transient_network_errors() -> None:
+    request = httpx.Request('POST', 'https://i.jandan.net/api')
+
+    assert should_retry_jandan_api_exception(httpx.ConnectTimeout('connect timed out', request=request)) is True
+    assert should_retry_jandan_api_exception(httpx.ReadTimeout('read timed out', request=request)) is True
+    assert should_retry_jandan_api_exception(httpx.ConnectError('connect failed', request=request)) is True
+    assert should_retry_jandan_api_exception(httpx.RemoteProtocolError('remote closed', request=request)) is True
+    assert should_retry_jandan_api_exception(ValueError('bad payload')) is False
+
+
 def test_build_image_download_candidates_prefers_large_for_sinaimg_mw600() -> None:
     candidates = build_image_download_candidates('http://wx1.sinaimg.cn/mw600/abc.jpg')
 
@@ -235,6 +258,92 @@ def test_build_image_download_candidates_keeps_single_for_unknown_host() -> None
     candidates = build_image_download_candidates('https://cdn.example.com/mw600/abc.jpg')
 
     assert candidates == ['https://cdn.example.com/mw600/abc.jpg']
+
+
+def test_fetch_fav_page_retries_connect_timeout(monkeypatch) -> None:
+    attempts = 0
+    sleeps: list[float] = []
+    payload = {'fav': {'pics': [{'id': 1}]}}
+    encrypted_payload = encrypt_data_field(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
+
+    async def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectTimeout('connect timed out', request=request)
+        return httpx.Response(200, json={'code': 0, 'data': encrypted_payload})
+
+    monkeypatch.setattr(jandan_module.asyncio, 'sleep', _fake_sleep)
+    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+
+    job = Jandan.__new__(Jandan)
+    job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+
+    try:
+        result = asyncio.run(job._fetch_fav_page(fav_type=1))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert attempts == 2
+    assert sleeps == [2.0]
+    assert result == [{'id': 1}]
+
+
+def test_fetch_fav_page_retries_503_status(monkeypatch) -> None:
+    attempts = 0
+    sleeps: list[float] = []
+    payload = {'fav': {'pics': [{'id': 2}]}}
+    encrypted_payload = encrypt_data_field(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
+
+    async def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async def _handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(503)
+        return httpx.Response(200, json={'code': 0, 'data': encrypted_payload})
+
+    monkeypatch.setattr(jandan_module.asyncio, 'sleep', _fake_sleep)
+    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+
+    job = Jandan.__new__(Jandan)
+    job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+
+    try:
+        result = asyncio.run(job._fetch_fav_page(fav_type=1))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert attempts == 2
+    assert sleeps == [2.0]
+    assert result == [{'id': 2}]
+
+
+def test_fetch_fav_page_does_not_retry_400(monkeypatch) -> None:
+    attempts = 0
+
+    async def _handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(400)
+
+    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+
+    job = Jandan.__new__(Jandan)
+    job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(job._fetch_fav_page(fav_type=1))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert attempts == 1
 
 
 def test_notify_summary_enqueues_structured_payload(monkeypatch) -> None:
