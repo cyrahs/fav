@@ -49,7 +49,7 @@ _SINAIMG_FORBIDDEN_STATUS = 403
 _LARGE_VARIANT_HOST_SUFFIXES = ('sinaimg.cn', 'wangmoyu.com')
 _MW_VARIANT_SEGMENT_RE = re.compile(r'/mw\d+/')
 _FULL_HIT_STOP_PAGES = 2
-_API_RETRY_DELAYS_SECONDS = (2.0, 5.0)
+_API_RETRY_DELAYS_SECONDS = (2.0, 5.0, 15.0, 30.0)
 _API_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 _FAV_LIST_KEYS_BY_TYPE: dict[int, tuple[str, ...]] = {
     1: ('pics',),

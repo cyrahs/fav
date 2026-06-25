@@ -324,6 +324,34 @@ def test_fetch_fav_page_retries_503_status(monkeypatch) -> None:
     assert result == [{'id': 2}]
 
 
+def test_fetch_fav_page_exhausts_extended_transient_retry_delays(monkeypatch) -> None:
+    attempts = 0
+    sleeps: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ReadTimeout('read timed out', request=request)
+
+    monkeypatch.setattr(jandan_module.asyncio, 'sleep', _fake_sleep)
+    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+
+    job = Jandan.__new__(Jandan)
+    job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+
+    try:
+        with pytest.raises(httpx.ReadTimeout):
+            asyncio.run(job._fetch_fav_page(fav_type=1))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert attempts == 5
+    assert sleeps == [2.0, 5.0, 15.0, 30.0]
+
+
 def test_fetch_fav_page_does_not_retry_400(monkeypatch) -> None:
     attempts = 0
 
