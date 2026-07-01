@@ -34,6 +34,26 @@ export default {
     assert characters['000101']['spine'] == 'char000101'
 
 
+def test_parse_viewer_character_list_handles_trailing_commas() -> None:
+    source = """
+export default {
+  "000296": {
+    "charName": "Justia",
+    "costumeName": "Hot Summer Dream",
+    "spine": "char000296",
+    "cutscene": "cutscene_char000296",
+    "dating": "illust_dating7",
+    "datingUsesTracks": true,
+  },
+}
+"""
+
+    characters = parse_viewer_character_list(source)
+
+    assert characters['000296']['datingUsesTracks'] is True
+    assert characters['000296']['dating'] == 'illust_dating7'
+
+
 def test_viewer_resources_use_tree_paths_and_report_missing_core_files() -> None:
     characters = {
         '000101': {

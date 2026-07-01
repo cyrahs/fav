@@ -130,7 +130,7 @@ def parse_viewer_character_list(source: str) -> dict[str, dict[str, Any]]:
     match = _EXPORT_DEFAULT_RE.search(source)
     search_start = match.end() if match else 0
     object_source = _extract_balanced_object(source, search_start)
-    parsed = json.loads(object_source)
+    parsed = json.loads(_strip_trailing_commas(object_source))
     if not isinstance(parsed, dict):
         msg = 'BD2 L2D Viewer character list did not contain an object'
         raise TypeError(msg)
@@ -386,6 +386,40 @@ def _extract_balanced_object(source: str, search_start: int) -> str:  # noqa: C9
 
     msg = 'Could not find object end in BD2 L2D Viewer character list'
     raise ValueError(msg)
+
+
+def _strip_trailing_commas(source: str) -> str:
+    output: list[str] = []
+    quote = ''
+    escaped = False
+    index = 0
+    while index < len(source):
+        char = source[index]
+        if quote:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = ''
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            output.append(char)
+            index += 1
+            continue
+        if char == ',':
+            next_index = index + 1
+            while next_index < len(source) and source[next_index].isspace():
+                next_index += 1
+            if next_index < len(source) and source[next_index] in {'}', ']'}:
+                index += 1
+                continue
+        output.append(char)
+        index += 1
+    return ''.join(output)
 
 
 def _viewer_resource_dirs(entry_id: str, category: ResourceCategory) -> tuple[str, ...]:
