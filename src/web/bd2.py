@@ -2021,7 +2021,7 @@ class BD2:
                 msg = f'{msg}: {examples}'
             raise AssetProcessingError(msg)
         if failed:
-            log.info('BD2 page kept %d unavailable video assets in manifest without failing the page', len(failed))
+            log.info('BD2 page kept %d unavailable optional assets in manifest without failing the page', len(failed))
 
     async def _read_known_atlas_text(self, atlas_url: str) -> str | None:
         blob = await self._completed_blob_for_url(atlas_url)
