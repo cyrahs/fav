@@ -729,6 +729,56 @@ def test_process_assets_does_not_raise_for_failed_videos(monkeypatch: pytest.Mon
     assert assets[('https://cdn.example.com/broken.mp4', 'video')].status == 'failed'
 
 
+def test_process_assets_does_not_raise_for_upstream_bad_gamekee_live2d_texture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    crawler = bd2_module.BD2(path=tmp_path)
+    assets = {
+        ('https://cdnimg-v2.gamekee.com/wiki2.0/pro/50118/live2d/50118/ujy5itu9/char000396 back2.png', 'live2d_texture'): Asset(
+            url='https://cdnimg-v2.gamekee.com/wiki2.0/pro/50118/live2d/50118/ujy5itu9/char000396 back2.png',
+            kind='live2d_texture',
+            local_path='assets/live2d/char000396_back2.png',
+        ),
+    }
+
+    async def _fake_process_asset(*, client: object, root: Path, asset: Asset) -> bool:
+        _ = client, root
+        asset.status = 'failed'
+        asset.error = 'HTTP 400'
+        return False
+
+    monkeypatch.setattr(crawler, '_process_asset', _fake_process_asset)
+
+    asyncio.run(crawler._process_assets(client=object(), root=tmp_path, assets=assets))
+
+    asset = assets[('https://cdnimg-v2.gamekee.com/wiki2.0/pro/50118/live2d/50118/ujy5itu9/char000396 back2.png', 'live2d_texture')]
+    assert asset.status == 'failed'
+    assert asset.error == 'HTTP 400'
+
+
+def test_process_assets_still_raises_for_live2d_texture_server_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    crawler = bd2_module.BD2(path=tmp_path)
+    assets = {
+        ('https://cdnimg-v2.gamekee.com/wiki2.0/pro/50118/live2d/model.png', 'live2d_texture'): Asset(
+            url='https://cdnimg-v2.gamekee.com/wiki2.0/pro/50118/live2d/model.png',
+            kind='live2d_texture',
+            local_path='assets/live2d/model.png',
+        ),
+    }
+
+    async def _fake_process_asset(*, client: object, root: Path, asset: Asset) -> bool:
+        _ = client, root
+        asset.status = 'failed'
+        asset.error = 'HTTP 500'
+        return False
+
+    monkeypatch.setattr(crawler, '_process_asset', _fake_process_asset)
+
+    with pytest.raises(bd2_module.AssetProcessingError, match='1 BD2 assets failed'):
+        asyncio.run(crawler._process_assets(client=object(), root=tmp_path, assets=assets))
+
+
 def test_process_assets_still_raises_for_failed_non_video(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     crawler = bd2_module.BD2(path=tmp_path)
     assets = {

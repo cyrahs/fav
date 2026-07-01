@@ -1485,7 +1485,13 @@ def video_retry_cooldown_days(failed_count: int) -> int:
 
 
 def is_nonblocking_failed_asset(asset: Asset) -> bool:
-    return asset.kind == 'video'
+    if asset.kind == 'video':
+        return True
+    if asset.kind != 'live2d_texture':
+        return False
+    if not asset.url.startswith('https://cdnimg-v2.gamekee.com/'):
+        return False
+    return any(f'HTTP {status_code}' in asset.error for status_code in (_HTTP_NOT_FOUND, _HTTP_TENCENT_EDGE_RESTRICTED, 400))
 
 
 class BD2:
