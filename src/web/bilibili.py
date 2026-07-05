@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from src.core import config, logger
 from src.tool import CookieCloudClient, database, ensure_unique_path, format_video_filename
-from src.tool.notifications import enqueue_notification
+from src.tool.notifications import enqueue_notification, format_job_failure_dedupe_key, resolve_notification
 
 log = logger.get('bilibili')
 cfg = config.web.bilibili
@@ -26,6 +26,10 @@ _KIBIBYTE = 1024
 
 class DownloadError(RuntimeError):
     """Raised when a download fails after retries."""
+
+    def __init__(self, message: str, *, notification_dedupe_key: str = '') -> None:
+        super().__init__(message)
+        self.notification_dedupe_key = notification_dedupe_key
 
 
 class Bilibili:
@@ -62,6 +66,14 @@ class Bilibili:
             if size < _KIBIBYTE or unit == units[-1]:
                 return f'{size:.1f} {unit}'
         return None
+
+    @staticmethod
+    def _download_failure_key(bvid: str) -> str:
+        return f'bilibili:download:{bvid}'
+
+    @classmethod
+    def _download_failure_notification_key(cls, bvid: str) -> str:
+        return format_job_failure_dedupe_key(job_key='bilibili', failure_key=cls._download_failure_key(bvid))
 
     @staticmethod
     def _to_positive_int(value: Any) -> int | None:
@@ -174,7 +186,7 @@ class Bilibili:
         file_size_bytes: int | None = None,
         release_date: str | None = None,
         cover_url: str | None = None,
-    ) -> None:
+    ) -> bool:
         source = 'toview' if fav_id == -1 else 'fav'
         url = f'https://www.bilibili.com/video/{bvid}'
         resolution_label = resolution or 'unknown'
@@ -201,6 +213,90 @@ class Bilibili:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue bilibili download notification for %s: %s', bvid, exc)
+
+        return await self._resolve_download_failure_notification(
+            bvid=bvid,
+            title=title,
+            upper=upper,
+            fav_id=fav_id,
+            resolution=resolution,
+            file_size_bytes=file_size_bytes,
+            release_date=release_date,
+            cover_url=cover_url,
+        )
+
+    async def _resolve_download_failure_notification(  # noqa: PLR0913
+        self,
+        *,
+        bvid: str,
+        title: str,
+        upper: str,
+        fav_id: int,
+        resolution: str | None = None,
+        file_size_bytes: int | None = None,
+        release_date: str | None = None,
+        cover_url: str | None = None,
+    ) -> bool:
+        source = 'toview' if fav_id == -1 else 'fav'
+        url = f'https://www.bilibili.com/video/{bvid}'
+        resolution_label = resolution or 'unknown'
+        file_size_label = self._format_file_size(file_size_bytes) or 'unknown'
+        release_date_label = (release_date or 'unknown').strip() or 'unknown'
+        metadata = f'{upper} | {source} | {resolution_label} | {file_size_label} | {release_date_label}'
+        body = f'Download succeeded: {title} [{bvid}]\n{metadata}'
+
+        try:
+            await resolve_notification(
+                dedupe_key=self._download_failure_notification_key(bvid),
+                kind='job_recovered',
+                source='worker',
+                title='Job recovered: Bilibili',
+                body=body,
+                link_url=url,
+                image_url=cover_url or '',
+                payload={
+                    'job': 'bilibili',
+                    'bvid': bvid,
+                    'fav_id': fav_id,
+                    'upper': upper,
+                    'resolution': resolution,
+                    'file_size_bytes': file_size_bytes,
+                    'release_date': release_date,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to resolve bilibili download failure notification for %s: %s', bvid, exc)
+            return False
+        return True
+
+    async def _resolve_existing_download_failure_notification(self, video: api.video.Video, *, fav_id: int) -> bool:
+        bvid = video.get_bvid()
+        title = bvid
+        upper = 'unknown'
+        resolution: str | None = None
+        release_date: str | None = None
+        cover_url: str | None = None
+
+        try:
+            detail = await video.get_detail()
+        except Exception as exc:  # noqa: BLE001
+            log.debug('Failed to read detail for existing bilibili video %s before recovery notification: %s', bvid, exc)
+        else:
+            title = str(detail.get('View', {}).get('title') or bvid)
+            upper = str(detail.get('Card', {}).get('card', {}).get('name') or 'unknown')
+            resolution = self._extract_resolution_label(detail)
+            release_date = self._extract_release_date(detail)
+            cover_url = await self.get_video_cover_url(video, detail=detail)
+
+        return await self._resolve_download_failure_notification(
+            bvid=bvid,
+            title=title,
+            upper=upper,
+            fav_id=fav_id,
+            resolution=resolution,
+            release_date=release_date,
+            cover_url=cover_url,
+        )
 
     def update_cookie_from_cookiecloud(self, save_path: Path) -> None:
         """Update cookie from cookiecloud."""
@@ -245,28 +341,32 @@ class Bilibili:
             await asyncio.sleep(1)
         return results
 
-    async def get_toviews(self) -> tuple[list[api.video.Video], bool]:
+    async def get_toviews(self) -> tuple[list[api.video.Video], bool, bool]:
         """Get videos in the 'watch later' list.
 
         Returns:
-            A tuple of (videos_to_download, has_any_toviews).
+            A tuple of (videos_to_download, has_any_toviews, recovery_notifications_succeeded).
         """
         toview = await api.user.get_toview_list(credential=self.credential)
         if not toview['list']:
-            return ([], False)
-        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = ?;', (-1,))
+            return ([], False, True)
+        exists_ids = await database.query_db('SELECT bvid FROM bilibili;')
         exists_ids = [i['bvid'] for i in exists_ids]
         result = [api.video.Video(bvid=v['bvid'], credential=self.credential) for v in toview['list']]
         log.info('Find %d toviews in total', len(result))
+        recovery_notifications_succeeded = True
         for v in result.copy():
             if v.get_bvid() in exists_ids:
+                recovery_notifications_succeeded = (
+                    await self._resolve_existing_download_failure_notification(v, fav_id=-1) and recovery_notifications_succeeded
+                )
                 result.remove(v)
         log.info('Find %d toviews to download', len(result))
-        return (result, True)
+        return (result, True, recovery_notifications_succeeded)
 
-    async def get_favs(self, fav_id: int) -> list[api.video.Video]:
+    async def get_favs(self, fav_id: int) -> tuple[list[api.video.Video], bool]:
         """Get the videos in the favorite list."""
-        exists_ids = await database.query_db('SELECT bvid FROM bilibili WHERE fav_id = ?;', (fav_id,))
+        exists_ids = await database.query_db('SELECT bvid FROM bilibili;')
         exists_ids = [i['bvid'] for i in exists_ids]
         favlist = api.favorite_list.FavoriteList(media_id=fav_id, credential=self.credential)
         page = 1
@@ -277,15 +377,16 @@ class Bilibili:
             has_more = res['has_more']
             page += 1
             result += [api.video.Video(bvid=media['bvid'], credential=self.credential) for media in res['medias']]
-            # stop if the last video is already in the database
-            if result[-1].get_bvid() in exists_ids:
-                break
         log.info('Find %d favs in total', len(result))
+        recovery_notifications_succeeded = True
         for video in result.copy():
             if video.get_bvid() in exists_ids:
+                recovery_notifications_succeeded = (
+                    await self._resolve_existing_download_failure_notification(video, fav_id=fav_id) and recovery_notifications_succeeded
+                )
                 result.remove(video)
         log.info('Find %d favs to download', len(result))
-        return result
+        return (result, recovery_notifications_succeeded)
 
     def _cleanup_dir(self, dirpath: Path) -> None:
         """Clear out temporary download directory."""
@@ -351,18 +452,19 @@ class Bilibili:
                 return
             message = result.stderr.strip() or result.stdout.strip() or f'yt-dlp exited with code {result.returncode}'
             msg = f'{url}: {message}'
-            raise DownloadError(msg)
+            raise DownloadError(msg, notification_dedupe_key=self._download_failure_key(bvid))
 
         _run_once()
 
     async def update_fav(self, fav_id: int, path: Path) -> None:
         await asyncio.to_thread(path.mkdir, parents=True, exist_ok=True)
         has_any_toviews = False
+        recovery_notifications_succeeded = True
         # for toview
         if fav_id == -1:
-            videos, has_any_toviews = await self.get_toviews()
+            videos, has_any_toviews, recovery_notifications_succeeded = await self.get_toviews()
         else:
-            videos = await self.get_favs(fav_id)
+            videos, recovery_notifications_succeeded = await self.get_favs(fav_id)
         if videos:
             valid = await asyncio.gather(*[self.check_valid(v) for v in videos])
             videos = [v for v, vld in zip(videos, valid, strict=True) if vld]
@@ -402,26 +504,38 @@ class Bilibili:
                         file_size_bytes = size_bytes
                 release_date = self._extract_release_date(detail)
                 await database.query_db(
-                    'INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES (?, ?, ?, ?);',
+                    """
+                    INSERT INTO bilibili (bvid, fav_id, title, upper)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (bvid) DO UPDATE SET
+                        fav_id = EXCLUDED.fav_id,
+                        title = EXCLUDED.title,
+                        upper = EXCLUDED.upper;
+                    """,
                     (bvid, fav_id, title, upper),
                 )
-                await self._notify_download(
-                    bvid=bvid,
-                    title=title,
-                    upper=upper,
-                    fav_id=fav_id,
-                    resolution=resolution,
-                    file_size_bytes=file_size_bytes,
-                    release_date=release_date,
-                    cover_url=cover_url,
+                recovery_notifications_succeeded = (
+                    await self._notify_download(
+                        bvid=bvid,
+                        title=title,
+                        upper=upper,
+                        fav_id=fav_id,
+                        resolution=resolution,
+                        file_size_bytes=file_size_bytes,
+                        release_date=release_date,
+                        cover_url=cover_url,
+                    )
+                    and recovery_notifications_succeeded
                 )
         else:
             log.info('No new videos')
 
         # Clear toview list only after the download pass completes successfully.
-        if fav_id == -1 and has_any_toviews:
+        if fav_id == -1 and has_any_toviews and recovery_notifications_succeeded:
             log.info('Clearing toview list ...')
             await api.user.clear_toview_list(credential=self.credential)
+        elif fav_id == -1 and has_any_toviews:
+            log.warning('Skip clearing toview list because a download recovery notification did not enqueue successfully')
 
     async def update(self) -> None:
         """Update the favorite list of the main account."""

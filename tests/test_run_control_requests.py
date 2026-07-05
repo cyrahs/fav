@@ -10,7 +10,7 @@ import pytest
 import run as run_module
 from src.service.jobs import ScheduledJob
 from src.tool.control_queue import STATUS_FAILED, STATUS_REJECTED, STATUS_SUCCEEDED, ControlRequest
-from src.tool.notifications import NotificationRecord
+from src.tool.notifications import WEBHOOK_ACTION_UPSERT, NotificationRecord
 
 
 def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
@@ -47,10 +47,14 @@ def _notification(*, notification_id: int = 7, attempt_count: int = 0) -> Notifi
         link_url='',
         image_url='',
         payload='{"job":"bilibili"}',
+        dedupe_key='job_failed:bilibili:bilibili:download:BV1TEST',
         status='unread',
         markdown='*Job failed: Bilibili*\nRuntimeError: boom',
         disable_web_page_preview=True,
         disable_notification=False,
+        webhook_action=WEBHOOK_ACTION_UPSERT,
+        occurrence_count=1,
+        event_version=3,
         pin=True,
         delivery_status='sending',
         attempt_count=attempt_count,
@@ -234,6 +238,41 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert captured['payload']['error_message'] == 'boom'
 
 
+def test_run_job_uses_exception_notification_dedupe_key(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _DownloadError(RuntimeError):
+        notification_dedupe_key = 'bilibili:download:BV1TEST'
+
+    class _FailingWorker:
+        async def update(self) -> None:
+            msg = 'temporary network error'
+            raise _DownloadError(msg)
+
+    async def _fake_enqueue_notification(**payload) -> None:
+        captured.update(payload)
+
+    monkeypatch.setattr(run_module, 'enqueue_notification', _fake_enqueue_notification)
+
+    result = asyncio.run(
+        run_module._run_job(
+            job=ScheduledJob(
+                key='bilibili',
+                name='Bilibili',
+                cron='*/30 * * * *',
+                enabled=True,
+                run_on_start=False,
+                required_commands=(),
+                factory=_FailingWorker,
+            ),
+        ),
+    )
+
+    assert result.success is False
+    assert captured['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
+    assert captured['payload']['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
+
+
 def test_run_job_handles_cancelled_error_and_closes_worker(monkeypatch) -> None:
     captured: dict[str, object] = {}
     closed: list[str] = []
@@ -280,14 +319,14 @@ def test_load_notification_webhook_config_requires_values(monkeypatch) -> None:
 
 
 def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
-    delivered: list[int] = []
+    delivered: list[tuple[int, int]] = []
     posted_payloads: list[dict[str, object]] = []
 
     async def _fake_claim() -> NotificationRecord | None:
         return _notification()
 
-    async def _fake_mark_delivered(notification_id: int) -> None:
-        delivered.append(notification_id)
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
+        delivered.append((notification_id, event_version))
 
     class _FakeClient:
         async def post(self, *_args, **kwargs):
@@ -308,18 +347,22 @@ def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
     )
 
     assert processed is True
-    assert delivered == [7]
+    assert delivered == [(7, 3)]
+    assert posted_payloads[0]['action'] == WEBHOOK_ACTION_UPSERT
+    assert posted_payloads[0]['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
+    assert posted_payloads[0]['occurrence_count'] == 1
+    assert posted_payloads[0]['event_version'] == _notification().event_version
     assert posted_payloads[0]['pin'] is True
 
 
 def test_deliver_next_notification_retries_request_error(monkeypatch) -> None:
-    retried: list[tuple[int, int, str]] = []
+    retried: list[tuple[int, int, int, str]] = []
 
     async def _fake_claim() -> NotificationRecord | None:
         return _notification(attempt_count=2)
 
-    async def _fake_mark_retry(notification_id: int, *, attempt_count: int, error_message: str) -> None:
-        retried.append((notification_id, attempt_count, error_message))
+    async def _fake_mark_retry(notification_id: int, *, event_version: int, attempt_count: int, error_message: str) -> None:
+        retried.append((notification_id, event_version, attempt_count, error_message))
 
     class _FakeClient:
         async def post(self, *_args, **_kwargs):
@@ -340,7 +383,7 @@ def test_deliver_next_notification_retries_request_error(monkeypatch) -> None:
     )
 
     assert processed is True
-    assert retried == [(7, 3, 'RequestError: boom')]
+    assert retried == [(7, 3, 3, 'RequestError: boom')]
 
 
 def test_main_starts_notification_consumer_and_closes_client(monkeypatch) -> None:

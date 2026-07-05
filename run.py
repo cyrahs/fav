@@ -32,6 +32,7 @@ from src.tool.notifications import (
     NotificationRecord,
     claim_next_pending_notification,
     enqueue_notification,
+    format_job_failure_dedupe_key,
     mark_notification_delivered,
     mark_notification_failed,
     mark_notification_retry,
@@ -195,14 +196,17 @@ async def _enqueue_job_failed_notification(
     exc: BaseException,
 ) -> None:
     error_message = _format_exception(exc)
+    dedupe_key = _exception_notification_dedupe_key(job=job, exc=exc)
     try:
         await enqueue_notification(
             kind='job_failed',
             source='worker',
             title=f'Job failed: {job.name}',
             body=error_message,
+            dedupe_key=dedupe_key,
             payload={
                 'job': job.key,
+                'dedupe_key': dedupe_key,
                 'started_at': _serialize_datetime(started_at),
                 'finished_at': _serialize_datetime(finished_at),
                 'elapsed_seconds': round(elapsed_seconds, 3),
@@ -212,6 +216,13 @@ async def _enqueue_job_failed_notification(
         )
     except Exception as notify_exc:  # noqa: BLE001
         log.warning('Failed to enqueue job_failed notification for %s: %s', job.key, notify_exc)
+
+
+def _exception_notification_dedupe_key(*, job: ScheduledJob, exc: BaseException) -> str:
+    failure_key = getattr(exc, 'notification_dedupe_key', '')
+    if not isinstance(failure_key, str):
+        return ''
+    return format_job_failure_dedupe_key(job_key=job.key, failure_key=failure_key)
 
 
 def _format_exception(exc: BaseException) -> str:
@@ -248,7 +259,7 @@ async def _deliver_notification_via_webhook(
         json=notification.webhook_payload,
     )
     if _HTTP_STATUS_SUCCESS_MIN <= response.status_code <= _HTTP_STATUS_SUCCESS_MAX:
-        await mark_notification_delivered(notification.notification_id)
+        await mark_notification_delivered(notification.notification_id, event_version=notification.event_version)
         log.info('Delivered notification %s', notification.notification_id)
         return
 
@@ -257,6 +268,7 @@ async def _deliver_notification_via_webhook(
     if _is_retryable_status_code(response.status_code):
         await mark_notification_retry(
             notification.notification_id,
+            event_version=notification.event_version,
             attempt_count=attempt_count,
             error_message=error_message,
         )
@@ -265,6 +277,7 @@ async def _deliver_notification_via_webhook(
 
     await mark_notification_failed(
         notification.notification_id,
+        event_version=notification.event_version,
         attempt_count=attempt_count,
         error_message=error_message,
     )
@@ -291,6 +304,7 @@ async def _deliver_next_notification(
         error_message = f'{exc.__class__.__name__}: {exc}'
         await mark_notification_retry(
             notification.notification_id,
+            event_version=notification.event_version,
             attempt_count=attempt_count,
             error_message=error_message,
         )
