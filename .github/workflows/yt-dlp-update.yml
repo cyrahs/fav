@@ -15,11 +15,11 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     
     - name: Restore version cache
       id: cache
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v5
       with:
         path: .yt-dlp-version
         key: yt-dlp-version-${{ github.run_id }}
@@ -69,7 +69,7 @@ jobs:
     
     - name: Save version cache
       if: steps.current.outputs.version != steps.latest.outputs.version
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v5
       with:
         path: .yt-dlp-version
         key: yt-dlp-version-${{ github.run_id }}
