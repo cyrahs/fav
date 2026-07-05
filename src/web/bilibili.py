@@ -22,6 +22,35 @@ from src.tool.notifications import enqueue_notification, format_job_failure_dedu
 log = logger.get('bilibili')
 cfg = config.web.bilibili
 _KIBIBYTE = 1024
+_BILIBILI_SCHEMA_LOCK_ID = database.advisory_lock_id('bilibili:schema')
+_BILIBILI_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS bilibili (
+    bvid TEXT PRIMARY KEY,
+    fav_id BIGINT NOT NULL,
+    title TEXT NOT NULL,
+    upper TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+_BILIBILI_BVID_ARBITER_SQL = """
+SELECT EXISTS (
+    SELECT 1
+    FROM pg_index AS idx
+    JOIN pg_attribute AS attr
+      ON attr.attrelid = idx.indrelid
+     AND attr.attnum = idx.indkey[0]
+    WHERE idx.indrelid = 'bilibili'::regclass
+      AND idx.indisunique
+      AND idx.indimmediate
+      AND idx.indisvalid
+      AND idx.indisready
+      AND idx.indnkeyatts = 1
+      AND idx.indpred IS NULL
+      AND idx.indexprs IS NULL
+      AND attr.attname = 'bvid'
+) AS has_bvid_arbiter;
+"""
+_BILIBILI_ADD_BVID_ARBITER_SQL = 'ALTER TABLE bilibili ADD CONSTRAINT bilibili_bvid_unique UNIQUE (bvid);'
 
 
 class DownloadError(RuntimeError):
@@ -298,6 +327,12 @@ class Bilibili:
             cover_url=cover_url,
         )
 
+    @staticmethod
+    async def _has_bvid_arbiter(cursor: Any) -> bool:
+        await cursor.execute(_BILIBILI_BVID_ARBITER_SQL)
+        row = await cursor.fetchone()
+        return bool(row and row['has_bvid_arbiter'])
+
     def update_cookie_from_cookiecloud(self, save_path: Path) -> None:
         """Update cookie from cookiecloud."""
         cc_cfg = config.cookiecloud
@@ -537,19 +572,21 @@ class Bilibili:
         elif fav_id == -1 and has_any_toviews:
             log.warning('Skip clearing toview list because a download recovery notification did not enqueue successfully')
 
+    async def _ensure_table(self) -> None:
+        async with database.transaction_cursor() as cursor:
+            await cursor.execute('SELECT pg_advisory_xact_lock(%s);', (_BILIBILI_SCHEMA_LOCK_ID,))
+            await cursor.execute(_BILIBILI_CREATE_TABLE_SQL)
+            await cursor.execute('LOCK TABLE bilibili IN SHARE ROW EXCLUSIVE MODE;')
+
+            if not await self._has_bvid_arbiter(cursor):
+                await cursor.execute(_BILIBILI_ADD_BVID_ARBITER_SQL)
+                log.info('Created bilibili bvid unique constraint')
+
+        log.debug('bilibili table initialized')
+
     async def update(self) -> None:
         """Update the favorite list of the main account."""
-        # Initialize table
-        await database.query_db("""
-            CREATE TABLE IF NOT EXISTS bilibili (
-                bvid TEXT PRIMARY KEY,
-                fav_id BIGINT NOT NULL,
-                title TEXT NOT NULL,
-                upper TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        log.debug('bilibili table initialized')
+        await self._ensure_table()
 
         await self.update_fav(cfg.fav_id, cfg.path / 'fav')
         await self.update_fav(-1, cfg.path / 'toview')

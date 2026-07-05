@@ -54,6 +54,19 @@ def _postgres_dsn() -> str:
     return dsn
 
 
+@asynccontextmanager
+async def transaction_cursor() -> AsyncIterator[Any]:
+    dsn = _postgres_dsn()
+    async with await psycopg.AsyncConnection.connect(dsn, autocommit=False, row_factory=dict_row) as conn:
+        try:
+            async with conn.cursor() as cursor:
+                yield cursor
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+
 def _split_sql_statements(query: str) -> list[str]:  # noqa: C901, PLR0912, PLR0915
     statements: list[str] = []
     buf: list[str] = []

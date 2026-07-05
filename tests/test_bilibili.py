@@ -1,6 +1,7 @@
 # ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, ARG001, PLR2004
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,63 @@ def _make_bilibili(tmp_path: Path) -> Bilibili:
     b.credential = object()
     b.info_cache = {}
     return b
+
+
+class _FakeSchemaCursor:
+    def __init__(self, rows: list[dict[str, bool]]) -> None:
+        self._rows = rows
+        self.executed: list[tuple[str, tuple]] = []
+
+    async def execute(self, sql: str, params: tuple = ()) -> None:
+        self.executed.append((sql, params))
+
+    async def fetchone(self) -> dict[str, bool]:
+        return self._rows.pop(0)
+
+
+def _install_schema_cursor(monkeypatch: pytest.MonkeyPatch, cursor: _FakeSchemaCursor) -> None:
+    @asynccontextmanager
+    async def _fake_transaction_cursor():
+        yield cursor
+
+    monkeypatch.setattr(bilibili_module.database, 'transaction_cursor', _fake_transaction_cursor)
+
+
+def test_ensure_table_uses_primary_key_arbiter_without_extra_index(tmp_path, monkeypatch) -> None:
+    b = _make_bilibili(tmp_path)
+    cursor = _FakeSchemaCursor([{'has_bvid_arbiter': True}])
+
+    _install_schema_cursor(monkeypatch, cursor)
+
+    asyncio.run(b._ensure_table())
+
+    assert cursor.executed == [
+        ('SELECT pg_advisory_xact_lock(%s);', (bilibili_module._BILIBILI_SCHEMA_LOCK_ID,)),
+        (bilibili_module._BILIBILI_CREATE_TABLE_SQL, ()),
+        ('LOCK TABLE bilibili IN SHARE ROW EXCLUSIVE MODE;', ()),
+        (bilibili_module._BILIBILI_BVID_ARBITER_SQL, ()),
+    ]
+
+
+def test_ensure_table_adds_missing_bvid_arbiter_with_fixed_constraint(tmp_path, monkeypatch) -> None:
+    b = _make_bilibili(tmp_path)
+    cursor = _FakeSchemaCursor([{'has_bvid_arbiter': False}])
+
+    _install_schema_cursor(monkeypatch, cursor)
+
+    asyncio.run(b._ensure_table())
+
+    assert cursor.executed == [
+        ('SELECT pg_advisory_xact_lock(%s);', (bilibili_module._BILIBILI_SCHEMA_LOCK_ID,)),
+        (bilibili_module._BILIBILI_CREATE_TABLE_SQL, ()),
+        ('LOCK TABLE bilibili IN SHARE ROW EXCLUSIVE MODE;', ()),
+        (bilibili_module._BILIBILI_BVID_ARBITER_SQL, ()),
+        (bilibili_module._BILIBILI_ADD_BVID_ARBITER_SQL, ()),
+    ]
+    executed_sql = [sql for sql, _params in cursor.executed]
+    assert all('DELETE FROM bilibili' not in sql for sql in executed_sql)
+    assert all('to_regclass' not in sql for sql in executed_sql)
+    assert all('bilibili_bvid_unique_1' not in sql for sql in executed_sql)
 
 
 def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> None:
