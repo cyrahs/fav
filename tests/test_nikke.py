@@ -21,8 +21,12 @@ from src.web.nikke import (
     extract_resources,
     filter_nikke_rows,
     materialize_blob,
+    merge_layer_capture_files,
+    merge_live2d_layer_captures,
     parse_spine_atlas_textures,
+    strip_layer_metadata_files,
     validate_asset_response,
+    validate_live2d_layer_metadata,
 )
 
 
@@ -81,6 +85,8 @@ def test_filter_nikke_rows_keeps_only_wrapped_rows_with_content_id() -> None:
 
 
 def test_extract_resources_uses_bound_media_gate() -> None:
+    expected_layer_order = 2
+    expected_source_z_index = 9
     content_json = {
         'baseData': [
             [
@@ -102,6 +108,12 @@ def test_extract_resources_uses_bound_media_gate() -> None:
                         'atlas': '/spine/model.atlas',
                         'skel': '/spine/model.skel',
                         'image': '/spine/model.png',
+                        'layerOrder': str(expected_layer_order),
+                        'sourceZIndex': expected_source_z_index,
+                        'sourceLayerIndex': 0,
+                        'isPrimary': True,
+                        'layerMatchMethod': 'gamekee-player-init',
+                        'layerMatchConfidence': 'high',
                     },
                 },
             ],
@@ -128,6 +140,159 @@ def test_extract_resources_uses_bound_media_gate() -> None:
     assert 'https://www.gamekee.com/icons/face.png' in asset_urls
     assert 'https://www.gamekee.com/media/unbound.png' not in asset_urls
     assert models[0]['live2d_key'] == 'model-a'
+    assert models[0]['layer_order'] == expected_layer_order
+    assert models[0]['source_z_index'] == expected_source_z_index
+    assert models[0]['source_layer_index'] == 0
+    assert models[0]['is_primary'] is True
+    assert models[0]['layer_match_method'] == 'gamekee-player-init'
+    assert models[0]['layer_match_confidence'] == 'high'
+
+
+def _layered_model(stable_id: str, live2d_key: str) -> dict[str, object]:
+    return {
+        'label': 'live2d(full)',
+        'section': 'style',
+        'skin_index': 0,
+        'stable_id': stable_id,
+        'live2d_key': live2d_key,
+        'urls': {
+            'atlas': f'https://cdn.example.com/{live2d_key}/model.atlas',
+            'skel': f'https://cdn.example.com/{live2d_key}/model.skel',
+        },
+    }
+
+
+def test_merge_live2d_layer_captures_projects_dry_run_quality() -> None:
+    expected_changed_count = 3
+    models = [
+        _layered_model('stable-main', 'main'),
+        _layered_model('stable-front', 'front'),
+        _layered_model('stable-back', 'back'),
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'stable_id': 'stable-main',
+                'live2dKey': 'main',
+                'sourceZIndex': 9,
+                'sourceLayerIndex': 0,
+                'isPrimary': True,
+            },
+            {
+                'stable_id': 'stable-front',
+                'live2dKey': 'front',
+                'sourceZIndex': 10,
+                'sourceLayerIndex': 1,
+                'isPrimary': False,
+            },
+            {
+                'stable_id': 'stable-back',
+                'live2dKey': 'back',
+                'sourceZIndex': 8,
+                'sourceLayerIndex': 2,
+                'isPrimary': False,
+            },
+        ],
+    }
+
+    dry_run_report = merge_live2d_layer_captures(models, capture, content_id=711133)
+
+    assert dry_run_report['changed'] == expected_changed_count
+    assert dry_run_report['quality_issues'] == []
+    assert all('layer_order' not in model for model in models)
+
+    write_report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert write_report['quality_issues'] == []
+    assert [
+        (model['stable_id'], model['layer_order'], model['source_z_index'], model['source_layer_index'], model['is_primary'])
+        for model in models
+    ] == [
+        ('stable-main', 2, 9, 0, True),
+        ('stable-front', 3, 10, 1, False),
+        ('stable-back', 1, 8, 2, False),
+    ]
+    assert {model['layer_match_method'] for model in models} == {'gamekee-runtime-container'}
+    assert {model['layer_match_confidence'] for model in models} == {'high'}
+
+
+def test_merge_live2d_layer_captures_skips_ambiguous_url_only_capture() -> None:
+    models = [
+        {
+            **_layered_model('stable-a', 'a'),
+            'urls': {'atlas': 'https://cdn.example.com/shared/model.atlas'},
+        },
+        {
+            **_layered_model('stable-b', 'b'),
+            'urls': {'atlas': 'https://cdn.example.com/shared/model.atlas'},
+        },
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'resource_urls': {'atlas': 'https://cdn.example.com/shared/model.atlas'},
+                'layer_order': 1,
+                'is_primary': True,
+            },
+        ],
+    }
+
+    report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert report['changed'] == 0
+    assert report['skipped'][0]['reason'] == 'ambiguous_match'
+    assert all('layer_order' not in model for model in models)
+
+
+def test_validate_live2d_layer_metadata_flags_incomplete_multi_full() -> None:
+    models = [
+        {**_layered_model('stable-a', 'a'), 'layer_order': 1, 'is_primary': True, 'layer_match_confidence': 'high'},
+        {**_layered_model('stable-b', 'b')},
+    ]
+
+    issues = validate_live2d_layer_metadata(models)
+
+    assert {issue['code'] for issue in issues} == {
+        'missing_layer_order',
+        'low_confidence_layer_match',
+    }
+
+
+def test_merge_layer_capture_files_updates_manifest_and_character(tmp_path: Path) -> None:
+    expected_main_layer_order = 2
+    root = tmp_path / '711133 - Test'
+    root.mkdir()
+    models = [_layered_model('stable-main', 'main'), _layered_model('stable-back', 'back')]
+    manifest = {'content_id': 711133, 'title': 'Test', 'live2d_models': [dict(model) for model in models]}
+    character = {'content_id': 711133, 'title': 'Test', 'live2d_models': [dict(model) for model in models]}
+    (root / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    (root / 'character.json').write_text(json.dumps(character), encoding='utf-8')
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {'stable_id': 'stable-main', 'live2d_key': 'main', 'layer_order': 2, 'source_z_index': 9, 'is_primary': True},
+            {'stable_id': 'stable-back', 'live2d_key': 'back', 'layer_order': 1, 'source_z_index': 8, 'is_primary': False},
+        ],
+    }
+
+    report = merge_layer_capture_files(root=root, capture_payload=capture, dry_run=False)
+
+    assert report['manifest']['quality_issues'] == []
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    assert saved_manifest['live2d_models'][0]['layer_order'] == expected_main_layer_order
+    assert saved_character['live2d_models'][1]['is_primary'] is False
+    assert saved_manifest['live2d_layer_capture']['layer_count'] == expected_main_layer_order
+    assert saved_manifest['live2d_layer_capture']['capture_hash']
+
+    strip_report = strip_layer_metadata_files(root=root, dry_run=False)
+
+    stripped_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    assert strip_report['capture_summary'] == {'manifest_removed': True, 'character_removed': True}
+    assert 'live2d_layer_capture' not in stripped_manifest
+    assert 'layer_order' not in stripped_manifest['live2d_models'][0]
 
 
 def test_add_asset_preserves_same_url_different_kinds() -> None:

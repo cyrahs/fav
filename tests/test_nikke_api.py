@@ -201,6 +201,12 @@ def _create_nikke_fixture(root: Path) -> Path:
             'skin_title': 'Default',
             'live2d_key': 'model-a',
             'position': {'pc': {'large': {'x': 1}}},
+            'layer_order': 2,
+            'source_z_index': 9,
+            'source_layer_index': 0,
+            'is_primary': True,
+            'layer_match_method': 'gamekee-player-init',
+            'layer_match_confidence': 'high',
             'urls': {'atlas': 'https://cdn.example.test/model.atlas'},
         },
     ]
@@ -382,6 +388,12 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     model = skin['live2d_models'][0]
     assert model['live2d_key'] == 'model-a'
     assert model['model_id'] == 'model-a'
+    assert model['layer_order'] == 2
+    assert model['source_z_index'] == 9
+    assert model['source_layer_index'] == 0
+    assert model['is_primary'] is True
+    assert model['layer_match_method'] == 'gamekee-player-init'
+    assert model['layer_match_confidence'] == 'high'
     assert model['view_overrides'] == {}
     assert model['assets']['atlas']['path'] == 'assets/live2d/model-a/model.atlas'
     assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)

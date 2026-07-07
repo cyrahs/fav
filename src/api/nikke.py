@@ -28,6 +28,7 @@ _PROFILE_FIELDS: tuple[tuple[str, str, str], ...] = (
 )
 _SUMMARY_TAG_KEYS = {'rarity', 'company', 'burst', 'attribute', 'role', 'weapon'}
 _LONG_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+_LAYER_MATCH_CONFIDENCE_VALUES = {'high', 'medium', 'low'}
 _SHORT_CACHE_CONTROL = 'public, max-age=3600'
 _NIKKE_STATIC_PREFIX = '/static/nikke'
 
@@ -94,6 +95,15 @@ def _clean_text(value: Any) -> str:
 
 def _context_value(context: dict[str, Any], key: str) -> str:
     return _clean_text(context.get(key))
+
+
+def _optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _layer_match_confidence(value: Any) -> str | None:
+    text = _clean_text(value)
+    return text if text in _LAYER_MATCH_CONFIDENCE_VALUES else None
 
 
 def _iter_assets(manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -474,6 +484,12 @@ class NikkeLibrary:
             'animation': _clean_text(model.get('animation')),
             'skin': _clean_text(model.get('skin')),
             'limit_age': bool(model.get('limit_age')),
+            'layer_order': _to_int(model.get('layer_order')),
+            'source_z_index': _to_int(model.get('source_z_index')),
+            'source_layer_index': _to_int(model.get('source_layer_index')),
+            'is_primary': _optional_bool(model.get('is_primary')),
+            'layer_match_method': _clean_text(model.get('layer_match_method')),
+            'layer_match_confidence': _layer_match_confidence(model.get('layer_match_confidence')),
             'position': model.get('position') if isinstance(model.get('position'), dict) else {},
             'bg_position': model.get('bg_position') if isinstance(model.get('bg_position'), dict) else {},
             'source_urls': model.get('urls') if isinstance(model.get('urls'), dict) else {},

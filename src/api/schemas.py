@@ -464,6 +464,12 @@ class NikkeLive2DModel(ApiSchema):
     animation: str = ''
     skin: str = ''
     limit_age: bool = False
+    layer_order: int | None = None
+    source_z_index: int | None = None
+    source_layer_index: int | None = None
+    is_primary: bool | None = None
+    layer_match_method: str = ''
+    layer_match_confidence: Literal['high', 'medium', 'low'] | None = None
     position: dict[str, Any] = Field(default_factory=dict)
     bg_position: dict[str, Any] = Field(default_factory=dict)
     view_overrides: dict[str, Live2DViewOverrideValue] = Field(default_factory=dict)
