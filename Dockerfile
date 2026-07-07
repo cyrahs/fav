@@ -17,6 +17,7 @@ RUN uv sync --no-dev --frozen --compile-bytecode
 
 
 FROM python:3.12-slim-trixie AS runner
+ARG TARGETARCH
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -39,11 +40,16 @@ RUN apt-get update \
 # Bring in the virtualenv from the builder image
 COPY --from=builder /app/.venv /app/.venv
 
-# Install the Playwright-managed Chromium build and its distro libraries, then
-# fail the image build if headless Chromium cannot launch.
+# Install the Playwright-managed Chromium build and its distro libraries. The
+# launch smoke runs only on native amd64 builds; arm64 is built through qemu in
+# CI, where Chromium's GPU process can crash before runtime.
 RUN python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
-    && python -c "from playwright.sync_api import sync_playwright; pw = sync_playwright().start(); browser = pw.chromium.launch(headless=True); page = browser.new_page(); page.set_content('<main>ok</main>'); assert page.text_content('main') == 'ok'; browser.close(); pw.stop()"
+    && if [ "$TARGETARCH" = "amd64" ]; then \
+        python -c "from playwright.sync_api import sync_playwright; pw = sync_playwright().start(); browser = pw.chromium.launch(headless=True); page = browser.new_page(); page.set_content('<main>ok</main>'); assert page.text_content('main') == 'ok'; browser.close(); pw.stop()"; \
+    else \
+        python -c "from playwright.sync_api import sync_playwright; sync_playwright().start().stop()"; \
+    fi
 
 # Copy the application source
 COPY src/ src/
