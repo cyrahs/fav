@@ -20,6 +20,7 @@ FROM python:3.12-slim-trixie AS runner
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
@@ -38,11 +39,18 @@ RUN apt-get update \
 # Bring in the virtualenv from the builder image
 COPY --from=builder /app/.venv /app/.venv
 
+# Install the Playwright-managed Chromium build and its distro libraries, then
+# fail the image build if headless Chromium cannot launch.
+RUN python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -c "from playwright.sync_api import sync_playwright; pw = sync_playwright().start(); browser = pw.chromium.launch(headless=True); page = browser.new_page(); page.set_content('<main>ok</main>'); assert page.text_content('main') == 'ok'; browser.close(); pw.stop()"
+
 # Copy the application source
 COPY src/ src/
+COPY script/ script/
 COPY run.py ./
 
 # Compile application code to bytecode
-RUN python -m compileall src/ run.py
+RUN python -m compileall src/ script/ run.py
 
 CMD ["python", "-m", "src.service"]

@@ -21,12 +21,27 @@ import httpx
 from src.core import config, logger
 from src.tool import database
 from src.tool.filename import sanitize
+from src.web import nikke_layer_metadata as layer_metadata
+from src.web.nikke_runtime import RuntimeCaptureRequest, capture_gamekee_runtime_layers
 
 log = logger.get('nikke')
 cfg = config.web.nikke
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+LAYER_CAPTURE_MATCH_METHOD = layer_metadata.LAYER_CAPTURE_MATCH_METHOD
+LAYER_MATCH_CONFIDENCE_VALUES = layer_metadata.LAYER_MATCH_CONFIDENCE_VALUES
+LIVE2D_LAYER_CAPTURE_FIELD = layer_metadata.LIVE2D_LAYER_CAPTURE_FIELD
+LIVE2D_LAYER_METADATA_FIELDS = layer_metadata.LIVE2D_LAYER_METADATA_FIELDS
+_copy_live2d_layer_metadata = layer_metadata.copy_live2d_layer_metadata
+_layer_capture_manifest_summary = layer_metadata.layer_capture_manifest_summary
+layer_capture_manifest_summary = layer_metadata.layer_capture_manifest_summary
+merge_layer_capture_files = layer_metadata.merge_layer_capture_files
+merge_live2d_layer_captures = layer_metadata.merge_live2d_layer_captures
+remove_live2d_layer_metadata = layer_metadata.remove_live2d_layer_metadata
+strip_layer_metadata_files = layer_metadata.strip_layer_metadata_files
+validate_live2d_layer_metadata = layer_metadata.validate_live2d_layer_metadata
 
 GAMEKEE_BASE_URL = 'https://www.gamekee.com'
 DEFAULT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -40,18 +55,6 @@ SKIN_SERIES_LABEL = '时装系列'
 SKIN_OBTAIN_LABEL = '获取方式'
 COLLECTION_TERMS = ('珍藏品', '收藏品')
 FAVORITE_MODEL_MARKER = 'favorite_'
-LAYER_MATCH_CONFIDENCE_VALUES = {'high', 'medium', 'low'}
-LIVE2D_LAYER_METADATA_FIELDS = (
-    'layer_order',
-    'source_z_index',
-    'source_layer_index',
-    'is_primary',
-    'layer_match_method',
-    'layer_match_confidence',
-)
-LIVE2D_LAYER_CAPTURE_FIELD = 'live2d_layer_capture'
-LAYER_CAPTURE_MATCH_METHOD = 'gamekee-runtime-container'
-MIN_LAYER_GROUP_SIZE = 2
 
 _API_REQUEST_INTERVAL_SECONDS = 0.5
 _CDN_REQUEST_INTERVAL_SECONDS = 0.2
@@ -231,6 +234,112 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _layer_capture_attempt_summary(
+    content_id: int,
+    outcome: dict[str, Any],
+    reuse_decision: dict[str, Any] | None = None,
+    error: BaseException | None = None,
+    previous_capture_error: BaseException | None = None,
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        'schema': 1,
+        'content_id': content_id,
+        'attempted_at': _utc_now_iso(),
+    }
+    summary.update(outcome)
+    if reuse_decision:
+        current_fingerprint = reuse_decision.get('current_fingerprint')
+        previous_fingerprint = reuse_decision.get('previous_fingerprint')
+        previous_status = reuse_decision.get('previous_status')
+        if current_fingerprint:
+            summary['fingerprint'] = current_fingerprint
+        if previous_fingerprint:
+            summary['previous_fingerprint'] = previous_fingerprint
+        if previous_status:
+            summary['previous_status'] = previous_status
+    if error is not None:
+        summary['error_class'] = error.__class__.__name__
+        summary['error_message'] = _safe_layer_capture_error_message(error)
+    if previous_capture_error is not None:
+        summary['previous_capture_error_class'] = previous_capture_error.__class__.__name__
+        summary['previous_capture_error_message'] = _safe_layer_capture_error_message(previous_capture_error)
+    return summary
+
+
+def _safe_layer_capture_error_message(error: BaseException, *, max_length: int = 240) -> str:
+    text = ' '.join(str(error).split())
+    if not text:
+        return ''
+    tokens = ['<path>' if '/' in token or '\\' in token else token for token in text.split(' ')]
+    return ' '.join(tokens)[:max_length]
+
+
+def _layer_metadata_preserve_key(model: dict[str, Any]) -> tuple[int | None, str, str]:
+    return (_to_int(model.get('skin_index')), str(model.get('stable_id') or ''), str(model.get('live2d_key') or ''))
+
+
+def _layer_metadata_snapshot(live2d_models: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{field: model[field] for field in LIVE2D_LAYER_METADATA_FIELDS if field in model} for model in live2d_models]
+
+
+def _restore_layer_metadata_snapshot(live2d_models: list[dict[str, Any]], snapshot: list[dict[str, Any]]) -> None:
+    for model, fields in zip(live2d_models, snapshot, strict=False):
+        for field_name in LIVE2D_LAYER_METADATA_FIELDS:
+            model.pop(field_name, None)
+        model.update(fields)
+
+
+def _preserve_previous_manifest_layer_metadata(  # noqa: C901, PLR0911
+    root: Path,
+    live2d_models: list[dict[str, Any]],
+) -> dict[str, Any]:
+    manifest_path = root / 'manifest.json'
+    if not manifest_path.exists():
+        return {'preserved': 0, 'reason': 'no_previous_manifest'}
+
+    try:
+        previous_manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {'preserved': 0, 'reason': 'previous_manifest_read_failed', 'error_class': exc.__class__.__name__}
+
+    if not isinstance(previous_manifest, dict):
+        return {'preserved': 0, 'reason': 'previous_manifest_invalid'}
+    previous_summary = previous_manifest.get(LIVE2D_LAYER_CAPTURE_FIELD)
+    if not isinstance(previous_summary, dict) or previous_summary.get('status') != 'success':
+        return {'preserved': 0, 'reason': 'previous_layer_capture_not_success'}
+    previous_models = previous_manifest.get('live2d_models')
+    if not isinstance(previous_models, list) or not all(isinstance(model, dict) for model in previous_models):
+        return {'preserved': 0, 'reason': 'previous_manifest_models_invalid'}
+
+    previous_by_key = {_layer_metadata_preserve_key(model): model for model in previous_models}
+    snapshot = _layer_metadata_snapshot(live2d_models)
+    preserved = 0
+    for model in live2d_models:
+        previous_model = previous_by_key.get(_layer_metadata_preserve_key(model))
+        if previous_model is None:
+            continue
+        before = {field: model.get(field) for field in LIVE2D_LAYER_METADATA_FIELDS}
+        _copy_live2d_layer_metadata(model, previous_model)
+        after = {field: model.get(field) for field in LIVE2D_LAYER_METADATA_FIELDS}
+        if after != before:
+            preserved += 1
+
+    if preserved == 0:
+        return {'preserved': 0, 'reason': 'no_previous_layer_metadata'}
+
+    issues = validate_live2d_layer_metadata(live2d_models)
+    errors = [issue for issue in issues if issue.get('severity') == 'error']
+    if errors:
+        _restore_layer_metadata_snapshot(live2d_models, snapshot)
+        return {
+            'preserved': 0,
+            'reason': 'previous_layer_metadata_failed_validation',
+            'issues': errors,
+        }
+
+    return {'preserved': preserved, 'summary': dict(previous_summary), 'issues': issues}
+
+
 def _to_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -239,474 +348,6 @@ def _to_int(value: Any) -> int | None:
     if isinstance(value, str) and value.strip().isdigit():
         return int(value.strip())
     return None
-
-
-def _optional_bool(value: Any) -> bool | None:
-    return value if isinstance(value, bool) else None
-
-
-def _first_int(data: dict[str, Any], *keys: str) -> int | None:
-    for key in keys:
-        value = _to_int(data.get(key))
-        if value is not None:
-            return value
-    return None
-
-
-def _first_text(data: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = data.get(key)
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ''
-
-
-def _copy_live2d_layer_metadata(model: dict[str, Any], value: dict[str, Any]) -> None:
-    layer_order = _first_int(value, 'layer_order', 'layerOrder')
-    source_z_index = _first_int(value, 'source_z_index', 'sourceZIndex')
-    source_layer_index = _first_int(value, 'source_layer_index', 'sourceLayerIndex')
-    is_primary = _optional_bool(value.get('is_primary')) if 'is_primary' in value else _optional_bool(value.get('isPrimary'))
-    layer_match_method = _first_text(value, 'layer_match_method', 'layerMatchMethod')
-    layer_match_confidence = _first_text(value, 'layer_match_confidence', 'layerMatchConfidence')
-
-    if layer_order is not None:
-        model['layer_order'] = layer_order
-    if source_z_index is not None:
-        model['source_z_index'] = source_z_index
-    if source_layer_index is not None:
-        model['source_layer_index'] = source_layer_index
-    if is_primary is not None:
-        model['is_primary'] = is_primary
-    if layer_match_method:
-        model['layer_match_method'] = layer_match_method
-    if layer_match_confidence in LAYER_MATCH_CONFIDENCE_VALUES:
-        model['layer_match_confidence'] = layer_match_confidence
-
-
-def _model_identity(model: dict[str, Any]) -> str:
-    stable_id = str(model.get('stable_id') or '')
-    live2d_key = str(model.get('live2d_key') or '')
-    if stable_id and live2d_key:
-        return f'{stable_id}/{live2d_key}'
-    return stable_id or live2d_key or '<unknown>'
-
-
-def _model_urls(model: dict[str, Any]) -> set[str]:
-    urls = model.get('urls')
-    if not isinstance(urls, dict):
-        return set()
-
-    out: set[str] = set()
-    for value in urls.values():
-        if isinstance(value, str) and value.strip():
-            out.add(normalize_url(value))
-        elif isinstance(value, list):
-            out.update(normalize_url(item) for item in value if isinstance(item, str) and item.strip())
-    return {url for url in out if url}
-
-
-def _capture_resource_urls(capture: dict[str, Any]) -> set[str]:
-    raw_urls = capture.get('resource_urls')
-    if raw_urls is None:
-        raw_urls = capture.get('urls')
-
-    values: list[Any] = []
-    if isinstance(raw_urls, dict):
-        values.extend(raw_urls.values())
-    elif isinstance(raw_urls, list):
-        values.extend(raw_urls)
-
-    out: set[str] = set()
-    for value in values:
-        if isinstance(value, str) and value.strip():
-            out.add(normalize_url(value))
-        elif isinstance(value, list):
-            out.update(normalize_url(item) for item in value if isinstance(item, str) and item.strip())
-    return {url for url in out if url}
-
-
-def _normalized_layer_capture(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_layers = payload.get('layers', payload.get('captures'))
-    if not isinstance(raw_layers, list):
-        return []
-
-    content_id = _to_int(payload.get('content_id'))
-    captured_at = _first_text(payload, 'captured_at', 'capturedAt')
-    out: list[dict[str, Any]] = []
-    for raw_layer in raw_layers:
-        if not isinstance(raw_layer, dict):
-            continue
-        layer = dict(raw_layer)
-        if content_id is not None and _to_int(layer.get('content_id')) is None:
-            layer['content_id'] = content_id
-        if captured_at and not _first_text(layer, 'captured_at', 'capturedAt'):
-            layer['captured_at'] = captured_at
-
-        layer_order = _first_int(layer, 'layer_order', 'layerOrder')
-        source_z_index = _first_int(layer, 'source_z_index', 'sourceZIndex')
-        source_layer_index = _first_int(layer, 'source_layer_index', 'sourceLayerIndex')
-        skin_index = _first_int(layer, 'skin_index', 'skinIndex')
-        is_primary = _optional_bool(layer.get('is_primary')) if 'is_primary' in layer else _optional_bool(layer.get('isPrimary'))
-        confidence = _first_text(layer, 'layer_match_confidence', 'layerMatchConfidence') or 'high'
-        method = _first_text(layer, 'layer_match_method', 'layerMatchMethod') or LAYER_CAPTURE_MATCH_METHOD
-
-        normalized: dict[str, Any] = {
-            'content_id': _to_int(layer.get('content_id')),
-            'skin_index': skin_index,
-            'stable_id': _first_text(layer, 'stable_id', 'stableId'),
-            'live2d_key': _first_text(layer, 'live2d_key', 'live2dKey'),
-            'layer_order': layer_order,
-            'source_z_index': source_z_index,
-            'source_layer_index': source_layer_index,
-            'is_primary': is_primary,
-            'layer_match_method': method,
-            'layer_match_confidence': confidence if confidence in LAYER_MATCH_CONFIDENCE_VALUES else 'low',
-            'captured_at': _first_text(layer, 'captured_at', 'capturedAt'),
-            'resource_urls': sorted(_capture_resource_urls(layer)),
-        }
-        raw_container = layer.get('raw_container', layer.get('rawContainer'))
-        if isinstance(raw_container, dict):
-            normalized['raw_container'] = raw_container
-        out.append(normalized)
-
-    _fill_missing_capture_layer_orders(out)
-    return out
-
-
-def _fill_missing_capture_layer_orders(layers: list[dict[str, Any]]) -> None:
-    grouped: dict[tuple[int | None, int | None], list[dict[str, Any]]] = {}
-    for layer in layers:
-        if _to_int(layer.get('layer_order')) is not None:
-            continue
-        if _to_int(layer.get('source_z_index')) is None:
-            continue
-        grouped.setdefault((_to_int(layer.get('content_id')), _to_int(layer.get('skin_index'))), []).append(layer)
-
-    for group in grouped.values():
-        if len(group) < MIN_LAYER_GROUP_SIZE:
-            continue
-        for order, layer in enumerate(
-            sorted(
-                group,
-                key=lambda item: (
-                    _to_int(item.get('source_z_index')) or 0,
-                    _to_int(item.get('source_layer_index')) or 0,
-                    str(item.get('stable_id') or ''),
-                    str(item.get('live2d_key') or ''),
-                ),
-            ),
-            start=1,
-        ):
-            layer['layer_order'] = order
-
-
-def _layer_capture_updates(capture: dict[str, Any]) -> dict[str, Any]:
-    updates: dict[str, Any] = {}
-    for field_name in LIVE2D_LAYER_METADATA_FIELDS:
-        value = capture.get(field_name)
-        if field_name in {'layer_order', 'source_z_index', 'source_layer_index'}:
-            value = _to_int(value)
-        elif field_name == 'is_primary':
-            value = _optional_bool(value)
-        elif field_name == 'layer_match_confidence':
-            value = value if value in LAYER_MATCH_CONFIDENCE_VALUES else None
-        elif isinstance(value, str):
-            value = value.strip()
-        else:
-            value = None
-        if value is not None and value != '':
-            updates[field_name] = value
-    return updates
-
-
-def _capture_matches_model(capture: dict[str, Any], model: dict[str, Any]) -> bool:
-    stable_id = str(capture.get('stable_id') or '')
-    live2d_key = str(capture.get('live2d_key') or '')
-    if stable_id and str(model.get('stable_id') or '') != stable_id:
-        return False
-    if live2d_key and str(model.get('live2d_key') or '') != live2d_key:
-        return False
-    if stable_id or live2d_key:
-        return True
-
-    capture_urls = set(capture.get('resource_urls') or [])
-    return bool(capture_urls and capture_urls.intersection(_model_urls(model)))
-
-
-def merge_live2d_layer_captures(
-    live2d_models: list[dict[str, Any]],
-    capture_payload: dict[str, Any],
-    *,
-    content_id: int | None = None,
-    dry_run: bool = True,
-) -> dict[str, Any]:
-    layers = _normalized_layer_capture(capture_payload)
-    target_models = [dict(model) for model in live2d_models] if dry_run else live2d_models
-    report: dict[str, Any] = {
-        'content_id': content_id if content_id is not None else _to_int(capture_payload.get('content_id')),
-        'dry_run': dry_run,
-        'layer_count': len(layers),
-        'matched': 0,
-        'changed': 0,
-        'unchanged': 0,
-        'skipped': [],
-        'changes': [],
-    }
-    for layer in layers:
-        layer_content_id = _to_int(layer.get('content_id'))
-        if content_id is not None and layer_content_id is not None and layer_content_id != content_id:
-            report['skipped'].append(
-                {
-                    'reason': 'content_id_mismatch',
-                    'capture_content_id': layer_content_id,
-                    'expected_content_id': content_id,
-                    'stable_id': layer.get('stable_id') or '',
-                    'live2d_key': layer.get('live2d_key') or '',
-                },
-            )
-            continue
-
-        candidates = [model for model in target_models if _capture_matches_model(layer, model)]
-        if len(candidates) != 1:
-            report['skipped'].append(
-                {
-                    'reason': 'ambiguous_match' if candidates else 'no_match',
-                    'candidate_count': len(candidates),
-                    'stable_id': layer.get('stable_id') or '',
-                    'live2d_key': layer.get('live2d_key') or '',
-                    'source_z_index': layer.get('source_z_index'),
-                    'source_layer_index': layer.get('source_layer_index'),
-                },
-            )
-            continue
-
-        updates = _layer_capture_updates(layer)
-        if not {'layer_order', 'is_primary'}.issubset(updates):
-            report['skipped'].append(
-                {
-                    'reason': 'incomplete_layer_metadata',
-                    'stable_id': layer.get('stable_id') or '',
-                    'live2d_key': layer.get('live2d_key') or '',
-                    'fields': sorted(updates),
-                },
-            )
-            continue
-
-        model = candidates[0]
-        changed_fields = {key: value for key, value in updates.items() if model.get(key) != value}
-        change = {
-            'model': _model_identity(model),
-            'stable_id': model.get('stable_id') or '',
-            'live2d_key': model.get('live2d_key') or '',
-            'fields': updates,
-            'changed_fields': sorted(changed_fields),
-        }
-        report['matched'] += 1
-        if changed_fields:
-            report['changed'] += 1
-            report['changes'].append(change)
-            model.update(updates)
-        else:
-            report['unchanged'] += 1
-            report['changes'].append(change)
-
-    report['quality_issues'] = validate_live2d_layer_metadata(target_models)
-    return report
-
-
-def remove_live2d_layer_metadata(live2d_models: list[dict[str, Any]], *, dry_run: bool = True) -> dict[str, Any]:
-    report: dict[str, Any] = {'dry_run': dry_run, 'changed': 0, 'changes': []}
-    for model in live2d_models:
-        present = [field_name for field_name in LIVE2D_LAYER_METADATA_FIELDS if field_name in model]
-        if not present:
-            continue
-        report['changed'] += 1
-        report['changes'].append({'model': _model_identity(model), 'removed_fields': present})
-        if not dry_run:
-            for field_name in present:
-                model.pop(field_name, None)
-    return report
-
-
-def _infer_live2d_model_kind(model: dict[str, Any]) -> str:
-    text_parts = [
-        str(model.get('label') or ''),
-        str(model.get('live2d_key') or ''),
-        str(model.get('animation') or ''),
-    ]
-    urls = model.get('urls')
-    if isinstance(urls, dict):
-        for value in urls.values():
-            if isinstance(value, str):
-                text_parts.append(value)
-            elif isinstance(value, list):
-                text_parts.extend(str(item) for item in value)
-    normalized = ' '.join(text_parts).lower()
-    has_aim = 'aim' in normalized
-    has_cover = 'cover' in normalized
-    if has_cover and not has_aim:
-        return 'cover'
-    if has_aim and not has_cover:
-        return 'aim'
-    return 'full'
-
-
-def validate_live2d_layer_metadata(live2d_models: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    grouped: dict[tuple[int | None, str], list[dict[str, Any]]] = {}
-    for model in live2d_models:
-        grouped.setdefault((_to_int(model.get('skin_index')), _infer_live2d_model_kind(model)), []).append(model)
-
-    for (skin_index, model_kind), models in sorted(grouped.items(), key=lambda item: ((item[0][0] or -1), item[0][1])):
-        if model_kind != 'full' or len(models) <= 1:
-            continue
-        identities = [_model_identity(model) for model in models]
-        orders = [_to_int(model.get('layer_order')) for model in models]
-        missing_order = [identities[index] for index, order in enumerate(orders) if order is None]
-        if missing_order:
-            issues.append(
-                {
-                    'severity': 'error',
-                    'code': 'missing_layer_order',
-                    'skin_index': skin_index,
-                    'models': missing_order,
-                },
-            )
-        else:
-            compact_orders = [order for order in orders if order is not None]
-            if len(set(compact_orders)) != len(compact_orders):
-                issues.append(
-                    {
-                        'severity': 'error',
-                        'code': 'duplicate_layer_order',
-                        'skin_index': skin_index,
-                        'orders': compact_orders,
-                        'models': identities,
-                    },
-                )
-
-        primary_models = [_model_identity(model) for model in models if model.get('is_primary') is True]
-        if len(primary_models) != 1:
-            issues.append(
-                {
-                    'severity': 'error',
-                    'code': 'invalid_primary_count',
-                    'skin_index': skin_index,
-                    'primary_count': len(primary_models),
-                    'models': identities,
-                },
-            )
-
-        low_confidence = [_model_identity(model) for model in models if model.get('layer_match_confidence') != 'high']
-        if low_confidence:
-            issues.append(
-                {
-                    'severity': 'error',
-                    'code': 'low_confidence_layer_match',
-                    'skin_index': skin_index,
-                    'models': low_confidence,
-                },
-            )
-    return issues
-
-
-def _read_json_object(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding='utf-8'))
-    if not isinstance(data, dict):
-        msg = f'{path} does not contain a JSON object'
-        raise TypeError(msg)
-    return data
-
-
-def _layer_capture_manifest_summary(capture_payload: dict[str, Any], merge_report: dict[str, Any]) -> dict[str, Any]:
-    layers = _normalized_layer_capture(capture_payload)
-    return {
-        'schema': _to_int(capture_payload.get('layer_capture_schema')) or 1,
-        'content_id': _to_int(capture_payload.get('content_id')),
-        'source_url': _first_text(capture_payload, 'source_url', 'sourceUrl'),
-        'captured_at': _first_text(capture_payload, 'captured_at', 'capturedAt'),
-        'capture_hash': hashlib.sha256(_json_dumps(capture_payload).encode('utf-8')).hexdigest(),
-        'runtime': capture_payload.get('runtime') if isinstance(capture_payload.get('runtime'), dict) else {},
-        'warnings': capture_payload.get('warnings') if isinstance(capture_payload.get('warnings'), list) else [],
-        'layer_count': len(layers),
-        'matched': merge_report.get('matched', 0),
-        'changed': merge_report.get('changed', 0),
-        'skipped': merge_report.get('skipped', []),
-        'quality_issues': merge_report.get('quality_issues', []),
-        'layers': layers,
-    }
-
-
-def merge_layer_capture_files(
-    *,
-    root: Path,
-    capture_payload: dict[str, Any],
-    dry_run: bool = True,
-) -> dict[str, Any]:
-    manifest_path = root / 'manifest.json'
-    character_path = root / 'character.json'
-    manifest = _read_json_object(manifest_path)
-    character = _read_json_object(character_path)
-    live2d_models = manifest.get('live2d_models')
-    character_models = character.get('live2d_models')
-    if not isinstance(live2d_models, list) or not isinstance(character_models, list):
-        msg = f'{root} is missing live2d_models in manifest.json or character.json'
-        raise TypeError(msg)
-
-    content_id = _to_int(manifest.get('content_id'))
-    manifest_report = merge_live2d_layer_captures(live2d_models, capture_payload, content_id=content_id, dry_run=dry_run)
-    character_report = merge_live2d_layer_captures(character_models, capture_payload, content_id=content_id, dry_run=dry_run)
-    report = {
-        'root': root.as_posix(),
-        'dry_run': dry_run,
-        'manifest': manifest_report,
-        'character': character_report,
-    }
-    if dry_run:
-        return report
-
-    summary = _layer_capture_manifest_summary(capture_payload, manifest_report)
-    manifest[LIVE2D_LAYER_CAPTURE_FIELD] = summary
-    character[LIVE2D_LAYER_CAPTURE_FIELD] = summary
-    write_json(manifest_path, manifest)
-    write_json(character_path, character)
-    return report
-
-
-def strip_layer_metadata_files(*, root: Path, dry_run: bool = True) -> dict[str, Any]:
-    manifest_path = root / 'manifest.json'
-    character_path = root / 'character.json'
-    manifest = _read_json_object(manifest_path)
-    character = _read_json_object(character_path)
-    live2d_models = manifest.get('live2d_models')
-    character_models = character.get('live2d_models')
-    if not isinstance(live2d_models, list) or not isinstance(character_models, list):
-        msg = f'{root} is missing live2d_models in manifest.json or character.json'
-        raise TypeError(msg)
-
-    report = {
-        'root': root.as_posix(),
-        'dry_run': dry_run,
-        'manifest': remove_live2d_layer_metadata(live2d_models, dry_run=dry_run),
-        'character': remove_live2d_layer_metadata(character_models, dry_run=dry_run),
-    }
-    manifest_has_capture = LIVE2D_LAYER_CAPTURE_FIELD in manifest
-    character_has_capture = LIVE2D_LAYER_CAPTURE_FIELD in character
-    report['capture_summary'] = {
-        'manifest_removed': manifest_has_capture,
-        'character_removed': character_has_capture,
-    }
-    if dry_run:
-        return report
-
-    manifest.pop(LIVE2D_LAYER_CAPTURE_FIELD, None)
-    character.pop(LIVE2D_LAYER_CAPTURE_FIELD, None)
-    write_json(manifest_path, manifest)
-    write_json(character_path, character)
-    return report
 
 
 def parse_content_id(target: str) -> int:
@@ -1930,6 +1571,150 @@ class Nikke:
                 msg = f'{msg}: {examples}'
             raise AssetProcessingError(msg)
 
+    async def _merge_live2d_layer_capture(  # noqa: C901
+        self,
+        *,
+        root: Path,
+        content_id: int,
+        title: str,
+        live2d_models: list[dict[str, Any]],
+        allow_runtime_capture: bool,
+    ) -> dict[str, Any]:
+        if not layer_metadata.has_multi_full_layer_groups(live2d_models):
+            return {
+                'action': 'skipped',
+                'reason': 'no_multi_full_groups',
+                'summary': _layer_capture_attempt_summary(
+                    content_id=content_id,
+                    outcome={
+                        'status': 'skipped',
+                        'reason': 'no_multi_full_groups',
+                        'retryable': False,
+                    },
+                ),
+            }
+
+        if not allow_runtime_capture:
+            preserve_report = _preserve_previous_manifest_layer_metadata(root, live2d_models)
+            if preserve_report.get('preserved'):
+                summary = dict(preserve_report.get('summary') or {})
+                summary['attempted_at'] = _utc_now_iso()
+                summary['action'] = 'preserved'
+                summary['reason'] = 'runtime_capture_not_allowed'
+                return {
+                    'action': 'preserved',
+                    'reason': 'runtime_capture_not_allowed',
+                    'preserve_report': preserve_report,
+                    'summary': summary,
+                }
+            return {
+                'action': 'skipped',
+                'reason': 'runtime_capture_not_allowed',
+                'preserve_report': preserve_report,
+                'summary': _layer_capture_attempt_summary(
+                    content_id=content_id,
+                    outcome={
+                        'status': 'skipped',
+                        'reason': 'runtime_capture_not_allowed',
+                        'retryable': False,
+                    },
+                ),
+            }
+
+        previous_capture_artifact: layer_metadata.PreviousLayerCapture | None = None
+        previous_capture_error: BaseException | None = None
+        try:
+            previous_capture_artifact = layer_metadata.read_previous_layer_capture_artifact(root)
+        except Exception as exc:  # noqa: BLE001
+            previous_capture_error = exc
+            log.warning('Failed to read previous Nikke runtime layer capture for %s: %s', content_id, exc)
+            if (root / layer_metadata.LAYER_CAPTURE_RAW_PATH).exists():
+                with suppress(Exception):
+                    previous_capture_artifact = layer_metadata.read_previous_layer_capture_manifest_summary(root)
+        previous_capture = previous_capture_artifact.payload if previous_capture_artifact is not None else None
+        previous_capture_source = previous_capture_artifact.source if previous_capture_artifact is not None else ''
+        reuse_decision = layer_metadata.evaluate_layer_capture_reuse(
+            content_id=content_id,
+            live2d_models=live2d_models,
+            previous_capture=previous_capture,
+            force_refresh=bool(getattr(cfg, 'runtime_capture_force_refresh', False)),
+        )
+        capture_payload: dict[str, Any] | None = None
+        action = 'skipped'
+        if reuse_decision.get('reusable') and previous_capture is not None:
+            capture_payload = previous_capture
+            action = 'reused'
+        elif bool(getattr(cfg, 'runtime_capture_enabled', False)):
+            timeout_ms = int(float(getattr(cfg, 'runtime_capture_timeout_seconds', 60.0)) * 1000)
+            try:
+                capture_payload = await capture_gamekee_runtime_layers(
+                    RuntimeCaptureRequest(
+                        content_id=content_id,
+                        title=title,
+                        models=live2d_models,
+                        timeout_ms=timeout_ms,
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning('Failed to capture Nikke runtime layers for %s: %s', content_id, exc)
+                return {
+                    'action': 'failed',
+                    'reason': 'runtime_capture_failed',
+                    'reuse_decision': reuse_decision,
+                    'error_class': exc.__class__.__name__,
+                    'error_message': _safe_layer_capture_error_message(exc),
+                    'summary': _layer_capture_attempt_summary(
+                        content_id=content_id,
+                        outcome={
+                            'status': 'failed',
+                            'reason': 'runtime_capture_failed',
+                            'retryable': True,
+                        },
+                        reuse_decision=reuse_decision,
+                        error=exc,
+                        previous_capture_error=previous_capture_error,
+                    ),
+                }
+            action = 'captured'
+        else:
+            return {
+                'action': action,
+                'reason': 'runtime_capture_disabled',
+                'reuse_decision': reuse_decision,
+                'summary': _layer_capture_attempt_summary(
+                    content_id=content_id,
+                    outcome={
+                        'status': 'skipped',
+                        'reason': 'runtime_capture_disabled',
+                        'retryable': False,
+                    },
+                    reuse_decision=reuse_decision,
+                    previous_capture_error=previous_capture_error,
+                ),
+            }
+
+        merge_report = layer_metadata.merge_live2d_layer_captures(live2d_models, capture_payload, content_id=content_id, dry_run=False)
+        summary = layer_metadata.layer_capture_manifest_summary(capture_payload, merge_report)
+        if action == 'reused' and previous_capture_source == 'manifest_summary':
+            previous_capture_hash = capture_payload.get('capture_hash')
+            if isinstance(previous_capture_hash, str) and previous_capture_hash.strip():
+                summary['capture_hash'] = previous_capture_hash.strip()
+        summary['attempted_at'] = _utc_now_iso()
+        summary['action'] = action
+        if previous_capture_error is not None:
+            summary['previous_capture_error_class'] = previous_capture_error.__class__.__name__
+            summary['previous_capture_error_message'] = _safe_layer_capture_error_message(previous_capture_error)
+        return {
+            'action': action,
+            'reason': reuse_decision.get('reason') or '',
+            'reuse_decision': reuse_decision,
+            'merge_report': merge_report,
+            'capture_payload': capture_payload,
+            'capture_payload_source': previous_capture_source if action == 'reused' else 'runtime',
+            'persist_raw_capture': action == 'captured',
+            'summary': summary,
+        }
+
     async def _read_known_atlas_text(self, atlas_url: str) -> str | None:
         blob = await self._completed_blob_for_url(atlas_url)
         if blob is None:
@@ -2037,6 +1822,7 @@ class Nikke:
         tj_list_row: dict[str, Any] | None,
         content_id: int,
         skip_assets: bool = False,
+        allow_runtime_capture: bool | None = None,
     ) -> Path:
         detail_response = await self._fetch_detail_response(client, content_id)
         detail = detail_response['data']
@@ -2067,6 +1853,20 @@ class Nikke:
         if not skip_assets:
             await self._expand_atlas_textures(client=client, root=root, assets=assets, live2d_models=live2d_models)
             assign_asset_paths(assets, content_id=content_id)
+
+        layer_capture_result = await self._merge_live2d_layer_capture(
+            root=root,
+            content_id=content_id,
+            title=name,
+            live2d_models=live2d_models,
+            allow_runtime_capture=(not skip_assets) if allow_runtime_capture is None else (allow_runtime_capture and not skip_assets),
+        )
+        layer_capture_payload = layer_capture_result.get('capture_payload')
+        if isinstance(layer_capture_payload, dict) and layer_capture_result.get('persist_raw_capture') is True:
+            write_json(root / layer_metadata.LAYER_CAPTURE_RAW_PATH, layer_capture_payload)
+        layer_capture_summary = layer_capture_result.get('summary')
+
+        if not skip_assets:
             await self._process_assets(client=client, root=root, assets=assets)
 
         manifest = {
@@ -2084,19 +1884,21 @@ class Nikke:
             'assets': relative_manifest_assets(assets),
             'asset_counts': asset_counts(assets),
         }
+        if isinstance(layer_capture_summary, dict):
+            manifest[LIVE2D_LAYER_CAPTURE_FIELD] = layer_capture_summary
         write_json(root / 'manifest.json', manifest)
-        write_json(
-            root / 'character.json',
-            {
-                'content_id': content_id,
-                'title': name,
-                'entry_id': detail.get('entry_id'),
-                'tj_list': tj_list_row,
-                'base_info': base_info,
-                'skins': content_summary.get('skins', []),
-                'live2d_models': live2d_models,
-            },
-        )
+        character = {
+            'content_id': content_id,
+            'title': name,
+            'entry_id': detail.get('entry_id'),
+            'tj_list': tj_list_row,
+            'base_info': base_info,
+            'skins': content_summary.get('skins', []),
+            'live2d_models': live2d_models,
+        }
+        if isinstance(layer_capture_summary, dict):
+            character[LIVE2D_LAYER_CAPTURE_FIELD] = layer_capture_summary
+        write_json(root / 'character.json', character)
         if not skip_assets:
             await self._replace_page_assets_and_mark_completed(content_id=content_id, assets=assets)
         return root
@@ -2109,7 +1911,13 @@ class Nikke:
             rows = await self._fetch_tj_list_rows(client)
             row = next((item for item in rows if row_content_id(item) == content_id), {'content_id': content_id})
             await self._upsert_list_pages(rows or [row])
-            return await self._crawl_page(client=client, tj_list_row=row, content_id=content_id, skip_assets=skip_assets)
+            return await self._crawl_page(
+                client=client,
+                tj_list_row=row,
+                content_id=content_id,
+                skip_assets=skip_assets,
+                allow_runtime_capture=not skip_assets,
+            )
 
     async def update(self) -> None:
         async with database.advisory_lock('nikke') as acquired:
@@ -2134,6 +1942,6 @@ class Nikke:
                         continue
                     try:
                         log.info('Crawling Nikke %s (%d/%d)', content_id, index, total)
-                        await self._crawl_page(client=client, tj_list_row=row, content_id=content_id)
+                        await self._crawl_page(client=client, tj_list_row=row, content_id=content_id, allow_runtime_capture=False)
                     except Exception:
                         log.exception('Failed to crawl Nikke content_id=%s', content_id)

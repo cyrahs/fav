@@ -419,6 +419,18 @@ class NikkeCharacterSummary(ApiSchema):
     live2d_model_count: int = 0
 
 
+class NikkeLayerMetadataCapture(ApiSchema):
+    status: str = ''
+    captured_at: str | None = None
+    attempted_at: str | None = None
+    capture_hash: str = ''
+    fingerprint: str = ''
+    reason: str = ''
+    error_class: str = ''
+    retryable: bool | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class NikkeCharacterListResponse(ApiSchema):
     items: list[NikkeCharacterSummary]
     total: int
@@ -496,6 +508,10 @@ class NikkeSkin(ApiSchema):
     burst_animation: NikkeAsset | None = None
     gallery: list[NikkeAsset] = Field(default_factory=list)
     live2d_models: list[NikkeLive2DModel] = Field(default_factory=list)
+    layer_metadata_required: bool = False
+    layer_metadata_status: Literal['complete', 'incomplete', 'error', 'missing'] = 'missing'
+    layer_metadata_issues: list[dict[str, Any]] = Field(default_factory=list)
+    layer_metadata_capture: NikkeLayerMetadataCapture = Field(default_factory=NikkeLayerMetadataCapture)
     voice_lines: list[NikkeVoiceLine] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -505,4 +521,8 @@ class NikkeCharacterDetail(NikkeCharacterSummary):
     base_info: dict[str, Any] = Field(default_factory=dict)
     skins: list[NikkeSkin] = Field(default_factory=list)
     live2d_models: list[NikkeLive2DModel] = Field(default_factory=list)
+    layer_metadata_required: bool = False
+    layer_metadata_status: Literal['complete', 'incomplete', 'error', 'missing'] = 'missing'
+    layer_metadata_issues: list[dict[str, Any]] = Field(default_factory=list)
+    layer_metadata_capture: NikkeLayerMetadataCapture = Field(default_factory=NikkeLayerMetadataCapture)
     assets: list[NikkeAsset] = Field(default_factory=list)

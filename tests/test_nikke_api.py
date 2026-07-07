@@ -231,6 +231,14 @@ def _create_nikke_fixture(root: Path) -> Path:
         'skins': skins,
         'live2d_models': live2d_models,
     }
+    layer_capture = {
+        'status': 'skipped',
+        'reason': 'no_multi_full_groups',
+        'attempted_at': '2026-04-30T00:00:01+00:00',
+        'retryable': False,
+    }
+    manifest['live2d_layer_capture'] = layer_capture
+    character['live2d_layer_capture'] = layer_capture
     _write_json(character_root / 'manifest.json', manifest)
     _write_json(character_root / 'character.json', character)
     _write_json(root / '_blobs' / 'manifest.json', {'content_id': 999, 'title': 'Ignored'})
@@ -378,8 +386,17 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     payload = response.json()
     assert payload['base_info']['CV'][0]['values'][0]['value'] == 'Test CV'
     assert len(payload['assets']) == 8
+    assert payload['layer_metadata_required'] is False
+    assert payload['layer_metadata_status'] == 'complete'
+    assert payload['layer_metadata_issues'] == []
+    assert payload['layer_metadata_capture']['status'] == 'skipped'
+    assert payload['layer_metadata_capture']['reason'] == 'no_multi_full_groups'
     skin = payload['skins'][0]
     assert skin['title'] == 'Default'
+    assert skin['layer_metadata_required'] is False
+    assert skin['layer_metadata_status'] == 'complete'
+    assert skin['layer_metadata_issues'] == []
+    assert skin['layer_metadata_capture'] == payload['layer_metadata_capture']
     assert skin['thumbnail']['path'] == 'assets/images/thumb.webp'
     assert skin['sd_model']['path'] == 'assets/images/sd.gif'
     assert skin['burst_animation']['path'] == 'assets/images/burst.gif'
@@ -399,6 +416,124 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)
     assert model['assets']['skel']['path'] == 'assets/live2d/model-a/model.skel'
     assert model['assets']['textures'][0]['path'] == 'assets/live2d/model-a/model.png'
+
+
+def test_get_nikke_character_exposes_incomplete_layer_metadata_status(tmp_path: Path) -> None:
+    root = _create_nikke_fixture(tmp_path / 'nikke')
+    character_root = root / '101 - Test NIKKE'
+    manifest = json.loads((character_root / 'manifest.json').read_text(encoding='utf-8'))
+    character = json.loads((character_root / 'character.json').read_text(encoding='utf-8'))
+    live2d_models = list(manifest['live2d_models'])
+    secondary_model = dict(live2d_models[0])
+    secondary_model.update(
+        {
+            'key': 'model-b',
+            'stable_id': 'stable-model-b',
+            'live2d_key': 'model-b',
+            'source_z_index': 8,
+            'source_layer_index': 1,
+            'is_primary': False,
+            'layer_match_confidence': 'low',
+        },
+    )
+    secondary_model.pop('layer_order', None)
+    live2d_models.append(secondary_model)
+    skin_one = dict(character['skins'][0])
+    skin_one.update({'skin_index': 1, 'name': 'Skin 2', 'title': 'Complete Skin'})
+    skin_one_main = dict(live2d_models[0])
+    skin_one_main.update(
+        {
+            'skin_index': 1,
+            'skin_name': 'Skin 2',
+            'skin_title': 'Complete Skin',
+            'key': 'skin-one-main',
+            'stable_id': 'skin-one-main',
+            'live2d_key': 'skin-one-main',
+            'layer_order': 2,
+            'source_z_index': 9,
+            'source_layer_index': 0,
+            'is_primary': True,
+            'layer_match_confidence': 'high',
+        },
+    )
+    skin_one_back = dict(live2d_models[0])
+    skin_one_back.update(
+        {
+            'skin_index': 1,
+            'skin_name': 'Skin 2',
+            'skin_title': 'Complete Skin',
+            'key': 'skin-one-back',
+            'stable_id': 'skin-one-back',
+            'live2d_key': 'skin-one-back',
+            'layer_order': 1,
+            'source_z_index': 8,
+            'source_layer_index': 1,
+            'is_primary': False,
+            'layer_match_confidence': 'high',
+        },
+    )
+    live2d_models.extend([skin_one_main, skin_one_back])
+    layer_capture = {
+        'status': 'incomplete',
+        'captured_at': '2026-04-30T00:00:02+00:00',
+        'attempted_at': '2026-04-30T00:00:03+00:00',
+        'capture_hash': 'capture-hash',
+        'fingerprint': 'fingerprint',
+        'warnings': ['safe warning'],
+        'quality_issues': [
+            {
+                'severity': 'error',
+                'code': 'raw_quality_issue',
+                'model_kind': 'full',
+                'models': ['stable-model-b/model-b'],
+                'raw_container': {'secret': True},
+            },
+        ],
+    }
+    manifest['live2d_models'] = live2d_models
+    manifest['live2d_layer_capture'] = layer_capture
+    manifest['content_summary']['skins'].append(skin_one)
+    character['live2d_models'] = live2d_models
+    character['live2d_layer_capture'] = layer_capture
+    character['skins'].append(skin_one)
+    _write_json(character_root / 'manifest.json', manifest)
+    _write_json(character_root / 'character.json', character)
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/nikke/characters/101', headers=_auth_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    skin = payload['skins'][0]
+    complete_skin = payload['skins'][1]
+    assert payload['layer_metadata_required'] is True
+    assert payload['layer_metadata_status'] == 'incomplete'
+    assert skin['layer_metadata_required'] is True
+    assert skin['layer_metadata_status'] == 'incomplete'
+    issue_codes = {issue['code'] for issue in skin['layer_metadata_issues']}
+    assert {'raw_quality_issue', 'missing_layer_order', 'low_confidence_layer_match'}.issubset(issue_codes)
+    assert next(issue for issue in skin['layer_metadata_issues'] if issue['code'] == 'raw_quality_issue')['skin_index'] == 0
+    assert all('raw_container' not in issue for issue in skin['layer_metadata_issues'])
+    detail_issue_codes = {issue['code'] for issue in payload['layer_metadata_issues']}
+    assert issue_codes.issubset(detail_issue_codes)
+    assert all('raw_container' not in issue for issue in payload['layer_metadata_issues'])
+    assert complete_skin['layer_metadata_required'] is True
+    assert complete_skin['layer_metadata_status'] == 'incomplete'
+    assert {issue['code'] for issue in complete_skin['layer_metadata_issues']} == {'raw_quality_issue'}
+    assert complete_skin['layer_metadata_issues'][0]['skin_index'] == 1
+    assert skin['layer_metadata_capture'] == {
+        'status': 'incomplete',
+        'captured_at': '2026-04-30T00:00:02+00:00',
+        'attempted_at': '2026-04-30T00:00:03+00:00',
+        'capture_hash': 'capture-hash',
+        'fingerprint': 'fingerprint',
+        'reason': '',
+        'error_class': '',
+        'retryable': None,
+        'warnings': ['safe warning'],
+    }
+    assert payload['layer_metadata_capture'] == skin['layer_metadata_capture']
 
 
 def test_nikke_live2d_view_override_save_and_detail_overlay(tmp_path: Path) -> None:

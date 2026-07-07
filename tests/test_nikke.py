@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +12,7 @@ import pytest
 
 import src.service.jobs as jobs_module
 import src.web.nikke as nikke_module
+import src.web.nikke_layer_metadata as layer_metadata_module
 from src.api.schemas import JobRequestTarget
 from src.core.config import Nikke as NikkeConfig
 from src.web.nikke import (
@@ -21,11 +24,15 @@ from src.web.nikke import (
     extract_resources,
     filter_nikke_rows,
     materialize_blob,
+    parse_spine_atlas_textures,
+    validate_asset_response,
+)
+from src.web.nikke_layer_metadata import (
+    LIVE2D_LAYER_METADATA_FIELDS,
+    live2d_layer_fingerprint,
     merge_layer_capture_files,
     merge_live2d_layer_captures,
-    parse_spine_atlas_textures,
     strip_layer_metadata_files,
-    validate_asset_response,
     validate_live2d_layer_metadata,
 )
 
@@ -35,12 +42,16 @@ def _job_cfg(*, enabled: bool = True) -> SimpleNamespace:
 
 
 def test_nikke_config_defaults_to_disabled_collection_nikke_path() -> None:
+    expected_runtime_timeout_seconds = 60.0
     cfg = NikkeConfig()
 
     assert cfg.enabled is False
     assert cfg.cron == '0 */6 * * *'
     assert cfg.run_on_start is False
     assert cfg.path == Path('./collection/nikke')
+    assert cfg.runtime_capture_enabled is False
+    assert cfg.runtime_capture_timeout_seconds == expected_runtime_timeout_seconds
+    assert cfg.runtime_capture_force_refresh is False
 
 
 def test_scheduler_registration_includes_nikke(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,6 +80,13 @@ def test_scheduler_registration_includes_nikke(monkeypatch: pytest.MonkeyPatch) 
 
 def test_api_job_enum_includes_nikke() -> None:
     assert JobRequestTarget.NIKKE.value == 'nikke'
+
+
+def test_nikke_module_reexports_layer_metadata_helpers_for_compatibility() -> None:
+    assert nikke_module.merge_live2d_layer_captures is layer_metadata_module.merge_live2d_layer_captures
+    assert nikke_module.merge_layer_capture_files is layer_metadata_module.merge_layer_capture_files
+    assert nikke_module.strip_layer_metadata_files is layer_metadata_module.strip_layer_metadata_files
+    assert nikke_module.validate_live2d_layer_metadata is layer_metadata_module.validate_live2d_layer_metadata
 
 
 def test_filter_nikke_rows_keeps_only_wrapped_rows_with_content_id() -> None:
@@ -148,11 +166,11 @@ def test_extract_resources_uses_bound_media_gate() -> None:
     assert models[0]['layer_match_confidence'] == 'high'
 
 
-def _layered_model(stable_id: str, live2d_key: str) -> dict[str, object]:
+def _layered_model(stable_id: str, live2d_key: str, *, skin_index: int = 0) -> dict[str, object]:
     return {
         'label': 'live2d(full)',
         'section': 'style',
-        'skin_index': 0,
+        'skin_index': skin_index,
         'stable_id': stable_id,
         'live2d_key': live2d_key,
         'urls': {
@@ -160,6 +178,116 @@ def _layered_model(stable_id: str, live2d_key: str) -> dict[str, object]:
             'skel': f'https://cdn.example.com/{live2d_key}/model.skel',
         },
     }
+
+
+def _runtime_content_json() -> dict[str, object]:
+    return {
+        'styleData': [
+            {
+                'name': 'default',
+                'data': [
+                    [
+                        {'type': 'text', 'value': 'Model'},
+                        {
+                            'type': 'live2d',
+                            'key': 'main-cell',
+                            'value': {
+                                'live2dKey': 'main',
+                                'atlas': 'https://cdn.example.com/main/model.atlas',
+                                'skel': 'https://cdn.example.com/main/model.skel',
+                            },
+                        },
+                        {
+                            'type': 'live2d',
+                            'key': 'back-cell',
+                            'value': {
+                                'live2dKey': 'back',
+                                'atlas': 'https://cdn.example.com/back/model.atlas',
+                                'skel': 'https://cdn.example.com/back/model.skel',
+                            },
+                        },
+                    ],
+                ],
+            },
+        ],
+    }
+
+
+def _runtime_content_json_with_extra_skin() -> dict[str, object]:
+    content_json = _runtime_content_json()
+    skins = content_json['styleData']
+    assert isinstance(skins, list)
+    skins.append(
+        {
+            'name': 'extra',
+            'data': [
+                [
+                    {'type': 'text', 'value': 'Model'},
+                    {
+                        'type': 'live2d',
+                        'key': 'extra-main-cell',
+                        'value': {
+                            'live2dKey': 'extra-main',
+                            'atlas': 'https://cdn.example.com/extra-main/model.atlas',
+                            'skel': 'https://cdn.example.com/extra-main/model.skel',
+                        },
+                    },
+                    {
+                        'type': 'live2d',
+                        'key': 'extra-back-cell',
+                        'value': {
+                            'live2dKey': 'extra-back',
+                            'atlas': 'https://cdn.example.com/extra-back/model.atlas',
+                            'skel': 'https://cdn.example.com/extra-back/model.skel',
+                        },
+                    },
+                ],
+            ],
+        },
+    )
+    return content_json
+
+
+def _runtime_reverse_bind() -> dict[str, str]:
+    return {
+        'main-cell': 'stable-main',
+        'back-cell': 'stable-back',
+        'extra-main-cell': 'extra-main',
+        'extra-back-cell': 'extra-back',
+    }
+
+
+def _runtime_capture_payload(content_id: int, models: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        'content_id': content_id,
+        'status': 'success',
+        'fingerprint': live2d_layer_fingerprint(content_id, models),
+        'layers': [
+            {
+                'stable_id': 'stable-main',
+                'live2d_key': 'main',
+                'layer_order': 2,
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'is_primary': True,
+                'layer_match_confidence': 'high',
+            },
+            {
+                'stable_id': 'stable-back',
+                'live2d_key': 'back',
+                'layer_order': 1,
+                'source_z_index': 8,
+                'source_layer_index': 1,
+                'is_primary': False,
+                'layer_match_confidence': 'high',
+            },
+        ],
+    }
+
+
+def _capture_hash(payload: dict[str, object]) -> str:
+    data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str)
+    return hashlib.sha256(data.encode('utf-8')).hexdigest()
 
 
 def test_merge_live2d_layer_captures_projects_dry_run_quality() -> None:
@@ -178,6 +306,7 @@ def test_merge_live2d_layer_captures_projects_dry_run_quality() -> None:
                 'sourceZIndex': 9,
                 'sourceLayerIndex': 0,
                 'isPrimary': True,
+                'layerMatchConfidence': 'high',
             },
             {
                 'stable_id': 'stable-front',
@@ -185,6 +314,7 @@ def test_merge_live2d_layer_captures_projects_dry_run_quality() -> None:
                 'sourceZIndex': 10,
                 'sourceLayerIndex': 1,
                 'isPrimary': False,
+                'layerMatchConfidence': 'high',
             },
             {
                 'stable_id': 'stable-back',
@@ -192,6 +322,7 @@ def test_merge_live2d_layer_captures_projects_dry_run_quality() -> None:
                 'sourceZIndex': 8,
                 'sourceLayerIndex': 2,
                 'isPrimary': False,
+                'layerMatchConfidence': 'high',
             },
         ],
     }
@@ -215,6 +346,296 @@ def test_merge_live2d_layer_captures_projects_dry_run_quality() -> None:
     ]
     assert {model['layer_match_method'] for model in models} == {'gamekee-runtime-container'}
     assert {model['layer_match_confidence'] for model in models} == {'high'}
+
+
+def test_merge_live2d_layer_captures_treats_missing_confidence_as_low() -> None:
+    models = [
+        _layered_model('stable-main', 'main'),
+        _layered_model('stable-back', 'back'),
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'stable_id': 'stable-main',
+                'live2d_key': 'main',
+                'layer_order': 2,
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'is_primary': True,
+            },
+            {
+                'stable_id': 'stable-back',
+                'live2d_key': 'back',
+                'layer_order': 1,
+                'source_z_index': 8,
+                'source_layer_index': 1,
+                'is_primary': False,
+            },
+        ],
+    }
+
+    report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert {issue['code'] for issue in report['quality_issues']} == {'low_confidence_layer_match'}
+    assert {issue['skin_index'] for issue in report['quality_issues']} == {0}
+    assert {issue['model_kind'] for issue in report['quality_issues']} == {'full'}
+    assert report['changed'] == 0
+    assert {item['reason'] for item in report['blocked']} == {'quality_gates_failed'}
+    assert {item['skin_index'] for item in report['blocked']} == {0}
+    assert {item['model_kind'] for item in report['blocked']} == {'full'}
+    assert all('layer_order' in item['fields'] for item in report['blocked'])
+    assert all(field_name not in model for model in models for field_name in LIVE2D_LAYER_METADATA_FIELDS)
+
+
+def test_merge_live2d_layer_captures_commits_only_valid_skin_groups() -> None:
+    expected_valid_changes = 2
+    expected_main_layer_order = 2
+    models = [
+        _layered_model('skin0-main', 'skin0-main', skin_index=0),
+        _layered_model('skin0-back', 'skin0-back', skin_index=0),
+        _layered_model('skin1-main', 'skin1-main', skin_index=1),
+        _layered_model('skin1-back', 'skin1-back', skin_index=1),
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'stable_id': 'skin0-main',
+                'live2d_key': 'skin0-main',
+                'layer_order': 2,
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'is_primary': True,
+                'layer_match_confidence': 'high',
+            },
+            {
+                'stable_id': 'skin0-back',
+                'live2d_key': 'skin0-back',
+                'layer_order': 1,
+                'source_z_index': 8,
+                'source_layer_index': 1,
+                'is_primary': False,
+                'layer_match_confidence': 'high',
+            },
+            {
+                'stable_id': 'skin1-main',
+                'live2d_key': 'skin1-main',
+                'layer_order': 1,
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'is_primary': True,
+                'layer_match_confidence': 'high',
+            },
+            {
+                'stable_id': 'skin1-back',
+                'live2d_key': 'skin1-back',
+                'layer_order': 1,
+                'source_z_index': 8,
+                'source_layer_index': 1,
+                'is_primary': False,
+                'layer_match_confidence': 'high',
+            },
+        ],
+    }
+
+    report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert report['changed'] == expected_valid_changes
+    assert {issue['code'] for issue in report['quality_issues']} == {'duplicate_layer_order'}
+    assert {issue['model_kind'] for issue in report['quality_issues']} == {'full'}
+    assert {item['skin_index'] for item in report['blocked']} == {1}
+    assert {item['model_kind'] for item in report['blocked']} == {'full'}
+    assert all('layer_order' in item['fields'] for item in report['blocked'])
+    assert models[0]['layer_order'] == expected_main_layer_order
+    assert models[1]['layer_order'] == 1
+    assert all(field_name not in model for model in models[2:] for field_name in LIVE2D_LAYER_METADATA_FIELDS)
+
+
+def test_merge_live2d_layer_captures_clears_existing_fields_for_blocked_skin_group() -> None:
+    models = [
+        {
+            **_layered_model('stable-main', 'main'),
+            'layer_order': 7,
+            'source_z_index': 99,
+            'source_layer_index': 4,
+            'is_primary': True,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+        {
+            **_layered_model('stable-back', 'back'),
+            'layer_order': 8,
+            'source_z_index': 98,
+            'source_layer_index': 5,
+            'is_primary': False,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'stable_id': 'stable-main',
+                'live2d_key': 'main',
+                'layer_order': 1,
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'is_primary': True,
+                'layer_match_confidence': 'high',
+            },
+            {
+                'stable_id': 'stable-back',
+                'live2d_key': 'back',
+                'layer_order': 1,
+                'source_z_index': 8,
+                'source_layer_index': 1,
+                'is_primary': False,
+                'layer_match_confidence': 'high',
+            },
+        ],
+    }
+
+    report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert {issue['code'] for issue in report['quality_issues']} == {'duplicate_layer_order'}
+    assert report['blocked']
+    assert all(field_name not in model for model in models for field_name in LIVE2D_LAYER_METADATA_FIELDS)
+
+
+def test_merge_live2d_layer_captures_clears_uncaptured_siblings_in_blocked_skin_group() -> None:
+    models = [
+        {
+            **_layered_model('stable-main', 'main'),
+            'layer_order': 7,
+            'source_z_index': 99,
+            'source_layer_index': 4,
+            'is_primary': True,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+        {
+            **_layered_model('stable-back', 'back'),
+            'layer_order': 8,
+            'source_z_index': 98,
+            'source_layer_index': 5,
+            'is_primary': False,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'stable_id': 'stable-main',
+                'live2d_key': 'main',
+                'layer_order': 1,
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'is_primary': True,
+                'layer_match_confidence': 'low',
+            },
+        ],
+    }
+
+    report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert {issue['code'] for issue in report['quality_issues']} == {
+        'low_confidence_layer_match',
+        'missing_capture_layer',
+    }
+    assert {item['stable_id'] for item in report['blocked']} == {'stable-main'}
+    assert all(field_name not in model for model in models for field_name in LIVE2D_LAYER_METADATA_FIELDS)
+
+
+def test_merge_live2d_layer_captures_clears_stale_group_when_capture_omits_sibling() -> None:
+    models = [
+        {
+            **_layered_model('stable-main', 'main'),
+            'layer_order': 7,
+            'source_z_index': 99,
+            'source_layer_index': 4,
+            'is_primary': True,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+        {
+            **_layered_model('stable-back', 'back'),
+            'layer_order': 8,
+            'source_z_index': 98,
+            'source_layer_index': 5,
+            'is_primary': False,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'stable_id': 'stable-main',
+                'live2d_key': 'main',
+                'layer_order': 1,
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'is_primary': True,
+                'layer_match_confidence': 'high',
+            },
+        ],
+    }
+
+    report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert {issue['code'] for issue in report['quality_issues']} == {'missing_capture_layer'}
+    assert report['quality_issues'][0]['models'] == ['stable-back/back']
+    assert {item['stable_id'] for item in report['blocked']} == {'stable-main'}
+    assert all(field_name not in model for model in models for field_name in LIVE2D_LAYER_METADATA_FIELDS)
+
+
+def test_merge_live2d_layer_captures_clears_stale_group_when_matched_capture_is_incomplete() -> None:
+    models = [
+        {
+            **_layered_model('stable-main', 'main'),
+            'layer_order': 7,
+            'source_z_index': 99,
+            'source_layer_index': 4,
+            'is_primary': True,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+        {
+            **_layered_model('stable-back', 'back'),
+            'layer_order': 8,
+            'source_z_index': 98,
+            'source_layer_index': 5,
+            'is_primary': False,
+            'layer_match_method': 'stale',
+            'layer_match_confidence': 'high',
+        },
+    ]
+    capture = {
+        'content_id': 711133,
+        'layers': [
+            {
+                'stable_id': 'stable-main',
+                'live2d_key': 'main',
+                'source_z_index': 9,
+                'source_layer_index': 0,
+                'layer_match_confidence': 'high',
+            },
+        ],
+    }
+
+    report = merge_live2d_layer_captures(models, capture, content_id=711133, dry_run=False)
+
+    assert report['quality_issues'] == []
+    assert report['blocked'] == []
+    assert report['skipped'][0]['reason'] == 'incomplete_layer_metadata'
+    assert report['skipped'][0]['skin_index'] == 0
+    assert report['skipped'][0]['model_kind'] == 'full'
+    assert all(field_name not in model for model in models for field_name in LIVE2D_LAYER_METADATA_FIELDS)
 
 
 def test_merge_live2d_layer_captures_skips_ambiguous_url_only_capture() -> None:
@@ -271,9 +692,25 @@ def test_merge_layer_capture_files_updates_manifest_and_character(tmp_path: Path
     (root / 'character.json').write_text(json.dumps(character), encoding='utf-8')
     capture = {
         'content_id': 711133,
+        'status': 'reused-sentinel',
+        'fingerprint': 'payload-fingerprint-sentinel',
         'layers': [
-            {'stable_id': 'stable-main', 'live2d_key': 'main', 'layer_order': 2, 'source_z_index': 9, 'is_primary': True},
-            {'stable_id': 'stable-back', 'live2d_key': 'back', 'layer_order': 1, 'source_z_index': 8, 'is_primary': False},
+            {
+                'stable_id': 'stable-main',
+                'live2d_key': 'main',
+                'layer_order': 2,
+                'source_z_index': 9,
+                'is_primary': True,
+                'layer_match_confidence': 'high',
+            },
+            {
+                'stable_id': 'stable-back',
+                'live2d_key': 'back',
+                'layer_order': 1,
+                'source_z_index': 8,
+                'is_primary': False,
+                'layer_match_confidence': 'high',
+            },
         ],
     }
 
@@ -285,6 +722,8 @@ def test_merge_layer_capture_files_updates_manifest_and_character(tmp_path: Path
     assert saved_manifest['live2d_models'][0]['layer_order'] == expected_main_layer_order
     assert saved_character['live2d_models'][1]['is_primary'] is False
     assert saved_manifest['live2d_layer_capture']['layer_count'] == expected_main_layer_order
+    assert saved_manifest['live2d_layer_capture']['status'] == capture['status']
+    assert saved_manifest['live2d_layer_capture']['fingerprint'] == capture['fingerprint']
     assert saved_manifest['live2d_layer_capture']['capture_hash']
 
     strip_report = strip_layer_metadata_files(root=root, dry_run=False)
@@ -293,6 +732,37 @@ def test_merge_layer_capture_files_updates_manifest_and_character(tmp_path: Path
     assert strip_report['capture_summary'] == {'manifest_removed': True, 'character_removed': True}
     assert 'live2d_layer_capture' not in stripped_manifest
     assert 'layer_order' not in stripped_manifest['live2d_models'][0]
+
+
+def test_merge_layer_capture_files_marks_summary_incomplete_when_quality_gates_fail(tmp_path: Path) -> None:
+    root = tmp_path / '711133 - Test'
+    root.mkdir()
+    models = [_layered_model('stable-main', 'main'), _layered_model('stable-back', 'back')]
+    manifest = {'content_id': 711133, 'title': 'Test', 'live2d_models': [dict(model) for model in models]}
+    character = {'content_id': 711133, 'title': 'Test', 'live2d_models': [dict(model) for model in models]}
+    (root / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    (root / 'character.json').write_text(json.dumps(character), encoding='utf-8')
+    capture = {
+        'content_id': 711133,
+        'status': 'success',
+        'fingerprint': 'payload-fingerprint-sentinel',
+        'layers': [
+            {'stable_id': 'stable-main', 'live2d_key': 'main', 'layer_order': 1, 'source_z_index': 9, 'is_primary': True},
+            {'stable_id': 'stable-back', 'live2d_key': 'back', 'layer_order': 1, 'source_z_index': 8, 'is_primary': False},
+        ],
+    }
+
+    report = merge_layer_capture_files(root=root, capture_payload=capture, dry_run=False)
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    assert report['manifest']['blocked']
+    assert saved_manifest['live2d_layer_capture']['status'] == 'incomplete'
+    assert saved_manifest['live2d_layer_capture']['blocked']
+    assert saved_manifest['live2d_layer_capture']['quality_issues']
+    assert all(field_name not in saved_manifest['live2d_models'][0] for field_name in LIVE2D_LAYER_METADATA_FIELDS)
+    assert saved_character['live2d_layer_capture'] == saved_manifest['live2d_layer_capture']
+    assert saved_character['live2d_models'] == saved_manifest['live2d_models']
 
 
 def test_add_asset_preserves_same_url_different_kinds() -> None:
@@ -382,6 +852,552 @@ def test_load_reverse_bind_uses_entry_data_bind_cdn(monkeypatch: pytest.MonkeyPa
     )
 
     assert reverse_bind == {'dynamic-image': 'stable-image'}
+
+
+def _install_crawl_page_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    crawler: Nikke,
+    *,
+    content_json: dict[str, object],
+    reverse_bind: dict[str, str],
+    events: list[str],
+) -> None:
+    async def _fetch_detail_response(_client: object, content_id: int) -> dict[str, object]:
+        return {'data': {'title': 'Test', 'entry_id': content_id, 'updated_at': '2026-07-07T00:00:00+00:00'}}
+
+    async def _load_content_json(_client: object, _detail: dict[str, object], *, content_id: int) -> dict[str, object]:
+        _ = content_id
+        return content_json
+
+    async def _load_reverse_bind(_client: object, _detail: dict[str, object], *, content_id: int) -> dict[str, str]:
+        _ = content_id
+        return reverse_bind
+
+    async def _upsert_page_fetch_start(**_kwargs: object) -> None:
+        return None
+
+    async def _expand_atlas_textures(**_kwargs: object) -> None:
+        events.append('expand')
+        live2d_models = _kwargs.get('live2d_models')
+        assert isinstance(live2d_models, list)
+        for model in live2d_models:
+            urls = model.get('urls')
+            if isinstance(urls, dict):
+                urls['atlas_textures'] = [f'https://cdn.example.com/{model.get("live2d_key")}/expanded.png']
+
+    async def _process_assets(**_kwargs: object) -> None:
+        events.append('process')
+
+    async def _replace_page_assets_and_mark_completed(**_kwargs: object) -> None:
+        events.append('complete')
+
+    monkeypatch.setattr(crawler, '_fetch_detail_response', _fetch_detail_response)
+    monkeypatch.setattr(crawler, '_load_content_json', _load_content_json)
+    monkeypatch.setattr(crawler, '_load_reverse_bind', _load_reverse_bind)
+    monkeypatch.setattr(crawler, '_upsert_page_fetch_start', _upsert_page_fetch_start)
+    monkeypatch.setattr(crawler, '_expand_atlas_textures', _expand_atlas_textures)
+    monkeypatch.setattr(crawler, '_process_assets', _process_assets)
+    monkeypatch.setattr(crawler, '_replace_page_assets_and_mark_completed', _replace_page_assets_and_mark_completed)
+
+
+def test_crawl_page_reuses_previous_layer_capture_before_manifest_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    expected_layer_count = 2
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    _assets, models = extract_resources(content_json=content_json, tj_list_row={'title': 'Test'}, reverse_bind=reverse_bind)
+    root = tmp_path / '711133 - Test'
+    raw_capture_path = root / 'raw/live2d-layer-capture.json'
+    raw_capture_path.parent.mkdir(parents=True)
+    previous_capture = _runtime_capture_payload(content_id, models)
+    raw_capture_path.write_text(json.dumps(previous_capture), encoding='utf-8')
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    saved_capture = json.loads(raw_capture_path.read_text(encoding='utf-8'))
+    assert [(model['stable_id'], model.get('layer_order'), model.get('is_primary')) for model in saved_manifest['live2d_models']] == [
+        ('stable-main', 2, True),
+        ('stable-back', 1, False),
+    ]
+    assert saved_character['live2d_models'] == saved_manifest['live2d_models']
+    assert saved_capture == previous_capture
+    assert len(saved_capture['layers']) == expected_layer_count
+    assert saved_capture['status'] == 'success'
+    assert saved_manifest['live2d_layer_capture']['status'] == 'success'
+    assert saved_manifest['live2d_layer_capture']['action'] == 'reused'
+    assert saved_manifest['live2d_layer_capture']['fingerprint'] == saved_capture['fingerprint']
+    assert saved_manifest['live2d_layer_capture']['capture_hash'] == _capture_hash(saved_capture)
+    assert saved_manifest['live2d_layer_capture']['attempted_at']
+    assert saved_character['live2d_layer_capture'] == saved_manifest['live2d_layer_capture']
+    assert events == ['expand', 'process', 'complete']
+
+
+def test_crawl_page_captures_runtime_layers_when_enabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    expected_layer_count = 2
+    expected_timeout_ms = 12500
+    expected_main_layer_order = 2
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    events: list[str] = []
+    requests: list[object] = []
+    captured_payloads: list[dict[str, object]] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=12.5),
+    )
+
+    async def _fake_capture(request: object) -> dict[str, object]:
+        events.append('capture')
+        assert all('atlas_textures' in model['urls'] for model in request.models)
+        requests.append(request)
+        payload = _runtime_capture_payload(content_id, [dict(model) for model in request.models])
+        payload['runtime'] = {
+            'requested_live2d_keys': ['main', 'back'],
+            'matched_live2d_keys': ['main', 'back'],
+            'container_count': 2,
+            'raw_browser_state': {'path': '/var/lib/chromium-profile'},
+        }
+        payload['warnings'] = ['safe warning', {'raw': 'object'}, 'path /var/lib/chromium-profile']
+        layers = payload['layers']
+        assert isinstance(layers, list)
+        first_layer = layers[0]
+        assert isinstance(first_layer, dict)
+        first_layer['raw_container'] = {'class_name': 'spine-player-container', 'style': 'z-index: 9'}
+        captured_payloads.append(payload)
+        return payload
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _fake_capture)
+
+    root = asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    saved_capture = json.loads((root / 'raw/live2d-layer-capture.json').read_text(encoding='utf-8'))
+    assert len(requests) == 1
+    assert requests[0].timeout_ms == expected_timeout_ms
+    assert saved_capture == captured_payloads[0]
+    assert saved_manifest['live2d_models'][0]['layer_order'] == expected_main_layer_order
+    assert saved_manifest['live2d_models'][1]['layer_order'] == 1
+    assert saved_character['live2d_models'] == saved_manifest['live2d_models']
+    assert len(saved_capture['layers']) == expected_layer_count
+    assert saved_capture['layers'][0]['raw_container']['class_name'] == 'spine-player-container'
+    assert saved_capture['status'] == 'success'
+    assert saved_manifest['live2d_layer_capture']['status'] == 'success'
+    assert saved_manifest['live2d_layer_capture']['action'] == 'captured'
+    assert saved_manifest['live2d_layer_capture']['fingerprint'] == saved_capture['fingerprint']
+    assert saved_manifest['live2d_layer_capture']['capture_hash'] == _capture_hash(saved_capture)
+    assert all('raw_container' not in layer for layer in saved_manifest['live2d_layer_capture']['layers'])
+    assert saved_manifest['live2d_layer_capture']['runtime'] == {
+        'requested_live2d_keys': ['main', 'back'],
+        'matched_live2d_keys': ['main', 'back'],
+        'container_count': expected_layer_count,
+    }
+    assert saved_manifest['live2d_layer_capture']['warnings'] == ['safe warning', 'path <path>']
+    assert saved_character['live2d_layer_capture'] == saved_manifest['live2d_layer_capture']
+    assert events == ['expand', 'capture', 'process', 'complete']
+
+
+def test_crawl_page_writes_failed_layer_capture_summary_without_blocking_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _failing_capture(_request: object) -> dict[str, object]:
+        events.append('capture')
+        message = 'browser unavailable at /var/lib/chromium-profile\nwith details'
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _failing_capture)
+
+    root = asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    summary = saved_manifest['live2d_layer_capture']
+    assert summary['status'] == 'failed'
+    assert summary['reason'] == 'runtime_capture_failed'
+    assert summary['retryable'] is True
+    assert summary['error_class'] == 'RuntimeError'
+    assert summary['error_message'] == 'browser unavailable at <path> with details'
+    assert summary['fingerprint']
+    assert saved_character['live2d_layer_capture'] == summary
+    assert not (root / 'raw/live2d-layer-capture.json').exists()
+    assert all('layer_order' not in model for model in saved_manifest['live2d_models'])
+    assert events == ['expand', 'capture', 'process', 'complete']
+
+
+def test_crawl_page_writes_skipped_layer_capture_summary_when_runtime_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    root = asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    summary = saved_manifest['live2d_layer_capture']
+    assert summary['status'] == 'skipped'
+    assert summary['reason'] == 'runtime_capture_disabled'
+    assert summary['retryable'] is False
+    assert summary['fingerprint']
+    assert saved_character['live2d_layer_capture'] == summary
+    assert saved_character['live2d_models'] == saved_manifest['live2d_models']
+    assert not (root / 'raw/live2d-layer-capture.json').exists()
+    assert events == ['expand', 'process', 'complete']
+
+
+def test_crawl_page_does_not_backfill_raw_capture_when_runtime_not_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    _assets, models = extract_resources(content_json=content_json, tj_list_row={'title': 'Test'}, reverse_bind=reverse_bind)
+    root = tmp_path / '711133 - Test'
+    raw_capture_path = root / 'raw/live2d-layer-capture.json'
+    raw_capture_path.parent.mkdir(parents=True)
+    previous_capture = _runtime_capture_payload(content_id, models)
+    raw_capture_path.write_text(json.dumps(previous_capture), encoding='utf-8')
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    asyncio.run(
+        crawler._crawl_page(
+            client=object(),
+            tj_list_row={'title': 'Test'},
+            content_id=content_id,
+            allow_runtime_capture=False,
+        ),
+    )
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    summary = saved_manifest['live2d_layer_capture']
+    assert summary['status'] == 'skipped'
+    assert summary['reason'] == 'runtime_capture_not_allowed'
+    assert all('layer_order' not in model for model in saved_manifest['live2d_models'])
+    assert json.loads(raw_capture_path.read_text(encoding='utf-8')) == previous_capture
+    assert events == ['expand', 'process', 'complete']
+
+
+def test_crawl_page_preserves_committed_manifest_layer_metadata_when_runtime_not_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_main_layer_order = 2
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    _assets, previous_models = extract_resources(content_json=content_json, tj_list_row={'title': 'Test'}, reverse_bind=reverse_bind)
+    previous_capture = _runtime_capture_payload(content_id, previous_models)
+    merge_report = merge_live2d_layer_captures(previous_models, previous_capture, content_id=content_id, dry_run=False)
+    previous_summary = layer_metadata_module.layer_capture_manifest_summary(previous_capture, merge_report)
+    root = tmp_path / '711133 - Test'
+    root.mkdir(parents=True)
+    (root / 'manifest.json').write_text(
+        json.dumps(
+            {
+                'content_id': content_id,
+                'title': 'Test',
+                'live2d_models': previous_models,
+                'live2d_layer_capture': previous_summary,
+            },
+        ),
+        encoding='utf-8',
+    )
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    asyncio.run(
+        crawler._crawl_page(
+            client=object(),
+            tj_list_row={'title': 'Test'},
+            content_id=content_id,
+            allow_runtime_capture=False,
+        ),
+    )
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    assert saved_manifest['live2d_models'][0]['layer_order'] == expected_main_layer_order
+    assert saved_manifest['live2d_models'][1]['is_primary'] is False
+    assert saved_character['live2d_models'] == saved_manifest['live2d_models']
+    assert saved_manifest['live2d_layer_capture']['status'] == 'success'
+    assert saved_manifest['live2d_layer_capture']['action'] == 'preserved'
+    assert saved_manifest['live2d_layer_capture']['reason'] == 'runtime_capture_not_allowed'
+    assert not (root / 'raw/live2d-layer-capture.json').exists()
+    assert events == ['expand', 'process', 'complete']
+
+
+def test_update_disables_runtime_capture_for_regular_crawler_cron(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    content_id = 711133
+    crawler = Nikke(path=tmp_path)
+    allow_runtime_capture_values: list[bool | None] = []
+
+    @asynccontextmanager
+    async def fake_advisory_lock(_name: str) -> AsyncIterator[bool]:
+        yield True
+
+    @asynccontextmanager
+    async def fake_http_client() -> AsyncIterator[object]:
+        yield object()
+
+    async def fake_ensure_schema() -> None:
+        return None
+
+    async def fake_fetch_tj_list_rows(_client: object) -> list[dict[str, object]]:
+        return [{'content_id': content_id, 'title': 'Test'}]
+
+    async def fake_upsert_list_pages(_rows: list[dict[str, object]]) -> None:
+        return None
+
+    async def fake_crawl_page(**kwargs: object) -> Path:
+        allow_runtime_capture_values.append(kwargs.get('allow_runtime_capture'))
+        return tmp_path / '711133 - Test'
+
+    monkeypatch.setattr(nikke_module.database, 'advisory_lock', fake_advisory_lock)
+    monkeypatch.setattr(crawler, '_http_client', fake_http_client)
+    monkeypatch.setattr(crawler, '_ensure_schema', fake_ensure_schema)
+    monkeypatch.setattr(crawler, '_fetch_tj_list_rows', fake_fetch_tj_list_rows)
+    monkeypatch.setattr(crawler, '_upsert_list_pages', fake_upsert_list_pages)
+    monkeypatch.setattr(crawler, '_crawl_page', fake_crawl_page)
+
+    asyncio.run(crawler.update())
+
+    assert allow_runtime_capture_values == [False]
+
+
+def test_crawl_page_ignores_corrupt_previous_layer_capture_without_blocking_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    root = tmp_path / '711133 - Test'
+    raw_capture_path = root / 'raw/live2d-layer-capture.json'
+    raw_capture_path.parent.mkdir(parents=True)
+    raw_capture_path.write_text('{not-json', encoding='utf-8')
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    summary = saved_manifest['live2d_layer_capture']
+    assert summary['status'] == 'skipped'
+    assert summary['reason'] == 'runtime_capture_disabled'
+    assert summary['previous_capture_error_class'] == 'JSONDecodeError'
+    assert raw_capture_path.read_text(encoding='utf-8') == '{not-json'
+    assert events == ['expand', 'process', 'complete']
+
+
+def test_crawl_page_falls_back_to_manifest_summary_when_raw_capture_is_corrupt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_main_layer_order = 2
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    _assets, models = extract_resources(content_json=content_json, tj_list_row={'title': 'Test'}, reverse_bind=reverse_bind)
+    previous_capture = _runtime_capture_payload(content_id, models)
+    merge_report = merge_live2d_layer_captures([dict(model) for model in models], previous_capture, content_id=content_id)
+    previous_summary = layer_metadata_module.layer_capture_manifest_summary(previous_capture, merge_report)
+    root = tmp_path / '711133 - Test'
+    raw_capture_path = root / 'raw/live2d-layer-capture.json'
+    raw_capture_path.parent.mkdir(parents=True)
+    raw_capture_path.write_text('{not-json', encoding='utf-8')
+    (root / 'manifest.json').write_text(json.dumps({'live2d_layer_capture': previous_summary}), encoding='utf-8')
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    summary = saved_manifest['live2d_layer_capture']
+    assert saved_manifest['live2d_models'][0]['layer_order'] == expected_main_layer_order
+    assert saved_manifest['live2d_models'][1]['layer_order'] == 1
+    assert summary['status'] == 'success'
+    assert summary['action'] == 'reused'
+    assert summary['capture_hash'] == previous_summary['capture_hash']
+    assert summary['previous_capture_error_class'] == 'JSONDecodeError'
+    assert raw_capture_path.read_text(encoding='utf-8') == '{not-json'
+    assert events == ['expand', 'process', 'complete']
+
+
+def test_crawl_page_reuses_manifest_layer_summary_without_writing_raw_capture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    content_id = 711133
+    content_json = _runtime_content_json()
+    reverse_bind = _runtime_reverse_bind()
+    _assets, models = extract_resources(content_json=content_json, tj_list_row={'title': 'Test'}, reverse_bind=reverse_bind)
+    previous_capture = _runtime_capture_payload(content_id, models)
+    merge_report = merge_live2d_layer_captures([dict(model) for model in models], previous_capture, content_id=content_id)
+    previous_summary = layer_metadata_module.layer_capture_manifest_summary(previous_capture, merge_report)
+    root = tmp_path / '711133 - Test'
+    root.mkdir(parents=True)
+    (root / 'manifest.json').write_text(json.dumps({'live2d_layer_capture': previous_summary}), encoding='utf-8')
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    assert saved_manifest['live2d_layer_capture']['status'] == 'success'
+    assert saved_manifest['live2d_layer_capture']['action'] == 'reused'
+    assert saved_manifest['live2d_layer_capture']['capture_hash'] == previous_summary['capture_hash']
+    assert not (root / 'raw/live2d-layer-capture.json').exists()
+    assert events == ['expand', 'process', 'complete']
+
+
+def test_crawl_page_writes_no_multi_full_layer_capture_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    content_id = 711133
+    content_json = _runtime_content_json()
+    style_data = content_json['styleData']
+    assert isinstance(style_data, list)
+    first_style = style_data[0]
+    assert isinstance(first_style, dict)
+    rows = first_style['data']
+    assert isinstance(rows, list)
+    first_row = rows[0]
+    assert isinstance(first_row, list)
+    del first_row[2:]
+    reverse_bind = _runtime_reverse_bind()
+    events: list[str] = []
+    crawler = Nikke(path=tmp_path)
+    _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
+    monkeypatch.setattr(
+        nikke_module,
+        'cfg',
+        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
+    )
+
+    async def _unexpected_capture(_request: object) -> dict[str, object]:
+        raise AssertionError
+
+    monkeypatch.setattr(nikke_module, 'capture_gamekee_runtime_layers', _unexpected_capture)
+
+    root = asyncio.run(crawler._crawl_page(client=object(), tj_list_row={'title': 'Test'}, content_id=content_id))
+
+    saved_manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    saved_character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    summary = saved_manifest['live2d_layer_capture']
+    assert summary['status'] == 'skipped'
+    assert summary['reason'] == 'no_multi_full_groups'
+    assert summary['retryable'] is False
+    assert saved_character['live2d_layer_capture'] == summary
+    assert not (root / 'raw/live2d-layer-capture.json').exists()
+    assert events == ['expand', 'process', 'complete']
 
 
 def test_assign_asset_paths_splits_live2d_dir_on_same_basename_collision() -> None:

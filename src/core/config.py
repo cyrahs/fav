@@ -190,6 +190,9 @@ class Nikke(ScheduleJob):
     enabled: bool = False
     path: Path = Path('./collection/nikke')
     cron: str = '0 */6 * * *'
+    runtime_capture_enabled: bool = False
+    runtime_capture_timeout_seconds: float = 60.0
+    runtime_capture_force_refresh: bool = False
 
 
 class BD2(ScheduleJob):

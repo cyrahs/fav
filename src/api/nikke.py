@@ -29,6 +29,22 @@ _PROFILE_FIELDS: tuple[tuple[str, str, str], ...] = (
 _SUMMARY_TAG_KEYS = {'rarity', 'company', 'burst', 'attribute', 'role', 'weapon'}
 _LONG_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 _LAYER_MATCH_CONFIDENCE_VALUES = {'high', 'medium', 'low'}
+_LAYER_CAPTURE_FIELD = 'live2d_layer_capture'
+_LAYER_METADATA_ISSUE_FIELDS = {
+    'severity',
+    'code',
+    'reason',
+    'skin_index',
+    'model_kind',
+    'models',
+    'orders',
+    'primary_count',
+    'candidate_count',
+    'stable_id',
+    'live2d_key',
+    'fields',
+    'error_class',
+}
 _SHORT_CACHE_CONTROL = 'public, max-age=3600'
 _NIKKE_STATIC_PREFIX = '/static/nikke'
 
@@ -155,6 +171,266 @@ def _safe_manifest_title(record: _NikkeRecord) -> str:
     return record.directory_name.split(' - ', 1)[-1].strip() or str(record.content_id)
 
 
+def _infer_live2d_model_kind(model: dict[str, Any]) -> str:
+    text_parts = [
+        _clean_text(model.get('label')),
+        _clean_text(model.get('live2d_key')),
+        _clean_text(model.get('animation')),
+    ]
+    urls = model.get('urls')
+    if isinstance(urls, dict):
+        for value in urls.values():
+            if isinstance(value, str):
+                text_parts.append(value)
+            elif isinstance(value, list):
+                text_parts.extend(str(item) for item in value)
+
+    normalized = ' '.join(text_parts).lower()
+    has_aim = 'aim' in normalized
+    has_cover = 'cover' in normalized
+    if has_cover and not has_aim:
+        return 'cover'
+    if has_aim and not has_cover:
+        return 'aim'
+    return 'full'
+
+
+def _live2d_model_identity(model: dict[str, Any]) -> str:
+    stable_id = _clean_text(model.get('stable_id'))
+    live2d_key = _clean_text(model.get('live2d_key'))
+    if stable_id and live2d_key:
+        return f'{stable_id}/{live2d_key}'
+    return stable_id or live2d_key or '<unknown>'
+
+
+def _safe_layer_issue(issue: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in issue.items():
+        if key not in _LAYER_METADATA_ISSUE_FIELDS:
+            continue
+        if isinstance(value, str):
+            out[key] = _clean_text(value)
+        elif isinstance(value, bool | int) or value is None:
+            out[key] = value
+        elif isinstance(value, list):
+            out[key] = [_clean_text(item) if isinstance(item, str) else item for item in value if isinstance(item, str | int | bool)]
+    return out
+
+
+def _capture_issues_for_skin(
+    capture_summary: dict[str, Any],
+    skin_index: int | None,
+    *,
+    include_global: bool,
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for field_name in ('quality_issues', 'skipped', 'blocked'):
+        raw_items = capture_summary.get(field_name)
+        if not isinstance(raw_items, list):
+            continue
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            has_skin_index = 'skin_index' in item and _to_int(item.get('skin_index')) is not None
+            item_skin_index = _to_int(item.get('skin_index'))
+            if item_skin_index != skin_index and (has_skin_index or not include_global):
+                continue
+            safe_issue = _safe_layer_issue(item)
+            if safe_issue:
+                if not has_skin_index:
+                    safe_issue['skin_index'] = skin_index
+                    safe_issue.setdefault('model_kind', 'full')
+                issues.append(safe_issue)
+    return issues
+
+
+def _layer_capture_summary(record: _NikkeRecord, character: dict[str, Any]) -> dict[str, Any]:
+    summary = character.get(_LAYER_CAPTURE_FIELD) if isinstance(character, dict) else None
+    if isinstance(summary, dict):
+        return summary
+    summary = record.manifest.get(_LAYER_CAPTURE_FIELD)
+    return summary if isinstance(summary, dict) else {}
+
+
+def _layer_capture_payload(capture_summary: dict[str, Any]) -> dict[str, Any]:
+    warnings = capture_summary.get('warnings')
+    return {
+        'status': _clean_text(capture_summary.get('status')),
+        'captured_at': _clean_text(capture_summary.get('captured_at')) or None,
+        'attempted_at': _clean_text(capture_summary.get('attempted_at')) or None,
+        'capture_hash': _clean_text(capture_summary.get('capture_hash')),
+        'fingerprint': _clean_text(capture_summary.get('fingerprint')),
+        'reason': _clean_text(capture_summary.get('reason')),
+        'error_class': _clean_text(capture_summary.get('error_class')),
+        'retryable': capture_summary.get('retryable') if isinstance(capture_summary.get('retryable'), bool) else None,
+        'warnings': [_clean_text(item) for item in warnings if isinstance(item, str)] if isinstance(warnings, list) else [],
+    }
+
+
+def _multi_full_models_for_skin(live2d_models: list[Any], skin_index: int | None) -> list[dict[str, Any]]:
+    models = [
+        model
+        for model in live2d_models
+        if isinstance(model, dict) and _to_int(model.get('skin_index')) == skin_index and _infer_live2d_model_kind(model) == 'full'
+    ]
+    return models if len(models) > 1 else []
+
+
+def _computed_layer_metadata_issues(models: list[dict[str, Any]], skin_index: int | None) -> list[dict[str, Any]]:
+    if not models:
+        return []
+
+    identities = [_live2d_model_identity(model) for model in models]
+    orders = [_to_int(model.get('layer_order')) for model in models]
+    issues: list[dict[str, Any]] = []
+    missing_order = [identities[index] for index, order in enumerate(orders) if order is None]
+    if missing_order:
+        issues.append(
+            {'severity': 'error', 'code': 'missing_layer_order', 'skin_index': skin_index, 'model_kind': 'full', 'models': missing_order},
+        )
+    else:
+        compact_orders = [order for order in orders if order is not None]
+        if len(set(compact_orders)) != len(compact_orders):
+            issues.append(
+                {
+                    'severity': 'error',
+                    'code': 'duplicate_layer_order',
+                    'skin_index': skin_index,
+                    'model_kind': 'full',
+                    'orders': compact_orders,
+                    'models': identities,
+                },
+            )
+
+    primary_count = sum(1 for model in models if model.get('is_primary') is True)
+    if primary_count != 1:
+        issues.append(
+            {
+                'severity': 'error',
+                'code': 'invalid_primary_count',
+                'skin_index': skin_index,
+                'model_kind': 'full',
+                'primary_count': primary_count,
+                'models': identities,
+            },
+        )
+
+    low_confidence = [
+        identity
+        for identity, model in zip(identities, models, strict=True)
+        if _layer_match_confidence(model.get('layer_match_confidence')) != 'high'
+    ]
+    if low_confidence:
+        issues.append(
+            {
+                'severity': 'error',
+                'code': 'low_confidence_layer_match',
+                'skin_index': skin_index,
+                'model_kind': 'full',
+                'models': low_confidence,
+            },
+        )
+    return issues
+
+
+def _capture_status_issue(capture_summary: dict[str, Any], skin_index: int | None) -> dict[str, Any] | None:
+    capture_status = _clean_text(capture_summary.get('status'))
+    if capture_status == 'failed':
+        return {
+            'severity': 'error',
+            'code': 'capture_failed',
+            'skin_index': skin_index,
+            'model_kind': 'full',
+            'reason': _clean_text(capture_summary.get('reason')),
+            'error_class': _clean_text(capture_summary.get('error_class')),
+        }
+    if capture_status == 'skipped':
+        return {
+            'severity': 'warning',
+            'code': 'capture_skipped',
+            'skin_index': skin_index,
+            'model_kind': 'full',
+            'reason': _clean_text(capture_summary.get('reason')),
+        }
+    if capture_status == 'incomplete':
+        return {
+            'severity': 'warning',
+            'code': 'capture_incomplete',
+            'skin_index': skin_index,
+            'model_kind': 'full',
+        }
+    if not capture_status:
+        return {
+            'severity': 'warning',
+            'code': 'capture_missing',
+            'skin_index': skin_index,
+            'model_kind': 'full',
+        }
+    return None
+
+
+def _layer_metadata_status(*, required: bool, capture_summary: dict[str, Any], issues: list[dict[str, Any]]) -> str:
+    if not required:
+        return 'complete'
+    capture_status = _clean_text(capture_summary.get('status'))
+    if capture_status == 'failed':
+        return 'error'
+    if capture_status in {'', 'skipped'}:
+        return 'missing'
+    if capture_status == 'incomplete':
+        return 'incomplete'
+    if not issues:
+        return 'complete'
+    return 'incomplete'
+
+
+def _layer_metadata_payload_for_skin(
+    live2d_models: list[Any],
+    capture_summary: dict[str, Any],
+    skin_index: int | None,
+) -> dict[str, Any]:
+    models = _multi_full_models_for_skin(live2d_models, skin_index)
+    required = bool(models)
+    issues = _capture_issues_for_skin(capture_summary, skin_index, include_global=required) if required else []
+    issues.extend(_computed_layer_metadata_issues(models, skin_index))
+    status_issue = _capture_status_issue(capture_summary, skin_index) if required and not issues else None
+    if status_issue is not None:
+        issues.append(status_issue)
+    return {
+        'required': required,
+        'status': _layer_metadata_status(required=required, capture_summary=capture_summary, issues=issues),
+        'issues': issues,
+        'capture': _layer_capture_payload(capture_summary),
+    }
+
+
+def _layer_metadata_payload_for_detail(live2d_models: list[Any], capture_summary: dict[str, Any]) -> dict[str, Any]:
+    skin_indexes = sorted(
+        {_to_int(model.get('skin_index')) for model in live2d_models if isinstance(model, dict)},
+        key=lambda value: value or -1,
+    )
+    skin_payloads = [_layer_metadata_payload_for_skin(live2d_models, capture_summary, skin_index) for skin_index in skin_indexes]
+    required = any(payload['required'] for payload in skin_payloads)
+    issues = [issue for payload in skin_payloads for issue in payload['issues']]
+    statuses = {payload['status'] for payload in skin_payloads if payload['required']}
+    if not required:
+        status = 'complete'
+    elif 'error' in statuses:
+        status = 'error'
+    elif 'incomplete' in statuses:
+        status = 'incomplete'
+    elif 'missing' in statuses:
+        status = 'missing'
+    else:
+        status = 'complete'
+    return {
+        'required': required,
+        'status': status,
+        'issues': issues,
+        'capture': _layer_capture_payload(capture_summary),
+    }
+
+
 class NikkeLibrary:
     def __init__(self, root: Path) -> None:
         self._root = Path(root)
@@ -180,13 +456,19 @@ class NikkeLibrary:
         if not isinstance(live2d_models, list):
             live2d_models = []
 
+        layer_capture = _layer_capture_summary(record, character)
+        layer_metadata = _layer_metadata_payload_for_detail(live2d_models, layer_capture)
         payload = self._summary_payload(record)
         payload.update(
             {
                 'tj_list': character.get('tj_list') if isinstance(character.get('tj_list'), dict) else record.manifest.get('tj_list'),
                 'base_info': self._base_info(record, character),
-                'skins': [self._skin_payload(record, skin, live2d_models) for skin in skins if isinstance(skin, dict)],
+                'skins': [self._skin_payload(record, skin, live2d_models, layer_capture) for skin in skins if isinstance(skin, dict)],
                 'live2d_models': [self._live2d_model_payload(record, model) for model in live2d_models if isinstance(model, dict)],
+                'layer_metadata_required': layer_metadata['required'],
+                'layer_metadata_status': layer_metadata['status'],
+                'layer_metadata_issues': layer_metadata['issues'],
+                'layer_metadata_capture': layer_metadata['capture'],
                 'assets': [self._asset_ref(record, asset) for asset in _iter_assets(record.manifest)],
             },
         )
@@ -439,13 +721,20 @@ class NikkeLibrary:
             profile.append({'key': key, 'label': label, 'value': value, 'asset': asset})
         return profile
 
-    def _skin_payload(self, record: _NikkeRecord, skin: dict[str, Any], live2d_models: list[Any]) -> dict[str, Any]:
+    def _skin_payload(
+        self,
+        record: _NikkeRecord,
+        skin: dict[str, Any],
+        live2d_models: list[Any],
+        layer_capture: dict[str, Any],
+    ) -> dict[str, Any]:
         skin_index = _to_int(skin.get('skin_index'))
         models = [
             self._live2d_model_payload(record, model)
             for model in live2d_models
             if isinstance(model, dict) and _to_int(model.get('skin_index')) == skin_index
         ]
+        layer_metadata = _layer_metadata_payload_for_skin(live2d_models, layer_capture, skin_index)
         rows = skin.get('rows')
         rows = rows if isinstance(rows, list) else []
         return {
@@ -461,6 +750,10 @@ class NikkeLibrary:
             'burst_animation': self._pick_asset(record, label='爆裂动画', skin_index=skin_index),
             'gallery': self._assets_for_context(record, section='style', skin_index=skin_index, kind='image'),
             'live2d_models': models,
+            'layer_metadata_required': layer_metadata['required'],
+            'layer_metadata_status': layer_metadata['status'],
+            'layer_metadata_issues': layer_metadata['issues'],
+            'layer_metadata_capture': layer_metadata['capture'],
             'voice_lines': self._voice_lines_from_rows(rows),
             'rows': rows,
         }
