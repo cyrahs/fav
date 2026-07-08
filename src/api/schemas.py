@@ -431,6 +431,20 @@ class NikkeLayerMetadataCapture(ApiSchema):
     warnings: list[str] = Field(default_factory=list)
 
 
+class NikkeRuntimeAnimation(ApiSchema):
+    animation: str = ''
+    enabled: bool = True
+    loop: bool = True
+    match_method: str = ''
+    match_confidence: Literal['high', 'medium', 'low'] | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+
+
+class NikkeRuntimeAnimations(ApiSchema):
+    idle: NikkeRuntimeAnimation | None = None
+    click: NikkeRuntimeAnimation | None = None
+
+
 class NikkeCharacterListResponse(ApiSchema):
     items: list[NikkeCharacterSummary]
     total: int
@@ -482,6 +496,9 @@ class NikkeLive2DModel(ApiSchema):
     is_primary: bool | None = None
     layer_match_method: str = ''
     layer_match_confidence: Literal['high', 'medium', 'low'] | None = None
+    runtime_animations: NikkeRuntimeAnimations | None = None
+    runtime_animation_match_method: str = ''
+    runtime_animation_match_confidence: Literal['high', 'medium', 'low'] | None = None
     position: dict[str, Any] = Field(default_factory=dict)
     bg_position: dict[str, Any] = Field(default_factory=dict)
     view_overrides: dict[str, Live2DViewOverrideValue] = Field(default_factory=dict)
@@ -512,6 +529,9 @@ class NikkeSkin(ApiSchema):
     layer_metadata_status: Literal['complete', 'incomplete', 'error', 'missing'] = 'missing'
     layer_metadata_issues: list[dict[str, Any]] = Field(default_factory=list)
     layer_metadata_capture: NikkeLayerMetadataCapture = Field(default_factory=NikkeLayerMetadataCapture)
+    runtime_animation_metadata_required: bool = False
+    runtime_animation_metadata_status: Literal['complete', 'incomplete', 'error', 'missing'] = 'missing'
+    runtime_animation_metadata_issues: list[dict[str, Any]] = Field(default_factory=list)
     voice_lines: list[NikkeVoiceLine] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -525,4 +545,7 @@ class NikkeCharacterDetail(NikkeCharacterSummary):
     layer_metadata_status: Literal['complete', 'incomplete', 'error', 'missing'] = 'missing'
     layer_metadata_issues: list[dict[str, Any]] = Field(default_factory=list)
     layer_metadata_capture: NikkeLayerMetadataCapture = Field(default_factory=NikkeLayerMetadataCapture)
+    runtime_animation_metadata_required: bool = False
+    runtime_animation_metadata_status: Literal['complete', 'incomplete', 'error', 'missing'] = 'missing'
+    runtime_animation_metadata_issues: list[dict[str, Any]] = Field(default_factory=list)
     assets: list[NikkeAsset] = Field(default_factory=list)

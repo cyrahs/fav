@@ -36,6 +36,26 @@ def _model(*, skin_index: int, stable_id: str, live2d_key: str) -> dict[str, obj
     }
 
 
+def _runtime_animations(prefix: str) -> dict[str, dict[str, object]]:
+    return {
+        'idle': {
+            'animation': f'{prefix}-idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+        },
+        'click': {
+            'animation': f'{prefix}-click',
+            'enabled': True,
+            'loop': False,
+            'match_method': 'gamekee-runtime-player-event',
+            'match_confidence': 'high',
+            'duration_ms': 1200,
+        },
+    }
+
+
 def test_live2d_key_from_url_extracts_runtime_resource_key() -> None:
     urls = [
         'https://cdn.gamekee.com/live2d/nikke/main/model.atlas?version=1',
@@ -110,8 +130,21 @@ def test_capture_runtime_groups_switches_to_non_default_skin(monkeypatch: pytest
     class FakePage:
         def __init__(self) -> None:
             self.clicks: list[tuple[str, int]] = []
+            self.stage_clicks: list[tuple[float, float]] = []
             self.wait_args: list[int] = []
             self.request_callback: Any = None
+            self.init_script = ''
+            self.mouse = self.FakeMouse(self)
+
+        class FakeMouse:
+            def __init__(self, page: 'FakePage') -> None:
+                self.page = page
+
+            async def click(self, x: float, y: float) -> None:
+                self.page.stage_clicks.append((x, y))
+
+        async def add_init_script(self, script: str) -> None:
+            self.init_script = script
 
         def on(self, event: str, callback: Any) -> None:
             assert event == 'request'
@@ -140,7 +173,41 @@ def test_capture_runtime_groups_switches_to_non_default_skin(monkeypatch: pytest
         async def wait_for_timeout(self, _timeout: int) -> None:
             return None
 
-        async def evaluate(self, _expression: str) -> list[dict[str, Any]]:
+        async def evaluate(self, expression: str) -> object:
+            if 'eventCount' in expression:
+                return 10
+            if 'snapshot' in expression:
+                return [
+                    {
+                        'playerIndex': 0,
+                        'containerIndex': 0,
+                        'zIndex': 9,
+                        'rawZIndex': '9',
+                        'atlasUrl': 'https://cdn.example.com/live2d/target-main/model.atlas',
+                        'skelUrl': 'https://cdn.example.com/live2d/target-main/model.skel',
+                        'configuredAnimation': 'idle',
+                        'events': [
+                            {
+                                'sequence': 8,
+                                'type': 'animationState',
+                                'method': 'setAnimationWith',
+                                'trackIndex': 0,
+                                'animation': 'idle',
+                                'loop': True,
+                            },
+                            {
+                                'sequence': 12,
+                                'type': 'animationState',
+                                'method': 'setAnimationWith',
+                                'trackIndex': 0,
+                                'animation': 'action',
+                                'loop': False,
+                            },
+                        ],
+                    },
+                ]
+            if 'live2d-stage' in expression:
+                return {'x': 900, 'y': 500}
             return [
                 {'index': 0, 'zIndex': 9, 'rawZIndex': '9', 'canvasCount': 1},
                 {'index': 1, 'zIndex': 8, 'rawZIndex': '8', 'canvasCount': 1},
@@ -189,11 +256,104 @@ def test_capture_runtime_groups_switches_to_non_default_skin(monkeypatch: pytest
     captures = asyncio.run(_capture_runtime_groups(RuntimeCaptureRequest(content_id=711133, models=models)))
 
     assert browser.closed is True
+    assert 'SpinePlayer' in page.init_script
+    for method in ('setAnimation', 'addAnimation', 'setAnimationWith', 'addAnimationWith'):
+        assert f'"{method}"' in page.init_script
     assert page.clicks == [('open-clothes', 10_000), ('skin:Target Skin', 10_000)]
+    assert page.stage_clicks == [(900, 500)]
     assert page.wait_args == [2]
     assert len(captures) == 1
     assert [model['stable_id'] for model in captures[0].models] == ['target-main', 'target-back']
     assert captures[0].requested_live2d_keys == ['target-main', 'target-back']
+    assert captures[0].runtime_click_start_sequence == 10
+    assert captures[0].runtime_players[0].events[-1].animation == 'action'
+
+
+def test_capture_gamekee_runtime_layers_preserves_single_group_runtime_timeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    models = [
+        _model(skin_index=0, stable_id='stable-main', live2d_key='main'),
+        _model(skin_index=0, stable_id='stable-back', live2d_key='back'),
+    ]
+
+    async def fake_capture_runtime_groups(_request: RuntimeCaptureRequest) -> list[RuntimeGroupCapture]:
+        return [
+            RuntimeGroupCapture(
+                models=models,
+                containers=[
+                    {'index': 0, 'zIndex': 9, 'rawZIndex': '9'},
+                    {'index': 1, 'zIndex': 8, 'rawZIndex': '8'},
+                ],
+                requested_live2d_keys=['main', 'back'],
+                runtime_click_start_sequence=3,
+                runtime_players=[
+                    {
+                        'playerIndex': 0,
+                        'containerIndex': 0,
+                        'zIndex': 9,
+                        'rawZIndex': '9',
+                        'atlasUrl': 'https://cdn.example.com/live2d/nikke/main/model.atlas',
+                        'skelUrl': 'https://cdn.example.com/live2d/nikke/main/model.skel',
+                        'configuredAnimation': 'idle',
+                        'animationDurationsMs': {'action': 1200},
+                        'events': [
+                            {
+                                'sequence': 1,
+                                'type': 'animationState',
+                                'method': 'setAnimationWith',
+                                'trackIndex': 0,
+                                'animation': 'idle',
+                                'loop': True,
+                            },
+                            {
+                                'sequence': 4,
+                                'type': 'animationState',
+                                'method': 'setAnimationWith',
+                                'trackIndex': 0,
+                                'animation': 'action',
+                                'loop': False,
+                            },
+                        ],
+                    },
+                    {
+                        'playerIndex': 1,
+                        'containerIndex': 1,
+                        'zIndex': 8,
+                        'rawZIndex': '8',
+                        'atlasUrl': 'https://cdn.example.com/live2d/nikke/back/model.atlas',
+                        'skelUrl': 'https://cdn.example.com/live2d/nikke/back/model.skel',
+                        'configuredAnimation': 'bg_idle',
+                        'events': [
+                            {
+                                'sequence': 2,
+                                'type': 'animationState',
+                                'method': 'setAnimationWith',
+                                'trackIndex': 0,
+                                'animation': 'bg_idle',
+                                'loop': True,
+                            },
+                        ],
+                    },
+                ],
+            ),
+        ]
+
+    monkeypatch.setattr(runtime_module, '_capture_runtime_groups', fake_capture_runtime_groups)
+
+    payload = asyncio.run(runtime_module.capture_gamekee_runtime_layers(RuntimeCaptureRequest(content_id=711133, models=models)))
+
+    layers_by_key = {layer['live2d_key']: layer for layer in payload['layers']}
+    assert layers_by_key['main']['runtime_animations']['idle']['animation'] == 'idle'
+    assert layers_by_key['main']['runtime_animations']['click'] == {
+        'animation': 'action',
+        'enabled': True,
+        'loop': False,
+        'match_method': 'gamekee-runtime-player-event',
+        'match_confidence': 'high',
+        'duration_ms': 1200,
+    }
+    assert layers_by_key['main']['runtime_player']['runtime_key'] == 'main'
+    assert layers_by_key['back']['runtime_animations']['idle']['animation'] == 'bg_idle'
+    assert layers_by_key['back']['runtime_animations']['click']['enabled'] is False
 
 
 def test_capture_gamekee_runtime_layers_combines_multiple_group_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -299,6 +459,219 @@ def test_build_layer_capture_payload_orders_runtime_layers_by_z_index() -> None:
     ]
     assert payload['layers'][0]['resource_urls']['atlas'] == 'https://cdn.example.com/live2d/main/model.atlas'
     assert payload['layers'][0]['raw_container']['zIndex'] == 9
+
+
+def test_build_layer_capture_payload_includes_runtime_animation_metadata() -> None:
+    capture_models = [
+        {
+            **_model(skin_index=0, stable_id='stable-main', live2d_key='main'),
+            'runtime_animations': _runtime_animations('main'),
+            'runtime_animation_match_method': 'gamekee-runtime-player',
+            'runtime_animation_match_confidence': 'high',
+        },
+        {
+            **_model(skin_index=0, stable_id='stable-front', live2d_key='front'),
+            'runtime_animations': _runtime_animations('front'),
+            'runtime_animation_match_method': 'gamekee-runtime-player',
+            'runtime_animation_match_confidence': 'high',
+        },
+    ]
+    target_models = [
+        _model(skin_index=0, stable_id='stable-main', live2d_key='main'),
+        _model(skin_index=0, stable_id='stable-front', live2d_key='front'),
+    ]
+
+    payload = build_layer_capture_payload(
+        LayerCaptureBuildInput(
+            content_id=711133,
+            models=capture_models,
+            containers=[
+                {'index': 0, 'zIndex': 9, 'rawZIndex': '9'},
+                {'index': 1, 'zIndex': 8, 'rawZIndex': '8'},
+            ],
+            requested_live2d_keys=['main', 'front'],
+            captured_at='2026-07-07T00:00:00+00:00',
+        ),
+    )
+    report = merge_live2d_layer_captures(target_models, payload, content_id=711133, dry_run=False)
+
+    assert payload['layer_capture_schema'] == 2
+    assert payload['layers'][0]['runtime_animations'] == _runtime_animations('main')
+    assert payload['layers'][0]['runtime_animation_match_method'] == 'gamekee-runtime-player'
+    assert payload['layers'][0]['runtime_animation_match_confidence'] == 'high'
+    assert report['matched'] == 2
+    assert target_models[0]['runtime_animations'] == _runtime_animations('main')
+    assert target_models[0]['runtime_animation_match_method'] == 'gamekee-runtime-player'
+    assert target_models[0]['runtime_animation_match_confidence'] == 'high'
+    assert target_models[1]['runtime_animation_match_confidence'] == 'high'
+
+
+def test_build_layer_capture_payload_uses_gamekee_runtime_timeline_without_guessing_background_click() -> None:
+    models = [
+        _model(skin_index=0, stable_id='stable-main', live2d_key='main'),
+        _model(skin_index=0, stable_id='stable-front', live2d_key='front'),
+        _model(skin_index=0, stable_id='stable-back', live2d_key='back'),
+    ]
+    runtime_players = [
+        {
+            'playerIndex': 0,
+            'containerIndex': 0,
+            'zIndex': 9,
+            'rawZIndex': '9',
+            'atlasUrl': 'https://cdn.example.com/live2d/nikke/main/model.atlas',
+            'skelUrl': 'https://cdn.example.com/live2d/nikke/main/model.skel',
+            'configuredAnimation': 'idle',
+            'animationDurationsMs': {'action': 1333},
+            'events': [
+                {
+                    'sequence': 1,
+                    'type': 'animationState',
+                    'method': 'setAnimationWith',
+                    'trackIndex': 0,
+                    'animation': 'idle',
+                    'loop': True,
+                },
+                {
+                    'sequence': 5,
+                    'type': 'animationState',
+                    'method': 'setAnimationWith',
+                    'trackIndex': 0,
+                    'animation': 'action',
+                    'loop': False,
+                },
+            ],
+        },
+        {
+            'playerIndex': 1,
+            'containerIndex': 1,
+            'zIndex': 10,
+            'rawZIndex': '10',
+            'atlasUrl': 'https://cdn.example.com/live2d/nikke/front/model.atlas',
+            'skelUrl': 'https://cdn.example.com/live2d/nikke/front/model.skel',
+            'configuredAnimation': 'bg_idle',
+            'animationDurationsMs': {'action': 900},
+            'events': [
+                {
+                    'sequence': 2,
+                    'type': 'animationState',
+                    'method': 'setAnimationWith',
+                    'trackIndex': 0,
+                    'animation': 'bg_idle',
+                    'loop': True,
+                },
+                {
+                    'sequence': 6,
+                    'type': 'animationState',
+                    'method': 'addAnimationWith',
+                    'trackIndex': 0,
+                    'animation': 'action',
+                    'loop': False,
+                    'delayMs': 250,
+                },
+            ],
+        },
+        {
+            'playerIndex': 2,
+            'containerIndex': 2,
+            'zIndex': 8,
+            'rawZIndex': '8',
+            'atlasUrl': 'https://cdn.example.com/live2d/nikke/back/model.atlas',
+            'skelUrl': 'https://cdn.example.com/live2d/nikke/back/model.skel',
+            'configuredAnimation': 'bg_idle',
+            'events': [
+                {
+                    'sequence': 3,
+                    'type': 'animationState',
+                    'method': 'setAnimationWith',
+                    'trackIndex': 0,
+                    'animation': 'bg_idle',
+                    'loop': True,
+                },
+            ],
+        },
+    ]
+
+    payload = build_layer_capture_payload(
+        LayerCaptureBuildInput(
+            content_id=711133,
+            models=models,
+            containers=[
+                {'index': 0, 'zIndex': 9, 'rawZIndex': '9'},
+                {'index': 1, 'zIndex': 10, 'rawZIndex': '10'},
+                {'index': 2, 'zIndex': 8, 'rawZIndex': '8'},
+            ],
+            runtime_players=runtime_players,
+            runtime_click_start_sequence=4,
+            requested_live2d_keys=['main', 'front', 'back'],
+            captured_at='2026-07-07T00:00:00+00:00',
+        ),
+    )
+
+    layers_by_key = {layer['live2d_key']: layer for layer in payload['layers']}
+    assert layers_by_key['main']['runtime_animations'] == {
+        'idle': {
+            'animation': 'idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+        },
+        'click': {
+            'animation': 'action',
+            'enabled': True,
+            'loop': False,
+            'match_method': 'gamekee-runtime-player-event',
+            'match_confidence': 'high',
+            'duration_ms': 1333,
+        },
+    }
+    assert layers_by_key['front']['runtime_animations']['idle']['animation'] == 'bg_idle'
+    assert layers_by_key['front']['runtime_animations']['click']['animation'] == 'action'
+    assert layers_by_key['front']['runtime_animations']['click']['duration_ms'] == 900
+    assert layers_by_key['back']['runtime_animations']['idle']['animation'] == 'bg_idle'
+    assert layers_by_key['back']['runtime_animations']['click'] == {
+        'enabled': False,
+        'match_method': 'gamekee-runtime-player-event',
+        'match_confidence': 'high',
+    }
+    assert layers_by_key['front']['runtime_player']['runtime_key'] == 'front'
+    assert all(layer['runtime_animation_match_confidence'] == 'high' for layer in payload['layers'])
+
+
+def test_build_layer_capture_payload_marks_runtime_match_low_when_player_resource_does_not_match_model() -> None:
+    payload = build_layer_capture_payload(
+        LayerCaptureBuildInput(
+            content_id=711133,
+            models=[_model(skin_index=0, stable_id='stable-main', live2d_key='main')],
+            containers=[{'index': 0, 'zIndex': 9, 'rawZIndex': '9'}],
+            runtime_players=[
+                {
+                    'playerIndex': 0,
+                    'containerIndex': 0,
+                    'zIndex': 9,
+                    'rawZIndex': '9',
+                    'atlasUrl': 'https://cdn.example.com/live2d/nikke/other/model.atlas',
+                    'configuredAnimation': 'idle',
+                    'events': [
+                        {
+                            'sequence': 1,
+                            'type': 'animationState',
+                            'method': 'setAnimationWith',
+                            'trackIndex': 0,
+                            'animation': 'idle',
+                            'loop': True,
+                        },
+                    ],
+                },
+            ],
+            runtime_click_start_sequence=2,
+            requested_live2d_keys=['main'],
+            captured_at='2026-07-07T00:00:00+00:00',
+        ),
+    )
+
+    assert payload['layers'][0]['runtime_animations']['idle']['animation'] == 'idle'
+    assert payload['layers'][0]['runtime_animation_match_confidence'] == 'low'
 
 
 def test_build_layer_capture_payload_marks_low_confidence_when_runtime_key_is_missing() -> None:

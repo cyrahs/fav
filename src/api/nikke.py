@@ -30,6 +30,7 @@ _SUMMARY_TAG_KEYS = {'rarity', 'company', 'burst', 'attribute', 'role', 'weapon'
 _LONG_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 _LAYER_MATCH_CONFIDENCE_VALUES = {'high', 'medium', 'low'}
 _LAYER_CAPTURE_FIELD = 'live2d_layer_capture'
+_RUNTIME_ANIMATION_CAPTURE_SCHEMA = 2
 _LAYER_METADATA_ISSUE_FIELDS = {
     'severity',
     'code',
@@ -44,6 +45,12 @@ _LAYER_METADATA_ISSUE_FIELDS = {
     'live2d_key',
     'fields',
     'error_class',
+    'state',
+    'states',
+    'runtime_animation_match_confidence',
+    'capture_schema',
+    'player_index',
+    'source_layer_index',
 }
 _SHORT_CACHE_CONTROL = 'public, max-age=3600'
 _NIKKE_STATIC_PREFIX = '/static/nikke'
@@ -120,6 +127,36 @@ def _optional_bool(value: Any) -> bool | None:
 def _layer_match_confidence(value: Any) -> str | None:
     text = _clean_text(value)
     return text if text in _LAYER_MATCH_CONFIDENCE_VALUES else None
+
+
+def _capture_schema(capture_summary: dict[str, Any]) -> int:
+    return _to_int(capture_summary.get('schema')) or _to_int(capture_summary.get('layer_capture_schema')) or 0
+
+
+def _runtime_animation_state_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    duration_ms = _to_int(value.get('duration_ms', value.get('durationMs')))
+    return {
+        'animation': _clean_text(value.get('animation')),
+        'enabled': value.get('enabled') if isinstance(value.get('enabled'), bool) else True,
+        'loop': value.get('loop') if isinstance(value.get('loop'), bool) else True,
+        'match_method': _clean_text(value.get('match_method') or value.get('matchMethod')),
+        'match_confidence': _layer_match_confidence(value.get('match_confidence') or value.get('matchConfidence')),
+        'duration_ms': duration_ms if duration_ms is not None and duration_ms >= 0 else None,
+    }
+
+
+def _runtime_animations_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    payload = {
+        'idle': _runtime_animation_state_payload(value.get('idle')),
+        'click': _runtime_animation_state_payload(value.get('click')),
+    }
+    return payload if any(state is not None for state in payload.values()) else None
 
 
 def _iter_assets(manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -333,6 +370,86 @@ def _computed_layer_metadata_issues(models: list[dict[str, Any]], skin_index: in
     return issues
 
 
+def _runtime_animation_state_issue(
+    model: dict[str, Any],
+    skin_index: int | None,
+    state_name: str,
+    state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    identity = _live2d_model_identity(model)
+    if state is None:
+        return {
+            'severity': 'error',
+            'code': 'missing_runtime_animation_state',
+            'skin_index': skin_index,
+            'model_kind': 'full',
+            'state': state_name,
+            'models': [identity],
+        }
+
+    if state.get('match_confidence') != 'high':
+        return {
+            'severity': 'error',
+            'code': 'low_runtime_animation_match',
+            'skin_index': skin_index,
+            'model_kind': 'full',
+            'state': state_name,
+            'models': [identity],
+            'runtime_animation_match_confidence': state.get('match_confidence'),
+        }
+
+    if state.get('enabled') is False:
+        return None
+
+    if not _clean_text(state.get('animation')):
+        return {
+            'severity': 'error',
+            'code': 'missing_runtime_animation',
+            'skin_index': skin_index,
+            'model_kind': 'full',
+            'state': state_name,
+            'models': [identity],
+        }
+
+    return None
+
+
+def _computed_runtime_animation_metadata_issues(
+    models: list[dict[str, Any]],
+    capture_summary: dict[str, Any],
+    skin_index: int | None,
+) -> list[dict[str, Any]]:
+    if not models:
+        return []
+
+    issues: list[dict[str, Any]] = []
+    schema = _capture_schema(capture_summary)
+    if schema < _RUNTIME_ANIMATION_CAPTURE_SCHEMA:
+        issues.append(
+            {
+                'severity': 'error',
+                'code': 'capture_schema_mismatch',
+                'skin_index': skin_index,
+                'model_kind': 'full',
+                'capture_schema': schema,
+            },
+        )
+        return issues
+
+    for model in models:
+        runtime_animations = _runtime_animations_payload(model.get('runtime_animations'))
+        for state_name in ('idle', 'click'):
+            issue = _runtime_animation_state_issue(
+                model,
+                skin_index,
+                state_name,
+                runtime_animations.get(state_name) if runtime_animations is not None else None,
+            )
+            if issue is not None:
+                issues.append(issue)
+    return issues
+
+
 def _capture_status_issue(capture_summary: dict[str, Any], skin_index: int | None) -> dict[str, Any] | None:
     capture_status = _clean_text(capture_summary.get('status'))
     if capture_status == 'failed':
@@ -431,6 +548,56 @@ def _layer_metadata_payload_for_detail(live2d_models: list[Any], capture_summary
     }
 
 
+def _runtime_animation_metadata_status(*, required: bool, capture_summary: dict[str, Any], issues: list[dict[str, Any]]) -> str:
+    if not required:
+        return 'complete'
+    capture_status = _clean_text(capture_summary.get('status'))
+    if capture_status == 'failed':
+        return 'error'
+    if _capture_schema(capture_summary) < _RUNTIME_ANIMATION_CAPTURE_SCHEMA:
+        return 'missing'
+    return 'complete' if not issues else 'incomplete'
+
+
+def _runtime_animation_metadata_payload_for_skin(
+    live2d_models: list[Any],
+    capture_summary: dict[str, Any],
+    skin_index: int | None,
+) -> dict[str, Any]:
+    models = _multi_full_models_for_skin(live2d_models, skin_index)
+    required = bool(models)
+    issues = _computed_runtime_animation_metadata_issues(models, capture_summary, skin_index)
+    return {
+        'required': required,
+        'status': _runtime_animation_metadata_status(required=required, capture_summary=capture_summary, issues=issues),
+        'issues': issues,
+    }
+
+
+def _runtime_animation_metadata_payload_for_detail(live2d_models: list[Any], capture_summary: dict[str, Any]) -> dict[str, Any]:
+    skin_indexes = sorted(
+        {_to_int(model.get('skin_index')) for model in live2d_models if isinstance(model, dict)},
+        key=lambda value: value or -1,
+    )
+    skin_payloads = [
+        _runtime_animation_metadata_payload_for_skin(live2d_models, capture_summary, skin_index) for skin_index in skin_indexes
+    ]
+    required = any(payload['required'] for payload in skin_payloads)
+    issues = [issue for payload in skin_payloads for issue in payload['issues']]
+    statuses = {payload['status'] for payload in skin_payloads if payload['required']}
+    if not required:
+        status = 'complete'
+    elif 'error' in statuses:
+        status = 'error'
+    elif 'missing' in statuses:
+        status = 'missing'
+    elif 'incomplete' in statuses:
+        status = 'incomplete'
+    else:
+        status = 'complete'
+    return {'required': required, 'status': status, 'issues': issues}
+
+
 class NikkeLibrary:
     def __init__(self, root: Path) -> None:
         self._root = Path(root)
@@ -458,6 +625,7 @@ class NikkeLibrary:
 
         layer_capture = _layer_capture_summary(record, character)
         layer_metadata = _layer_metadata_payload_for_detail(live2d_models, layer_capture)
+        runtime_animation_metadata = _runtime_animation_metadata_payload_for_detail(live2d_models, layer_capture)
         payload = self._summary_payload(record)
         payload.update(
             {
@@ -469,6 +637,9 @@ class NikkeLibrary:
                 'layer_metadata_status': layer_metadata['status'],
                 'layer_metadata_issues': layer_metadata['issues'],
                 'layer_metadata_capture': layer_metadata['capture'],
+                'runtime_animation_metadata_required': runtime_animation_metadata['required'],
+                'runtime_animation_metadata_status': runtime_animation_metadata['status'],
+                'runtime_animation_metadata_issues': runtime_animation_metadata['issues'],
                 'assets': [self._asset_ref(record, asset) for asset in _iter_assets(record.manifest)],
             },
         )
@@ -735,6 +906,7 @@ class NikkeLibrary:
             if isinstance(model, dict) and _to_int(model.get('skin_index')) == skin_index
         ]
         layer_metadata = _layer_metadata_payload_for_skin(live2d_models, layer_capture, skin_index)
+        runtime_animation_metadata = _runtime_animation_metadata_payload_for_skin(live2d_models, layer_capture, skin_index)
         rows = skin.get('rows')
         rows = rows if isinstance(rows, list) else []
         return {
@@ -754,6 +926,9 @@ class NikkeLibrary:
             'layer_metadata_status': layer_metadata['status'],
             'layer_metadata_issues': layer_metadata['issues'],
             'layer_metadata_capture': layer_metadata['capture'],
+            'runtime_animation_metadata_required': runtime_animation_metadata['required'],
+            'runtime_animation_metadata_status': runtime_animation_metadata['status'],
+            'runtime_animation_metadata_issues': runtime_animation_metadata['issues'],
             'voice_lines': self._voice_lines_from_rows(rows),
             'rows': rows,
         }
@@ -783,6 +958,9 @@ class NikkeLibrary:
             'is_primary': _optional_bool(model.get('is_primary')),
             'layer_match_method': _clean_text(model.get('layer_match_method')),
             'layer_match_confidence': _layer_match_confidence(model.get('layer_match_confidence')),
+            'runtime_animations': _runtime_animations_payload(model.get('runtime_animations')),
+            'runtime_animation_match_method': _clean_text(model.get('runtime_animation_match_method')),
+            'runtime_animation_match_confidence': _layer_match_confidence(model.get('runtime_animation_match_confidence')),
             'position': model.get('position') if isinstance(model.get('position'), dict) else {},
             'bg_position': model.get('bg_position') if isinstance(model.get('bg_position'), dict) else {},
             'source_urls': model.get('urls') if isinstance(model.get('urls'), dict) else {},

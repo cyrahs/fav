@@ -13,9 +13,176 @@ from src.web.nikke_layer_metadata import live2d_layer_fingerprint
 GAMEKEE_BASE_URL = 'https://www.gamekee.com'
 DEFAULT_RUNTIME_TIMEOUT_MS = 60_000
 DEFAULT_RUNTIME_VIEWPORT = {'width': 1440, 'height': 1000}
-LAYER_CAPTURE_SCHEMA = 1
+LAYER_CAPTURE_SCHEMA = 2
 LAYER_CAPTURE_MATCH_METHOD = 'gamekee-runtime-container'
+RUNTIME_ANIMATION_MATCH_METHOD = 'gamekee-runtime-player'
+RUNTIME_CLICK_MATCH_METHOD = 'gamekee-runtime-player-event'
 LIVE2D_KEY_RE = re.compile(r'/live2d/[^/]+/([^/?#]+)/')
+GAMEKEE_RUNTIME_CAPTURE_SCRIPT = r"""
+(() => {
+  const version = 1;
+  const existing = window.__gvRuntimeCapture;
+  if (existing && existing.version === version) return;
+
+  const state = {
+    version,
+    patched: false,
+    players: [],
+    events: [],
+    sequence: 0,
+  };
+
+  function nowMs() {
+    return Math.round(performance.now());
+  }
+
+  function animationName(animation) {
+    if (typeof animation === "string") return animation;
+    if (animation && animation.name) return String(animation.name);
+    return "";
+  }
+
+  function toInt(value) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function containerForPlayer(player) {
+    const parent = player && player.parent;
+    return parent && parent.closest ? parent.closest(".spine-player-container") : null;
+  }
+
+  function containerIndex(container) {
+    if (!container) return -1;
+    return [...document.querySelectorAll(".spine-player-container")].indexOf(container);
+  }
+
+  function animationDurationsMs(player) {
+    const animations = player?.skeleton?.data?.animations;
+    if (!Array.isArray(animations)) return {};
+    const out = {};
+    for (const animation of animations) {
+      const name = animationName(animation);
+      if (!name) continue;
+      const duration = Number(animation.duration);
+      if (Number.isFinite(duration) && duration >= 0) {
+        out[name] = Math.round(duration * 1000);
+      }
+    }
+    return out;
+  }
+
+  function playerSummary(player, playerIndex) {
+    const container = containerForPlayer(player);
+    const style = container ? getComputedStyle(container) : null;
+    return {
+      playerIndex,
+      containerIndex: containerIndex(container),
+      zIndex: style ? toInt(style.zIndex) : null,
+      rawZIndex: style ? style.zIndex : "",
+      atlasUrl: player?.config?.atlasUrl || "",
+      skelUrl: player?.config?.skelUrl || player?.config?.binaryUrl || "",
+      configuredAnimation: player?.config?.animation || "",
+      currentAnimation: player?.animationState?.tracks?.[0]?.animation?.name || "",
+      animationDurationsMs: animationDurationsMs(player),
+    };
+  }
+
+  function record(type, payload) {
+    state.events.push({
+      sequence: ++state.sequence,
+      timeMs: nowMs(),
+      type,
+      ...payload,
+    });
+  }
+
+  function ensurePlayer(player) {
+    let playerIndex = state.players.indexOf(player);
+    if (playerIndex === -1) {
+      playerIndex = state.players.length;
+      state.players.push(player);
+      record("player", playerSummary(player, playerIndex));
+    }
+    return playerIndex;
+  }
+
+  function patchSpine(spine) {
+    if (!spine || state.patched) return;
+    state.patched = true;
+
+    const playerPrototype = spine.SpinePlayer && spine.SpinePlayer.prototype;
+    if (playerPrototype) {
+      for (const method of ["initialize", "loadSkeleton", "play", "setAnimation", "addAnimation"]) {
+        const original = playerPrototype[method];
+        if (typeof original !== "function" || original.__gvRuntimePatched) continue;
+        playerPrototype[method] = function patchedPlayerMethod(...args) {
+          const playerIndex = ensurePlayer(this);
+          record("playerMethod", {
+            playerIndex,
+            method,
+            args: args.map((arg) => animationName(arg) || String(arg ?? "")).slice(0, 8),
+            ...playerSummary(this, playerIndex),
+          });
+          return original.apply(this, args);
+        };
+        playerPrototype[method].__gvRuntimePatched = true;
+      }
+    }
+
+    const statePrototype = spine.AnimationState && spine.AnimationState.prototype;
+    if (statePrototype) {
+      for (const method of ["setAnimation", "addAnimation", "setAnimationWith", "addAnimationWith"]) {
+        const original = statePrototype[method];
+        if (typeof original !== "function" || original.__gvRuntimePatched) continue;
+        statePrototype[method] = function patchedAnimationStateMethod(...args) {
+          const playerIndex = state.players.findIndex((player) => player && player.animationState === this);
+          record("animationState", {
+            playerIndex,
+            method,
+            trackIndex: Number.isFinite(args[0]) ? args[0] : null,
+            animation: animationName(args[1]),
+            loop: typeof args[2] === "boolean" ? args[2] : null,
+            delayMs: Number.isFinite(args[3]) ? Math.round(args[3] * 1000) : null,
+          });
+          return original.apply(this, args);
+        };
+        statePrototype[method].__gvRuntimePatched = true;
+      }
+    }
+  }
+
+  state.snapshot = () => {
+    const events = state.events.slice();
+    return state.players
+      .map((player, playerIndex) => ({
+        ...playerSummary(player, playerIndex),
+        events: events.filter((event) => event.playerIndex === playerIndex),
+      }))
+      .filter((player) => player.containerIndex >= 0);
+  };
+
+  state.eventCount = () => state.sequence;
+
+  Object.defineProperty(window, "__gvRuntimeCapture", {
+    value: state,
+    configurable: true,
+  });
+
+  let spineValue = window.spine_4_1_54;
+  Object.defineProperty(window, "spine_4_1_54", {
+    configurable: true,
+    get() {
+      return spineValue;
+    },
+    set(value) {
+      spineValue = value;
+      patchSpine(value);
+    },
+  });
+  if (spineValue) patchSpine(spineValue);
+})();
+"""
 
 
 class RuntimeCaptureDependencyError(RuntimeError):
@@ -145,11 +312,114 @@ class RuntimeContainerSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeAnimationEvent:
+    sequence: int
+    time_ms: int | None
+    event_type: str
+    method: str
+    player_index: int | None
+    track_index: int | None
+    animation: str
+    loop: bool | None
+    delay_ms: int | None
+
+    @classmethod
+    def from_raw(cls, raw: Mapping[str, Any]) -> Self:
+        loop = raw.get('loop')
+        return cls(
+            sequence=_to_int(raw.get('sequence', raw.get('seq'))) or 0,
+            time_ms=_to_int(raw.get('time_ms', raw.get('timeMs'))),
+            event_type=_first_text(raw, 'type'),
+            method=_first_text(raw, 'method'),
+            player_index=_to_int(raw.get('player_index', raw.get('playerIndex'))),
+            track_index=_to_int(raw.get('track_index', raw.get('trackIndex'))),
+            animation=_first_text(raw, 'animation'),
+            loop=loop if isinstance(loop, bool) else None,
+            delay_ms=_to_int(raw.get('delay_ms', raw.get('delayMs'))),
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            'sequence': self.sequence,
+            'time_ms': self.time_ms,
+            'type': self.event_type,
+            'method': self.method,
+            'player_index': self.player_index,
+            'track_index': self.track_index,
+            'animation': self.animation,
+            'loop': self.loop,
+            'delay_ms': self.delay_ms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePlayerSnapshot:
+    player_index: int
+    container_index: int
+    z_index: int | None
+    raw_z_index: str
+    atlas_url: str
+    skel_url: str
+    configured_animation: str
+    current_animation: str
+    animation_durations_ms: dict[str, int]
+    events: tuple[RuntimeAnimationEvent, ...] = ()
+
+    @classmethod
+    def from_raw(cls, raw: Mapping[str, Any], *, fallback_index: int) -> Self:
+        durations: dict[str, int] = {}
+        raw_durations = raw.get('animation_durations_ms', raw.get('animationDurationsMs'))
+        if isinstance(raw_durations, Mapping):
+            for key, value in raw_durations.items():
+                duration_ms = _to_int(value)
+                if duration_ms is not None and duration_ms >= 0:
+                    durations[str(key)] = duration_ms
+
+        raw_events = raw.get('events')
+        events = (
+            tuple(RuntimeAnimationEvent.from_raw(event) for event in raw_events if isinstance(event, Mapping))
+            if isinstance(raw_events, Sequence) and not isinstance(raw_events, str | bytes | bytearray)
+            else ()
+        )
+
+        return cls(
+            player_index=_to_int(raw.get('player_index', raw.get('playerIndex'))) or fallback_index,
+            container_index=_to_int(raw.get('container_index', raw.get('containerIndex'))) or fallback_index,
+            z_index=_to_int(raw.get('z_index', raw.get('zIndex'))),
+            raw_z_index=_first_text(raw, 'raw_z_index', 'rawZIndex'),
+            atlas_url=_normalize_url(_first_text(raw, 'atlas_url', 'atlasUrl')),
+            skel_url=_normalize_url(_first_text(raw, 'skel_url', 'skelUrl')),
+            configured_animation=_first_text(raw, 'configured_animation', 'configuredAnimation', 'animation'),
+            current_animation=_first_text(raw, 'current_animation', 'currentAnimation', 'current'),
+            animation_durations_ms=durations,
+            events=events,
+        )
+
+    def runtime_key(self) -> str:
+        return live2d_key_from_url(self.atlas_url) or live2d_key_from_url(self.skel_url)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            'player_index': self.player_index,
+            'container_index': self.container_index,
+            'z_index': self.z_index,
+            'raw_z_index': self.raw_z_index,
+            'atlas_url': self.atlas_url,
+            'skel_url': self.skel_url,
+            'configured_animation': self.configured_animation,
+            'current_animation': self.current_animation,
+            'runtime_key': self.runtime_key(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class LayerCaptureBuildInput:
     content_id: int
     title: str = ''
     models: Sequence[Mapping[str, Any]] = ()
     containers: Sequence[Mapping[str, Any] | RuntimeContainerSnapshot] = ()
+    runtime_players: Sequence[Mapping[str, Any] | RuntimePlayerSnapshot] = ()
+    runtime_click_start_sequence: int | None = None
     requested_live2d_keys: Sequence[str] = ()
     captured_at: str = ''
     source_url: str = ''
@@ -171,6 +441,8 @@ class RuntimeGroupCapture:
     models: Sequence[Mapping[str, Any]]
     containers: Sequence[RuntimeContainerSnapshot]
     requested_live2d_keys: Sequence[str]
+    runtime_players: Sequence[RuntimePlayerSnapshot] = ()
+    runtime_click_start_sequence: int | None = None
 
 
 def _model_live2d_key(model: Mapping[str, Any]) -> str:
@@ -207,6 +479,45 @@ def _model_resource_urls(model: Mapping[str, Any]) -> dict[str, Any]:
             normalized_values = [_normalize_url(item) for item in value if isinstance(item, str)]
             urls[field_name] = [item for item in normalized_values if item]
     return urls
+
+
+def _model_runtime_animation_state(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+
+    state_payload: dict[str, Any] = {}
+    animation = _first_text(value, 'animation')
+    if animation:
+        state_payload['animation'] = animation
+    enabled = value.get('enabled')
+    if isinstance(enabled, bool):
+        state_payload['enabled'] = enabled
+    loop = value.get('loop')
+    if isinstance(loop, bool):
+        state_payload['loop'] = loop
+    match_method = _first_text(value, 'match_method', 'matchMethod')
+    if match_method:
+        state_payload['match_method'] = match_method
+    match_confidence = _first_text(value, 'match_confidence', 'matchConfidence')
+    if match_confidence in {'high', 'medium', 'low'}:
+        state_payload['match_confidence'] = match_confidence
+    duration_ms = _to_int(value.get('duration_ms', value.get('durationMs')))
+    if duration_ms is not None and duration_ms >= 0:
+        state_payload['duration_ms'] = duration_ms
+    return state_payload
+
+
+def _model_runtime_animations(model: Mapping[str, Any]) -> dict[str, Any]:
+    raw = model.get('runtime_animations', model.get('runtimeAnimations'))
+    if not isinstance(raw, Mapping):
+        return {}
+
+    out: dict[str, Any] = {}
+    for state in ('idle', 'click'):
+        state_payload = _model_runtime_animation_state(raw.get(state))
+        if state_payload:
+            out[state] = state_payload
+    return out
 
 
 def layer_capture_fingerprint(content_id: int, models: Sequence[Mapping[str, Any]]) -> str:
@@ -290,6 +601,151 @@ def _normalize_runtime_containers(
     return out
 
 
+def _normalize_runtime_players(players: Sequence[Mapping[str, Any] | RuntimePlayerSnapshot]) -> list[RuntimePlayerSnapshot]:
+    out: list[RuntimePlayerSnapshot] = []
+    for index, player in enumerate(players):
+        if isinstance(player, RuntimePlayerSnapshot):
+            out.append(player)
+        elif isinstance(player, Mapping):
+            out.append(RuntimePlayerSnapshot.from_raw(player, fallback_index=index))
+    return out
+
+
+def _flatten_resource_urls(urls: Mapping[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for value in urls.values():
+        if isinstance(value, str):
+            normalized = _normalize_url(value)
+            if normalized:
+                out.add(normalized)
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+            out.update(_normalize_url(item) for item in value if isinstance(item, str) and item.strip())
+    return out
+
+
+def _runtime_player_matches_model(player: RuntimePlayerSnapshot, model: Mapping[str, Any] | None) -> bool:
+    if model is None:
+        return False
+
+    player_key = player.runtime_key()
+    model_key = _model_live2d_key(model)
+    if player_key and model_key:
+        return player_key == model_key
+
+    model_urls = _flatten_resource_urls(_model_resource_urls(model))
+    player_urls = {url for url in (player.atlas_url, player.skel_url) if url}
+    return bool(model_urls.intersection(player_urls))
+
+
+def _track_zero_animation_events(player: RuntimePlayerSnapshot) -> list[RuntimeAnimationEvent]:
+    return [
+        event
+        for event in player.events
+        if event.animation and event.event_type == 'animationState' and event.track_index in {None, 0}
+    ]
+
+
+def _runtime_event_state(
+    *,
+    event: RuntimeAnimationEvent,
+    match_method: str,
+    default_loop: bool,
+    duration_ms: int | None = None,
+) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        'animation': event.animation,
+        'enabled': True,
+        'loop': event.loop if event.loop is not None else default_loop,
+        'match_method': match_method,
+        'match_confidence': 'high',
+    }
+    if duration_ms is not None:
+        state['duration_ms'] = duration_ms
+    return state
+
+
+def _runtime_animations_from_player(
+    player: RuntimePlayerSnapshot,
+    *,
+    click_start_sequence: int | None,
+) -> dict[str, dict[str, Any]]:
+    events = _track_zero_animation_events(player)
+    idle_candidates = [event for event in events if click_start_sequence is None or event.sequence <= click_start_sequence]
+    idle_event = max(idle_candidates, key=lambda event: event.sequence, default=None)
+    click_event = (
+        min((event for event in events if event.sequence > click_start_sequence), key=lambda event: event.sequence, default=None)
+        if click_start_sequence is not None
+        else None
+    )
+
+    runtime_animations: dict[str, dict[str, Any]] = {}
+    if idle_event is not None:
+        runtime_animations['idle'] = _runtime_event_state(
+            event=idle_event,
+            match_method=RUNTIME_ANIMATION_MATCH_METHOD,
+            default_loop=True,
+        )
+    elif player.configured_animation:
+        runtime_animations['idle'] = {
+            'animation': player.configured_animation,
+            'enabled': True,
+            'loop': True,
+            'match_method': RUNTIME_ANIMATION_MATCH_METHOD,
+            'match_confidence': 'high',
+        }
+
+    if click_event is not None:
+        runtime_animations['click'] = _runtime_event_state(
+            event=click_event,
+            match_method=RUNTIME_CLICK_MATCH_METHOD,
+            default_loop=False,
+            duration_ms=player.animation_durations_ms.get(click_event.animation),
+        )
+    elif click_start_sequence is not None:
+        runtime_animations['click'] = {
+            'enabled': False,
+            'match_method': RUNTIME_CLICK_MATCH_METHOD,
+            'match_confidence': 'high',
+        }
+
+    return runtime_animations
+
+
+def _runtime_layer_metadata(
+    *,
+    model: Mapping[str, Any] | None,
+    runtime_player: RuntimePlayerSnapshot | None,
+    click_start_sequence: int | None,
+) -> dict[str, Any]:
+    if model is None:
+        return {}
+
+    if runtime_player is not None:
+        runtime_animations = _runtime_animations_from_player(runtime_player, click_start_sequence=click_start_sequence)
+        runtime_animation_match_method = RUNTIME_ANIMATION_MATCH_METHOD
+        runtime_animation_match_confidence = (
+            'high' if runtime_animations and _runtime_player_matches_model(runtime_player, model) else 'low'
+        )
+        metadata: dict[str, Any] = {'runtime_player': runtime_player.to_payload()}
+    else:
+        runtime_animations = _model_runtime_animations(model)
+        runtime_animation_match_method = _first_text(model, 'runtime_animation_match_method', 'runtimeAnimationMatchMethod')
+        runtime_animation_match_confidence = _first_text(
+            model,
+            'runtime_animation_match_confidence',
+            'runtimeAnimationMatchConfidence',
+        )
+        metadata = {}
+
+    if runtime_animations:
+        metadata['runtime_animations'] = runtime_animations
+    if runtime_animation_match_method:
+        metadata['runtime_animation_match_method'] = runtime_animation_match_method
+    if runtime_animation_match_confidence in {'high', 'medium', 'low'}:
+        metadata['runtime_animation_match_confidence'] = runtime_animation_match_confidence
+    return metadata
+
+
 def _build_multi_group_layer_capture_payload(
     *,
     request: RuntimeCaptureRequest,
@@ -311,6 +767,8 @@ def _build_multi_group_layer_capture_payload(
                 title=request.title,
                 models=group_capture.models,
                 containers=group_capture.containers,
+                runtime_players=group_capture.runtime_players,
+                runtime_click_start_sequence=group_capture.runtime_click_start_sequence,
                 requested_live2d_keys=group_capture.requested_live2d_keys,
                 captured_at=captured_at,
                 source_url=source_url,
@@ -347,6 +805,10 @@ def build_layer_capture_payload(capture: LayerCaptureBuildInput) -> dict[str, An
     captured_at = capture.captured_at or _utc_now_iso()
     source_url = capture.source_url or f'{GAMEKEE_BASE_URL}/nikke/tj/{capture.content_id}.html'
     containers = _normalize_runtime_containers(capture.containers)
+    runtime_players = _normalize_runtime_players(capture.runtime_players)
+    runtime_player_by_container_index = {
+        player.container_index: player for player in runtime_players if player.container_index >= 0
+    }
     requested_live2d_keys = _unique_in_order(capture.requested_live2d_keys)
     model_keys = {_model_live2d_key(model) for model in capture.models if _model_live2d_key(model)}
     runtime_model_keys = [key for key in requested_live2d_keys if key in model_keys]
@@ -382,6 +844,13 @@ def build_layer_capture_payload(capture: LayerCaptureBuildInput) -> dict[str, An
             'captured_at': captured_at,
             'raw_container': container.to_raw_container(),
         }
+        layer.update(
+            _runtime_layer_metadata(
+                model=model,
+                runtime_player=runtime_player_by_container_index.get(container.index),
+                click_start_sequence=capture.runtime_click_start_sequence,
+            ),
+        )
         layers.append(layer)
 
     ordered_layers = sorted(
@@ -448,6 +917,42 @@ async def _read_runtime_containers(page: Any) -> list[RuntimeContainerSnapshot]:
     ]
 
 
+async def _runtime_event_count(page: Any) -> int:
+    count = await page.evaluate('() => window.__gvRuntimeCapture?.eventCount?.() ?? 0')
+    return _to_int(count) or 0
+
+
+async def _read_runtime_players(page: Any) -> list[RuntimePlayerSnapshot]:
+    raw_players = await page.evaluate('() => window.__gvRuntimeCapture?.snapshot?.() ?? []')
+    if not isinstance(raw_players, list):
+        raw_players = []
+    return [
+        RuntimePlayerSnapshot.from_raw(item, fallback_index=index)
+        for index, item in enumerate(raw_players)
+        if isinstance(item, Mapping)
+    ]
+
+
+async def _click_runtime_stage(page: Any) -> None:
+    point = await page.evaluate(
+        """() => {
+            const element = document.querySelector(".live2d-stage")
+                || document.querySelector(".live2d-container")
+                || document.querySelector(".spine-player-container");
+            if (!element) return null;
+            const rect = element.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        }""",
+    )
+    if not isinstance(point, Mapping):
+        return
+    x = _to_float(point.get('x'))
+    y = _to_float(point.get('y'))
+    if x is None or y is None:
+        return
+    await page.mouse.click(x, y)
+
+
 async def _capture_runtime_containers(request: RuntimeCaptureRequest) -> tuple[list[RuntimeContainerSnapshot], list[str]]:
     captures = await _capture_runtime_groups(request)
     if not captures:
@@ -472,6 +977,7 @@ async def _capture_runtime_groups(request: RuntimeCaptureRequest) -> list[Runtim
         browser = await playwright.chromium.launch(headless=request.headless)
         try:
             page = await browser.new_page(viewport=DEFAULT_RUNTIME_VIEWPORT)
+            await page.add_init_script(GAMEKEE_RUNTIME_CAPTURE_SCRIPT)
             page.on('request', lambda browser_request: requested_urls.append(browser_request.url))
             await page.goto(source_url, wait_until='domcontentloaded', timeout=request.timeout_ms)
             captures: list[RuntimeGroupCapture] = []
@@ -487,11 +993,16 @@ async def _capture_runtime_groups(request: RuntimeCaptureRequest) -> list[Runtim
                     timeout=request.timeout_ms,
                 )
                 await page.wait_for_timeout(1500)
+                click_start_sequence = await _runtime_event_count(page)
+                await _click_runtime_stage(page)
+                await page.wait_for_timeout(1500)
                 captures.append(
                     RuntimeGroupCapture(
                         models=group,
                         containers=await _read_runtime_containers(page),
                         requested_live2d_keys=unique_live2d_keys(requested_urls[start_request_index:]),
+                        runtime_players=await _read_runtime_players(page),
+                        runtime_click_start_sequence=click_start_sequence,
                     ),
                 )
         finally:
@@ -506,6 +1017,8 @@ async def capture_gamekee_runtime_layers(request: RuntimeCaptureRequest) -> dict
         return _build_multi_group_layer_capture_payload(request=request, group_captures=group_captures)
     containers = list(group_captures[0].containers) if group_captures else []
     requested_live2d_keys = list(group_captures[0].requested_live2d_keys) if group_captures else []
+    runtime_players = list(group_captures[0].runtime_players) if group_captures else []
+    runtime_click_start_sequence = group_captures[0].runtime_click_start_sequence if group_captures else None
     models = group_captures[0].models if group_captures else request.models
     return build_layer_capture_payload(
         LayerCaptureBuildInput(
@@ -513,6 +1026,8 @@ async def capture_gamekee_runtime_layers(request: RuntimeCaptureRequest) -> dict
             title=request.title,
             models=models,
             containers=containers,
+            runtime_players=runtime_players,
+            runtime_click_start_sequence=runtime_click_start_sequence,
             requested_live2d_keys=requested_live2d_keys,
             source_url=request.source_url,
         ),

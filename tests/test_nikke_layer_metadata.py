@@ -1,4 +1,4 @@
-# ruff: noqa: FBT001, INP001, S101
+# ruff: noqa: FBT001, INP001, PLR2004, S101
 
 import copy
 import json
@@ -12,6 +12,7 @@ from src.web.nikke_layer_metadata import (
     layer_capture_manifest_summary,
     live2d_layer_fingerprint,
     live2d_layer_fingerprint_candidates,
+    merge_layer_capture_files,
     merge_live2d_layer_captures,
     read_previous_layer_capture,
 )
@@ -43,10 +44,31 @@ def _models() -> list[dict[str, object]]:
     ]
 
 
+def _runtime_animations(prefix: str) -> dict[str, dict[str, object]]:
+    return {
+        'idle': {
+            'animation': f'{prefix}-idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+        },
+        'click': {
+            'animation': f'{prefix}-click',
+            'enabled': True,
+            'loop': False,
+            'match_method': 'gamekee-runtime-player-event',
+            'match_confidence': 'high',
+            'duration_ms': 1200,
+        },
+    }
+
+
 def _success_capture(content_id: int, models: list[dict[str, object]]) -> dict[str, object]:
     return {
         'content_id': content_id,
         'status': 'success',
+        'layer_capture_schema': 2,
         'fingerprint': live2d_layer_fingerprint(content_id, models),
         'layers': [
             {
@@ -57,6 +79,9 @@ def _success_capture(content_id: int, models: list[dict[str, object]]) -> dict[s
                 'source_layer_index': 0,
                 'is_primary': True,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations('main'),
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
             },
             {
                 'stable_id': 'stable-front',
@@ -66,6 +91,9 @@ def _success_capture(content_id: int, models: list[dict[str, object]]) -> dict[s
                 'source_layer_index': 1,
                 'is_primary': False,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations('front'),
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
             },
             {
                 'stable_id': 'stable-back',
@@ -75,6 +103,9 @@ def _success_capture(content_id: int, models: list[dict[str, object]]) -> dict[s
                 'source_layer_index': 2,
                 'is_primary': False,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations('back'),
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
             },
         ],
     }
@@ -161,12 +192,73 @@ def test_layer_capture_manifest_summary_excludes_raw_container_evidence() -> Non
     assert capture['layers'][0]['raw_container']
     assert summary['capture_hash']
     assert all('raw_container' not in layer for layer in summary['layers'])
+    assert summary['schema'] == 2
+    assert summary['layers'][0]['runtime_animations']['click']['animation'] == 'main-click'
     assert summary['runtime'] == {
         'requested_live2d_keys': ['main', 'front', 'back'],
         'matched_live2d_keys': ['main', 'front', 'back'],
         'container_count': 3,
     }
     assert summary['warnings'] == ['safe warning', 'path <path>']
+
+
+def test_merge_live2d_layer_captures_persists_runtime_animation_metadata() -> None:
+    content_id = 711133
+    models = _models()
+    capture = _success_capture(content_id, models)
+    for model in models:
+        model.pop('runtime_animations', None)
+        model.pop('runtime_animation_match_method', None)
+        model.pop('runtime_animation_match_confidence', None)
+
+    report = merge_live2d_layer_captures(models, capture, content_id=content_id, dry_run=False)
+
+    assert report['matched'] == 3
+    assert report['quality_issues'] == []
+    assert models[0]['runtime_animations']['idle']['animation'] == 'main-idle'
+    assert models[0]['runtime_animations']['click']['animation'] == 'main-click'
+    assert models[0]['runtime_animation_match_confidence'] == 'high'
+
+
+def test_merge_layer_capture_files_persists_runtime_animation_metadata_to_manifest_and_character(tmp_path: Path) -> None:
+    content_id = 711133
+    root = tmp_path / '711133 - Test'
+    models = _models()
+    capture = _success_capture(content_id, models)
+    manifest_models = copy.deepcopy(models)
+    character_models = copy.deepcopy(models)
+    for model in manifest_models + character_models:
+        model.pop('runtime_animations', None)
+        model.pop('runtime_animation_match_method', None)
+        model.pop('runtime_animation_match_confidence', None)
+    root.mkdir()
+    (root / 'manifest.json').write_text(
+        json.dumps({'content_id': content_id, 'live2d_models': manifest_models}, ensure_ascii=False),
+        encoding='utf-8',
+    )
+    (root / 'character.json').write_text(
+        json.dumps({'live2d_models': character_models}, ensure_ascii=False),
+        encoding='utf-8',
+    )
+
+    report = merge_layer_capture_files(root=root, capture_payload=capture, dry_run=False)
+
+    assert report['manifest']['matched'] == 3
+    assert report['character']['matched'] == 3
+    manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    character = json.loads((root / 'character.json').read_text(encoding='utf-8'))
+    for payload in (manifest, character):
+        model = payload['live2d_models'][0]
+        assert model['runtime_animations']['idle'] == _runtime_animations('main')['idle']
+        assert model['runtime_animations']['click'] == _runtime_animations('main')['click']
+        assert model['runtime_animation_match_method'] == 'gamekee-runtime-player'
+        assert model['runtime_animation_match_confidence'] == 'high'
+        summary = payload[LIVE2D_LAYER_CAPTURE_FIELD]
+        assert summary['schema'] == 2
+        assert summary['layers'][0]['runtime_animations']['idle'] == _runtime_animations('main')['idle']
+        assert summary['layers'][0]['runtime_animations']['click'] == _runtime_animations('main')['click']
+        assert summary['layers'][0]['runtime_animation_match_method'] == 'gamekee-runtime-player'
+        assert summary['layers'][0]['runtime_animation_match_confidence'] == 'high'
 
 
 def test_evaluate_layer_capture_reuse_accepts_matching_multi_full_group_fingerprint() -> None:
@@ -201,6 +293,7 @@ def test_evaluate_layer_capture_reuse_accepts_all_multi_full_groups_fingerprint_
     capture = {
         'content_id': content_id,
         'status': 'success',
+        'layer_capture_schema': 2,
         'fingerprint': live2d_layer_fingerprint(content_id, captured_models),
         'layers': [
             {
@@ -211,6 +304,9 @@ def test_evaluate_layer_capture_reuse_accepts_all_multi_full_groups_fingerprint_
                 'source_layer_index': 0,
                 'is_primary': True,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations('skin0-main'),
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
             },
             {
                 'stable_id': 'skin0-back',
@@ -220,6 +316,9 @@ def test_evaluate_layer_capture_reuse_accepts_all_multi_full_groups_fingerprint_
                 'source_layer_index': 1,
                 'is_primary': False,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations('skin0-back'),
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
             },
             {
                 'stable_id': 'skin1-main',
@@ -229,6 +328,9 @@ def test_evaluate_layer_capture_reuse_accepts_all_multi_full_groups_fingerprint_
                 'source_layer_index': 0,
                 'is_primary': True,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations('skin1-main'),
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
             },
             {
                 'stable_id': 'skin1-back',
@@ -238,6 +340,9 @@ def test_evaluate_layer_capture_reuse_accepts_all_multi_full_groups_fingerprint_
                 'source_layer_index': 1,
                 'is_primary': False,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations('skin1-back'),
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
             },
         ],
     }
@@ -255,6 +360,8 @@ def test_evaluate_layer_capture_reuse_accepts_all_multi_full_groups_fingerprint_
     [
         ({'fingerprint': 'different'}, False, 'fingerprint_changed'),
         ({'status': 'failed'}, False, 'previous_status_not_success'),
+        ({'layer_capture_schema': 1}, False, 'capture_schema_mismatch'),
+        ({'layer_capture_schema': None, 'schema': 1}, False, 'capture_schema_mismatch'),
         ({}, True, 'force_refresh'),
     ],
 )
@@ -278,6 +385,21 @@ def test_evaluate_layer_capture_reuse_refreshes_when_reuse_contract_fails(
     assert decision['reusable'] is False
     assert decision['action'] == 'refresh'
     assert decision['reason'] == expected_reason
+
+
+def test_evaluate_layer_capture_reuse_refreshes_when_runtime_animation_metadata_is_incomplete() -> None:
+    content_id = 711133
+    models = _models()
+    capture = _success_capture(content_id, models)
+    layers = capture['layers']
+    assert isinstance(layers, list)
+    layers[1]['runtime_animations']['click']['match_confidence'] = 'low'
+
+    decision = evaluate_layer_capture_reuse(content_id=content_id, live2d_models=models, previous_capture=capture)
+
+    assert decision['reusable'] is False
+    assert decision['action'] == 'refresh'
+    assert decision['reason'] == 'previous_runtime_animations_incomplete'
 
 
 @pytest.mark.parametrize(

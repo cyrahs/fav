@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 
 GAMEKEE_BASE_URL = 'https://www.gamekee.com'
 LAYER_MATCH_CONFIDENCE_VALUES = {'high', 'medium', 'low'}
+RUNTIME_ANIMATION_STATES = ('idle', 'click')
 LIVE2D_LAYER_METADATA_FIELDS = (
     'layer_order',
     'source_z_index',
@@ -19,9 +20,13 @@ LIVE2D_LAYER_METADATA_FIELDS = (
     'is_primary',
     'layer_match_method',
     'layer_match_confidence',
+    'runtime_animations',
+    'runtime_animation_match_method',
+    'runtime_animation_match_confidence',
 )
 LIVE2D_LAYER_CAPTURE_FIELD = 'live2d_layer_capture'
 LAYER_CAPTURE_MATCH_METHOD = 'gamekee-runtime-container'
+RUNTIME_ANIMATION_CAPTURE_SCHEMA = 2
 MIN_LAYER_GROUP_SIZE = 2
 LAYER_CAPTURE_RAW_PATH = Path('raw/live2d-layer-capture.json')
 MAX_SUMMARY_TEXT_LENGTH = 240
@@ -67,6 +72,11 @@ def _optional_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def _optional_non_negative_int(value: Any) -> int | None:
+    parsed = _to_int(value)
+    return parsed if parsed is not None and parsed >= 0 else None
+
+
 def _first_int(data: dict[str, Any], *keys: str) -> int | None:
     for key in keys:
         value = _to_int(data.get(key))
@@ -84,6 +94,50 @@ def _first_text(data: dict[str, Any], *keys: str) -> str:
         if text:
             return text
     return ''
+
+
+def _runtime_match_confidence(value: Any) -> str | None:
+    text = str(value or '').strip()
+    return text if text in LAYER_MATCH_CONFIDENCE_VALUES else None
+
+
+def _normalize_runtime_animation_state(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    animation = _first_text(value, 'animation')
+    enabled = _optional_bool(value.get('enabled'))
+    loop = _optional_bool(value.get('loop'))
+    match_method = _first_text(value, 'match_method', 'matchMethod')
+    match_confidence = _runtime_match_confidence(value.get('match_confidence', value.get('matchConfidence')))
+    duration_ms = _optional_non_negative_int(value.get('duration_ms', value.get('durationMs')))
+
+    out: dict[str, Any] = {}
+    if animation:
+        out['animation'] = animation
+    if enabled is not None:
+        out['enabled'] = enabled
+    if loop is not None:
+        out['loop'] = loop
+    if match_method:
+        out['match_method'] = match_method
+    if match_confidence is not None:
+        out['match_confidence'] = match_confidence
+    if duration_ms is not None:
+        out['duration_ms'] = duration_ms
+    return out or None
+
+
+def normalize_runtime_animations(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+
+    out: dict[str, Any] = {}
+    for state in RUNTIME_ANIMATION_STATES:
+        normalized = _normalize_runtime_animation_state(value.get(state))
+        if normalized is not None:
+            out[state] = normalized
+    return out
 
 
 def normalize_layer_url(url: str) -> str:
@@ -104,6 +158,11 @@ def copy_live2d_layer_metadata(model: dict[str, Any], value: dict[str, Any]) -> 
     is_primary = _optional_bool(value.get('is_primary')) if 'is_primary' in value else _optional_bool(value.get('isPrimary'))
     layer_match_method = _first_text(value, 'layer_match_method', 'layerMatchMethod')
     layer_match_confidence = _first_text(value, 'layer_match_confidence', 'layerMatchConfidence')
+    runtime_animations = normalize_runtime_animations(value.get('runtime_animations', value.get('runtimeAnimations')))
+    runtime_animation_match_method = _first_text(value, 'runtime_animation_match_method', 'runtimeAnimationMatchMethod')
+    runtime_animation_match_confidence = _runtime_match_confidence(
+        value.get('runtime_animation_match_confidence', value.get('runtimeAnimationMatchConfidence')),
+    )
 
     if layer_order is not None:
         model['layer_order'] = layer_order
@@ -117,6 +176,12 @@ def copy_live2d_layer_metadata(model: dict[str, Any], value: dict[str, Any]) -> 
         model['layer_match_method'] = layer_match_method
     if layer_match_confidence in LAYER_MATCH_CONFIDENCE_VALUES:
         model['layer_match_confidence'] = layer_match_confidence
+    if runtime_animations:
+        model['runtime_animations'] = runtime_animations
+    if runtime_animation_match_method:
+        model['runtime_animation_match_method'] = runtime_animation_match_method
+    if runtime_animation_match_confidence is not None:
+        model['runtime_animation_match_confidence'] = runtime_animation_match_confidence
 
 
 def _model_identity(model: dict[str, Any]) -> str:
@@ -291,6 +356,11 @@ def _normalized_layer_capture(payload: dict[str, Any]) -> list[dict[str, Any]]:
         is_primary = _optional_bool(layer.get('is_primary')) if 'is_primary' in layer else _optional_bool(layer.get('isPrimary'))
         confidence = _first_text(layer, 'layer_match_confidence', 'layerMatchConfidence')
         method = _first_text(layer, 'layer_match_method', 'layerMatchMethod') or LAYER_CAPTURE_MATCH_METHOD
+        runtime_animations = normalize_runtime_animations(layer.get('runtime_animations', layer.get('runtimeAnimations')))
+        runtime_animation_match_method = _first_text(layer, 'runtime_animation_match_method', 'runtimeAnimationMatchMethod')
+        runtime_animation_match_confidence = _runtime_match_confidence(
+            layer.get('runtime_animation_match_confidence', layer.get('runtimeAnimationMatchConfidence')),
+        )
 
         normalized: dict[str, Any] = {
             'content_id': _to_int(layer.get('content_id')),
@@ -306,6 +376,12 @@ def _normalized_layer_capture(payload: dict[str, Any]) -> list[dict[str, Any]]:
             'captured_at': _first_text(layer, 'captured_at', 'capturedAt'),
             'resource_urls': sorted(_capture_resource_urls(layer)),
         }
+        if runtime_animations:
+            normalized['runtime_animations'] = runtime_animations
+        if runtime_animation_match_method:
+            normalized['runtime_animation_match_method'] = runtime_animation_match_method
+        if runtime_animation_match_confidence is not None:
+            normalized['runtime_animation_match_confidence'] = runtime_animation_match_confidence
         raw_container = layer.get('raw_container', layer.get('rawContainer'))
         if isinstance(raw_container, dict):
             normalized['raw_container'] = raw_container
@@ -352,11 +428,15 @@ def _layer_capture_updates(capture: dict[str, Any]) -> dict[str, Any]:
             value = _optional_bool(value)
         elif field_name == 'layer_match_confidence':
             value = value if value in LAYER_MATCH_CONFIDENCE_VALUES else None
+        elif field_name == 'runtime_animations':
+            value = normalize_runtime_animations(value)
+        elif field_name == 'runtime_animation_match_confidence':
+            value = _runtime_match_confidence(value)
         elif isinstance(value, str):
             value = value.strip()
         else:
             value = None
-        if value is not None and value != '':
+        if value is not None and value not in ('', {}):
             updates[field_name] = value
     return updates
 
@@ -729,9 +809,49 @@ def _capture_payload_status(capture_payload: dict[str, Any]) -> str:
     return _first_text(capture_payload, 'status', 'captureStatus')
 
 
+def _capture_payload_schema(capture_payload: dict[str, Any]) -> int:
+    return _to_int(capture_payload.get('layer_capture_schema')) or _to_int(capture_payload.get('schema')) or 1
+
+
 def _capture_payload_has_high_confidence(capture_payload: dict[str, Any]) -> bool:
     layers = _normalized_layer_capture(capture_payload)
     return bool(layers) and all(layer.get('layer_match_confidence') == 'high' for layer in layers)
+
+
+def _runtime_animation_state_is_complete(state: Any) -> bool:
+    normalized = _normalize_runtime_animation_state(state)
+    if normalized is None:
+        return False
+    if normalized.get('match_confidence') != 'high':
+        return False
+    enabled = normalized.get('enabled', True)
+    return enabled is False or bool(str(normalized.get('animation') or '').strip())
+
+
+def _capture_payload_has_complete_runtime_animations(capture_payload: dict[str, Any]) -> bool:
+    layers = _normalized_layer_capture(capture_payload)
+    if not layers:
+        return False
+    for layer in layers:
+        runtime_animations = layer.get('runtime_animations')
+        if not isinstance(runtime_animations, dict):
+            return False
+        if any(not _runtime_animation_state_is_complete(runtime_animations.get(state)) for state in RUNTIME_ANIMATION_STATES):
+            return False
+    return True
+
+
+def _capture_reuse_contract_failure(previous_capture: dict[str, Any]) -> tuple[str, str]:
+    previous_status = _capture_payload_status(previous_capture)
+    if previous_status != 'success':
+        return previous_status, 'previous_status_not_success'
+    if _capture_payload_schema(previous_capture) < RUNTIME_ANIMATION_CAPTURE_SCHEMA:
+        return previous_status, 'capture_schema_mismatch'
+    if not _capture_payload_has_high_confidence(previous_capture):
+        return previous_status, 'previous_confidence_not_high'
+    if not _capture_payload_has_complete_runtime_animations(previous_capture):
+        return previous_status, 'previous_runtime_animations_incomplete'
+    return previous_status, ''
 
 
 def evaluate_layer_capture_reuse(
@@ -763,13 +883,9 @@ def evaluate_layer_capture_reuse(
         if previous_fingerprint not in current_fingerprints:
             reason = 'fingerprint_changed' if previous_fingerprint else 'missing_fingerprint'
         else:
-            previous_status = _capture_payload_status(previous_capture)
+            previous_status, reason = _capture_reuse_contract_failure(previous_capture)
             report['previous_status'] = previous_status
-            if previous_status != 'success':
-                reason = 'previous_status_not_success'
-            elif not _capture_payload_has_high_confidence(previous_capture):
-                reason = 'previous_confidence_not_high'
-            else:
+            if not reason:
                 group_coverage = layer_capture_group_coverage(
                     content_id=content_id,
                     live2d_models=live2d_models,

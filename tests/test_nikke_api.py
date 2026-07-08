@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, S105, PLR0913, PLR2004, RUF001, SLF001
+# ruff: noqa: INP001, PLR0913, PLR0915, PLR2004, RUF001, S101, S105, SLF001
 
 import json
 from datetime import UTC, datetime
@@ -100,6 +100,26 @@ def _asset(path: str, *, label: str, body: bytes, kind: str = 'image', extra_con
         'status': 'downloaded',
         'error': '',
         'contexts': [context],
+    }
+
+
+def _runtime_animations(prefix: str) -> dict[str, dict[str, object]]:
+    return {
+        'idle': {
+            'animation': f'{prefix}-idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+        },
+        'click': {
+            'animation': f'{prefix}-click',
+            'enabled': True,
+            'loop': False,
+            'match_method': 'gamekee-runtime-player-event',
+            'match_confidence': 'high',
+            'duration_ms': 1200,
+        },
     }
 
 
@@ -389,6 +409,9 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     assert payload['layer_metadata_required'] is False
     assert payload['layer_metadata_status'] == 'complete'
     assert payload['layer_metadata_issues'] == []
+    assert payload['runtime_animation_metadata_required'] is False
+    assert payload['runtime_animation_metadata_status'] == 'complete'
+    assert payload['runtime_animation_metadata_issues'] == []
     assert payload['layer_metadata_capture']['status'] == 'skipped'
     assert payload['layer_metadata_capture']['reason'] == 'no_multi_full_groups'
     skin = payload['skins'][0]
@@ -396,6 +419,9 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     assert skin['layer_metadata_required'] is False
     assert skin['layer_metadata_status'] == 'complete'
     assert skin['layer_metadata_issues'] == []
+    assert skin['runtime_animation_metadata_required'] is False
+    assert skin['runtime_animation_metadata_status'] == 'complete'
+    assert skin['runtime_animation_metadata_issues'] == []
     assert skin['layer_metadata_capture'] == payload['layer_metadata_capture']
     assert skin['thumbnail']['path'] == 'assets/images/thumb.webp'
     assert skin['sd_model']['path'] == 'assets/images/sd.gif'
@@ -411,6 +437,7 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     assert model['is_primary'] is True
     assert model['layer_match_method'] == 'gamekee-player-init'
     assert model['layer_match_confidence'] == 'high'
+    assert model['runtime_animations'] is None
     assert model['view_overrides'] == {}
     assert model['assets']['atlas']['path'] == 'assets/live2d/model-a/model.atlas'
     assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)
@@ -509,8 +536,13 @@ def test_get_nikke_character_exposes_incomplete_layer_metadata_status(tmp_path: 
     complete_skin = payload['skins'][1]
     assert payload['layer_metadata_required'] is True
     assert payload['layer_metadata_status'] == 'incomplete'
+    assert payload['runtime_animation_metadata_required'] is True
+    assert payload['runtime_animation_metadata_status'] == 'missing'
+    assert {issue['code'] for issue in payload['runtime_animation_metadata_issues']} == {'capture_schema_mismatch'}
     assert skin['layer_metadata_required'] is True
     assert skin['layer_metadata_status'] == 'incomplete'
+    assert skin['runtime_animation_metadata_required'] is True
+    assert skin['runtime_animation_metadata_status'] == 'missing'
     issue_codes = {issue['code'] for issue in skin['layer_metadata_issues']}
     assert {'raw_quality_issue', 'missing_layer_order', 'low_confidence_layer_match'}.issubset(issue_codes)
     assert next(issue for issue in skin['layer_metadata_issues'] if issue['code'] == 'raw_quality_issue')['skin_index'] == 0
@@ -534,6 +566,100 @@ def test_get_nikke_character_exposes_incomplete_layer_metadata_status(tmp_path: 
         'warnings': ['safe warning'],
     }
     assert payload['layer_metadata_capture'] == skin['layer_metadata_capture']
+
+
+def test_get_nikke_character_exposes_runtime_animation_metadata_separately_from_layer_status(tmp_path: Path) -> None:
+    root = _create_nikke_fixture(tmp_path / 'nikke')
+    character_root = root / '101 - Test NIKKE'
+    manifest = json.loads((character_root / 'manifest.json').read_text(encoding='utf-8'))
+    character = json.loads((character_root / 'character.json').read_text(encoding='utf-8'))
+    live2d_models = []
+    for stable_id, live2d_key, order, z_index, layer_index, primary in [
+        ('stable-main', 'main', 2, 9, 0, True),
+        ('stable-front', 'front', 3, 10, 1, False),
+        ('stable-back', 'back', 1, 8, 2, False),
+    ]:
+        runtime_animations = _runtime_animations(live2d_key)
+        if live2d_key == 'front':
+            runtime_animations['click']['match_confidence'] = 'low'
+        model = dict(manifest['live2d_models'][0])
+        model.update(
+            {
+                'key': live2d_key,
+                'stable_id': stable_id,
+                'live2d_key': live2d_key,
+                'layer_order': order,
+                'source_z_index': z_index,
+                'source_layer_index': layer_index,
+                'is_primary': primary,
+                'layer_match_confidence': 'high',
+                'runtime_animations': runtime_animations,
+                'runtime_animation_match_method': 'gamekee-runtime-player',
+                'runtime_animation_match_confidence': 'high',
+            },
+        )
+        live2d_models.append(model)
+
+    capture = {
+        'schema': 2,
+        'status': 'success',
+        'captured_at': '2026-04-30T00:00:02+00:00',
+        'fingerprint': 'fingerprint',
+        'warnings': [],
+    }
+    manifest['live2d_models'] = live2d_models
+    manifest['live2d_layer_capture'] = capture
+    character['live2d_models'] = live2d_models
+    character['live2d_layer_capture'] = capture
+    _write_json(character_root / 'manifest.json', manifest)
+    _write_json(character_root / 'character.json', character)
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/nikke/characters/101', headers=_auth_headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    skin = payload['skins'][0]
+    assert payload['layer_metadata_required'] is True
+    assert payload['layer_metadata_status'] == 'complete'
+    assert payload['runtime_animation_metadata_required'] is True
+    assert payload['runtime_animation_metadata_status'] == 'incomplete'
+    assert skin['layer_metadata_status'] == 'complete'
+    assert skin['runtime_animation_metadata_status'] == 'incomplete'
+    assert payload['runtime_animation_metadata_issues'] == [
+        {
+            'severity': 'error',
+            'code': 'low_runtime_animation_match',
+            'skin_index': 0,
+            'model_kind': 'full',
+            'state': 'click',
+            'models': ['stable-front/front'],
+            'runtime_animation_match_confidence': 'low',
+        },
+    ]
+    models_by_key = {model['live2d_key']: model for model in skin['live2d_models']}
+    assert models_by_key['main']['runtime_animations'] == {
+        'idle': {
+            'animation': 'main-idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+            'duration_ms': None,
+        },
+        'click': {
+            'animation': 'main-click',
+            'enabled': True,
+            'loop': False,
+            'match_method': 'gamekee-runtime-player-event',
+            'match_confidence': 'high',
+            'duration_ms': 1200,
+        },
+    }
+    assert models_by_key['main']['runtime_animation_match_method'] == 'gamekee-runtime-player'
+    assert models_by_key['main']['runtime_animation_match_confidence'] == 'high'
+    assert models_by_key['front']['runtime_animation_match_confidence'] == 'high'
 
 
 def test_nikke_live2d_view_override_save_and_detail_overlay(tmp_path: Path) -> None:
