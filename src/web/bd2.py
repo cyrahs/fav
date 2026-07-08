@@ -218,11 +218,14 @@ ART_ROWS = {
 }
 
 _VIEWER_SUPPLEMENT_SOURCE = 'bd2_l2d_viewer'
+_VIEWER_PREFERRED_SOURCE_VARIANT = 'preferred_source'
+_VIEWER_SUPPLEMENT_REASON_MATCHED_STEM_PREFERRED_SOURCE = 'matched_stem_preferred_source'
 _VIEWER_SUPPLEMENT_REASON_EMPTY_SLOT = 'empty_gamekee_slot'
 _VIEWER_SUPPLEMENT_REASON_CENSORED_VARIANT = 'censored_variant'
 _VIEWER_SUPPLEMENT_REASON_MISMATCHED_SLOT = 'mismatched_gamekee_slot'
 _VIEWER_EXTRA_REASON = 'viewer_extra'
 _VIEWER_EXTRA_CONTENT_ID = 0
+_VIEWER_PREFERRED_REPLACED_LIVE2D_FIELDS = frozenset({'atlas', 'skel', 'json', 'image', 'atlas_texture'})
 _VIEWER_SUPPLEMENT_CORE_FIELD_BY_SUFFIX = {
     '.atlas': 'atlas',
     '.skel': 'skel',
@@ -843,6 +846,156 @@ def _viewer_resources_by_entry(viewer_resources: tuple[ViewerResource, ...]) -> 
 
 def _viewer_resources_by_stem(viewer_resources: tuple[ViewerResource, ...]) -> dict[str, ViewerResource]:
     return {_stem_key(resource.stem): resource for resource in viewer_resources}
+
+
+def _viewer_resource_lists_by_stem(viewer_resources: tuple[ViewerResource, ...]) -> dict[str, list[ViewerResource]]:
+    grouped: dict[str, list[ViewerResource]] = {}
+    for resource in viewer_resources:
+        grouped.setdefault(_stem_key(resource.stem), []).append(resource)
+    return grouped
+
+
+def _resource_category_from_stem(stem: str) -> str:
+    normalized = stem.casefold()
+    if normalized.startswith('cutscene_'):
+        return 'ultimate'
+    if normalized.startswith('illust_dating'):
+        return 'dating'
+    if normalized:
+        return 'character'
+    return 'unknown'
+
+
+def _live2d_model_core_stems(model: dict[str, Any]) -> tuple[str, ...]:
+    raw_urls = model.get('urls')
+    if not isinstance(raw_urls, dict):
+        return ()
+
+    stems: list[str] = []
+    seen: set[str] = set()
+    for field_name in LIVE2D_URL_FIELDS:
+        url = raw_urls.get(field_name)
+        if not isinstance(url, str):
+            continue
+        stem = resource_stem_from_url(url)
+        stem_key = _stem_key(stem)
+        if stem and stem_key not in seen:
+            stems.append(stem)
+            seen.add(stem_key)
+    return tuple(stems)
+
+
+def _copy_live2d_urls(raw_urls: Any) -> dict[str, Any]:
+    if not isinstance(raw_urls, dict):
+        return {}
+    copied: dict[str, Any] = {}
+    for key, value in raw_urls.items():
+        copied[key] = list(value) if isinstance(value, list) else value
+    return copied
+
+
+def _viewer_preferred_model_urls(original_urls: dict[str, Any], viewer_core_urls: dict[str, str]) -> dict[str, Any]:
+    urls = {
+        field_name: value
+        for field_name, value in original_urls.items()
+        if field_name not in {*LIVE2D_URL_FIELDS, 'image', 'atlas_textures'}
+    }
+    urls.update(viewer_core_urls)
+    return urls
+
+
+def _same_live2d_asset_context(context: dict[str, Any], model: dict[str, Any]) -> bool:
+    if context.get('live2d_key') != model.get('live2d_key'):
+        return False
+    return all(context.get(key) == model.get(key) for key in ('section', 'style_index', 'row_index', 'column_index', 'field'))
+
+
+def _remove_live2d_asset_contexts(
+    *,
+    assets: dict[tuple[str, str], Asset],
+    model: dict[str, Any],
+    live2d_fields: frozenset[str],
+) -> None:
+    for key, asset in list(assets.items()):
+        asset.contexts = [
+            context
+            for context in asset.contexts
+            if not (_same_live2d_asset_context(context, model) and context.get('live2d_field') in live2d_fields)
+        ]
+        if not asset.contexts:
+            del assets[key]
+
+
+def _select_viewer_preferred_resource(
+    *,
+    model: dict[str, Any],
+    viewer_by_stem: dict[str, list[ViewerResource]],
+) -> tuple[ViewerResource, dict[str, str]] | None:
+    for stem in _live2d_model_core_stems(model):
+        resources = [resource for resource in viewer_by_stem.get(_stem_key(stem), []) if not resource.missing_core_files]
+        if not resources:
+            continue
+        category = _resource_category_from_stem(stem)
+        for resource in (resource for resource in resources if resource.category == category):
+            urls = _viewer_core_urls(resource)
+            if _has_required_live2d_core(urls):
+                return resource, urls
+    return None
+
+
+def _apply_viewer_preferred_source(
+    *,
+    assets: dict[tuple[str, str], Asset],
+    model: dict[str, Any],
+    resource: ViewerResource,
+    viewer_core_urls: dict[str, str],
+) -> bool:
+    original_urls = _copy_live2d_urls(model.get('urls'))
+    if not original_urls:
+        return False
+
+    model['gamekee_urls'] = original_urls
+    source_candidates = model.get('source_candidates') if isinstance(model.get('source_candidates'), dict) else {}
+    model['source_candidates'] = {
+        **source_candidates,
+        'gamekee': original_urls,
+        _VIEWER_SUPPLEMENT_SOURCE: dict(viewer_core_urls),
+    }
+    model['urls'] = _viewer_preferred_model_urls(original_urls, viewer_core_urls)
+    model['source'] = _VIEWER_SUPPLEMENT_SOURCE
+    model['variant'] = _VIEWER_PREFERRED_SOURCE_VARIANT
+    model['supplement_reason'] = _VIEWER_SUPPLEMENT_REASON_MATCHED_STEM_PREFERRED_SOURCE
+    model['viewer_entry_id'] = resource.entry_id
+    model['viewer_stem'] = resource.stem
+    model['source_page_url'] = VIEWER_PAGE_URL
+
+    _remove_live2d_asset_contexts(
+        assets=assets,
+        model=model,
+        live2d_fields=_VIEWER_PREFERRED_REPLACED_LIVE2D_FIELDS,
+    )
+    _add_viewer_model_assets(assets, model)
+    return True
+
+
+def prefer_live2d_model_assets_from_viewer(
+    *,
+    assets: dict[tuple[str, str], Asset],
+    live2d_models: list[dict[str, Any]],
+    viewer_resources: tuple[ViewerResource, ...],
+) -> int:
+    viewer_by_stem = _viewer_resource_lists_by_stem(viewer_resources)
+    preferred = 0
+    for model in live2d_models:
+        if model.get('source') == _VIEWER_SUPPLEMENT_SOURCE:
+            continue
+        selected = _select_viewer_preferred_resource(model=model, viewer_by_stem=viewer_by_stem)
+        if selected is None:
+            continue
+        resource, viewer_core_urls = selected
+        if _apply_viewer_preferred_source(assets=assets, model=model, resource=resource, viewer_core_urls=viewer_core_urls):
+            preferred += 1
+    return preferred
 
 
 def _viewer_anchor_entry_ids(resource: ViewerResource) -> tuple[str, ...]:
@@ -2182,10 +2335,18 @@ class BD2:
         content_summary = summarize_content(content_json, reverse_bind)
         base_info = base_info_from_summary(content_summary)
         assets, live2d_models = extract_resources(content_json=content_json, tree_row=tree_row, reverse_bind=reverse_bind)
+        viewer_resources = await self._viewer_resources_for_supplement()
+        viewer_preferred = prefer_live2d_model_assets_from_viewer(
+            assets=assets,
+            live2d_models=live2d_models,
+            viewer_resources=viewer_resources,
+        )
+        if viewer_preferred:
+            log.info('Preferred BD2-L2D-Viewer assets for %d BD2 Live2D models for content_id=%d', viewer_preferred, content_id)
         viewer_added = supplement_live2d_models_from_viewer(
             assets=assets,
             live2d_models=live2d_models,
-            viewer_resources=await self._viewer_resources_for_supplement(),
+            viewer_resources=viewer_resources,
             content_json=content_json,
             reverse_bind=reverse_bind,
         )

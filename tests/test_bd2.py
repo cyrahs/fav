@@ -20,6 +20,7 @@ from src.web.bd2 import (
     assign_asset_paths,
     extract_resources,
     filter_bd2_character_rows,
+    prefer_live2d_model_assets_from_viewer,
     retry_delay_seconds,
     supplement_live2d_models_from_viewer,
     video_retry_cooldown_days,
@@ -286,6 +287,202 @@ def test_extract_resources_collects_all_page_media_and_column_contexts() -> None
 
     unbound = next(asset for asset in assets.values() if asset.url == 'https://www.gamekee.com/media/unbound-sprite.png')
     assert unbound.contexts[0]['stable_id'] == ''
+
+
+def test_viewer_preferred_source_replaces_matching_gamekee_live2d_assets() -> None:
+    original_atlas = 'https://www.gamekee.com/spines/cutscene_char060502.atlas'
+    original_skel = 'https://www.gamekee.com/spines/cutscene_char060502.skel'
+    original_json = 'https://www.gamekee.com/spines/cutscene_char060502.json'
+    original_image = 'https://www.gamekee.com/spines/cutscene_char060502.png'
+    original_bg = 'https://www.gamekee.com/spines/background.png'
+    model = {
+        'section': 'style',
+        'style_index': 1,
+        'style_name': 'style-b',
+        'costume_title': 'Fire Graffiti',
+        'costume_category': 'Attacker',
+        'row_index': 8,
+        'column_index': 1,
+        'label': 'Skill Live2D',
+        'field': 'skill_live2d_1',
+        'is_art_row': True,
+        'column_name': 'Fire Graffiti',
+        'column_category': 'Attacker',
+        'column_role': 'Live2D file',
+        'column_header': 'Live2D file',
+        'key': 'skill_live2d',
+        'stable_id': 'stable-skill-live2d',
+        'live2d_key': '9z008il5',
+        'urls': {
+            'atlas': original_atlas,
+            'skel': original_skel,
+            'json': original_json,
+            'image': [original_image],
+            'bg': original_bg,
+        },
+    }
+    assets: dict[tuple[str, str], Asset] = {}
+    for url, kind, live2d_field in (
+        (original_atlas, 'live2d_atlas', 'atlas'),
+        (original_skel, 'live2d_skel', 'skel'),
+        (original_json, 'live2d_json', 'json'),
+        (original_image, 'live2d_texture', 'image'),
+        (original_bg, 'live2d_background', 'bg'),
+    ):
+        context = bd2_module.live2d_atlas_texture_context(model)
+        context['live2d_field'] = live2d_field
+        bd2_module.add_asset(assets, url, kind, context)
+    live2d_models = [model]
+    viewer_resources = (
+        ViewerResource(
+            entry_id='060502',
+            category='ultimate',
+            stem='cutscene_char060502',
+            char_name='Anastasia',
+            costume_name='Fire Graffiti',
+            files=(
+                '060502/cutscene/cutscene_char060502.atlas',
+                '060502/cutscene/cutscene_char060502.skel',
+                '060502/cutscene/cutscene_char060502.png',
+            ),
+        ),
+    )
+
+    preferred = prefer_live2d_model_assets_from_viewer(assets=assets, live2d_models=live2d_models, viewer_resources=viewer_resources)
+
+    assert preferred == 1
+    assert model['source'] == 'bd2_l2d_viewer'
+    assert model['variant'] == 'preferred_source'
+    assert model['supplement_reason'] == 'matched_stem_preferred_source'
+    assert model['viewer_entry_id'] == '060502'
+    assert model['viewer_stem'] == 'cutscene_char060502'
+    assert model['gamekee_urls']['atlas'] == original_atlas
+    assert model['gamekee_urls']['json'] == original_json
+    assert model['source_candidates']['gamekee']['image'] == [original_image]
+    assert model['source_candidates']['bd2_l2d_viewer']['atlas'].endswith('/060502/cutscene/cutscene_char060502.atlas')
+    assert model['urls']['atlas'].endswith('/060502/cutscene/cutscene_char060502.atlas')
+    assert model['urls']['skel'].endswith('/060502/cutscene/cutscene_char060502.skel')
+    assert model['urls']['bg'] == original_bg
+    assert 'json' not in model['urls']
+    assert 'image' not in model['urls']
+    assert (original_atlas, 'live2d_atlas') not in assets
+    assert (original_skel, 'live2d_skel') not in assets
+    assert (original_json, 'live2d_json') not in assets
+    assert (original_image, 'live2d_texture') not in assets
+    assert (original_bg, 'live2d_background') in assets
+
+    viewer_atlas_url = (
+        'https://raw.githubusercontent.com/Jelosus2/BD2-L2D-Viewer/main/src/assets/spines/060502/cutscene/cutscene_char060502.atlas'
+    )
+    viewer_atlas_asset = assets[(viewer_atlas_url, 'live2d_atlas')]
+    assert viewer_atlas_asset.contexts[0]['live2d_key'] == '9z008il5'
+    assert viewer_atlas_asset.contexts[0]['source'] == 'bd2_l2d_viewer'
+    assert viewer_atlas_asset.contexts[0]['variant'] == 'preferred_source'
+
+
+def test_viewer_preferred_source_keeps_gamekee_only_live2d_assets() -> None:
+    original_atlas = 'https://www.gamekee.com/spines/illust_special1.atlas'
+    original_skel = 'https://www.gamekee.com/spines/illust_special1.skel'
+    model = {
+        'section': 'style',
+        'style_index': 0,
+        'style_name': 'style-a',
+        'costume_title': 'Special Story',
+        'costume_category': '',
+        'row_index': 10,
+        'column_index': 1,
+        'label': 'Story Live2D',
+        'field': 'story_live2d_1',
+        'is_art_row': True,
+        'column_name': 'Special Story',
+        'column_category': '',
+        'column_role': 'Live2D file',
+        'column_header': 'Live2D file',
+        'key': 'story_live2d',
+        'stable_id': 'stable-story-live2d',
+        'live2d_key': 'illust-special',
+        'urls': {
+            'atlas': original_atlas,
+            'skel': original_skel,
+        },
+    }
+    assets: dict[tuple[str, str], Asset] = {}
+    for url, kind, live2d_field in ((original_atlas, 'live2d_atlas', 'atlas'), (original_skel, 'live2d_skel', 'skel')):
+        context = bd2_module.live2d_atlas_texture_context(model)
+        context['live2d_field'] = live2d_field
+        bd2_module.add_asset(assets, url, kind, context)
+    live2d_models = [model]
+    viewer_resources = (
+        ViewerResource(
+            entry_id='060502',
+            category='ultimate',
+            stem='cutscene_char060502',
+            char_name='Anastasia',
+            costume_name='Fire Graffiti',
+            files=('060502/cutscene/cutscene_char060502.atlas', '060502/cutscene/cutscene_char060502.skel'),
+        ),
+    )
+
+    preferred = prefer_live2d_model_assets_from_viewer(assets=assets, live2d_models=live2d_models, viewer_resources=viewer_resources)
+
+    assert preferred == 0
+    assert model['urls'] == {'atlas': original_atlas, 'skel': original_skel}
+    assert 'source' not in model
+    assert 'gamekee_urls' not in model
+    assert (original_atlas, 'live2d_atlas') in assets
+    assert (original_skel, 'live2d_skel') in assets
+
+
+def test_viewer_preferred_source_requires_matching_category() -> None:
+    original_atlas = 'https://www.gamekee.com/spines/char123.atlas'
+    original_skel = 'https://www.gamekee.com/spines/char123.skel'
+    model = {
+        'section': 'style',
+        'style_index': 0,
+        'style_name': 'style-a',
+        'costume_title': 'Default',
+        'costume_category': '',
+        'row_index': 6,
+        'column_index': 1,
+        'label': 'Standing Live2D',
+        'field': 'standing_live2d',
+        'is_art_row': True,
+        'column_name': 'Default',
+        'column_category': '',
+        'column_role': 'Live2D file',
+        'column_header': 'Live2D file',
+        'key': 'standing_live2d',
+        'stable_id': 'stable-standing-live2d',
+        'live2d_key': 'char123',
+        'urls': {
+            'atlas': original_atlas,
+            'skel': original_skel,
+        },
+    }
+    assets: dict[tuple[str, str], Asset] = {}
+    for url, kind, live2d_field in ((original_atlas, 'live2d_atlas', 'atlas'), (original_skel, 'live2d_skel', 'skel')):
+        context = bd2_module.live2d_atlas_texture_context(model)
+        context['live2d_field'] = live2d_field
+        bd2_module.add_asset(assets, url, kind, context)
+    live2d_models = [model]
+    viewer_resources = (
+        ViewerResource(
+            entry_id='dating123',
+            category='dating',
+            stem='char123',
+            char_name='Test',
+            costume_name='Dating',
+            files=('dating123/dating/char123.atlas', 'dating123/dating/char123.skel'),
+        ),
+    )
+
+    preferred = prefer_live2d_model_assets_from_viewer(assets=assets, live2d_models=live2d_models, viewer_resources=viewer_resources)
+
+    assert preferred == 0
+    assert model['urls'] == {'atlas': original_atlas, 'skel': original_skel}
+    assert 'source' not in model
+    assert (original_atlas, 'live2d_atlas') in assets
+    assert (original_skel, 'live2d_skel') in assets
 
 
 def test_viewer_supplement_fills_missing_interaction_live2d() -> None:
