@@ -1,6 +1,7 @@
 # ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, S106, EM101
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -36,7 +37,13 @@ def _request(*, target: str, kind: str = 'trigger_job') -> ControlRequest:
     )
 
 
-def _notification(*, notification_id: int = 7, attempt_count: int = 0) -> NotificationRecord:
+def _notification(
+    *,
+    notification_id: int = 7,
+    attempt_count: int = 0,
+    payload: str = '{"job":"bilibili"}',
+    image_url: str = '',
+) -> NotificationRecord:
     now = datetime(2026, 3, 2, tzinfo=UTC)
     return NotificationRecord(
         notification_id=notification_id,
@@ -45,8 +52,8 @@ def _notification(*, notification_id: int = 7, attempt_count: int = 0) -> Notifi
         title='Job failed: Bilibili',
         body='RuntimeError: boom',
         link_url='',
-        image_url='',
-        payload='{"job":"bilibili"}',
+        image_url=image_url,
+        payload=payload,
         dedupe_key='job_failed:bilibili:bilibili:download:BV1TEST',
         status='unread',
         markdown='*Job failed: Bilibili*\nRuntimeError: boom',
@@ -60,6 +67,14 @@ def _notification(*, notification_id: int = 7, attempt_count: int = 0) -> Notifi
         attempt_count=attempt_count,
         next_attempt_at=now,
         created_at=now,
+    )
+
+
+def _webhook_config() -> run_module.NotificationWebhookConfig:
+    return run_module.NotificationWebhookConfig(
+        v2_url='https://hooks.example.com/api/v2/notifications/webhook',
+        v3_url='https://hooks.example.com/api/v3/notifications/webhook',
+        token='token',
     )
 
 
@@ -339,10 +354,7 @@ def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
     processed = asyncio.run(
         run_module._deliver_next_notification(
             client=_FakeClient(),
-            webhook_config=run_module.NotificationWebhookConfig(
-                url='https://hooks.example.com/api/v2/notifications/webhook',
-                token='token',
-            ),
+            webhook_config=_webhook_config(),
         ),
     )
 
@@ -353,6 +365,181 @@ def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
     assert posted_payloads[0]['occurrence_count'] == 1
     assert posted_payloads[0]['event_version'] == _notification().event_version
     assert posted_payloads[0]['pin'] is True
+
+
+def test_deliver_notification_uploads_local_image(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / 'demo image.png'
+    image_path.write_bytes(b'png-data')
+    notification = _notification(payload=json.dumps({'image_path': str(image_path)}))
+    captured: dict[str, object] = {}
+
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
+        captured['delivered'] = notification_id
+        captured['event_version'] = event_version
+
+    class _FakeClient:
+        async def post(self, url: str, **kwargs):
+            captured['url'] = url
+            captured.update(kwargs)
+            return SimpleNamespace(status_code=204, text='')
+
+    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
+
+    asyncio.run(
+        run_module._deliver_notification_via_webhook(
+            notification=notification,
+            client=_FakeClient(),
+            webhook_config=_webhook_config(),
+        ),
+    )
+
+    assert captured['delivered'] == notification.notification_id
+    assert captured['event_version'] == notification.event_version
+    assert 'json' not in captured
+    assert captured['url'] == _webhook_config().v3_url
+    assert captured['headers']['Idempotency-Key'] == f'fav:{notification.notification_id}:{notification.event_version}'
+    assert json.loads(captured['data']['payload']) == notification.webhook_v3_payload
+    assert captured['files'] == {'image': ('demo image.png', b'png-data', 'image/png')}
+
+
+def test_deliver_notification_falls_back_to_v2_when_v3_is_unavailable(monkeypatch) -> None:
+    notification = _notification(image_url='https://example.com/fallback.png')
+    delivered: list[int] = []
+    requests: list[tuple[str, dict[str, object]]] = []
+
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
+        assert event_version == notification.event_version
+        delivered.append(notification_id)
+
+    class _FakeClient:
+        async def post(self, url: str, **kwargs):
+            requests.append((url, kwargs))
+            status_code = 404 if len(requests) == 1 else 204
+            return SimpleNamespace(status_code=status_code, text='')
+
+    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
+
+    asyncio.run(
+        run_module._deliver_notification_via_webhook(
+            notification=notification,
+            client=_FakeClient(),
+            webhook_config=_webhook_config(),
+        ),
+    )
+
+    assert delivered == [notification.notification_id]
+    assert [url for url, _ in requests] == [_webhook_config().v3_url, _webhook_config().v2_url]
+    assert requests[0][1]['headers']['Idempotency-Key'] == f'fav:{notification.notification_id}:{notification.event_version}'
+    assert requests[0][1]['json'] == notification.webhook_v3_payload
+    assert requests[1][1]['headers'] == {'Authorization': 'Bearer token'}
+    assert requests[1][1]['json'] == notification.webhook_payload
+
+
+def test_deliver_notification_retries_v3_without_image_when_attachment_is_rejected(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / 'demo.png'
+    image_path.write_bytes(b'png-data')
+    notification = _notification(
+        payload=json.dumps({'image_path': str(image_path)}),
+        image_url='https://example.com/fallback.png',
+    )
+    delivered: list[int] = []
+    requests: list[tuple[str, dict[str, object]]] = []
+
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
+        assert event_version == notification.event_version
+        delivered.append(notification_id)
+
+    class _FakeClient:
+        async def post(self, url: str, **kwargs):
+            requests.append((url, kwargs))
+            status_code = 413 if len(requests) == 1 else 204
+            return SimpleNamespace(status_code=status_code, text='')
+
+    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
+
+    asyncio.run(
+        run_module._deliver_notification_via_webhook(
+            notification=notification,
+            client=_FakeClient(),
+            webhook_config=_webhook_config(),
+        ),
+    )
+
+    assert delivered == [notification.notification_id]
+    assert [url for url, _ in requests] == [_webhook_config().v3_url, _webhook_config().v3_url]
+    assert 'files' in requests[0][1]
+    assert requests[1][1]['json'] == notification.webhook_v3_payload
+    assert 'files' not in requests[1][1]
+
+
+def test_deliver_notification_does_not_upload_oversized_local_image(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / 'oversized.png'
+    image_path.write_bytes(b'x' * (run_module._MAX_NOTIFICATION_IMAGE_BYTES + 1))
+    notification = _notification(
+        payload=json.dumps({'image_path': str(image_path)}),
+        image_url='https://example.com/fallback.png',
+    )
+    captured: dict[str, object] = {}
+
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
+        captured['delivered'] = notification_id
+        captured['event_version'] = event_version
+
+    class _FakeClient:
+        async def post(self, url: str, **kwargs):
+            captured['url'] = url
+            captured.update(kwargs)
+            return SimpleNamespace(status_code=204, text='')
+
+    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
+
+    asyncio.run(
+        run_module._deliver_notification_via_webhook(
+            notification=notification,
+            client=_FakeClient(),
+            webhook_config=_webhook_config(),
+        ),
+    )
+
+    assert captured['delivered'] == notification.notification_id
+    assert captured['event_version'] == notification.event_version
+    assert captured['json'] == notification.webhook_v3_payload
+    assert 'files' not in captured
+
+
+def test_deliver_notification_falls_back_to_image_url_when_local_image_is_missing(tmp_path, monkeypatch) -> None:
+    notification = _notification(
+        payload=json.dumps({'image_path': str(tmp_path / 'missing.png')}),
+        image_url='https://example.com/fallback.png',
+    )
+    captured: dict[str, object] = {}
+
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
+        captured['delivered'] = notification_id
+        captured['event_version'] = event_version
+
+    class _FakeClient:
+        async def post(self, url: str, **kwargs):
+            captured['url'] = url
+            captured.update(kwargs)
+            return SimpleNamespace(status_code=204, text='')
+
+    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
+
+    asyncio.run(
+        run_module._deliver_notification_via_webhook(
+            notification=notification,
+            client=_FakeClient(),
+            webhook_config=_webhook_config(),
+        ),
+    )
+
+    assert captured['delivered'] == notification.notification_id
+    assert captured['event_version'] == notification.event_version
+    assert captured['url'] == _webhook_config().v3_url
+    assert captured['json'] == notification.webhook_v3_payload
+    assert 'data' not in captured
+    assert 'files' not in captured
 
 
 def test_deliver_next_notification_retries_request_error(monkeypatch) -> None:
@@ -375,10 +562,7 @@ def test_deliver_next_notification_retries_request_error(monkeypatch) -> None:
     processed = asyncio.run(
         run_module._deliver_next_notification(
             client=_FakeClient(),
-            webhook_config=run_module.NotificationWebhookConfig(
-                url='https://hooks.example.com/api/v2/notifications/webhook',
-                token='token',
-            ),
+            webhook_config=_webhook_config(),
         ),
     )
 
@@ -419,7 +603,7 @@ def test_main_starts_notification_consumer_and_closes_client(monkeypatch) -> Non
     monkeypatch.setattr(
         run_module,
         '_load_notification_webhook_config',
-        lambda: run_module.NotificationWebhookConfig(url='https://hooks.example.com/api/v2/notifications/webhook', token='token'),
+        _webhook_config,
     )
     monkeypatch.setattr(run_module, '_validate_commands', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(run_module, 'AsyncIOScheduler', _FakeScheduler)

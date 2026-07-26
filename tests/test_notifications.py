@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
 
 import src.tool.notifications as notifications_module
 from src.tool.notifications import (
@@ -163,6 +164,10 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
         'disable_notification': False,
         'pin': True,
     }
+    assert created.webhook_v3_payload == {
+        'notification_id': 7,
+        **created.webhook_payload,
+    }
     assert captured['params'] == (
         'job_failed',
         'worker',
@@ -275,6 +280,51 @@ def test_notification_record_payload_json_handles_invalid_json() -> None:
     )
 
     assert record.payload_json == {}
+    assert record.local_image_path is None
+
+
+def test_notification_record_resolves_local_image_path_from_payload() -> None:
+    record = NotificationRecord(
+        notification_id=1,
+        kind='download_completed',
+        source='stellasora',
+        title='Title',
+        body='Body',
+        link_url='https://example.com/page',
+        image_url='https://example.com/image.png',
+        payload='{"image_path":"/images/demo.png"}',
+        dedupe_key='',
+        status='unread',
+        markdown='*Title*\nBody',
+        disable_web_page_preview=False,
+        disable_notification=True,
+        webhook_action=WEBHOOK_ACTION_SEND,
+        occurrence_count=1,
+        event_version=1,
+        delivery_status='pending',
+        attempt_count=0,
+        next_attempt_at=_NOW,
+        created_at=_NOW,
+    )
+
+    assert record.local_image_path == Path('/images/demo.png')
+
+
+def test_image_url_is_not_rendered_as_redundant_caption_link() -> None:
+    markdown, disable_web_page_preview, disable_notification, pin = notifications_module._notification_delivery_fields(
+        kind='download_completed',
+        title='Image',
+        body='disc/Foo.png',
+        link_url='',
+        image_url='https://example.com/Foo.png',
+        webhook_action=WEBHOOK_ACTION_SEND,
+        occurrence_count=1,
+    )
+
+    assert markdown == '*Image*\ndisc/Foo\\.png'
+    assert disable_web_page_preview is True
+    assert disable_notification is True
+    assert pin is False
 
 
 def test_resolve_notification_updates_existing_dedupe_key(monkeypatch) -> None:

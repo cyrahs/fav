@@ -577,7 +577,10 @@ class StellaSora:
                 body=relpath,
                 link_url=link_url,
                 image_url=image_url,
-                payload={'saved_path': str(saved_path)},
+                payload={
+                    'saved_path': str(saved_path),
+                    'image_path': str(saved_path),
+                },
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue stellasora download notification for %s: %s', title, exc)

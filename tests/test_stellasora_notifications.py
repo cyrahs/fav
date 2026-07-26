@@ -33,7 +33,11 @@ def test_download_resolved_files_enqueues_notification(tmp_path, monkeypatch) ->
 
     stats = DownloadStats()
     resolved_by_key = {
-        'File:Foo.png': WikiFile(title='File:Foo.png', url='https://example.com/Foo.png', description_url='https://wiki.example.com/Foo')
+        'File:Foo.png': WikiFile(
+            title='File:Foo.png',
+            url='https://example.com/Foo.png',
+            description_url='https://wiki.example.com/Foo',
+        ),
     }
     title_to_dir = {'File:Foo.png': tmp_path / 'disc'}
     existing_index: dict[str, list[Path]] = {}
@@ -56,7 +60,10 @@ def test_download_resolved_files_enqueues_notification(tmp_path, monkeypatch) ->
             'body': 'disc/Foo.png',
             'link_url': 'https://wiki.example.com/Foo',
             'image_url': 'https://example.com/Foo.png',
-            'payload': {'saved_path': str(tmp_path / 'disc' / 'Foo.png')},
+            'payload': {
+                'saved_path': str(tmp_path / 'disc' / 'Foo.png'),
+                'image_path': str(tmp_path / 'disc' / 'Foo.png'),
+            },
         },
     ]
 

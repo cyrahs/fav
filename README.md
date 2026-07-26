@@ -101,6 +101,12 @@ webhook_token = "replace-with-webhook-bearer-token"
 
 Use `cors_allow_credentials = true` only if the browser needs to send cookies or other credentialed requests to the API origin.
 
+The worker delivers notifications through Nasuchan's v3 webhook with a stable
+idempotency key. When a notification has a local image, it uploads the image so
+Telegram can use its normal compressed-photo path. Oversized or rejected images
+fall back to the remote image URL or text, and deployments that do not expose
+the v3 endpoint fall back to the v2 JSON webhook.
+
 Azur Lane crawler/archive settings:
 
 ```toml

@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -170,6 +171,21 @@ class NotificationRecord:
             )
         return payload
 
+    @property
+    def webhook_v3_payload(self) -> dict[str, Any]:
+        return {
+            'notification_id': self.notification_id,
+            **self.webhook_payload,
+        }
+
+    @property
+    def local_image_path(self) -> Path | None:
+        image_path = self.payload_json.get('image_path')
+        if not isinstance(image_path, str):
+            return None
+        normalized_path = image_path.strip()
+        return Path(normalized_path) if normalized_path else None
+
 
 def _postgres_dsn() -> str:
     dsn = str(config.database.postgres_dsn).strip()
@@ -206,11 +222,11 @@ def _notification_delivery_fields(
     webhook_action: str,
     occurrence_count: int,
 ) -> tuple[str, bool, bool, bool]:
-    preview_url = link_url.strip() or image_url.strip()
+    del image_url
     parts: list[str] = []
     normalized_title = title.strip()
     normalized_body = body.strip()
-    normalized_preview_url = preview_url.strip()
+    normalized_link_url = link_url.strip()
     is_active_job_failure = kind == 'job_failed' and webhook_action != WEBHOOK_ACTION_RESOLVE
 
     if normalized_title:
@@ -219,10 +235,10 @@ def _notification_delivery_fields(
         parts.append(_escape_markdown_v2(normalized_body))
     if is_active_job_failure and occurrence_count > 1:
         parts.append(_escape_markdown_v2(f'Occurrences: {occurrence_count}'))
-    if normalized_preview_url:
-        parts.append(_escape_markdown_v2(normalized_preview_url))
+    if normalized_link_url:
+        parts.append(_escape_markdown_v2(normalized_link_url))
 
-    return '\n'.join(parts), not bool(normalized_preview_url), not is_active_job_failure, is_active_job_failure
+    return '\n'.join(parts), not bool(normalized_link_url), not is_active_job_failure, is_active_job_failure
 
 
 def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
