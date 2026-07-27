@@ -138,10 +138,20 @@ media_types = ["video", "image"]
 
 ## Telegram Downloader Safety
 
-Telegram channel downloads are incremental and paced by default.
-The first run without an existing scan cursor only considers the latest `scan_limit` messages.
-Later runs continue from the saved per-channel message cursor.
-When upgrading from older versions with existing Telegram download rows, the initial cursor starts after the latest saved message.
+Telegram accounts keep a long-running Telethon connection. New single-media messages and albums are persisted to
+PostgreSQL immediately, then processed by one serial download worker per account. Different accounts run in parallel.
+Completed queue rows remain in PostgreSQL for durable deduplication, and interrupted jobs are recovered when the
+account session owner restarts.
+
+The configured cron is a reconciliation scan for messages missed during disconnects; it only adds durable queue jobs.
+The first reconciliation without an existing cursor considers the latest `scan_limit` messages. Later scans continue
+from the saved per-channel cursor, which advances only after all selected media have been persisted. Existing Telegram
+archive rows seed the initial cursor when upgrading. `run_on_start` controls the immediate reconciliation scan; event
+listeners always start when Telegram is enabled.
+
+`download_limit_per_channel` limits newly queued reconciliation jobs, not real-time events. Successful downloads are
+paced by `download_delay_seconds`. `channel_cooldown_seconds` is reserved for FloodWait and error recovery. Image
+notifications include the archived file as `image_path`; video notifications only include `saved_path`.
 
 ```toml
 [web.telegram]

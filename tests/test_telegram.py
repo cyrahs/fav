@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, ANN001, ANN002, ANN003, ANN202, EM101, SLF001, TRY003
+# ruff: noqa: INP001, S101, S106, ANN001, ANN002, ANN003, ANN202, ARG001, EM101, FBT003, PLR2004, SLF001, TRY003
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -6,11 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from telethon import events
+from telethon.errors import FloodWaitError
+from telethon.tl.types import PeerChannel
 
 import src.web.telegram as telegram_module
+from src.tool.telegram_queue import TelegramMediaJob
 from src.web.telegram import Telegram, TelegramMediaEntry, TelegramSessionUnauthorizedError
-
-_FALLBACK_DOWNLOADED_MESSAGE_ID = 789
 
 
 class _DummyClient:
@@ -44,59 +46,34 @@ class _IterClient(_DummyClient):
         return _iter_messages()
 
 
-class _DummyTmpDir:
-    def cleanup(self) -> None:
-        return None
-
-
 def _make_telegram() -> Telegram:
-    tg = Telegram.__new__(Telegram)
-    tg._tmp_dir = _DummyTmpDir()
+    tg = Telegram()
     tg.client = _DummyClient()
     return tg
 
 
-def _make_account_telegram() -> Telegram:
-    tg = Telegram.__new__(Telegram)
-    tg._tmp_dir = _DummyTmpDir()
-    tg.client = None
-    return tg
-
-
-def _account(name: str = 'default', channel_path: Path | None = None) -> telegram_module.TelegramAccount:
-    if channel_path is None:
-        channel_path = Path('./collection/telegram/demo_channel')
+def _account(
+    name: str = 'default',
+    channel_path: Path | None = None,
+    *,
+    media_types: list[telegram_module.TelegramMediaType] | None = None,
+) -> telegram_module.TelegramAccount:
     return telegram_module.TelegramAccount(
         name=name,
-        channels=[telegram_module.TelegramChannel(id=123, path=channel_path)],
+        channels=[
+            telegram_module.TelegramChannel(
+                id=123,
+                path=channel_path or Path('./collection/telegram/demo_channel'),
+                media_types=media_types or ['video'],
+            ),
+        ],
         api_id=1,
         api_hash='hash',
         session_path=Path('./session'),
     )
 
 
-def _media_entry(msg: object, filename: str = 'My Video', media_type: telegram_module.TelegramMediaType = 'video') -> TelegramMediaEntry:
-    return TelegramMediaEntry(msg=msg, filename=filename, media_type=media_type)
-
-
-def _scan(
-    *items: tuple[object, str, telegram_module.TelegramMediaType],
-    max_message_id: int | None = None,
-) -> telegram_module.TelegramChannelScan:
-    entries = [_media_entry(msg, filename, media_type) for msg, filename, media_type in items]
-    if max_message_id is None:
-        max_message_id = max((int(msg.id) for msg, _, _ in items), default=0)
-    return telegram_module.TelegramChannelScan(
-        media=entries,
-        max_message_id=max_message_id,
-        scanned_message_count=len(items),
-    )
-
-
-def _message(
-    message_id: int,
-    **updates: object,
-) -> SimpleNamespace:
+def _message(message_id: int, **updates: object) -> SimpleNamespace:
     data: dict[str, object] = {
         'message': '',
         'grouped_id': None,
@@ -105,6 +82,7 @@ def _message(
         'photo': False,
         'document': None,
         'sticker': False,
+        'peer_id': PeerChannel(123),
     }
     data.update(updates)
     return SimpleNamespace(id=message_id, **data)
@@ -115,144 +93,39 @@ def _document_media(mime_type: str, attributes: list[object] | None = None) -> t
     return telegram_module.MessageMediaDocument(document=document)
 
 
-def test_update_channel_sends_notification(tmp_path, monkeypatch) -> None:
-    tg = _make_telegram()
-    notifications: list[dict[str, object]] = []
-    account = _account(channel_path=tmp_path / 'demo_channel')
-
-    msg = SimpleNamespace(id=456)
-    queries: list[tuple[str, tuple | None]] = []
-
-    async def _fake_scan_media(*_args, **_kwargs) -> telegram_module.TelegramChannelScan:
-        return _scan((msg, 'My Video', 'video'))
-
-    async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int, *, min_message_id: int = 0) -> list[int]:  # noqa: ARG001
-        return []
-
-    async def _fake_download(_msg: object, _dst: Path, _title: str, media_type: telegram_module.TelegramMediaType = 'video') -> Path:
-        assert media_type == 'video'
-        return tmp_path / 'demo_channel' / 'My Video [456].mp4'
-
-    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
-        queries.append((sql, params))
-        return []
-
-    monkeypatch.setattr(tg, 'scan_media', _fake_scan_media)
-    monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
-    monkeypatch.setattr(tg, 'download', _fake_download)
-    monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
-
-    async def _fake_enqueue_notification(**payload) -> None:
-        notifications.append(payload)
-
-    monkeypatch.setattr(telegram_module, 'enqueue_notification', _fake_enqueue_notification)
-
-    asyncio.run(tg.update_channel(account.channels[0], account))
-
-    assert notifications == [
-        {
-            'kind': 'download_completed',
-            'source': 'telegram',
-            'title': 'Telegram: My Video',
-            'body': 'Channel demo_channel | Message ID 456',
-            'payload': {
-                'account_name': 'default',
-                'channel_name': 'demo_channel',
-                'message_id': 456,
-                'saved_path': str(tmp_path / 'demo_channel' / 'My Video [456].mp4'),
-            },
-        },
-    ]
-    assert sum('INSERT INTO telegram (account_name' in sql for sql, _ in queries) == 1
-    insert_queries = [params for sql, params in queries if 'INSERT INTO telegram (account_name' in sql]
-    assert insert_queries == [('default', 456, 123, 'My Video', 'demo_channel', 'video')]
+def _entry(
+    message: object,
+    title: str,
+    media_type: telegram_module.TelegramMediaType = 'video',
+) -> TelegramMediaEntry:
+    return TelegramMediaEntry(msg=message, filename=title, media_type=media_type)
 
 
-def test_update_channel_continues_when_notification_fails(tmp_path, monkeypatch) -> None:
-    tg = _make_telegram()
-    account = _account(channel_path=tmp_path / 'demo_channel')
-
-    msg = SimpleNamespace(id=456)
-    queries: list[tuple[str, tuple | None]] = []
-
-    async def _fake_scan_media(*_args, **_kwargs) -> telegram_module.TelegramChannelScan:
-        return _scan((msg, 'My Video', 'video'))
-
-    async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int, *, min_message_id: int = 0) -> list[int]:  # noqa: ARG001
-        return []
-
-    async def _fake_download(_msg: object, _dst: Path, _title: str, media_type: telegram_module.TelegramMediaType = 'video') -> Path:
-        assert media_type == 'video'
-        return tmp_path / 'demo_channel' / 'My Video [456].mp4'
-
-    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, str]]:
-        queries.append((sql, params))
-        return []
-
-    monkeypatch.setattr(tg, 'scan_media', _fake_scan_media)
-    monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
-    monkeypatch.setattr(tg, 'download', _fake_download)
-    monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
-
-    async def _failing_enqueue_notification(**_payload) -> None:
-        msg = 'notify failed'
-        raise RuntimeError(msg)
-
-    monkeypatch.setattr(telegram_module, 'enqueue_notification', _failing_enqueue_notification)
-
-    asyncio.run(tg.update_channel(account.channels[0], account))
-
-    assert sum('INSERT INTO telegram (account_name' in sql for sql, _ in queries) == 1
-
-
-def test_update_channel_uses_explicit_channel_path(tmp_path, monkeypatch) -> None:
-    tg = _make_telegram()
-
-    msg = SimpleNamespace(id=456)
-    channel = telegram_module.TelegramChannel(id=123, path=tmp_path / 'custom-channel')
-    account = telegram_module.TelegramAccount(
-        name='alt',
-        channels=[channel],
-        api_id=1,
-        api_hash='hash',
-        session_path=Path('./session'),
+def _job(
+    *,
+    message_id: int = 10,
+    media_type: telegram_module.TelegramMediaType = 'image',
+    attempt_count: int = 1,
+) -> TelegramMediaJob:
+    return TelegramMediaJob(
+        account_name='default',
+        channel_id=123,
+        message_id=message_id,
+        grouped_id=None,
+        media_type=media_type,
+        title='Title',
+        source='event',
+        priority=100,
+        attempt_count=attempt_count,
     )
-
-    async def _fake_scan_media(*_args, **_kwargs) -> telegram_module.TelegramChannelScan:
-        return _scan((msg, 'My Video', 'video'))
-
-    async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int, *, min_message_id: int = 0) -> list[int]:  # noqa: ARG001
-        return []
-
-    download_calls: list[tuple[object, Path, str, telegram_module.TelegramMediaType]] = []
-
-    async def _fake_download(_msg: object, dst: Path, title: str, media_type: telegram_module.TelegramMediaType = 'video') -> Path:
-        download_calls.append((_msg, dst, title, media_type))
-        return dst / 'My Video [456].mp4'
-
-    async def _fake_query_db(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:
-        return []
-
-    async def _fake_enqueue_notification(**_payload) -> None:
-        return None
-
-    monkeypatch.setattr(tg, 'scan_media', _fake_scan_media)
-    monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
-    monkeypatch.setattr(tg, 'download', _fake_download)
-    monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
-    monkeypatch.setattr(telegram_module, 'enqueue_notification', _fake_enqueue_notification)
-
-    asyncio.run(tg.update_channel(channel, account))
-
-    assert download_calls == [(msg, tmp_path / 'custom-channel', 'My Video', 'video')]
 
 
 def test_get_media_uses_configured_media_types() -> None:
     tg = _make_telegram()
     tg.client = _IterClient(
         [
-            _message(message_id=1, message='Video Caption', video=True),
-            _message(message_id=2, message='Image Caption', media=telegram_module.MessageMediaPhoto(photo=object())),
+            _message(1, message='Video Caption', video=True),
+            _message(2, message='Image Caption', media=telegram_module.MessageMediaPhoto(photo=object())),
         ],
     )
 
@@ -266,14 +139,15 @@ def test_get_media_uses_configured_media_types() -> None:
     ]
 
 
-def test_get_media_supports_image_documents_and_skips_stickers() -> None:
+def test_get_media_supports_image_documents_and_skips_stickers_and_previews() -> None:
     sticker_attr = type('DocumentAttributeSticker', (), {})()
     tg = _make_telegram()
     tg.client = _IterClient(
         [
-            _message(message_id=1, media=_document_media('image/png')),
-            _message(message_id=2, media=_document_media('image/webp', [sticker_attr])),
-            _message(message_id=3, media=_document_media('application/octet-stream')),
+            _message(1, media=_document_media('image/png')),
+            _message(2, media=_document_media('image/webp', [sticker_attr])),
+            _message(3, message='Link preview', photo=object()),
+            _message(4, message='Link preview', document=SimpleNamespace(mime_type='image/png', attributes=[])),
         ],
     )
 
@@ -282,323 +156,597 @@ def test_get_media_supports_image_documents_and_skips_stickers() -> None:
     assert [(item.msg.id, item.filename, item.media_type) for item in media] == [(1, 'image_1', 'image')]
 
 
-def test_get_media_uses_album_caption_for_images() -> None:
+def test_album_uses_caption_and_indexes_mixed_media() -> None:
     tg = _make_telegram()
-    tg.client = _IterClient(
+    scan = tg._build_scan_from_messages(
         [
-            _message(message_id=1, message='Album Caption', grouped_id=99, media=telegram_module.MessageMediaPhoto(photo=object())),
-            _message(message_id=2, grouped_id=99, media=_document_media('image/png')),
+            _message(1, message='Album Caption', grouped_id=99, media=telegram_module.MessageMediaPhoto(photo=object())),
+            _message(2, grouped_id=99, video=True),
+            _message(3, grouped_id=99, media=_document_media('application/octet-stream')),
         ],
+        ['image', 'video'],
     )
 
-    media = asyncio.run(tg.get_media(SimpleNamespace(), ['image']))
-
-    assert [(item.msg.id, item.filename, item.media_type) for item in media] == [
+    assert [(item.msg.id, item.filename, item.media_type) for item in scan.media] == [
         (1, 'Album Caption-1', 'image'),
-        (2, 'Album Caption-2', 'image'),
+        (2, 'Album Caption-2', 'video'),
     ]
 
 
-def test_get_media_skips_web_preview_photos() -> None:
+def test_image_notification_includes_local_attachment(monkeypatch, tmp_path) -> None:
     tg = _make_telegram()
-    tg.client = _IterClient(
-        [
-            _message(message_id=1, message='Link preview', photo=object()),
-        ],
+    notifications: list[dict[str, object]] = []
+
+    async def _fake_enqueue_notification(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(telegram_module, 'enqueue_notification', _fake_enqueue_notification)
+    image_path = tmp_path / 'image.jpg'
+    asyncio.run(
+        tg._notify_download(
+            account_name='default',
+            channel_name='demo',
+            message_id=1,
+            title='Image',
+            media_type='image',
+            saved_path=image_path,
+        ),
     )
-
-    media = asyncio.run(tg.get_media(SimpleNamespace(), ['image']))
-
-    assert media == []
-
-
-def test_get_media_skips_web_preview_image_documents() -> None:
-    tg = _make_telegram()
-    tg.client = _IterClient(
-        [
-            _message(message_id=1, message='Link preview', document=SimpleNamespace(mime_type='image/png', attributes=[])),
-        ],
-    )
-
-    media = asyncio.run(tg.get_media(SimpleNamespace(), ['image']))
-
-    assert media == []
-
-
-def test_get_channel_state_falls_back_to_downloaded_id_when_state_cursor_is_zero(monkeypatch) -> None:
-    tg = _make_telegram()
-    queries: list[tuple[str, tuple | None]] = []
-
-    async def _fake_query_db(sql: str, params: tuple | None = None) -> list[dict[str, object]]:
-        queries.append((sql, params))
-        if 'FROM telegram_channel_state' in sql:
-            return [{'last_scanned_message_id': 0, 'cooldown_remaining_seconds': 0}]
-        if 'MAX(message_id)' in sql:
-            return [{'message_id': _FALLBACK_DOWNLOADED_MESSAGE_ID}]
-        msg = f'unexpected query: {sql}'
-        raise AssertionError(msg)
-
-    monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
-
-    state = asyncio.run(tg.get_channel_state('default', 123))
-
-    assert state.last_scanned_message_id == _FALLBACK_DOWNLOADED_MESSAGE_ID
-    assert state.has_scan_state is True
-    assert state.cooldown_remaining_seconds == 0
-    assert [params for _, params in queries] == [('default', 123), ('default', 123)]
-
-
-def test_update_channel_uses_incremental_scan_limit_and_download_cap(tmp_path, monkeypatch) -> None:
-    tg = _make_telegram()
-    account = _account(channel_path=tmp_path / 'demo_channel')
-    msg_101 = SimpleNamespace(id=101)
-    msg_102 = SimpleNamespace(id=102)
-    msg_103 = SimpleNamespace(id=103)
-    scan_calls: list[tuple[list[telegram_module.TelegramMediaType], int, int | None, float | None, bool]] = []
-    download_calls: list[tuple[int, str, telegram_module.TelegramMediaType]] = []
-    sleeps: list[float] = []
-    cursors: list[int] = []
-
-    monkeypatch.setattr(
-        telegram_module,
-        'cfg',
-        telegram_module.cfg.model_copy(
-            update={
-                'scan_limit': 10,
-                'download_limit_per_channel': 2,
-                'download_delay_seconds': 5.0,
-                'channel_cooldown_seconds': 0.0,
-                'history_wait_seconds': 0.5,
-            },
+    asyncio.run(
+        tg._notify_download(
+            account_name='default',
+            channel_name='demo',
+            message_id=2,
+            title='Video',
+            media_type='video',
+            saved_path=tmp_path / 'video.mp4',
         ),
     )
 
-    async def _fake_get_channel_state(_account_name: str, _channel_id: int) -> telegram_module.TelegramChannelState:
+    assert notifications[0]['payload']['image_path'] == str(image_path)
+    assert 'image_path' not in notifications[1]['payload']
+
+
+def test_reconciliation_only_enqueues_and_stops_cursor_at_limit(monkeypatch) -> None:
+    tg = _make_telegram()
+    account = _account(media_types=['video', 'image'])
+    queued: list[tuple[int, str]] = []
+    cursors: list[int] = []
+    scan_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        telegram_module,
+        'cfg',
+        telegram_module.cfg.model_copy(update={'scan_limit': 10, 'download_limit_per_channel': 2, 'history_wait_seconds': 0.5}),
+    )
+
+    async def _fake_state(*_args) -> telegram_module.TelegramChannelState:
         return telegram_module.TelegramChannelState(last_scanned_message_id=100, has_scan_state=True)
 
-    async def _fake_scan_media(
-        _channel: object,
-        media_types: list[telegram_module.TelegramMediaType],
-        *,
-        min_message_id: int = 0,
-        limit: int | None = None,
-        wait_time: float | None = None,
-        newest_window: bool = False,
-    ) -> telegram_module.TelegramChannelScan:
-        scan_calls.append((media_types, min_message_id, limit, wait_time, newest_window))
-        return _scan((msg_101, 'One', 'video'), (msg_102, 'Two', 'image'), (msg_103, 'Three', 'video'))
-
-    async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int, *, min_message_id: int = 0) -> list[int]:  # noqa: ARG001
-        return []
-
-    async def _fake_download(
-        msg: object,
-        dst: Path,
-        title: str,
-        media_type: telegram_module.TelegramMediaType = 'video',
-    ) -> Path:
-        download_calls.append((msg.id, title, media_type))
-        return dst / f'{title} [{msg.id}].mp4'
-
-    async def _fake_query_db(_sql: str, _params: tuple | None = None) -> list[dict[str, str]]:
-        return []
-
-    async def _fake_mark_channel_downloaded(_account_name: str, _channel_id: int) -> None:
-        return None
-
-    async def _fake_notify_download(**_kwargs) -> None:
-        return None
-
-    async def _fake_set_cursor(_account_name: str, _channel_id: int, message_id: int) -> None:
-        cursors.append(message_id)
-
-    async def _fake_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
-
-    monkeypatch.setattr(tg, 'get_channel_state', _fake_get_channel_state)
-    monkeypatch.setattr(tg, 'scan_media', _fake_scan_media)
-    monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
-    monkeypatch.setattr(tg, 'download', _fake_download)
-    monkeypatch.setattr(tg, 'mark_channel_downloaded', _fake_mark_channel_downloaded)
-    monkeypatch.setattr(tg, '_notify_download', _fake_notify_download)
-    monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_set_cursor)
-    monkeypatch.setattr(tg, '_sleep', _fake_sleep)
-    monkeypatch.setattr(telegram_module.database, 'query_db', _fake_query_db)
-
-    asyncio.run(tg.update_channel(account.channels[0], account))
-
-    assert scan_calls == [(['video'], 100, 10, 0.5, False)]
-    assert download_calls == [(101, 'One', 'video'), (102, 'Two', 'image')]
-    assert sleeps == [5.0]
-    assert cursors == [102]
-
-
-def test_update_channel_uses_latest_window_when_no_cursor(tmp_path, monkeypatch) -> None:
-    tg = _make_telegram()
-    account = _account(channel_path=tmp_path / 'demo_channel')
-    scan_calls: list[tuple[int, bool]] = []
-    cursors: list[int] = []
-
-    async def _fake_get_channel_state(_account_name: str, _channel_id: int) -> telegram_module.TelegramChannelState:
-        return telegram_module.TelegramChannelState(last_scanned_message_id=0, has_scan_state=False)
-
-    async def _fake_scan_media(
-        _channel: object,
-        _media_types: list[telegram_module.TelegramMediaType],
-        *,
-        min_message_id: int = 0,
-        limit: int | None = None,  # noqa: ARG001
-        wait_time: float | None = None,  # noqa: ARG001
-        newest_window: bool = False,
-    ) -> telegram_module.TelegramChannelScan:
-        scan_calls.append((min_message_id, newest_window))
-        return telegram_module.TelegramChannelScan(media=[], max_message_id=456, scanned_message_count=10)
-
-    async def _fake_set_cursor(_account_name: str, _channel_id: int, message_id: int) -> None:
-        cursors.append(message_id)
-
-    async def _fake_get_downloaded_ids(_account_name: str, _channel_id: int, *, min_message_id: int = 0) -> list[int]:  # noqa: ARG001
-        return []
-
-    monkeypatch.setattr(tg, 'get_channel_state', _fake_get_channel_state)
-    monkeypatch.setattr(tg, 'scan_media', _fake_scan_media)
-    monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_set_cursor)
-    monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_get_downloaded_ids)
-
-    asyncio.run(tg.update_channel(account.channels[0], account))
-
-    assert scan_calls == [(0, True)]
-    assert cursors == [456]
-
-
-def test_update_channel_skips_when_cooling_down(tmp_path, monkeypatch) -> None:
-    tg = _make_telegram()
-    account = _account(channel_path=tmp_path / 'demo_channel')
-
-    async def _fake_get_channel_state(_account_name: str, _channel_id: int) -> telegram_module.TelegramChannelState:
-        return telegram_module.TelegramChannelState(
-            last_scanned_message_id=100,
-            has_scan_state=True,
-            cooldown_remaining_seconds=60,
+    async def _fake_scan(_channel, media_types, **kwargs) -> telegram_module.TelegramChannelScan:
+        scan_calls.append({'media_types': media_types, **kwargs})
+        return telegram_module.TelegramChannelScan(
+            media=[
+                _entry(_message(101), 'One', 'video'),
+                _entry(_message(102), 'Two', 'image'),
+                _entry(_message(103), 'Three', 'video'),
+            ],
+            max_message_id=104,
+            scanned_message_count=4,
         )
 
-    async def _unexpected_scan_media(*_args, **_kwargs) -> telegram_module.TelegramChannelScan:
-        raise AssertionError('scan_media should not be called during cooldown')
+    async def _fake_downloaded(*_args, **_kwargs) -> list[int]:
+        return []
 
-    monkeypatch.setattr(tg, 'get_channel_state', _fake_get_channel_state)
-    monkeypatch.setattr(tg, 'scan_media', _unexpected_scan_media)
+    async def _fake_enqueue(**kwargs) -> bool:
+        queued.append((kwargs['message_id'], kwargs['source']))
+        return True
+
+    async def _fake_cursor(_account_name: str, _channel_id: int, message_id: int) -> None:
+        cursors.append(message_id)
+
+    monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
+    monkeypatch.setattr(tg, 'scan_media', _fake_scan)
+    monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_downloaded)
+    monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
+    monkeypatch.setattr(telegram_module, 'enqueue_telegram_media_job', _fake_enqueue)
 
     asyncio.run(tg.update_channel(account.channels[0], account))
 
+    assert queued == [(101, 'reconciliation'), (102, 'reconciliation')]
+    assert cursors == [102]
+    assert scan_calls == [
+        {
+            'media_types': ['video', 'image'],
+            'client': tg.client,
+            'min_message_id': 100,
+            'limit': 10,
+            'wait_time': 0.5,
+            'newest_window': False,
+        },
+    ]
 
-def test_update_account_connects_without_interactive_start(tmp_path, monkeypatch) -> None:
-    tg = _make_account_telegram()
-    account = _account(channel_path=tmp_path / 'demo_channel')
-    account = account.model_copy(update={'session_path': tmp_path / 'session'})
-    calls: list[str] = []
+
+def test_reconciliation_enqueues_whole_album_before_advancing_cursor(monkeypatch) -> None:
+    tg = _make_telegram()
+    account = _account(media_types=['image'])
+    queued: list[int] = []
+    cursors: list[int] = []
+    monkeypatch.setattr(
+        telegram_module,
+        'cfg',
+        telegram_module.cfg.model_copy(update={'download_limit_per_channel': 1}),
+    )
+
+    async def _fake_state(*_args) -> telegram_module.TelegramChannelState:
+        return telegram_module.TelegramChannelState(last_scanned_message_id=10, has_scan_state=True)
+
+    async def _fake_scan(*_args, **_kwargs) -> telegram_module.TelegramChannelScan:
+        messages = [
+            _message(11, grouped_id=50, media=telegram_module.MessageMediaPhoto(photo=object())),
+            _message(12, grouped_id=50, media=telegram_module.MessageMediaPhoto(photo=object())),
+        ]
+        return telegram_module.TelegramChannelScan(
+            media=[_entry(messages[0], 'Album-1', 'image'), _entry(messages[1], 'Album-2', 'image')],
+            max_message_id=12,
+            scanned_message_count=2,
+        )
+
+    async def _fake_enqueue(**kwargs) -> bool:
+        queued.append(kwargs['message_id'])
+        return True
+
+    async def _fake_cursor(_account_name: str, _channel_id: int, message_id: int) -> None:
+        cursors.append(message_id)
+
+    monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
+    monkeypatch.setattr(tg, 'scan_media', _fake_scan)
+    monkeypatch.setattr(tg, 'get_downloaded_ids', lambda *_args, **_kwargs: asyncio.sleep(0, result=[]))
+    monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
+    monkeypatch.setattr(telegram_module, 'enqueue_telegram_media_job', _fake_enqueue)
+
+    asyncio.run(tg.update_channel(account.channels[0], account))
+
+    assert queued == [11, 12]
+    assert cursors == [12]
+
+
+def test_reconciliation_does_not_advance_cursor_when_enqueue_fails(monkeypatch) -> None:
+    tg = _make_telegram()
+    account = _account()
+    cursors: list[int] = []
+
+    monkeypatch.setattr(
+        tg,
+        'get_channel_state',
+        lambda *_args: asyncio.sleep(0, result=telegram_module.TelegramChannelState(last_scanned_message_id=10, has_scan_state=True)),
+    )
+    monkeypatch.setattr(
+        tg,
+        'scan_media',
+        lambda *_args, **_kwargs: asyncio.sleep(
+            0,
+            result=telegram_module.TelegramChannelScan(
+                media=[_entry(_message(11), 'Video')],
+                max_message_id=11,
+                scanned_message_count=1,
+            ),
+        ),
+    )
+    monkeypatch.setattr(tg, 'get_downloaded_ids', lambda *_args, **_kwargs: asyncio.sleep(0, result=[]))
+
+    async def _failing_enqueue(**_kwargs) -> bool:
+        raise RuntimeError('database unavailable')
+
+    async def _fake_cursor(_account_name: str, _channel_id: int, message_id: int) -> None:
+        cursors.append(message_id)
+
+    monkeypatch.setattr(telegram_module, 'enqueue_telegram_media_job', _failing_enqueue)
+    monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
+
+    with pytest.raises(RuntimeError, match='database unavailable'):
+        asyncio.run(tg.update_channel(account.channels[0], account))
+    assert cursors == []
+
+
+def test_single_event_and_album_are_persisted_with_event_priority(monkeypatch) -> None:
+    tg = _make_telegram()
+    account = _account(media_types=['image', 'video'])
+    queued: list[dict[str, object]] = []
+
+    async def _fake_enqueue(**kwargs) -> bool:
+        queued.append(kwargs)
+        return True
+
+    monkeypatch.setattr(telegram_module, 'enqueue_telegram_media_job', _fake_enqueue)
+
+    asyncio.run(
+        tg._enqueue_event_messages(
+            account=account,
+            messages=[_message(1, message='Single', media=telegram_module.MessageMediaPhoto(photo=object()))],
+            album=False,
+        ),
+    )
+    asyncio.run(
+        tg._enqueue_event_messages(
+            account=account,
+            messages=[
+                _message(2, message='Album', grouped_id=99, media=telegram_module.MessageMediaPhoto(photo=object())),
+                _message(3, grouped_id=99, video=True),
+            ],
+            album=True,
+        ),
+    )
+
+    assert [(item['message_id'], item['title'], item['source']) for item in queued] == [
+        (1, 'Single', 'event'),
+        (2, 'Album-1', 'event'),
+        (3, 'Album-2', 'event'),
+    ]
+    assert queued[0]['available_delay_seconds'] == 0
+    assert queued[1]['available_delay_seconds'] == telegram_module._ALBUM_SETTLE_SECONDS
+    assert queued[2]['available_delay_seconds'] == telegram_module._ALBUM_SETTLE_SECONDS
+
+
+def test_event_handlers_route_grouped_messages_only_through_album(monkeypatch) -> None:
+    tg = _make_telegram()
+    account = _account(media_types=['image'])
+    handlers: list[tuple[object, object]] = []
+    calls: list[tuple[list[int], bool]] = []
+
+    class _Client:
+        def add_event_handler(self, callback, builder) -> None:
+            handlers.append((callback, builder))
+
+    async def _fake_enqueue_event_messages(*, account, messages, album) -> None:
+        calls.append(([message.id for message in messages], album))
+
+    monkeypatch.setattr(tg, '_enqueue_event_messages', _fake_enqueue_event_messages)
+    tg._register_event_handlers(account, _Client())
+    new_handler = next(callback for callback, builder in handlers if isinstance(builder, events.NewMessage))
+    album_handler = next(callback for callback, builder in handlers if isinstance(builder, events.Album))
+
+    asyncio.run(new_handler(SimpleNamespace(message=_message(1))))
+    asyncio.run(new_handler(SimpleNamespace(message=_message(2, grouped_id=99))))
+    asyncio.run(album_handler(SimpleNamespace(messages=[_message(2, grouped_id=99), _message(3, grouped_id=99)])))
+
+    assert calls == [([1], False), ([2, 3], True)]
+
+
+def test_existing_archive_completes_queue_without_fetching_message(monkeypatch) -> None:
+    tg = _make_telegram()
+    completed: list[int] = []
+
+    class _UnexpectedClient:
+        async def get_messages(self, *_args, **_kwargs):
+            raise AssertionError('Already archived jobs must not refetch Telegram')
+
+    monkeypatch.setattr(tg, 'is_downloaded', lambda *_args: asyncio.sleep(0, result=True))
+
+    async def _complete(job: TelegramMediaJob, _owner_token: str) -> bool:
+        completed.append(job.message_id)
+        return True
+
+    monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_completed', _complete)
+
+    downloaded = asyncio.run(
+        tg._process_job(
+            account=_account(media_types=['image']),
+            client=_UnexpectedClient(),
+            job=_job(),
+            owner_token='owner',
+        ),
+    )
+
+    assert downloaded is False
+    assert completed == [10]
+
+
+def test_missing_message_is_permanently_discarded(monkeypatch) -> None:
+    tg = _make_telegram()
+    discarded: list[str] = []
+
+    class _Client(_DummyClient):
+        async def get_messages(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(tg, 'is_downloaded', lambda *_args: asyncio.sleep(0, result=False))
+    monkeypatch.setattr(
+        tg,
+        'get_channel_state',
+        lambda *_args: asyncio.sleep(0, result=telegram_module.TelegramChannelState(0, True)),
+    )
+
+    async def _discard(_job: TelegramMediaJob, _owner_token: str, *, error: str) -> bool:
+        discarded.append(error)
+        return True
+
+    monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_discarded', _discard)
+
+    downloaded = asyncio.run(
+        tg._process_job(
+            account=_account(media_types=['image']),
+            client=_Client(),
+            job=_job(),
+            owner_token='owner',
+        ),
+    )
+
+    assert downloaded is False
+    assert discarded == ['Message was deleted or is unavailable']
+
+
+def test_successful_image_job_archives_notifies_and_does_not_set_cooldown(monkeypatch, tmp_path) -> None:
+    tg = _make_telegram()
+    message = _message(10, media=telegram_module.MessageMediaPhoto(photo=object()))
+    queries: list[str] = []
+    notifications: list[dict[str, object]] = []
+    completed: list[int] = []
+
+    class _Client(_DummyClient):
+        async def get_messages(self, *_args, **_kwargs):
+            return message
+
+    monkeypatch.setattr(tg, 'is_downloaded', lambda *_args: asyncio.sleep(0, result=False))
+    monkeypatch.setattr(
+        tg,
+        'get_channel_state',
+        lambda *_args: asyncio.sleep(0, result=telegram_module.TelegramChannelState(0, True)),
+    )
+    monkeypatch.setattr(tg, 'download', lambda *_args, **_kwargs: asyncio.sleep(0, result=tmp_path / 'image.jpg'))
+
+    async def _query(sql: str, _params=None) -> list[dict[str, object]]:
+        queries.append(sql)
+        return []
+
+    async def _notify(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    async def _complete(job: TelegramMediaJob, _owner_token: str) -> bool:
+        completed.append(job.message_id)
+        return True
+
+    async def _unexpected_cooldown(*_args, **_kwargs) -> None:
+        raise AssertionError('Successful downloads must not activate channel cooldown')
+
+    monkeypatch.setattr(telegram_module.database, 'query_db', _query)
+    monkeypatch.setattr(tg, '_notify_download', _notify)
+    monkeypatch.setattr(tg, 'set_channel_cooldown', _unexpected_cooldown)
+    monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_completed', _complete)
+
+    downloaded = asyncio.run(
+        tg._process_job(
+            account=_account(channel_path=tmp_path, media_types=['image']),
+            client=_Client(),
+            job=_job(),
+            owner_token='owner',
+        ),
+    )
+
+    assert downloaded is True
+    assert completed == [10]
+    assert any('INSERT INTO telegram ' in sql for sql in queries)
+    assert notifications[0]['media_type'] == 'image'
+    assert notifications[0]['saved_path'] == tmp_path / 'image.jpg'
+
+
+def test_flood_wait_cools_down_account_and_retries_job(monkeypatch) -> None:
+    tg = _make_telegram()
+    cooldowns: list[float] = []
+    retries: list[float] = []
+
+    class _Client:
+        async def get_entity(self, *_args):
+            raise FloodWaitError(None, capture=12)
+
+    monkeypatch.setattr(tg, 'is_downloaded', lambda *_args: asyncio.sleep(0, result=False))
+    monkeypatch.setattr(
+        tg,
+        'get_channel_state',
+        lambda *_args: asyncio.sleep(
+            0,
+            result=telegram_module.TelegramChannelState(last_scanned_message_id=0, has_scan_state=True),
+        ),
+    )
+    monkeypatch.setattr(
+        telegram_module,
+        'cfg',
+        telegram_module.cfg.model_copy(update={'channel_cooldown_seconds': 30}),
+    )
+
+    async def _cooldown(_account, seconds: float, *, error: str = '') -> None:
+        assert 'FloodWaitError' in error
+        cooldowns.append(seconds)
+
+    async def _retry(_job, _owner_token, *, error: str, delay_seconds: float) -> bool:
+        assert 'FloodWaitError' in error
+        retries.append(delay_seconds)
+        return True
+
+    monkeypatch.setattr(tg, 'set_account_cooldown', _cooldown)
+    monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_retry', _retry)
+
+    downloaded = asyncio.run(
+        tg._process_job(
+            account=_account(media_types=['image']),
+            client=_Client(),
+            job=_job(),
+            owner_token='owner',
+        ),
+    )
+
+    assert downloaded is False
+    assert cooldowns == [30]
+    assert retries == [30]
+
+
+def test_account_worker_is_serial_and_delays_between_successes(monkeypatch) -> None:
+    tg = _make_telegram()
+    jobs = [_job(message_id=1), _job(message_id=2), None]
+    processed: list[int] = []
+    sleeps: list[float] = []
+
+    async def _claim(_account_name: str, _owner_token: str) -> TelegramMediaJob | None:
+        return jobs.pop(0)
+
+    async def _process_job(*, job: TelegramMediaJob, **_kwargs) -> bool:
+        processed.append(job.message_id)
+        return True
+
+    async def _sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(telegram_module, 'claim_next_telegram_media_job', _claim)
+    monkeypatch.setattr(tg, '_process_job', _process_job)
+    monkeypatch.setattr(tg, '_sleep', _sleep)
+    monkeypatch.setattr(
+        telegram_module,
+        'cfg',
+        telegram_module.cfg.model_copy(update={'download_delay_seconds': 7}),
+    )
+
+    asyncio.run(
+        tg._consume_account_queue(
+            account=_account(),
+            client=_DummyClient(),
+            owner_token='owner',
+            stop_event=asyncio.Event(),
+            drain_only=True,
+        ),
+    )
+
+    assert processed == [1, 2]
+    assert sleeps == [7]
+
+
+def test_queue_worker_failure_propagates_to_account_runtime() -> None:
+    tg = Telegram()
+
+    async def _run() -> None:
+        disconnected = asyncio.get_running_loop().create_future()
+        client = SimpleNamespace(disconnected=disconnected)
+
+        async def _fail() -> None:
+            raise RuntimeError('worker failed')
+
+        worker_task = asyncio.create_task(_fail())
+        with pytest.raises(RuntimeError, match='worker failed'):
+            await tg._wait_for_disconnect_or_stop(client, asyncio.Event(), worker_task)
+
+    asyncio.run(_run())
+
+
+def test_persistent_account_client_enables_updates_and_catch_up(monkeypatch) -> None:
+    tg = Telegram()
+    account = _account()
+    stop_event = asyncio.Event()
     client_kwargs: list[dict[str, object]] = []
 
-    class _FakeTelegramClient:
-        def __init__(self, session_path: Path, api_id: int, api_hash: str, **kwargs) -> None:
-            calls.append(f'init:{session_path}:{api_id}:{api_hash}')
+    class _Client:
+        def __init__(self, *_args, **kwargs) -> None:
             client_kwargs.append(kwargs)
+            self.disconnected = asyncio.get_running_loop().create_future()
 
-        async def connect(self) -> None:
-            calls.append('connect')
-
-        async def is_user_authorized(self) -> bool:
-            calls.append('authorized')
-            return True
-
-        async def start(self) -> None:
-            raise AssertionError('start should not be called')
-
-        async def disconnect(self) -> None:
-            calls.append('disconnect')
-
-    @asynccontextmanager
-    async def _fake_lock(name: str):
-        calls.append(f'lock:{name}')
-        yield True
-
-    async def _fake_update_channel(channel: object, update_account: telegram_module.TelegramAccount) -> None:
-        calls.append(f'channel:{channel.id}:{update_account.name}')
-
-    monkeypatch.setattr(telegram_module, 'TelegramClient', _FakeTelegramClient)
-    monkeypatch.setattr(telegram_module.database, 'advisory_lock', _fake_lock)
-    monkeypatch.setattr(tg, 'update_channel', _fake_update_channel)
-
-    asyncio.run(tg.update_account(account))
-
-    assert 'connect' in calls
-    assert 'authorized' in calls
-    assert 'disconnect' in calls
-    assert client_kwargs == [{'flood_sleep_threshold': telegram_module.cfg.flood_sleep_threshold_seconds, 'receive_updates': False}]
-    assert f'lock:telegram-session:{(tmp_path / "session.session").resolve()}' in calls
-    assert calls[-2:] == ['channel:123:default', 'disconnect']
-
-
-def test_account_lock_name_uses_effective_telethon_session_file(tmp_path) -> None:
-    plain_account = _account('default', tmp_path / 'demo_channel').model_copy(update={'session_path': tmp_path / 'shared'})
-    suffixed_account = _account('other', tmp_path / 'demo_channel').model_copy(update={'session_path': tmp_path / 'shared.session'})
-
-    assert Telegram._account_lock_name(plain_account) == Telegram._account_lock_name(suffixed_account)
-    assert Telegram._account_lock_name(plain_account) == f'telegram-session:{(tmp_path / "shared.session").resolve()}'
-
-
-def test_update_account_raises_clear_error_when_session_unauthorized(tmp_path, monkeypatch) -> None:
-    tg = _make_account_telegram()
-    account = _account(channel_path=tmp_path / 'demo_channel')
-    account = account.model_copy(update={'session_path': tmp_path / 'session'})
-    calls: list[str] = []
-
-    class _FakeTelegramClient:
-        def __init__(self, *_args, **_kwargs) -> None:
+        def add_event_handler(self, *_args) -> None:
             return None
 
         async def connect(self) -> None:
+            return None
+
+        async def is_user_authorized(self) -> bool:
+            return True
+
+        async def disconnect(self) -> None:
+            if not self.disconnected.done():
+                self.disconnected.set_result(None)
+
+    async def _consume(**_kwargs) -> None:
+        await stop_event.wait()
+
+    monkeypatch.setattr(telegram_module, 'TelegramClient', _Client)
+    monkeypatch.setattr(telegram_module, 'reset_processing_telegram_media_jobs', lambda *_args: asyncio.sleep(0, result=2))
+    monkeypatch.setattr(tg, '_consume_account_queue', _consume)
+
+    async def _run() -> None:
+        task = asyncio.create_task(tg._run_account_once(account, stop_event))
+        await tg._account_ready_events.setdefault(account.name, asyncio.Event()).wait()
+        stop_event.set()
+        await task
+
+    asyncio.run(_run())
+
+    assert client_kwargs == [
+        {
+            'flood_sleep_threshold': telegram_module.cfg.flood_sleep_threshold_seconds,
+            'receive_updates': True,
+            'catch_up': True,
+        },
+    ]
+
+
+def test_accounts_run_in_parallel(monkeypatch) -> None:
+    tg = Telegram()
+    accounts = [_account('one'), _account('two')]
+    started: list[str] = []
+    both_started = asyncio.Event()
+    stop_event = asyncio.Event()
+    monkeypatch.setattr(telegram_module, 'cfg', telegram_module.cfg.model_copy(update={'accounts': accounts}))
+    monkeypatch.setattr(tg, '_initialize_tables', lambda: asyncio.sleep(0))
+
+    async def _fake_run_account(account: telegram_module.TelegramAccount, _stop_event: asyncio.Event) -> None:
+        started.append(account.name)
+        if len(started) == 2:
+            both_started.set()
+        await stop_event.wait()
+
+    monkeypatch.setattr(tg, '_run_account_forever', _fake_run_account)
+
+    async def _run() -> None:
+        task = asyncio.create_task(tg.run(stop_event))
+        await asyncio.wait_for(both_started.wait(), timeout=1)
+        stop_event.set()
+        await task
+
+    asyncio.run(_run())
+    assert set(started) == {'one', 'two'}
+
+
+def test_one_shot_uses_session_lock_and_rejects_unauthorized_session(monkeypatch) -> None:
+    tg = Telegram()
+    account = _account()
+    calls: list[str] = []
+
+    class _Client:
+        def __init__(self, *_args, **kwargs) -> None:
+            assert kwargs['receive_updates'] is False
+
+        async def connect(self) -> None:
             calls.append('connect')
 
         async def is_user_authorized(self) -> bool:
-            calls.append('authorized')
             return False
-
-        async def start(self) -> None:
-            raise AssertionError('start should not be called')
 
         async def disconnect(self) -> None:
             calls.append('disconnect')
 
     @asynccontextmanager
-    async def _fake_lock(_name: str):
+    async def _lock(name: str):
+        calls.append(name)
         yield True
 
-    async def _unexpected_update_channel(*_args) -> None:
-        raise AssertionError('update_channel should not be called')
+    monkeypatch.setattr(telegram_module, 'TelegramClient', _Client)
+    monkeypatch.setattr(telegram_module.database, 'advisory_lock', _lock)
+    monkeypatch.setattr(tg, '_initialize_tables', lambda: asyncio.sleep(0))
 
-    monkeypatch.setattr(telegram_module, 'TelegramClient', _FakeTelegramClient)
-    monkeypatch.setattr(telegram_module.database, 'advisory_lock', _fake_lock)
-    monkeypatch.setattr(tg, 'update_channel', _unexpected_update_channel)
-
-    with pytest.raises(TelegramSessionUnauthorizedError, match=r'account=default'):
+    with pytest.raises(TelegramSessionUnauthorizedError, match='account=default'):
         asyncio.run(tg.update_account(account))
 
-    assert calls == ['connect', 'authorized', 'disconnect']
+    assert calls[0].startswith('telegram-session:')
+    assert calls[-2:] == ['connect', 'disconnect']
 
 
-def test_update_account_skips_when_session_lock_is_held(tmp_path, monkeypatch) -> None:
-    tg = _make_account_telegram()
-    account = _account(channel_path=tmp_path / 'demo_channel')
+def test_account_lock_name_uses_effective_telethon_session_file(tmp_path) -> None:
+    plain_account = _account('default').model_copy(update={'session_path': tmp_path / 'shared'})
+    suffixed_account = _account('other').model_copy(update={'session_path': tmp_path / 'shared.session'})
 
-    class _UnexpectedTelegramClient:
-        def __init__(self, *_args) -> None:
-            raise AssertionError('TelegramClient should not be created when lock is held')
-
-    @asynccontextmanager
-    async def _fake_lock(_name: str):
-        yield False
-
-    monkeypatch.setattr(telegram_module, 'TelegramClient', _UnexpectedTelegramClient)
-    monkeypatch.setattr(telegram_module.database, 'advisory_lock', _fake_lock)
-
-    asyncio.run(tg.update_account(account))
+    assert Telegram._account_lock_name(plain_account) == Telegram._account_lock_name(suffixed_account)
+    assert Telegram._account_lock_name(plain_account) == f'telegram-session:{(tmp_path / "shared.session").resolve()}'

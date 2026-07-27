@@ -326,6 +326,40 @@ def test_run_job_handles_cancelled_error_and_closes_worker(monkeypatch) -> None:
     assert captured['payload']['error_class'] == 'CancelledError'
 
 
+def test_run_job_can_reuse_singleton_worker_without_closing_it() -> None:
+    calls: list[str] = []
+
+    class _Worker:
+        async def update(self) -> None:
+            calls.append('update')
+
+        async def aclose(self) -> None:
+            calls.append('close')
+
+    def _unexpected_factory() -> object:
+        msg = 'The scheduled Telegram trigger must reuse its runtime'
+        raise AssertionError(msg)
+
+    result = asyncio.run(
+        run_module._run_job(
+            job=ScheduledJob(
+                key='telegram',
+                name='Telegram',
+                cron='*/30 * * * *',
+                enabled=True,
+                run_on_start=False,
+                required_commands=(),
+                factory=_unexpected_factory,
+            ),
+            worker=_Worker(),
+            close_worker=False,
+        ),
+    )
+
+    assert result.success is True
+    assert calls == ['update']
+
+
 def test_load_notification_webhook_config_requires_values(monkeypatch) -> None:
     monkeypatch.setattr(run_module, 'app_config', SimpleNamespace(notifications=SimpleNamespace(webhook_base_url='', webhook_token='')))
 
