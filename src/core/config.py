@@ -50,18 +50,6 @@ def _normalize_telegram_channel_id(channel_id: int) -> int:
     return channel_id
 
 
-def _dedupe_channels(value: list['TelegramChannel']) -> list['TelegramChannel']:
-    deduped: list[TelegramChannel] = []
-    seen_ids: set[int] = set()
-    for channel in value:
-        channel_id = channel.id
-        if channel_id in seen_ids:
-            continue
-        seen_ids.add(channel_id)
-        deduped.append(channel)
-    return deduped
-
-
 def _dedupe_telegram_media_types(value: list[TelegramMediaType]) -> list[TelegramMediaType]:
     deduped: list[TelegramMediaType] = []
     for media_type in value:
@@ -113,11 +101,26 @@ class TelegramAccount(BaseModel):
     @field_validator('channels')
     @classmethod
     def validate_channels(cls, value: list[TelegramChannel]) -> list[TelegramChannel]:
-        deduped = _dedupe_channels(value)
-        if not deduped:
+        if not value:
             msg = 'telegram account channels cannot be empty'
             raise ValueError(msg)
-        return deduped
+        seen_routes: set[tuple[int, TelegramMediaType]] = set()
+        for channel in value:
+            for media_type in channel.media_types:
+                route = (channel.id, media_type)
+                if route in seen_routes:
+                    msg = f'duplicate telegram media route for channel {channel.id}: {media_type}'
+                    raise ValueError(msg)
+                seen_routes.add(route)
+        return value
+
+    def channel_routes(self) -> dict[int, dict[TelegramMediaType, TelegramChannel]]:
+        routes: dict[int, dict[TelegramMediaType, TelegramChannel]] = {}
+        for channel in self.channels:
+            media_routes = routes.setdefault(channel.id, {})
+            for media_type in channel.media_types:
+                media_routes[media_type] = channel
+        return routes
 
     @field_validator('api_hash')
     @classmethod

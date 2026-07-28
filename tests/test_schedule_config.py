@@ -181,16 +181,48 @@ def test_telegram_rejects_unsafe_account_name() -> None:
         )
 
 
-def test_telegram_normalizes_bot_api_channel_ids() -> None:
+def test_telegram_account_supports_split_media_routes() -> None:
     account = TelegramAccount(
         name='main',
         channels=[
-            TelegramChannel(id=-1002522897097, path=Path('./collection/telegram/main')),
-            TelegramChannel(id=2522897097, path=Path('./collection/telegram/main')),
+            TelegramChannel(id=3942401424, path=Path('./collection/image'), media_types=['image']),
+            TelegramChannel(id=3942401424, path=Path('./collection/video'), media_types=['video']),
         ],
         api_id=123,
         api_hash='hash',
         session_path=Path('./data/main'),
     )
 
-    assert [channel.id for channel in account.channels] == [2522897097]
+    assert [channel.media_types for channel in account.channels] == [['image'], ['video']]
+    routes = account.channel_routes()
+    assert list(routes) == [3942401424]
+    assert routes[3942401424]['image'].path == Path('./collection/image')
+    assert routes[3942401424]['video'].path == Path('./collection/video')
+
+
+def test_telegram_account_rejects_duplicate_media_route() -> None:
+    with pytest.raises(ValidationError, match='duplicate telegram media route for channel 1: image'):
+        TelegramAccount(
+            name='main',
+            channels=[
+                TelegramChannel(id=1, path=Path('./collection/one'), media_types=['image']),
+                TelegramChannel(id=1, path=Path('./collection/two'), media_types=['image']),
+            ],
+            api_id=123,
+            api_hash='hash',
+            session_path=Path('./data/main'),
+        )
+
+
+def test_telegram_account_checks_routes_after_bot_api_id_normalization() -> None:
+    with pytest.raises(ValidationError, match='duplicate telegram media route for channel 2522897097: video'):
+        TelegramAccount(
+            name='main',
+            channels=[
+                TelegramChannel(id=-1002522897097, path=Path('./collection/one')),
+                TelegramChannel(id=2522897097, path=Path('./collection/two')),
+            ],
+            api_id=123,
+            api_hash='hash',
+            session_path=Path('./data/main'),
+        )

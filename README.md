@@ -126,15 +126,25 @@ uv run python -m src.api
 
 ## Telegram Media Types
 
-Telegram channels download videos by default. Add `media_types = ["video", "image"]` to a channel to also archive images.
-`image` includes regular Telegram photos and image documents such as original PNG/JPEG files, while stickers are skipped.
+Telegram channels download videos by default. Add `media_types = ["video", "image"]` to a channel to archive both types in one directory,
+or repeat the channel ID with disjoint media types to route each type to a separate directory. `image` includes regular Telegram photos and
+image documents such as original PNG/JPEG files, while stickers are skipped.
 
 ```toml
 [[web.telegram.accounts.channels]]
-id = 1234567890
-path = "./collection/telegram/channel-name"
-media_types = ["video", "image"]
+id = 3942401424
+path = "./collection/image"
+media_types = ["image"]
+
+[[web.telegram.accounts.channels]]
+id = 3942401424
+path = "./collection/video"
+media_types = ["video"]
 ```
+
+Each `(channel ID, media type)` route must be unique within an account. Declaring the same media type more than once for a channel is a
+configuration error, including conflicts between equivalent positive Telethon IDs and `-100...` Bot API IDs. Destination directories are
+created lazily when their first media file is downloaded.
 
 ## Telegram Downloader Safety
 
@@ -152,6 +162,11 @@ listeners always start when Telegram is enabled.
 `download_limit_per_channel` limits newly queued reconciliation jobs, not real-time events. Successful downloads are
 paced by `download_delay_seconds`. `channel_cooldown_seconds` is reserved for FloodWait and error recovery. Image
 notifications include the archived file as `image_path`; video notifications only include `saved_path`.
+
+When a media type is first configured for a channel, Telegram scans the latest `scan_limit` messages for that type and
+persists every missing result to the durable queue. This one-time backfill is not capped by `download_limit_per_channel`;
+the serial worker and `download_delay_seconds` still pace the actual downloads. Completed backfills remain recorded
+across path changes or temporary route removal.
 
 ```toml
 [web.telegram]

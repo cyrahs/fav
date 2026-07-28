@@ -59,6 +59,14 @@ ALTER TABLE telegram_channel_state ADD COLUMN IF NOT EXISTS last_download_at TIM
 ALTER TABLE telegram_channel_state ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ NULL;
 ALTER TABLE telegram_channel_state ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE telegram_channel_state ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS telegram_channel_media_backfill (
+    account_name TEXT NOT NULL,
+    channel_id BIGINT NOT NULL,
+    media_type TEXT NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_name, channel_id, media_type)
+);
 """
 _TELETHON_SQLITE_SESSION_SUFFIX = '.session'
 _ALBUM_SETTLE_SECONDS = 2.0
@@ -260,6 +268,34 @@ class Telegram:
             """,
             (account_name, channel_id),
         )
+
+    @staticmethod
+    async def get_backfilled_media_types(account_name: str, channel_id: int) -> set[TelegramMediaType]:
+        rows = await database.query_db(
+            """
+            SELECT media_type
+            FROM telegram_channel_media_backfill
+            WHERE account_name = ? AND channel_id = ?;
+            """,
+            (account_name, channel_id),
+        )
+        return {row['media_type'] for row in rows if row['media_type'] in {'video', 'image'}}
+
+    @staticmethod
+    async def mark_media_types_backfilled(
+        account_name: str,
+        channel_id: int,
+        media_types: list[TelegramMediaType],
+    ) -> None:
+        for media_type in media_types:
+            await database.query_db(
+                """
+                INSERT INTO telegram_channel_media_backfill (account_name, channel_id, media_type)
+                VALUES (?, ?, ?)
+                ON CONFLICT (account_name, channel_id, media_type) DO NOTHING;
+                """,
+                (account_name, channel_id, media_type),
+            )
 
     @staticmethod
     def _document_attrs(msg: Message) -> list[object]:
@@ -487,7 +523,7 @@ class Telegram:
         self,
         *,
         account: TelegramAccount,
-        channel_cfg: TelegramChannel,
+        channel_id: int,
         entries: list[TelegramMediaEntry],
         source: str,
         available_delay_seconds: float = 0,
@@ -499,7 +535,7 @@ class Telegram:
                 continue
             was_inserted = await enqueue_telegram_media_job(
                 account_name=account.name,
-                channel_id=channel_cfg.id,
+                channel_id=channel_id,
                 message_id=msg_id,
                 grouped_id=getattr(item.msg, 'grouped_id', None),
                 media_type=item.media_type,
@@ -514,9 +550,45 @@ class Telegram:
                 wake_event.set()
         return inserted
 
-    async def update_channel(
+    async def _backfill_channel_media(  # noqa: PLR0913
         self,
-        channel_cfg: TelegramChannel,
+        *,
+        account: TelegramAccount,
+        channel_id: int,
+        channel: Channel,
+        media_types: list[TelegramMediaType],
+        client: TelegramClient,
+        channel_name: str,
+    ) -> None:
+        scan = await self.scan_media(
+            channel,
+            media_types,
+            client=client,
+            min_message_id=0,
+            limit=cfg.scan_limit,
+            wait_time=cfg.history_wait_seconds,
+            newest_window=True,
+        )
+        downloaded_ids = set(await self.get_downloaded_ids(account.name, channel_id))
+        pending_entries = [item for item in scan.media if self._message_id(item.msg) not in downloaded_ids]
+        inserted_count = await self._enqueue_entries(
+            account=account,
+            channel_id=channel_id,
+            entries=pending_entries,
+            source='reconciliation',
+        )
+        await self.mark_media_types_backfilled(account.name, channel_id, media_types)
+        log.info(
+            'Telegram backfill for %s scanned %d messages and queued %d new media for types=%s',
+            channel_name,
+            scan.scanned_message_count,
+            inserted_count,
+            ','.join(media_types),
+        )
+
+    async def update_channel(  # noqa: C901, PLR0912
+        self,
+        channel_id: int | TelegramChannel,
         account: TelegramAccount | None = None,
         *,
         client: TelegramClient | None = None,
@@ -529,7 +601,13 @@ class Telegram:
             msg = 'telegram client is not connected'
             raise RuntimeError(msg)
 
-        channel_id = channel_cfg.id
+        if isinstance(channel_id, TelegramChannel):
+            channel_id = channel_id.id
+        media_routes = account.channel_routes().get(channel_id)
+        if media_routes is None:
+            msg = f'telegram channel is not configured: {channel_id}'
+            raise ValueError(msg)
+        media_types = list(media_routes)
         channel = await selected_client.get_entity(PeerChannel(channel_id))
         channel_name = getattr(channel, 'username', None) or getattr(channel, 'title', str(channel_id)) or str(channel_id)
         channel_name = sanitize(channel_name)
@@ -538,9 +616,21 @@ class Telegram:
             log.info('Telegram channel %s is cooling down for %.0fs; skip reconciliation', channel_name, state.cooldown_remaining_seconds)
             return
 
+        backfilled_media_types = await self.get_backfilled_media_types(account.name, channel_id)
+        pending_backfill_types = [media_type for media_type in media_types if media_type not in backfilled_media_types]
+        if state.last_scanned_message_id > 0 and pending_backfill_types:
+            await self._backfill_channel_media(
+                account=account,
+                channel_id=channel_id,
+                channel=channel,
+                media_types=pending_backfill_types,
+                client=selected_client,
+                channel_name=channel_name,
+            )
+
         scan = await self.scan_media(
             channel,
-            channel_cfg.media_types,
+            media_types,
             client=selected_client,
             min_message_id=state.last_scanned_message_id,
             limit=cfg.scan_limit,
@@ -548,6 +638,8 @@ class Telegram:
             newest_window=state.last_scanned_message_id == 0,
         )
         if scan.max_message_id <= state.last_scanned_message_id:
+            if state.last_scanned_message_id == 0 and pending_backfill_types:
+                await self.mark_media_types_backfilled(account.name, channel_id, pending_backfill_types)
             log.info('No new Telegram messages to reconcile in %s', channel_name)
             return
 
@@ -564,7 +656,7 @@ class Telegram:
                     break
                 inserted_count += await self._enqueue_entries(
                     account=account,
-                    channel_cfg=channel_cfg,
+                    channel_id=channel_id,
                     entries=pending_entries,
                     source='reconciliation',
                 )
@@ -574,6 +666,8 @@ class Telegram:
             processed_cursor = max(processed_cursor, scan.max_message_id)
         if processed_cursor > state.last_scanned_message_id:
             await self.set_channel_last_scanned_message_id(account.name, channel_id, processed_cursor)
+        if state.last_scanned_message_id == 0 and not limit_reached and pending_backfill_types:
+            await self.mark_media_types_backfilled(account.name, channel_id, pending_backfill_types)
         log.info(
             'Telegram reconciliation for %s scanned %d messages and queued %d new media%s',
             channel_name,
@@ -585,9 +679,9 @@ class Telegram:
     async def _reconcile_account(self, account: TelegramAccount, client: TelegramClient) -> None:
         lock = self._reconciliation_locks.setdefault(account.name, asyncio.Lock())
         async with lock:
-            for channel in account.channels:
+            for channel_id in account.channel_routes():
                 try:
-                    await self.update_channel(channel, account, client=client)
+                    await self.update_channel(channel_id, account, client=client)
                 except FloodWaitError as exc:
                     wait_seconds = float(getattr(exc, 'seconds', 0) or 0)
                     cooldown_seconds = max(wait_seconds, cfg.channel_cooldown_seconds)
@@ -605,7 +699,7 @@ class Telegram:
                 except Exception as exc:
                     await self.set_channel_cooldown(
                         account.name,
-                        channel.id,
+                        channel_id,
                         cfg.channel_cooldown_seconds,
                         error=f'{exc.__class__.__name__}: {exc}',
                     )
@@ -623,15 +717,15 @@ class Telegram:
         channel_id = self._message_channel_id(messages[0])
         if channel_id is None:
             return
-        channel_cfg = next((channel for channel in account.channels if channel.id == channel_id), None)
-        if channel_cfg is None:
+        media_routes = account.channel_routes().get(channel_id)
+        if media_routes is None:
             return
-        entries = self._build_scan_from_messages(messages, channel_cfg.media_types).media
+        entries = self._build_scan_from_messages(messages, list(media_routes)).media
         if not entries:
             return
         inserted = await self._enqueue_entries(
             account=account,
-            channel_cfg=channel_cfg,
+            channel_id=channel_id,
             entries=entries,
             source='event',
             available_delay_seconds=_ALBUM_SETTLE_SECONDS if album else 0,
@@ -711,9 +805,9 @@ class Telegram:
         job: TelegramMediaJob,
         owner_token: str,
     ) -> bool:
-        channel_cfg = next((channel for channel in account.channels if channel.id == job.channel_id), None)
+        channel_cfg = account.channel_routes().get(job.channel_id, {}).get(job.media_type)
         if channel_cfg is None:
-            await mark_telegram_media_job_discarded(job, owner_token, error='Channel is no longer configured')
+            await mark_telegram_media_job_discarded(job, owner_token, error='Media route is no longer configured')
             return False
         if await self.is_downloaded(account.name, job.channel_id, job.message_id):
             await mark_telegram_media_job_completed(job, owner_token)
@@ -1014,8 +1108,8 @@ class Telegram:
         return Path(path_text).expanduser().resolve()
 
     async def set_account_cooldown(self, account: TelegramAccount, seconds: float, *, error: str = '') -> None:
-        for channel in account.channels:
-            await self.set_channel_cooldown(account.name, channel.id, seconds, error=error)
+        for channel_id in account.channel_routes():
+            await self.set_channel_cooldown(account.name, channel_id, seconds, error=error)
 
 
 class TelegramSessionUnauthorizedError(RuntimeError):
