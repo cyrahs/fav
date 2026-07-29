@@ -1,26 +1,22 @@
 from __future__ import annotations
 
-import re
-
 import httpx
 import psycopg
 from psycopg.rows import dict_row
 
 from src.tool import database
 from src.tool.runtime_config import (
+    Hanime1ParserIncompatibleError,
     RuntimeSeriesSeed,
-    extract_hanime1_div_block_by_id,
     extract_hanime1_seed_id,
-    extract_hanime1_series_ids,
     normalize_hanime1_seed,
-    normalize_hanime1_watch_title,
+    parse_hanime1_playlist,
     select_hanime1_canonical_id,
     to_simplified_chinese,
 )
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
 CF_BLOCK_MARKERS = ('Attention Required! | Cloudflare', 'cf-error-details')
-PLAYLIST_TITLE_RE = re.compile(r'<h4[^>]*>(?P<title>.*?)</h4>', re.IGNORECASE | re.DOTALL)
 
 CREATE_HANIME1_SERIES_TABLES_SQL = """
     CREATE TABLE IF NOT EXISTS hanime1_series (
@@ -107,7 +103,27 @@ class Hanime1SeriesService:
         for statement in database._split_sql_statements(CREATE_HANIME1_SERIES_TABLES_SQL):  # noqa: SLF001
             cursor.execute(statement)
 
-    def _request_watch_page_html(self, seed_id: str) -> str | None:
+    def readiness_seed_ids(self, *, limit: int = 3) -> list[str]:
+        with self._connect() as conn, conn.cursor() as cursor:
+            self._ensure_tables_sync(cursor)
+            cursor.execute(
+                """
+                SELECT canonical_video_id
+                FROM hanime1_series
+                ORDER BY last_scanned_at DESC NULLS LAST, updated_at DESC, canonical_video_id
+                LIMIT %s;
+                """,
+                (limit,),
+            )
+            return [str(row['canonical_video_id']) for row in cursor.fetchall()]
+
+    def probe_seed(self, seed_id: str, *, timeout_seconds: float = 10) -> None:
+        page_html = self._fetch_watch_page_html(seed_id, timeout_seconds=timeout_seconds)
+        if parse_hanime1_playlist(page_html, seed_id=seed_id) is None:
+            msg = 'Hanime1 watch page did not expose a compatible playlist structure'
+            raise Hanime1ParserIncompatibleError(msg)
+
+    def _fetch_watch_page_html(self, seed_id: str, *, timeout_seconds: float | None = None) -> str:
         watch_url = f'{self._host}/watch?v={seed_id}'
         headers = {
             'Referer': f'{self._host}/',
@@ -117,39 +133,21 @@ class Hanime1SeriesService:
             'Cookie': f'user_lang={self._user_lang}',
         }
 
-        try:
-            response = self._client.get(watch_url, headers=headers)
-            response.raise_for_status()
-        except Exception:  # noqa: BLE001
-            return None
+        request_kwargs = {'timeout': timeout_seconds} if timeout_seconds is not None else {}
+        response = self._client.get(watch_url, headers=headers, **request_kwargs)
+        response.raise_for_status()
         page_html = response.text
         if all(marker in page_html for marker in CF_BLOCK_MARKERS):
-            return None
+            msg = 'Hanime1 watch page was blocked by Cloudflare'
+            raise RuntimeError(msg)
         return page_html
 
-    @staticmethod
-    def _parse_hanime1_series(page_html: str, *, seed_id: str) -> tuple[str, list[str]] | None:
-        playlist_html = extract_hanime1_div_block_by_id(page_html, block_id='video-playlist-wrapper')
-        if not playlist_html:
-            return None
-
-        match = PLAYLIST_TITLE_RE.search(playlist_html)
-        if not match:
-            return None
-        title = normalize_hanime1_watch_title(match.group('title'))
-        if not title:
-            return None
-
-        series_ids = extract_hanime1_series_ids(playlist_html, fallback_id=seed_id)
-        if not series_ids:
-            return None
-        return title, series_ids
-
     def _resolve_hanime1_series(self, seed_id: str) -> tuple[str, list[str]] | None:
-        page_html = self._request_watch_page_html(seed_id)
-        if page_html is None:
+        try:
+            page_html = self._fetch_watch_page_html(seed_id)
+        except Exception:  # noqa: BLE001
             return None
-        return self._parse_hanime1_series(page_html, seed_id=seed_id)
+        return parse_hanime1_playlist(page_html, seed_id=seed_id)
 
     def _insert_series_seed(
         self,

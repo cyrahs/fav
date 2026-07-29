@@ -27,8 +27,16 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from src.core import config, logger
 from src.tool import database, ensure_unique_path, format_video_filename, sanitize
 from src.tool.hanime1_series import ensure_hanime1_series_tables
-from src.tool.notifications import enqueue_notification
-from src.tool.runtime_config import RuntimeSeriesSeed, parse_runtime_series_seed, select_hanime1_canonical_id
+from src.tool.notifications import enqueue_notification, format_job_failure_dedupe_key, resolve_notification
+from src.tool.runtime_config import (
+    Hanime1ParserIncompatibleError,
+    RuntimeSeriesSeed,
+    extract_hanime1_div_blocks_by_class,
+    extract_hanime1_playlist_blocks,
+    parse_hanime1_playlist,
+    parse_runtime_series_seed,
+    select_hanime1_canonical_id,
+)
 
 log = logger.get('hanime1')
 cfg = config.web.hanime1
@@ -70,7 +78,6 @@ _SEARCH_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
     re.IGNORECASE,
 )
-_PLAYLIST_TITLE_RE = re.compile(r'<h4[^>]*>(?P<title>.*?)</h4>', re.IGNORECASE | re.DOTALL)
 _PLAYLIST_ITEM_TITLE_RE = re.compile(
     r'<div[^>]+class=["\'][^"\']*\bcard-mobile-title\b[^"\']*["\'][^>]*>(?P<title>.*?)</div>',
     re.IGNORECASE | re.DOTALL,
@@ -88,6 +95,10 @@ _EPISODE_MARKER_RE = re.compile(
 )
 _STANDALONE_NUMBER_RE = re.compile(r'(?<![A-Za-z0-9])([0-9]{1,3})(?![A-Za-z0-9])')
 _TITLE_SUFFIX_STRIP_CHARS = ' \t\r\n._-:~\uff1a\uff5e'
+_PARSER_FAILURE_DEDUPE_KEY = format_job_failure_dedupe_key(
+    job_key='hanime1',
+    failure_key=Hanime1ParserIncompatibleError.notification_dedupe_key,
+)
 _SEARCH_ALLOWED_GENRES = (
     ('裏番', '里番'),
     ('泡麵番', '泡面番'),
@@ -409,48 +420,6 @@ class Hanime1:
         return ids
 
     @staticmethod
-    def _extract_div_blocks_by_id(page_html: str, *, block_id: str) -> list[str]:
-        pattern = re.compile(rf'<div[^>]+id=["\']{re.escape(block_id)}["\'][^>]*>', re.IGNORECASE)
-        return Hanime1._extract_div_blocks(page_html, pattern)
-
-    @staticmethod
-    def _extract_div_blocks_by_class(page_html: str, *, class_name: str) -> list[str]:
-        pattern = re.compile(
-            rf'<div\b(?=[^>]*\bclass=["\'][^"\']*\b{re.escape(class_name)}\b[^"\']*["\'])[^>]*>',
-            re.IGNORECASE,
-        )
-        return Hanime1._extract_div_blocks(page_html, pattern)
-
-    @staticmethod
-    def _extract_div_blocks(page_html: str, pattern: re.Pattern[str]) -> list[str]:
-        tag_pattern = re.compile(r'</?div\b[^>]*>', re.IGNORECASE)
-        blocks: list[str] = []
-        search_pos = 0
-        while True:
-            start_match = pattern.search(page_html, search_pos)
-            if not start_match:
-                break
-
-            depth = 1
-            end_pos: int | None = None
-            for tag_match in tag_pattern.finditer(page_html, start_match.end()):
-                tag = tag_match.group(0).lstrip().lower()
-                if tag.startswith('</div'):
-                    depth -= 1
-                else:
-                    depth += 1
-                if depth == 0:
-                    end_pos = tag_match.end()
-                    break
-
-            if end_pos is None:
-                break
-
-            blocks.append(page_html[start_match.start() : end_pos])
-            search_pos = end_pos
-        return blocks
-
-    @staticmethod
     def _normalize_html_text(text: str | None) -> str | None:
         if not text:
             return None
@@ -458,16 +427,6 @@ class Hanime1:
         normalized = re.sub(r'<[^>]+>', '', normalized)
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         return normalized or None
-
-    @staticmethod
-    def _extract_playlist_title(playlist_html: str) -> str | None:
-        match = _PLAYLIST_TITLE_RE.search(playlist_html)
-        if not match:
-            return None
-        text = Hanime1._normalize_html_text(match.group('title'))
-        if not text:
-            return None
-        return Hanime1._to_simplified_chinese(text)
 
     @staticmethod
     def _extract_playlist_item_title(item_html: str) -> str | None:
@@ -487,7 +446,7 @@ class Hanime1:
     def _extract_playlist_videos(playlist_html: str) -> list[WatchSeriesVideo]:
         videos: list[WatchSeriesVideo] = []
         seen_ids: set[str] = set()
-        for item_html in Hanime1._extract_div_blocks_by_class(playlist_html, class_name='related-watch-wrap'):
+        for item_html in extract_hanime1_div_blocks_by_class(playlist_html, class_name='related-watch-wrap'):
             title = Hanime1._extract_playlist_item_title(item_html)
             for video_id in Hanime1.extract_search_video_ids(item_html):
                 key = video_id.casefold()
@@ -507,30 +466,20 @@ class Hanime1:
 
     @staticmethod
     def extract_watch_series(page_html: str) -> WatchSeries | None:
-        playlist_blocks = Hanime1._extract_div_blocks_by_id(page_html, block_id='video-playlist-wrapper')
-        if not playlist_blocks:
+        parsed = parse_hanime1_playlist(page_html)
+        if parsed is None:
             return None
+        series_name, ids = parsed
+        series_name = Hanime1._to_simplified_chinese(series_name) or series_name
 
-        series_name: str | None = None
-        ids: list[str] = []
-        videos: list[WatchSeriesVideo] = []
-        seen_ids: set[str] = set()
-
-        for playlist_html in playlist_blocks:
-            if not series_name:
-                series_name = Hanime1._extract_playlist_title(playlist_html)
-            for video in Hanime1._extract_playlist_videos(playlist_html):
-                video_id = video.video_id
-                key = video_id.casefold()
-                if key in seen_ids:
-                    continue
-                seen_ids.add(key)
-                ids.append(video_id)
-                videos.append(WatchSeriesVideo(video_id=video_id, title=video.title, position=len(videos) + 1))
-
-        if not ids:
-            return None
-        return WatchSeries(name=series_name, video_ids=tuple(ids), videos=tuple(videos))
+        titles: dict[str, str | None] = {}
+        for block in extract_hanime1_playlist_blocks(page_html):
+            for video in Hanime1._extract_playlist_videos(block):
+                titles.setdefault(video.video_id, video.title)
+        videos = tuple(
+            WatchSeriesVideo(video_id=video_id, title=titles.get(video_id), position=index) for index, video_id in enumerate(ids, 1)
+        )
+        return WatchSeries(name=series_name, video_ids=tuple(ids), videos=videos)
 
     @staticmethod
     def _title_contains_series(title: str, series_name: str | None) -> bool:
@@ -1249,6 +1198,8 @@ class Hanime1:
         seeds: list[RuntimeSeriesSeed],
     ) -> dict[str, HanimeCandidate]:
         collected: dict[str, HanimeCandidate] = {}
+        resolved_any = False
+        incompatible_seed_count = 0
 
         for seed in seeds:
             seed_item = HanimeRecord(
@@ -1260,21 +1211,27 @@ class Hanime1:
 
             try:
                 series = await self.resolve_series_from_watch_page(seed_item)
+            except Hanime1ParserIncompatibleError as exc:
+                incompatible_seed_count += 1
+                log.warning('Hanime1 seed %s exposed an incompatible playlist structure: %s', seed.video_id, exc)
+                await self._mark_series_scan_failure(seed.video_id, exc)
+                continue
             except Exception as exc:
                 log.exception('Failed to resolve Hanime1 watch series from seed id %s', seed.video_id)
                 await self._mark_series_scan_failure(seed.video_id, exc)
                 continue
 
-            series_name = seed.title
-            candidate_ids: list[str] = [seed.video_id]
-            series_videos: tuple[WatchSeriesVideo, ...] = ()
-            if series is not None:
-                if series.name:
-                    series_name = series.name
-                if series.video_ids:
-                    candidate_ids = list(series.video_ids)
-                if series.videos:
-                    series_videos = series.videos
+            if series is None:
+                incompatible_seed_count += 1
+                exc = Hanime1ParserIncompatibleError('Hanime1 watch page did not expose a compatible playlist structure')
+                log.warning('Hanime1 seed %s did not expose a compatible playlist structure', seed.video_id)
+                await self._mark_series_scan_failure(seed.video_id, exc)
+                continue
+
+            resolved_any = True
+            series_name = series.name or seed.title
+            candidate_ids = list(series.video_ids) if series.video_ids else [seed.video_id]
+            series_videos = series.videos
 
             source_name = self._to_simplified_chinese(series_name) or f'id-{seed.video_id}'
             await self._upsert_series_members(canonical_video_id=seed.video_id, member_ids=[seed.video_id, *candidate_ids])
@@ -1309,7 +1266,27 @@ class Hanime1:
                 source_name,
             )
 
+        if seeds and not resolved_any:
+            if incompatible_seed_count == len(seeds):
+                msg = f'Hanime1 playlist parsing failed for all {len(seeds)} sampled series'
+                raise Hanime1ParserIncompatibleError(msg)
+            msg = f'Failed to resolve all {len(seeds)} Hanime1 series targets'
+            raise RuntimeError(msg)
+
         return collected
+
+    async def _resolve_parser_failure_notification(self) -> None:
+        try:
+            await resolve_notification(
+                dedupe_key=_PARSER_FAILURE_DEDUPE_KEY,
+                kind='job_failed',
+                source='worker',
+                title='Job recovered: Hanime1',
+                body='Hanime1 playlist parsing is healthy again.',
+                payload={'job': 'hanime1', 'dedupe_key': _PARSER_FAILURE_DEDUPE_KEY},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to resolve Hanime1 parser failure notification: %s', exc)
 
     async def _get_downloaded_ids(self) -> set[str]:
         rows = await database.query_db('SELECT id FROM hanime1;')
@@ -1321,8 +1298,9 @@ class Hanime1:
             downloaded_ids.add(item_id.casefold())
         return downloaded_ids
 
-    async def get_items(self) -> list[HanimeRecord]:
-        seeds = await self._load_runtime_series_seeds()
+    async def get_items(self, *, seeds: list[RuntimeSeriesSeed] | None = None) -> list[HanimeRecord]:
+        if seeds is None:
+            seeds = await self._load_runtime_series_seeds()
         if not seeds:
             return []
 
@@ -1470,12 +1448,12 @@ class Hanime1:
         log.debug('hanime1 table initialized')
         await self.discover_ranking_series()
 
-        items = await self.get_items()
+        seeds = await self._load_runtime_series_seeds()
+        items = await self.get_items(seeds=seeds)
+        if seeds:
+            await self._resolve_parser_failure_notification()
         if not items:
-            if not await self._load_runtime_series_seeds():
-                log.info('No Hanime1 series seeds configured in database')
-            else:
-                log.info('No new videos')
+            log.info('No new videos' if seeds else 'No Hanime1 series seeds configured in database')
             return
 
         await asyncio.to_thread(cfg.path.mkdir, parents=True, exist_ok=True)

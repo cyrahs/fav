@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
+from time import monotonic
 
 from src.core import logger
 from src.core.config import config as app_config
 from src.service.jobs import ScheduledJob, build_jobs
 from src.tool.control_queue import ControlRequest, create_control_request_sync, get_control_request_sync
 from src.tool.hanime1_series import Hanime1SeriesService
+from src.tool.runtime_config import Hanime1ParserIncompatibleError
 
 from .azurlane import AzurLaneCharacterNotFoundError, AzurLaneLibrary
 from .bd2 import BD2CharacterNotFoundError, BD2Library
@@ -39,6 +42,7 @@ from .schemas import (
     Live2DViewOverride,
     NikkeCharacterDetail,
     NikkeCharacterSummary,
+    ReadinessResponse,
 )
 
 log = logger.get('fav-api')
@@ -48,6 +52,21 @@ type Hanime1VideoFetcher = Callable[[str], list[dict[str, str | None]]]
 type JobProvider = Callable[[], list[ScheduledJob]]
 type ControlRequestCreator = Callable[[str, str], ControlRequest]
 type ControlRequestGetter = Callable[[int], ControlRequest | None]
+
+_READINESS_CACHE_TTL_SECONDS = 300
+_READINESS_PROBE_TIMEOUT_SECONDS = 10
+_READINESS_TOTAL_TIMEOUT_SECONDS = 12
+_READINESS_SAMPLE_SIZE = 3
+_READINESS_MESSAGES = {
+    'database_unavailable': 'Unable to load Hanime1 readiness targets.',
+    'disabled': 'Hanime1 is disabled.',
+    'no_targets': 'No Hanime1 scan targets are configured.',
+    'ok': 'Hanime1 playlist parsing is healthy.',
+    'parser_incompatible': 'Hanime1 playlist structure is incompatible with the parser.',
+    'probe_failed': 'Hanime1 readiness probes failed.',
+    'upstream_timeout': 'Hanime1 readiness check timed out.',
+    'upstream_unavailable': 'Hanime1 watch pages are unavailable.',
+}
 
 
 class FavApiService:
@@ -88,6 +107,8 @@ class FavApiService:
         self._nikke_library = nikke_library or NikkeLibrary(app_config.web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(app_config.web.bd2.path)
         self._live2d_view_override_store = live2d_view_override_store or PostgresLive2DViewOverrideStore(self._dsn)
+        self._readiness_cache: tuple[float, dict[str, object]] | None = None
+        self._readiness_lock = asyncio.Lock()
 
     def close(self) -> None:
         close = getattr(self._runtime_service, 'close', None)
@@ -126,6 +147,120 @@ class FavApiService:
 
     def get_health(self) -> dict[str, str]:
         return {'status': 'ok', 'generated_at': utc_now_iso_z(self._now_provider)}
+
+    async def get_readiness(self) -> dict[str, object]:
+        cached = self._get_cached_readiness()
+        if cached is not None:
+            return cached
+
+        async with self._readiness_lock:
+            cached = self._get_cached_readiness()
+            if cached is not None:
+                return cached
+            payload = await self._build_readiness()
+            self._readiness_cache = (monotonic(), payload)
+            return payload
+
+    def _get_cached_readiness(self) -> dict[str, object] | None:
+        if self._readiness_cache is None:
+            return None
+        checked_at, payload = self._readiness_cache
+        return payload if monotonic() - checked_at < _READINESS_CACHE_TTL_SECONDS else None
+
+    async def _build_readiness(self) -> dict[str, object]:
+        if not app_config.web.hanime1.enabled:
+            return self._readiness_payload(component_status='skipped', code='disabled')
+
+        seed_ids: list[str] = []
+        try:
+            async with asyncio.timeout(_READINESS_TOTAL_TIMEOUT_SECONDS):
+                try:
+                    seed_ids = await asyncio.to_thread(self._runtime_service.readiness_seed_ids, limit=_READINESS_SAMPLE_SIZE)
+                except Exception:
+                    log.exception('Failed to load Hanime1 readiness targets')
+                    return self._readiness_payload(component_status='degraded', code='database_unavailable')
+
+                if not seed_ids:
+                    return self._readiness_payload(component_status='skipped', code='no_targets')
+
+                failures = await self._probe_readiness_seeds(seed_ids)
+        except TimeoutError:
+            return self._readiness_payload(
+                component_status='degraded',
+                code='upstream_timeout',
+                sampled_targets=len(seed_ids),
+            )
+
+        if failures is None:
+            return self._readiness_payload(
+                component_status='ok',
+                code='ok',
+                sampled_targets=len(seed_ids),
+            )
+
+        if all(isinstance(failure, TimeoutError) for failure in failures):
+            code = 'upstream_timeout'
+        elif all(isinstance(failure, Hanime1ParserIncompatibleError) for failure in failures):
+            code = 'parser_incompatible'
+        elif any(isinstance(failure, Hanime1ParserIncompatibleError) for failure in failures):
+            code = 'probe_failed'
+        else:
+            code = 'upstream_unavailable'
+        return self._readiness_payload(
+            component_status='degraded',
+            code=code,
+            sampled_targets=len(seed_ids),
+        )
+
+    async def _probe_readiness_seeds(self, seed_ids: list[str]) -> list[BaseException] | None:
+        tasks = [
+            asyncio.create_task(
+                asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._runtime_service.probe_seed,
+                        seed_id,
+                        timeout_seconds=_READINESS_PROBE_TIMEOUT_SECONDS,
+                    ),
+                    timeout=_READINESS_PROBE_TIMEOUT_SECONDS,
+                ),
+            )
+            for seed_id in seed_ids
+        ]
+        failures: list[BaseException] = []
+        try:
+            for completed in asyncio.as_completed(tasks):
+                try:
+                    await completed
+                except Exception as exc:  # noqa: BLE001
+                    failures.append(exc)
+                else:
+                    return None
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return failures
+
+    def _readiness_payload(
+        self,
+        *,
+        component_status: str,
+        code: str,
+        sampled_targets: int = 0,
+    ) -> dict[str, object]:
+        status = 'degraded' if component_status == 'degraded' else 'ok'
+        return {
+            'status': status,
+            'generated_at': utc_now_iso_z(self._now_provider),
+            'checks': {
+                'hanime1': {
+                    'status': component_status,
+                    'code': code,
+                    'message': _READINESS_MESSAGES[code],
+                    'sampled_targets': sampled_targets,
+                },
+            },
+        }
 
     def list_jobs(self) -> list[dict[str, str | bool]]:
         return [serialize_job(job) for job in self._job_provider()]
@@ -370,6 +505,10 @@ class FavApiService:
     @staticmethod
     def model_health(payload: dict[str, str]) -> HealthResponse:
         return HealthResponse.model_validate(payload)
+
+    @staticmethod
+    def model_readiness(payload: dict[str, object]) -> ReadinessResponse:
+        return ReadinessResponse.model_validate(payload)
 
     @staticmethod
     def model_job(payload: dict[str, str | bool]) -> JobSummary:

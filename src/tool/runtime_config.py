@@ -18,7 +18,11 @@ log = logger.get('runtime-config')
 
 _HANIME1_SEED_RE = re.compile(r'^(?:(?P<title>.*?)\s*)?\{id-(?P<id>\d+)\}\s*$', re.IGNORECASE)
 _HANIME1_PLAYLIST_TITLE_RE = re.compile(
-    r'<div[^>]+id=["\']video-playlist-wrapper["\'][^>]*>.*?<h4[^>]*>(?P<title>.*?)</h4>',
+    r'<h4[^>]*>(?P<title>.*?)</h4>',
+    re.IGNORECASE | re.DOTALL,
+)
+_HANIME1_PLAYLIST_LINK_TITLE_RE = re.compile(
+    r'<a[^>]+href=["\'][^"\']*/playlist\?[^"\']*["\'][^>]*>(?P<title>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
 _HANIME1_WATCH_HREF_RE = re.compile(
@@ -28,6 +32,10 @@ _HANIME1_WATCH_HREF_RE = re.compile(
 _HANIME1_CF_BLOCK_MARKERS = ('Attention Required! | Cloudflare', 'cf-error-details')
 _HANIME1_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
 _T2S_CONVERTER = OpenCC('t2s')
+
+
+class Hanime1ParserIncompatibleError(RuntimeError):
+    notification_dedupe_key = 'hanime1:parser:playlist-wrapper'
 
 
 @dataclass(slots=True, frozen=True)
@@ -64,7 +72,7 @@ def extract_hanime1_seed_id(seed: str) -> str | None:
     return normalized
 
 
-def normalize_hanime1_seed(raw: str, *, allow_id_only: bool = True) -> str | None:
+def normalize_hanime1_seed(raw: str, *, allow_id_only: bool = True) -> str | None:  # noqa: PLR0911
     text = raw.strip()
     if not text:
         return None
@@ -119,38 +127,71 @@ def normalize_hanime1_keywords(raw_keywords: list[Any]) -> list[str]:
 
 
 def normalize_hanime1_watch_title(title: str) -> str:
-    normalized = re.sub(r'<[^>]+>', '', title)
+    normalized = html.unescape(re.sub(r'<[^>]+>', '', title))
     normalized = re.sub(r'\s+', ' ', normalized).strip()
     normalized = re.sub(r'\s*-\s*Hanime1\.me\s*$', '', normalized, flags=re.IGNORECASE).strip()
-    normalized = re.sub(r'\s*-\s*H動漫/裏番/線上看\s*$', '', normalized).strip()
-    return normalized
+    return re.sub(r'\s*-\s*H動漫/裏番/線上看\s*$', '', normalized).strip()
 
 
-def extract_hanime1_div_block_by_id(page_html: str, *, block_id: str) -> str | None:
-    pattern = re.compile(rf'<div[^>]+id=["\']{re.escape(block_id)}["\'][^>]*>', re.IGNORECASE)
+def _extract_hanime1_div_blocks(page_html: str, pattern: re.Pattern[str]) -> list[str]:
     tag_pattern = re.compile(r'</?div\b[^>]*>', re.IGNORECASE)
-    start_match = pattern.search(page_html)
-    if not start_match:
-        return None
-
-    depth = 1
-    end_pos: int | None = None
-    for tag_match in tag_pattern.finditer(page_html, start_match.end()):
-        tag = tag_match.group(0).lstrip().lower()
-        if tag.startswith('</div'):
-            depth -= 1
-        else:
-            depth += 1
-        if depth == 0:
-            end_pos = tag_match.end()
+    blocks: list[str] = []
+    search_pos = 0
+    while True:
+        start_match = pattern.search(page_html, search_pos)
+        if start_match is None:
             break
 
-    if end_pos is None:
+        depth = 1
+        end_pos: int | None = None
+        for tag_match in tag_pattern.finditer(page_html, start_match.end()):
+            tag = tag_match.group(0).lstrip().lower()
+            if tag.startswith('</div'):
+                depth -= 1
+            else:
+                depth += 1
+            if depth == 0:
+                end_pos = tag_match.end()
+                break
+
+        if end_pos is None:
+            break
+        blocks.append(page_html[start_match.start() : end_pos])
+        search_pos = end_pos
+    return blocks
+
+
+def extract_hanime1_div_blocks_by_class(page_html: str, *, class_name: str) -> list[str]:
+    pattern = re.compile(
+        rf'<div\b(?=[^>]*\bclass=["\'](?:[^"\']*\s)?{re.escape(class_name)}(?:\s[^"\']*)?["\'])[^>]*>',
+        re.IGNORECASE,
+    )
+    return _extract_hanime1_div_blocks(page_html, pattern)
+
+
+def extract_hanime1_playlist_blocks(page_html: str) -> list[str]:
+    pattern = re.compile(
+        r'<div\b(?=[^>]*(?:'
+        r'\bid=["\']video-playlist-wrapper["\']|'
+        r'\bclass=["\'](?:[^"\']*\s)?video-playlist-wrapper(?:\s[^"\']*)?["\']'
+        r'))[^>]*>',
+        re.IGNORECASE,
+    )
+    return _extract_hanime1_div_blocks(page_html, pattern)
+
+
+def extract_hanime1_playlist_title(playlist_html: str) -> str | None:
+    match = _HANIME1_PLAYLIST_TITLE_RE.search(playlist_html)
+    if match is None:
         return None
-    return page_html[start_match.start() : end_pos]
+    title_html = match.group('title')
+    link_match = _HANIME1_PLAYLIST_LINK_TITLE_RE.search(title_html)
+    title = normalize_hanime1_watch_title(link_match.group('title') if link_match is not None else title_html)
+    title = re.sub(r'^(?:清單|清单)\s*', '', title).strip()
+    return title or None
 
 
-def extract_hanime1_series_ids(playlist_html: str, *, fallback_id: str) -> list[str]:
+def extract_hanime1_series_ids(playlist_html: str) -> list[str]:
     ids: list[str] = []
     seen: set[str] = set()
     normalized_html = html.unescape(playlist_html).replace('\\/', '/').replace('\\u0026', '&')
@@ -165,15 +206,32 @@ def extract_hanime1_series_ids(playlist_html: str, *, fallback_id: str) -> list[
         normalized = str(int(candidate))
         if normalized == '0':
             continue
-        key = normalized.casefold()
-        if key in seen:
+        if normalized in seen:
             continue
-        seen.add(key)
+        seen.add(normalized)
         ids.append(normalized)
 
-    if fallback_id.casefold() not in seen:
-        ids.append(fallback_id)
     return ids
+
+
+def parse_hanime1_playlist(page_html: str, *, seed_id: str | None = None) -> tuple[str, list[str]] | None:
+    playlist_blocks = extract_hanime1_playlist_blocks(page_html)
+    title = next((title for block in playlist_blocks if (title := extract_hanime1_playlist_title(block))), None)
+    if not title:
+        return None
+
+    series_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for block in playlist_blocks:
+        for video_id in extract_hanime1_series_ids(block):
+            if video_id not in seen_ids:
+                seen_ids.add(video_id)
+                series_ids.append(video_id)
+    if not series_ids:
+        return None
+    if seed_id is not None and seed_id not in seen_ids:
+        series_ids.append(seed_id)
+    return title, series_ids
 
 
 def select_hanime1_canonical_id(series_ids: list[str]) -> str | None:
@@ -386,19 +444,4 @@ class Hanime1RuntimeConfigService:
             log.debug('Blocked by Cloudflare while resolving Hanime1 seed title for %s', seed_id)
             return None
 
-        playlist_html = extract_hanime1_div_block_by_id(page_html, block_id='video-playlist-wrapper')
-        if not playlist_html:
-            return None
-
-        match = _HANIME1_PLAYLIST_TITLE_RE.search(playlist_html)
-        if not match:
-            return None
-
-        title = normalize_hanime1_watch_title(match.group('title'))
-        if not title:
-            return None
-
-        series_ids = extract_hanime1_series_ids(playlist_html, fallback_id=seed_id)
-        if not series_ids:
-            return None
-        return title, series_ids
+        return parse_hanime1_playlist(page_html, seed_id=seed_id)

@@ -4,9 +4,12 @@ import asyncio
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 
 import src.web.hanime1 as hanime1_module
+from src.tool.hanime1_series import Hanime1SeriesService
+from src.tool.runtime_config import Hanime1ParserIncompatibleError, parse_hanime1_playlist
 from src.web.hanime1 import (
     DownloadResult,
     Hanime1,
@@ -160,6 +163,90 @@ def test_extract_watch_series_preserves_mixed_wrapped_and_plain_links() -> None:
         WatchSeriesVideo(video_id='10001', title='混合系列 1', position=1),
         WatchSeriesVideo(video_id='10002', title=None, position=2),
     ]
+
+
+def test_extract_watch_series_supports_current_class_wrapper_and_dedupes_layouts() -> None:
+    page_html = """
+    <div class="video-playlist-wrapper mobile">
+      <h4><span>清單</span><a href="/playlist?list=1">屈辱</a></h4>
+      <div class="related-watch-wrap"><a href="/watch?v=13253"></a><div class="card-mobile-title">屈辱 1</div></div>
+      <div class="related-watch-wrap"><a href="/watch?v=12488"></a><div class="card-mobile-title">屈辱 2</div></div>
+    </div>
+    <div class="desktop video-playlist-wrapper">
+      <h4><span>清单</span><a href="/playlist?list=1">屈辱</a></h4>
+      <a href="/watch?v=13253"></a>
+      <a href="/watch?v=12488"></a>
+    </div>
+    """
+
+    series = Hanime1.extract_watch_series(page_html)
+    api_series = parse_hanime1_playlist(page_html)
+
+    assert series is not None
+    assert series.name == '屈辱'
+    assert list(series.video_ids) == ['13253', '12488']
+    assert api_series == ('屈辱', ['13253', '12488'])
+
+
+def test_series_service_adds_seed_from_current_class_wrapper(monkeypatch) -> None:
+    page_html = """
+    <div class="video-playlist-wrapper">
+      <h4><span>清單</span><a href="/playlist?list=1">屈辱</a></h4>
+      <a href="/watch?v=13253"></a>
+      <a href="/watch?v=12488"></a>
+    </div>
+    """
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=page_html)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    service = Hanime1SeriesService(
+        dsn='postgresql://unused',
+        host='https://hanime1.me',
+        user_lang='zhs',
+        client=client,
+    )
+    inserted: dict[str, object] = {}
+    monkeypatch.setattr(service, '_insert_series_seed', lambda **payload: inserted.update(payload))
+
+    seed = service.add_seed('12488')
+
+    assert seed == RuntimeSeriesSeed(video_id='12488', title='屈辱')
+    assert inserted['added_from_video_id'] == '12488'
+    assert inserted['series_ids'] == ['13253', '12488']
+    client.close()
+
+
+def test_playlist_parser_requires_exact_wrapper_class_and_video_id() -> None:
+    assert (
+        parse_hanime1_playlist(
+            '<div class="not-video-playlist-wrapper-copy"><h4>Series</h4><a href="/watch?v=12488"></a></div>',
+        )
+        is None
+    )
+    assert parse_hanime1_playlist('<div class="video-playlist-wrapper"><h4>Series</h4></div>') is None
+
+
+def test_series_service_rejects_playlist_without_video_id(monkeypatch) -> None:
+    page_html = '<div class="video-playlist-wrapper"><h4>Series &amp; More</h4></div>'
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=page_html)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    service = Hanime1SeriesService(
+        dsn='postgresql://unused',
+        host='https://hanime1.me',
+        user_lang='zhs',
+        client=client,
+    )
+    monkeypatch.setattr(service, '_insert_series_seed', lambda **_payload: pytest.fail('invalid seed was inserted'))
+
+    with pytest.raises(LookupError, match='seed_resolve_failed'):
+        service.add_seed('12488')
+
+    client.close()
 
 
 def test_collect_ids_adds_sequence_when_playlist_titles_are_not_distinct(monkeypatch, tmp_path) -> None:
@@ -441,7 +528,8 @@ def test_update_runs_ranking_discovery_before_get_items(monkeypatch, tmp_path) -
         events.append('discover')
         return []
 
-    async def _fake_get_items() -> list[HanimeRecord]:
+    async def _fake_get_items(*, seeds: list[RuntimeSeriesSeed]) -> list[HanimeRecord]:
+        assert seeds
         events.append('get_items')
         return []
 
@@ -633,10 +721,110 @@ def test_collect_ids_marks_series_failure(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
     monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
 
-    collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
+    with pytest.raises(RuntimeError, match='Failed to resolve all'):
+        asyncio.run(h._collect_ids_from_watch_series([seed]))
 
-    assert collected == {}
     assert any('SET last_scan_error = ?' in sql and params == ('RuntimeError: blocked', '12488') for sql, params in queries)
+
+
+def test_collect_ids_treats_empty_playlist_parse_as_incompatible(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seed = RuntimeSeriesSeed(video_id='12488', title='屈辱')
+
+    async def _fake_resolve_series(_item: HanimeRecord) -> None:
+        return None
+
+    queries: list[tuple[str, tuple[str, ...]]] = []
+
+    async def _fake_query_db(sql: str, params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    with pytest.raises(Hanime1ParserIncompatibleError, match='playlist parsing failed'):
+        asyncio.run(h._collect_ids_from_watch_series([seed]))
+
+    assert any('SET last_scan_error = ?' in sql and params[1] == '12488' for sql, params in queries)
+    assert not any('SET last_scanned_at = CURRENT_TIMESTAMP' in sql for sql, _params in queries)
+
+
+def test_collect_ids_does_not_label_mixed_failures_as_parser_incompatible(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seeds = [
+        RuntimeSeriesSeed(video_id='12488', title='屈辱'),
+        RuntimeSeriesSeed(video_id='20000', title='Other'),
+    ]
+
+    async def _fake_resolve_series(item: HanimeRecord) -> None:
+        if item.id != '12488':
+            msg = 'upstream unavailable'
+            raise RuntimeError(msg)
+
+    async def _fake_query_db(_sql: str, _params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    with pytest.raises(RuntimeError, match='Failed to resolve all') as exc_info:
+        asyncio.run(h._collect_ids_from_watch_series(seeds))
+
+    assert not isinstance(exc_info.value, Hanime1ParserIncompatibleError)
+
+
+def test_resolve_parser_failure_notification_uses_job_failure_dedupe_key(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    captured: dict[str, object] = {}
+
+    async def _fake_resolve_notification(**payload: object) -> None:
+        captured.update(payload)
+
+    monkeypatch.setattr(hanime1_module, 'resolve_notification', _fake_resolve_notification)
+
+    asyncio.run(h._resolve_parser_failure_notification())
+
+    assert captured['dedupe_key'] == 'job_failed:hanime1:hanime1:parser:playlist-wrapper'
+    assert captured['title'] == 'Job recovered: Hanime1'
+
+
+def test_update_resolves_parser_alert_after_scan_recovers(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seed = RuntimeSeriesSeed(video_id='12488', title='屈辱')
+    attempts = 0
+    resolved = 0
+
+    async def _noop() -> None:
+        return None
+
+    async def _load_seeds() -> list[RuntimeSeriesSeed]:
+        return [seed]
+
+    async def _get_items(*, seeds: list[RuntimeSeriesSeed]) -> list[HanimeRecord]:
+        nonlocal attempts
+        assert seeds == [seed]
+        attempts += 1
+        if attempts == 1:
+            msg = 'bad structure'
+            raise Hanime1ParserIncompatibleError(msg)
+        return []
+
+    async def _resolve_alert() -> None:
+        nonlocal resolved
+        resolved += 1
+
+    monkeypatch.setattr(h, '_ensure_table', _noop)
+    monkeypatch.setattr(h, 'discover_ranking_series', _noop)
+    monkeypatch.setattr(h, '_load_runtime_series_seeds', _load_seeds)
+    monkeypatch.setattr(h, 'get_items', _get_items)
+    monkeypatch.setattr(h, '_resolve_parser_failure_notification', _resolve_alert)
+
+    with pytest.raises(Hanime1ParserIncompatibleError):
+        asyncio.run(h.update())
+    asyncio.run(h.update())
+
+    assert resolved == 1
 
 
 def test_load_runtime_series_seeds_reads_database(monkeypatch, tmp_path) -> None:
@@ -802,7 +990,8 @@ def test_update_inserts_item_after_download(monkeypatch, tmp_path) -> None:
         stream_url='https://video.example.com/master.m3u8',
     )
 
-    async def _fake_get_items() -> list[HanimeRecord]:
+    async def _fake_get_items(*, seeds: list[RuntimeSeriesSeed]) -> list[HanimeRecord]:
+        assert seeds == []
         return [item]
 
     async def _fake_download_item(_item: HanimeRecord) -> DownloadResult:
@@ -866,7 +1055,8 @@ def test_update_skips_ignored_items_without_db_insert(monkeypatch, tmp_path) -> 
         stream_url='https://video.example.com/master.m3u8',
     )
 
-    async def _fake_get_items() -> list[HanimeRecord]:
+    async def _fake_get_items(*, seeds: list[RuntimeSeriesSeed]) -> list[HanimeRecord]:
+        assert seeds == []
         return [item]
 
     queries: list[tuple[str, tuple[str, ...]]] = []

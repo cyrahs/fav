@@ -12,10 +12,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from src.core import logger
 
 from .config import load_config_from_settings
-from .constants import API_DESCRIPTION, API_TITLE, APP_VERSION, DOCS_URL, HEALTH_ENDPOINT, OPENAPI_URL, TAG_SYSTEM
+from .constants import API_DESCRIPTION, API_TITLE, APP_VERSION, DOCS_URL, HEALTH_ENDPOINT, OPENAPI_URL, READINESS_ENDPOINT, TAG_SYSTEM
 from .errors import ApiError
 from .routes import router as api_router
-from .schemas import ErrorResponse, HealthResponse
+from .schemas import ErrorResponse, HealthResponse, ReadinessResponse
 from .service import FavApiService
 
 log = logger.get('fav-api')
@@ -121,5 +121,17 @@ def create_app(
     )
     def get_health(request: Request) -> HealthResponse:
         return request.app.state.api_service.model_health(request.app.state.api_service.get_health())
+
+    @app.get(
+        READINESS_ENDPOINT,
+        operation_id='getReadiness',
+        response_model=ReadinessResponse,
+        responses={503: {'model': ReadinessResponse}},
+        tags=[TAG_SYSTEM],
+    )
+    async def get_readiness(request: Request) -> JSONResponse:
+        readiness = request.app.state.api_service.model_readiness(await request.app.state.api_service.get_readiness())
+        status_code = 503 if readiness.status == 'degraded' else 200
+        return JSONResponse(status_code=status_code, content=readiness.model_dump(mode='json'))
 
     return app

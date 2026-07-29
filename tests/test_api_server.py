@@ -1,16 +1,18 @@
 # ruff: noqa: INP001, S101, S105, S106, ANN001, ARG005, PLR0913, PLR2004
 
 from datetime import UTC, datetime
+from time import sleep
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 import src.api.server as api_server
+import src.api.service as api_service_module
 from src.api.app import create_app
 from src.service.jobs import ScheduledJob
 from src.tool.control_queue import ControlRequest
-from src.tool.runtime_config import RuntimeSeriesSeed
+from src.tool.runtime_config import Hanime1ParserIncompatibleError, RuntimeSeriesSeed
 
 _FIXED_NOW = datetime(2026, 3, 2, 0, 0, tzinfo=UTC)
 _VALID_TOKEN = 'token-for-tests'
@@ -23,6 +25,12 @@ class _RuntimeService:
         self.seeds = list(seeds or [])
         self.add_error: Exception | None = None
         self.added: list[str] = []
+        self.readiness_ids: list[str] = []
+        self.readiness_delay = 0.0
+        self.readiness_calls = 0
+        self.probe_errors: dict[str, Exception] = {}
+        self.probe_delays: dict[str, float] = {}
+        self.probe_calls: list[str] = []
 
     def add_seed(self, raw_seed: str) -> RuntimeSeriesSeed:
         self.added.append(raw_seed)
@@ -31,6 +39,19 @@ class _RuntimeService:
         seed = RuntimeSeriesSeed(video_id='12488', title='屈辱')
         self.seeds.append(seed)
         return seed
+
+    def readiness_seed_ids(self, *, limit: int = 3) -> list[str]:
+        self.readiness_calls += 1
+        sleep(self.readiness_delay)
+        return self.readiness_ids[:limit]
+
+    def probe_seed(self, seed_id: str, *, timeout_seconds: float = 10) -> None:
+        assert timeout_seconds == 10
+        self.probe_calls.append(seed_id)
+        sleep(self.probe_delays.get(seed_id, 0))
+        error = self.probe_errors.get(seed_id)
+        if error is not None:
+            raise error
 
     def close(self) -> None:
         return None
@@ -111,6 +132,111 @@ def test_health_endpoint_returns_ok_without_authorization() -> None:
     assert response.json() == {'status': 'ok', 'generated_at': '2026-03-02T00:00:00Z'}
 
 
+def test_readiness_endpoint_returns_ok_when_any_hanime1_probe_succeeds() -> None:
+    runtime = _RuntimeService()
+    runtime.readiness_ids = ['100', '200', '300']
+    runtime.probe_errors = {
+        '100': Hanime1ParserIncompatibleError('bad structure'),
+        '200': RuntimeError('upstream failed'),
+    }
+    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/readyz')
+
+    assert response.status_code == 200
+    assert response.json()['status'] == 'ok'
+    assert response.json()['checks']['hanime1'] == {
+        'status': 'ok',
+        'code': 'ok',
+        'message': 'Hanime1 playlist parsing is healthy.',
+        'sampled_targets': 3,
+    }
+    assert sorted(runtime.probe_calls) == ['100', '200', '300']
+
+
+def test_readiness_endpoint_returns_on_first_success(monkeypatch) -> None:
+    runtime = _RuntimeService()
+    runtime.readiness_ids = ['fast', 'slow']
+    runtime.probe_delays['slow'] = 0.2
+    monkeypatch.setattr(api_service_module, '_READINESS_TOTAL_TIMEOUT_SECONDS', 0.05)
+    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/readyz')
+
+    assert response.status_code == 200
+    assert response.json()['status'] == 'ok'
+
+
+def test_readiness_total_budget_includes_target_loading(monkeypatch) -> None:
+    runtime = _RuntimeService()
+    runtime.readiness_delay = 0.05
+    monkeypatch.setattr(api_service_module, '_READINESS_TOTAL_TIMEOUT_SECONDS', 0.01)
+    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/readyz')
+
+    assert response.status_code == 503
+    assert response.json()['checks']['hanime1']['code'] == 'upstream_timeout'
+    assert response.json()['checks']['hanime1']['sampled_targets'] == 0
+
+
+def test_readiness_endpoint_returns_degraded_for_incompatible_parser() -> None:
+    runtime = _RuntimeService()
+    runtime.readiness_ids = ['100', '200']
+    runtime.probe_errors = {
+        '100': Hanime1ParserIncompatibleError('bad structure'),
+        '200': Hanime1ParserIncompatibleError('bad structure'),
+    }
+    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/readyz')
+
+    assert response.status_code == 503
+    assert response.json()['status'] == 'degraded'
+    assert response.json()['checks']['hanime1']['code'] == 'parser_incompatible'
+    assert response.json()['checks']['hanime1']['sampled_targets'] == 2
+
+
+def test_readiness_endpoint_skips_when_no_targets_and_caches_for_five_minutes(monkeypatch) -> None:
+    now = [0.0]
+    monkeypatch.setattr(api_service_module, 'monotonic', lambda: now[0])
+    runtime = _RuntimeService()
+    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime)
+
+    with TestClient(create_app(service=service)) as client:
+        first = client.get('/readyz')
+        runtime.readiness_ids = ['100']
+        now[0] = 299
+        second = client.get('/readyz')
+        now[0] = 300
+        third = client.get('/readyz')
+
+    assert first.status_code == 200
+    assert first.json()['checks']['hanime1']['code'] == 'no_targets'
+    assert second.json() == first.json()
+    assert third.json()['checks']['hanime1']['code'] == 'ok'
+    assert runtime.readiness_calls == 2
+    assert runtime.probe_calls == ['100']
+
+
+def test_readiness_endpoint_skips_when_hanime1_is_disabled(monkeypatch) -> None:
+    runtime = _RuntimeService()
+    runtime.readiness_ids = ['100']
+    service = _build_service(token=_VALID_TOKEN, runtime_service=runtime)
+    monkeypatch.setattr(api_service_module.app_config.web.hanime1, 'enabled', False)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/readyz')
+
+    assert response.status_code == 200
+    assert response.json()['checks']['hanime1']['code'] == 'disabled'
+    assert runtime.probe_calls == []
+
+
 def test_docs_and_openapi_are_public_and_v2_only() -> None:
     service = _build_service(token=_VALID_TOKEN, jobs=[_job(key='bilibili')])
 
@@ -154,6 +280,7 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     assert '/api/v2/notifications' not in payload['paths']
     assert '/api/v2/notifications/ack' not in payload['paths']
     assert '/api/v1/health' not in payload['paths']
+    assert '/readyz' in payload['paths']
     assert payload['paths']['/api/v2/jobs']['get']['operationId'] == 'listJobs'
     assert v1_response.status_code == 404
     assert v1_response.json() == {

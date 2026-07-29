@@ -26,6 +26,19 @@ class HealthResponse(ApiSchema):
     generated_at: str
 
 
+class ComponentReadiness(ApiSchema):
+    status: Literal['ok', 'degraded', 'skipped']
+    code: str
+    message: str
+    sampled_targets: int = Field(ge=0)
+
+
+class ReadinessResponse(ApiSchema):
+    status: Literal['ok', 'degraded']
+    generated_at: str
+    checks: dict[str, ComponentReadiness]
+
+
 class JobRequestTarget(StrEnum):
     ALL = 'all'
     AZURLANE = 'azurlane'

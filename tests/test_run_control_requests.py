@@ -12,6 +12,7 @@ import run as run_module
 from src.service.jobs import ScheduledJob
 from src.tool.control_queue import STATUS_FAILED, STATUS_REJECTED, STATUS_SUCCEEDED, ControlRequest
 from src.tool.notifications import WEBHOOK_ACTION_UPSERT, NotificationRecord
+from src.tool.runtime_config import Hanime1ParserIncompatibleError
 
 
 def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
@@ -286,6 +287,26 @@ def test_run_job_uses_exception_notification_dedupe_key(monkeypatch) -> None:
     assert result.success is False
     assert captured['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
     assert captured['payload']['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
+
+
+def test_run_job_dedupes_hanime1_parser_failure_notification(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FailingWorker:
+        async def update(self) -> None:
+            msg = 'playlist structure changed'
+            raise Hanime1ParserIncompatibleError(msg)
+
+    async def _fake_enqueue_notification(**payload) -> None:
+        captured.update(payload)
+
+    monkeypatch.setattr(run_module, 'enqueue_notification', _fake_enqueue_notification)
+
+    result = asyncio.run(run_module._run_job(job=_job(key='hanime1'), worker=_FailingWorker()))
+
+    assert result.success is False
+    assert captured['dedupe_key'] == 'job_failed:hanime1:hanime1:parser:playlist-wrapper'
+    assert captured['payload']['error_class'] == 'Hanime1ParserIncompatibleError'
 
 
 def test_run_job_handles_cancelled_error_and_closes_worker(monkeypatch) -> None:

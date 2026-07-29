@@ -16,8 +16,12 @@ This repository exposes an internal FastAPI backend for control, archived catalo
 Public endpoints:
 
 - `GET /healthz`
+- `GET /readyz`
 - `GET /docs`
 - `GET /openapi.json`
+
+`/healthz` is a lightweight process liveness endpoint. `/readyz` performs a cached deep check of Hanime1 playlist parsing against up
+to three configured scan targets and returns `503` with `status=degraded` when the parser or upstream watch pages are unavailable.
 
 Protected endpoints:
 
