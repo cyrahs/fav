@@ -25,6 +25,15 @@ _HANIME1_PLAYLIST_LINK_TITLE_RE = re.compile(
     r'<a[^>]+href=["\'][^"\']*/playlist\?[^"\']*["\'][^>]*>(?P<title>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
+_HANIME1_PLAYLIST_VIDEO_TITLE_RE = re.compile(
+    r'<h4[^>]+class=["\'][^"\']*\bvideo-title\b[^"\']*["\'][^>]*>(?P<title>.*?)</h4>',
+    re.IGNORECASE | re.DOTALL,
+)
+_HANIME1_CARD_MOBILE_TITLE_RE = re.compile(
+    r'<div[^>]+class=["\'][^"\']*\bcard-mobile-title\b[^"\']*["\'][^>]*>(?P<title>.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_HANIME1_IMAGE_ALT_RE = re.compile(r'<img\b[^>]*\balt=["\'](?P<title>.*?)["\']', re.IGNORECASE | re.DOTALL)
 _HANIME1_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
     re.IGNORECASE,
@@ -46,6 +55,12 @@ class RuntimeSeriesSeed:
     @property
     def label(self) -> str:
         return build_hanime1_seed(seed_id=self.video_id, title=self.title)
+
+
+@dataclass(slots=True, frozen=True)
+class Hanime1PlaylistEntry:
+    video_id: str
+    title: str | None = None
 
 
 def to_simplified_chinese(text: str | None) -> str | None:
@@ -214,22 +229,68 @@ def extract_hanime1_series_ids(playlist_html: str) -> list[str]:
     return ids
 
 
-def parse_hanime1_playlist(page_html: str, *, seed_id: str | None = None) -> tuple[str, list[str]] | None:
+def _extract_hanime1_playlist_item_title(item_html: str) -> str | None:
+    for pattern in (_HANIME1_PLAYLIST_VIDEO_TITLE_RE, _HANIME1_CARD_MOBILE_TITLE_RE, _HANIME1_IMAGE_ALT_RE):
+        match = pattern.search(item_html)
+        if match is None:
+            continue
+        title = normalize_hanime1_watch_title(match.group('title'))
+        if title:
+            return to_simplified_chinese(title)
+    return None
+
+
+def extract_hanime1_playlist_entries(
+    page_html: str,
+    *,
+    require_current_titles: bool = False,
+) -> list[Hanime1PlaylistEntry]:
+    playlist_blocks = extract_hanime1_playlist_blocks(page_html)
+    ordered_ids: list[str] = []
+    seen_ids: set[str] = set()
+    titles: dict[str, str] = {}
+    has_current_cards = False
+
+    for playlist_html in playlist_blocks:
+        for video_id in extract_hanime1_series_ids(playlist_html):
+            if video_id not in seen_ids:
+                seen_ids.add(video_id)
+                ordered_ids.append(video_id)
+
+        for class_name in ('playlist-video-card', 'related-watch-wrap'):
+            item_blocks = extract_hanime1_div_blocks_by_class(playlist_html, class_name=class_name)
+            if class_name == 'playlist-video-card' and item_blocks:
+                has_current_cards = True
+            for item_html in item_blocks:
+                title = _extract_hanime1_playlist_item_title(item_html)
+                if not title:
+                    continue
+                for video_id in extract_hanime1_series_ids(item_html):
+                    titles.setdefault(video_id, title)
+
+    if require_current_titles and has_current_cards and not titles:
+        msg = 'Hanime1 playlist cards did not expose compatible item titles'
+        raise Hanime1ParserIncompatibleError(msg)
+
+    return [Hanime1PlaylistEntry(video_id=video_id, title=titles.get(video_id)) for video_id in ordered_ids]
+
+
+def parse_hanime1_playlist(
+    page_html: str,
+    *,
+    seed_id: str | None = None,
+    require_current_titles: bool = False,
+) -> tuple[str, list[str]] | None:
     playlist_blocks = extract_hanime1_playlist_blocks(page_html)
     title = next((title for block in playlist_blocks if (title := extract_hanime1_playlist_title(block))), None)
     if not title:
         return None
 
-    series_ids: list[str] = []
-    seen_ids: set[str] = set()
-    for block in playlist_blocks:
-        for video_id in extract_hanime1_series_ids(block):
-            if video_id not in seen_ids:
-                seen_ids.add(video_id)
-                series_ids.append(video_id)
+    entries = extract_hanime1_playlist_entries(page_html, require_current_titles=require_current_titles)
+    series_ids = [entry.video_id for entry in entries]
     if not series_ids:
         return None
-    if seed_id is not None and seed_id not in seen_ids:
+    if seed_id is not None and seed_id not in set(series_ids):
         series_ids.append(seed_id)
     return title, series_ids
 

@@ -36,6 +36,28 @@ def _make_hanime1(tmp_path: Path) -> Hanime1:
     return h
 
 
+_CURRENT_PLAYLIST_HTML = """
+<div class="desktop video-playlist-wrapper">
+  <h4><span>清單</span><a href="/playlist?list=1">○○交配</a></h4>
+  <div class="playlist-video-card video-item-container">
+    <div class="thumb-container"><a href="/watch?v=407017"></a></div>
+    <div class="video-info-container"></div>
+  </div>
+</div>
+<div class="video-playlist-wrapper mobile">
+  <h4><span>清單</span><a href="/playlist?list=1">○○交配</a></h4>
+  <div class="playlist-video-card video-item-container">
+    <div class="thumb-container"><a href="/watch?v=407017"></a></div>
+    <div class="video-info-container"><h4 class="video-title">援助交配 11</h4></div>
+  </div>
+  <div class="playlist-video-card video-item-container">
+    <div class="thumb-container"><a href="/watch?v=37176"></a></div>
+    <div class="video-info-container"><h4 class="video-title">援助交配 1</h4></div>
+  </div>
+</div>
+"""
+
+
 def test_extract_stream_urls_prefers_m3u8_and_unescapes() -> None:
     page_html = r"""
     <script>
@@ -188,6 +210,18 @@ def test_extract_watch_series_supports_current_class_wrapper_and_dedupes_layouts
     assert api_series == ('屈辱', ['13253', '12488'])
 
 
+def test_extract_watch_series_reads_current_playlist_card_titles_and_dedupes_layouts() -> None:
+    series = Hanime1.extract_watch_series(_CURRENT_PLAYLIST_HTML)
+
+    assert series is not None
+    assert series.name == '○○交配'
+    assert list(series.video_ids) == ['407017', '37176']
+    assert list(series.videos) == [
+        WatchSeriesVideo(video_id='407017', title='援助交配 11', position=1),
+        WatchSeriesVideo(video_id='37176', title='援助交配 1', position=2),
+    ]
+
+
 def test_series_service_adds_seed_from_current_class_wrapper(monkeypatch) -> None:
     page_html = """
     <div class="video-playlist-wrapper">
@@ -215,6 +249,36 @@ def test_series_service_adds_seed_from_current_class_wrapper(monkeypatch) -> Non
     assert seed == RuntimeSeriesSeed(video_id='12488', title='屈辱')
     assert inserted['added_from_video_id'] == '12488'
     assert inserted['series_ids'] == ['13253', '12488']
+    client.close()
+
+
+def test_series_service_rejects_current_cards_without_titles() -> None:
+    page_html = """
+    <div class="video-playlist-wrapper">
+      <h4><a href="/playlist?list=1">Series</a></h4>
+      <div class="playlist-video-card">
+        <a href="/watch?v=12488"></a>
+        <div class="video-info-container"><h4 class="renamed-title">Episode 1</h4></div>
+      </div>
+    </div>
+    """
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=page_html)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    service = Hanime1SeriesService(
+        dsn='postgresql://unused',
+        host='https://hanime1.me',
+        user_lang='zhs',
+        client=client,
+    )
+
+    with pytest.raises(Hanime1ParserIncompatibleError, match='item titles'):
+        service.probe_seed('12488')
+    with pytest.raises(LookupError, match='seed_resolve_failed'):
+        service.add_seed('12488')
+
     client.close()
 
 
@@ -303,6 +367,30 @@ def test_collect_ids_keeps_playlist_titles_with_sequence(monkeypatch, tmp_path) 
         '13253': HanimeCandidate(video_id='13253', source_name='屈辱', archive_title='屈辱 1'),
         '12488': HanimeCandidate(video_id='12488', source_name='屈辱', archive_title='屈辱 2'),
     }
+
+
+def test_collect_ids_uses_current_item_title_when_series_name_differs(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seed = RuntimeSeriesSeed(video_id='37176', title='○○交配')
+
+    async def _fake_resolve_series(_item: HanimeRecord) -> WatchSeries:
+        series = Hanime1.extract_watch_series(_CURRENT_PLAYLIST_HTML)
+        assert series is not None
+        return series
+
+    async def _fake_query_db(_sql: str, _params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
+
+    assert collected['407017'] == HanimeCandidate(
+        video_id='407017',
+        source_name='○○交配',
+        archive_title='援助交配 11',
+    )
 
 
 def test_extract_watch_series_returns_none_when_playlist_not_found() -> None:
@@ -960,6 +1048,43 @@ def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, 
     assert result.resolution is None
     assert result.cover_url is None
     assert result.final_path == output_dir / 'tag-b' / 'Playlist Title 01 [video-234].mp4'
+
+
+def test_download_item_keeps_playlist_item_title_for_path_and_watch_title_for_metadata(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    output_dir = tmp_path / 'hanime1'
+    monkeypatch.setattr(hanime1_module.cfg, 'path', output_dir)
+
+    item = HanimeRecord(
+        id='407017',
+        title='援助交配 11',
+        keyword='○○交配',
+        page_url='https://hanime1.me/watch?v=407017',
+        stream_url=None,
+    )
+
+    async def _fake_resolve_stream(_item: HanimeRecord) -> tuple[str, str | None]:
+        return ('https://video.example.com/407017-1080p.mp4', '援助交配 11')
+
+    async def _fake_resolve_metadata(_item: HanimeRecord) -> WatchMetadata:
+        return WatchMetadata(title='○○交配 第十一話 前編 [中文字幕]')
+
+    def _fake_download_stream(*, task, dirpath: Path) -> Path:
+        dirpath.mkdir(parents=True, exist_ok=True)
+        saved = dirpath / f'{task.video_id}.mp4'
+        saved.write_bytes(b'video')
+        return saved
+
+    monkeypatch.setattr(h, 'resolve_stream_from_download_page', _fake_resolve_stream)
+    monkeypatch.setattr(h, 'resolve_metadata_from_watch_page', _fake_resolve_metadata)
+    monkeypatch.setattr(h, 'download_stream', _fake_download_stream)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: None)
+
+    result = asyncio.run(h.download_item(item))
+
+    assert result.title == '○○交配 第十一話 前編 [中文字幕]'
+    assert result.archive_title == '援助交配 11'
+    assert result.final_path == output_dir / '○○交配' / '援助交配 11 [407017].mp4'
 
 
 def test_download_item_raises_for_ignored_site_markers(tmp_path) -> None:

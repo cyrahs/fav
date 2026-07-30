@@ -31,8 +31,7 @@ from src.tool.notifications import enqueue_notification, format_job_failure_dedu
 from src.tool.runtime_config import (
     Hanime1ParserIncompatibleError,
     RuntimeSeriesSeed,
-    extract_hanime1_div_blocks_by_class,
-    extract_hanime1_playlist_blocks,
+    extract_hanime1_playlist_entries,
     parse_hanime1_playlist,
     parse_runtime_series_seed,
     select_hanime1_canonical_id,
@@ -78,11 +77,6 @@ _SEARCH_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
     re.IGNORECASE,
 )
-_PLAYLIST_ITEM_TITLE_RE = re.compile(
-    r'<div[^>]+class=["\'][^"\']*\bcard-mobile-title\b[^"\']*["\'][^>]*>(?P<title>.*?)</div>',
-    re.IGNORECASE | re.DOTALL,
-)
-_IMAGE_ALT_RE = re.compile(r'<img\b[^>]*\balt=["\'](?P<title>.*?)["\']', re.IGNORECASE | re.DOTALL)
 _EPISODE_MARKER_RE = re.compile(
     r'(?:'
     r'S\s*[0-9]{1,2}\s*E\s*[0-9]{1,3}|'
@@ -420,74 +414,18 @@ class Hanime1:
         return ids
 
     @staticmethod
-    def _normalize_html_text(text: str | None) -> str | None:
-        if not text:
-            return None
-        normalized = html.unescape(text)
-        normalized = re.sub(r'<[^>]+>', '', normalized)
-        normalized = re.sub(r'\s+', ' ', normalized).strip()
-        return normalized or None
-
-    @staticmethod
-    def _extract_playlist_item_title(item_html: str) -> str | None:
-        match = _PLAYLIST_ITEM_TITLE_RE.search(item_html)
-        if match:
-            title = Hanime1._normalize_html_text(match.group('title'))
-            if title:
-                return Hanime1._to_simplified_chinese(title)
-
-        for match in _IMAGE_ALT_RE.finditer(item_html):
-            title = Hanime1._normalize_html_text(match.group('title'))
-            if title:
-                return Hanime1._to_simplified_chinese(title)
-        return None
-
-    @staticmethod
-    def _extract_playlist_videos(playlist_html: str) -> list[WatchSeriesVideo]:
-        videos: list[WatchSeriesVideo] = []
-        seen_ids: set[str] = set()
-        for item_html in extract_hanime1_div_blocks_by_class(playlist_html, class_name='related-watch-wrap'):
-            title = Hanime1._extract_playlist_item_title(item_html)
-            for video_id in Hanime1.extract_search_video_ids(item_html):
-                key = video_id.casefold()
-                if key in seen_ids:
-                    continue
-                seen_ids.add(key)
-                videos.append(WatchSeriesVideo(video_id=video_id, title=title, position=len(videos) + 1))
-
-        for video_id in Hanime1.extract_search_video_ids(playlist_html):
-            key = video_id.casefold()
-            if key in seen_ids:
-                continue
-            seen_ids.add(key)
-            videos.append(WatchSeriesVideo(video_id=video_id, position=len(videos) + 1))
-
-        return videos
-
-    @staticmethod
     def extract_watch_series(page_html: str) -> WatchSeries | None:
-        parsed = parse_hanime1_playlist(page_html)
+        parsed = parse_hanime1_playlist(page_html, require_current_titles=True)
         if parsed is None:
             return None
         series_name, ids = parsed
         series_name = Hanime1._to_simplified_chinese(series_name) or series_name
 
-        titles: dict[str, str | None] = {}
-        for block in extract_hanime1_playlist_blocks(page_html):
-            for video in Hanime1._extract_playlist_videos(block):
-                titles.setdefault(video.video_id, video.title)
+        titles = {entry.video_id: entry.title for entry in extract_hanime1_playlist_entries(page_html)}
         videos = tuple(
             WatchSeriesVideo(video_id=video_id, title=titles.get(video_id), position=index) for index, video_id in enumerate(ids, 1)
         )
         return WatchSeries(name=series_name, video_ids=tuple(ids), videos=videos)
-
-    @staticmethod
-    def _title_contains_series(title: str, series_name: str | None) -> bool:
-        if not series_name:
-            return False
-        normalized_title = re.sub(r'\s+', ' ', title).strip().casefold()
-        normalized_series = re.sub(r'\s+', ' ', series_name).strip().casefold()
-        return bool(normalized_series and normalized_title.startswith(normalized_series))
 
     @staticmethod
     def _title_suffix_after_series(title: str, series_name: str | None) -> str:
@@ -511,8 +449,6 @@ class Hanime1:
         item_title = Hanime1._to_simplified_chinese(video.title) or video.title
 
         if item_title and Hanime1._playlist_item_title_has_sequence(item_title, series_title):
-            if series_title and not Hanime1._title_contains_series(item_title, series_title):
-                return f'{series_title} {item_title}'
             return item_title
 
         if series_title:

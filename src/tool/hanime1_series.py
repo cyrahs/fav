@@ -119,7 +119,7 @@ class Hanime1SeriesService:
 
     def probe_seed(self, seed_id: str, *, timeout_seconds: float = 10) -> None:
         page_html = self._fetch_watch_page_html(seed_id, timeout_seconds=timeout_seconds)
-        if parse_hanime1_playlist(page_html, seed_id=seed_id) is None:
+        if parse_hanime1_playlist(page_html, seed_id=seed_id, require_current_titles=True) is None:
             msg = 'Hanime1 watch page did not expose a compatible playlist structure'
             raise Hanime1ParserIncompatibleError(msg)
 
@@ -147,7 +147,10 @@ class Hanime1SeriesService:
             page_html = self._fetch_watch_page_html(seed_id)
         except Exception:  # noqa: BLE001
             return None
-        return parse_hanime1_playlist(page_html, seed_id=seed_id)
+        try:
+            return parse_hanime1_playlist(page_html, seed_id=seed_id, require_current_titles=True)
+        except Hanime1ParserIncompatibleError:
+            return None
 
     def _insert_series_seed(
         self,
