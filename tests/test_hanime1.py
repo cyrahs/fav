@@ -39,8 +39,8 @@ def _make_hanime1(tmp_path: Path) -> Hanime1:
 _CURRENT_PLAYLIST_HTML = """
 <div class="desktop video-playlist-wrapper">
   <h4><span>清單</span><a href="/playlist?list=1">○○交配</a></h4>
-  <div class="playlist-video-card video-item-container">
-    <div class="thumb-container"><a href="/watch?v=407017"></a></div>
+  <div class="video-item-container">
+    <div class="thumb-container"><a href="/watch?v=407017"><span>Preview 407017</span></a></div>
     <div class="video-info-container"></div>
   </div>
 </div>
@@ -53,6 +53,15 @@ _CURRENT_PLAYLIST_HTML = """
   <div class="playlist-video-card video-item-container">
     <div class="thumb-container"><a href="/watch?v=37176"></a></div>
     <div class="video-info-container"><h4 class="video-title">援助交配 1</h4></div>
+  </div>
+</div>
+"""
+
+_LINK_TITLE_PLAYLIST_HTML = """
+<div class="video-playlist-wrapper">
+  <h4><span>清單</span><a href="/playlist?list=2">ヌきヌき ずっぽしイズム</a></h4>
+  <div class="video-item-container">
+    <a href="/watch?v=407018"><span>射精深陷主義 1</span></a>
   </div>
 </div>
 """
@@ -222,6 +231,16 @@ def test_extract_watch_series_reads_current_playlist_card_titles_and_dedupes_lay
     ]
 
 
+def test_extract_watch_series_reads_title_from_watch_link() -> None:
+    series = Hanime1.extract_watch_series(_LINK_TITLE_PLAYLIST_HTML)
+
+    assert series is not None
+    assert series.name == 'ヌきヌき ずっぽしイズム'
+    assert list(series.videos) == [
+        WatchSeriesVideo(video_id='407018', title='射精深陷主义 1', position=1),
+    ]
+
+
 def test_series_service_adds_seed_from_current_class_wrapper(monkeypatch) -> None:
     page_html = """
     <div class="video-playlist-wrapper">
@@ -252,11 +271,12 @@ def test_series_service_adds_seed_from_current_class_wrapper(monkeypatch) -> Non
     client.close()
 
 
-def test_series_service_rejects_current_cards_without_titles() -> None:
-    page_html = """
+@pytest.mark.parametrize('class_name', ['playlist-video-card', 'video-item-container'])
+def test_series_service_rejects_current_cards_without_titles(class_name: str) -> None:
+    page_html = f"""
     <div class="video-playlist-wrapper">
       <h4><a href="/playlist?list=1">Series</a></h4>
-      <div class="playlist-video-card">
+      <div class="{class_name}">
         <a href="/watch?v=12488"></a>
         <div class="video-info-container"><h4 class="renamed-title">Episode 1</h4></div>
       </div>
@@ -313,7 +333,7 @@ def test_series_service_rejects_playlist_without_video_id(monkeypatch) -> None:
     client.close()
 
 
-def test_collect_ids_adds_sequence_when_playlist_titles_are_not_distinct(monkeypatch, tmp_path) -> None:
+def test_collect_ids_reverse_numbers_when_playlist_titles_are_not_distinct(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
     seed = RuntimeSeriesSeed(video_id='404988', title='クール de M')
 
@@ -336,12 +356,27 @@ def test_collect_ids_adds_sequence_when_playlist_titles_are_not_distinct(monkeyp
     collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
 
     assert collected == {
-        '404988': HanimeCandidate(video_id='404988', source_name='クール de M', archive_title='クール de M 01'),
-        '157875': HanimeCandidate(video_id='157875', source_name='クール de M', archive_title='クール de M 02'),
+        '404988': HanimeCandidate(video_id='404988', source_name='クール de M', archive_title='クール de M 02'),
+        '157875': HanimeCandidate(video_id='157875', source_name='クール de M', archive_title='クール de M 01'),
     }
 
 
-def test_collect_ids_keeps_playlist_titles_with_sequence(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ('titles', 'expected_state'),
+    [
+        (('First', 'Second'), 'distinct'),
+        (('First', None), 'fallback'),
+        (('Title A', ' title   a '), 'fallback'),
+        (('後編', '后编'), 'fallback'),
+    ],
+)
+def test_playlist_item_title_distinctness(titles: tuple[str | None, ...], expected_state: str) -> None:
+    videos = tuple(WatchSeriesVideo(video_id=str(position), title=title, position=position) for position, title in enumerate(titles, 1))
+
+    assert Hanime1._playlist_item_titles_are_distinct(videos) is (expected_state == 'distinct')
+
+
+def test_collect_ids_keeps_playlist_titles_when_distinct(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
     seed = RuntimeSeriesSeed(video_id='13253', title='屈辱')
 
@@ -369,6 +404,28 @@ def test_collect_ids_keeps_playlist_titles_with_sequence(monkeypatch, tmp_path) 
     }
 
 
+def test_playlist_item_title_is_authoritative_for_407015() -> None:
+    archive_title = Hanime1._format_playlist_archive_title(
+        series_name='ラブはギャルから始まる運命',
+        video=WatchSeriesVideo(video_id='407015', title='戀愛始於辣妹的命運 2', position=1),
+        total=2,
+        use_item_title=True,
+    )
+
+    assert archive_title == '恋爱始于辣妹的命运 2'
+
+
+def test_single_item_without_title_uses_number_one() -> None:
+    archive_title = Hanime1._format_playlist_archive_title(
+        series_name='Series',
+        video=WatchSeriesVideo(video_id='1', title=None, position=1),
+        total=1,
+        use_item_title=False,
+    )
+
+    assert archive_title == 'Series 01'
+
+
 def test_collect_ids_uses_current_item_title_when_series_name_differs(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
     seed = RuntimeSeriesSeed(video_id='37176', title='○○交配')
@@ -390,6 +447,30 @@ def test_collect_ids_uses_current_item_title_when_series_name_differs(monkeypatc
         video_id='407017',
         source_name='○○交配',
         archive_title='援助交配 11',
+    )
+
+
+def test_collect_ids_uses_single_item_watch_link_title(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    seed = RuntimeSeriesSeed(video_id='407018', title='ヌきヌき ずっぽしイズム')
+
+    async def _fake_resolve_series(_item: HanimeRecord) -> WatchSeries:
+        series = Hanime1.extract_watch_series(_LINK_TITLE_PLAYLIST_HTML)
+        assert series is not None
+        return series
+
+    async def _fake_query_db(_sql: str, _params: tuple[str, ...] = ()) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
+
+    assert collected['407018'] == HanimeCandidate(
+        video_id='407018',
+        source_name='ヌきヌき ずっぽしイズム',
+        archive_title='射精深陷主义 1',
     )
 
 
@@ -784,8 +865,8 @@ def test_collect_ids_upserts_series_members_and_marks_success(monkeypatch, tmp_p
     collected = asyncio.run(h._collect_ids_from_watch_series([seed]))
 
     assert collected == {
-        '13253': HanimeCandidate(video_id='13253', source_name='屈辱', archive_title='屈辱 01'),
-        '12488': HanimeCandidate(video_id='12488', source_name='屈辱', archive_title='屈辱 02'),
+        '13253': HanimeCandidate(video_id='13253', source_name='屈辱', archive_title='屈辱 02'),
+        '12488': HanimeCandidate(video_id='12488', source_name='屈辱', archive_title='屈辱 01'),
     }
     assert any('INSERT INTO hanime1_series_video' in sql and params == ('12488', '12488') for sql, params in queries)
     assert any('INSERT INTO hanime1_series_video' in sql and params == ('13253', '12488') for sql, params in queries)

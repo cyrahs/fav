@@ -14,7 +14,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -77,18 +76,6 @@ _SEARCH_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
     re.IGNORECASE,
 )
-_EPISODE_MARKER_RE = re.compile(
-    r'(?:'
-    r'S\s*[0-9]{1,2}\s*E\s*[0-9]{1,3}|'
-    r'E\s*[0-9]{1,3}|'
-    r'第\s*(?:[0-9]+|[一二三四五六七八九十百零〇]+)\s*(?:話|话|集|章|部|回)|'
-    r'(?:ep(?:isode)?|part|vol(?:ume)?|ova|oad)\.?\s*[0-9]+|'
-    r'[0-9]+\s*(?:話|话|集|章|部|回|巻|卷)'
-    r')',
-    re.IGNORECASE,
-)
-_STANDALONE_NUMBER_RE = re.compile(r'(?<![A-Za-z0-9])([0-9]{1,3})(?![A-Za-z0-9])')
-_TITLE_SUFFIX_STRIP_CHARS = ' \t\r\n._-:~\uff1a\uff5e'
 _PARSER_FAILURE_DEDUPE_KEY = format_job_failure_dedupe_key(
     job_key='hanime1',
     failure_key=Hanime1ParserIncompatibleError.notification_dedupe_key,
@@ -428,33 +415,26 @@ class Hanime1:
         return WatchSeries(name=series_name, video_ids=tuple(ids), videos=videos)
 
     @staticmethod
-    def _title_suffix_after_series(title: str, series_name: str | None) -> str:
-        if not series_name:
-            return title
-        normalized_title = re.sub(r'\s+', ' ', title).strip()
-        normalized_series = re.sub(r'\s+', ' ', series_name).strip()
-        if normalized_title.casefold().startswith(normalized_series.casefold()):
-            return normalized_title[len(normalized_series) :].strip(_TITLE_SUFFIX_STRIP_CHARS)
-        return normalized_title
+    def _playlist_item_titles_are_distinct(videos: tuple[WatchSeriesVideo, ...]) -> bool:
+        titles = {re.sub(r'\s+', ' ', Hanime1._to_simplified_chinese(video.title) or '').strip().casefold() for video in videos}
+        return bool(videos) and '' not in titles and len(titles) == len(videos)
 
     @staticmethod
-    def _playlist_item_title_has_sequence(title: str, series_name: str | None) -> bool:
-        suffix = Hanime1._title_suffix_after_series(title, series_name)
-        suffix = unicodedata.normalize('NFKC', suffix)
-        return bool(_EPISODE_MARKER_RE.search(suffix) or _STANDALONE_NUMBER_RE.search(suffix))
-
-    @staticmethod
-    def _format_playlist_archive_title(*, series_name: str | None, video: WatchSeriesVideo, total: int) -> str:
+    def _format_playlist_archive_title(
+        *,
+        series_name: str | None,
+        video: WatchSeriesVideo,
+        total: int,
+        use_item_title: bool,
+    ) -> str:
         series_title = Hanime1._to_simplified_chinese(series_name) or series_name
         item_title = Hanime1._to_simplified_chinese(video.title) or video.title
 
-        if item_title and Hanime1._playlist_item_title_has_sequence(item_title, series_title):
+        if use_item_title and item_title:
             return item_title
 
         if series_title:
-            if total > 1:
-                return f'{series_title} {video.position:02d}'
-            return series_title
+            return f'{series_title} {total - video.position + 1:02d}'
 
         if item_title:
             return item_title
@@ -1178,6 +1158,7 @@ class Hanime1:
                 )
 
             total_series_videos = len(series_videos)
+            use_item_titles = self._playlist_item_titles_are_distinct(series_videos)
             new_count = 0
             for video in series_videos:
                 video_id = video.video_id
@@ -1191,6 +1172,7 @@ class Hanime1:
                         series_name=source_name,
                         video=video,
                         total=total_series_videos,
+                        use_item_title=use_item_titles,
                     ),
                 )
                 new_count += 1

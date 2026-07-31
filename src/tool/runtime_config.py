@@ -34,6 +34,7 @@ _HANIME1_CARD_MOBILE_TITLE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _HANIME1_IMAGE_ALT_RE = re.compile(r'<img\b[^>]*\balt=["\'](?P<title>.*?)["\']', re.IGNORECASE | re.DOTALL)
+_HANIME1_ANCHOR_RE = re.compile(r'<a\b[^>]*>(?P<title>.*?)</a>', re.IGNORECASE | re.DOTALL)
 _HANIME1_WATCH_HREF_RE = re.compile(
     r'href=["\'](?P<url>(?:https?:)?//[^"\']+/watch\?v=[^"\'>\s]+|/watch\?v=[^"\'>\s]+|watch\?v=[^"\'>\s]+)["\']',
     re.IGNORECASE,
@@ -240,6 +241,17 @@ def _extract_hanime1_playlist_item_title(item_html: str) -> str | None:
     return None
 
 
+def _extract_hanime1_watch_link_title(item_html: str) -> str | None:
+    for match in _HANIME1_ANCHOR_RE.finditer(item_html):
+        video_ids = extract_hanime1_series_ids(match.group(0))
+        if len(video_ids) != 1:
+            continue
+        title = normalize_hanime1_watch_title(match.group('title'))
+        if title:
+            return to_simplified_chinese(title) or title
+    return None
+
+
 def extract_hanime1_playlist_entries(
     page_html: str,
     *,
@@ -248,7 +260,8 @@ def extract_hanime1_playlist_entries(
     playlist_blocks = extract_hanime1_playlist_blocks(page_html)
     ordered_ids: list[str] = []
     seen_ids: set[str] = set()
-    titles: dict[str, str] = {}
+    explicit_titles: dict[str, str] = {}
+    fallback_titles: dict[str, str] = {}
     has_current_cards = False
 
     for playlist_html in playlist_blocks:
@@ -257,16 +270,25 @@ def extract_hanime1_playlist_entries(
                 seen_ids.add(video_id)
                 ordered_ids.append(video_id)
 
-        for class_name in ('playlist-video-card', 'related-watch-wrap'):
-            item_blocks = extract_hanime1_div_blocks_by_class(playlist_html, class_name=class_name)
-            if class_name == 'playlist-video-card' and item_blocks:
-                has_current_cards = True
-            for item_html in item_blocks:
-                title = _extract_hanime1_playlist_item_title(item_html)
-                if not title:
-                    continue
-                for video_id in extract_hanime1_series_ids(item_html):
-                    titles.setdefault(video_id, title)
+        current_blocks = extract_hanime1_div_blocks_by_class(playlist_html, class_name='playlist-video-card')
+        allow_link_fallback = not current_blocks
+        if not current_blocks:
+            current_blocks = extract_hanime1_div_blocks_by_class(playlist_html, class_name='video-item-container')
+        has_current_cards |= bool(current_blocks)
+        legacy_blocks = extract_hanime1_div_blocks_by_class(playlist_html, class_name='related-watch-wrap')
+
+        for item_html in [*current_blocks, *legacy_blocks]:
+            video_ids = extract_hanime1_series_ids(item_html)
+            title = _extract_hanime1_playlist_item_title(item_html)
+            title_map = explicit_titles
+            if not title and allow_link_fallback and item_html in current_blocks:
+                title = _extract_hanime1_watch_link_title(item_html)
+                title_map = fallback_titles
+            if title:
+                for video_id in video_ids:
+                    title_map.setdefault(video_id, title)
+
+    titles = fallback_titles | explicit_titles
 
     if require_current_titles and has_current_cards and not titles:
         msg = 'Hanime1 playlist cards did not expose compatible item titles'
