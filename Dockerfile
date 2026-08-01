@@ -1,3 +1,15 @@
+FROM node:22-slim AS web-builder
+
+WORKDIR /web
+
+# Install front-end deps first so a source-only change reuses the cached layer.
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+
+COPY web/ ./
+RUN npm run build
+
+
 FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS builder
 
 WORKDIR /app
@@ -55,6 +67,9 @@ RUN python -m playwright install --with-deps chromium \
 COPY src/ src/
 COPY script/ script/
 COPY run.py ./
+
+# The API serves this directory when it exists; without it the image is API-only.
+COPY --from=web-builder /web/dist web/dist
 
 # Compile application code to bytecode
 RUN python -m compileall src/ script/ run.py

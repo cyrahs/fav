@@ -595,7 +595,7 @@ def test_build_ranking_page_url_uses_traditional_query_values() -> None:
     weekly_url = Hanime1._build_ranking_page_url(period='weekly', page=1)
     weekly_query = parse_qs(urlsplit(weekly_url).query)
 
-    assert weekly_url.startswith(f'{hanime1_module.cfg.host.rstrip("/")}/search?')
+    assert weekly_url.startswith(f'{hanime1_module.cfg().host.rstrip("/")}/search?')
     assert weekly_query == {
         'genre': ['裏番'],
         'sort': ['本週排行'],
@@ -646,9 +646,9 @@ def test_fetch_ranking_video_ids_reads_search_page(tmp_path, monkeypatch) -> Non
 
 def test_discover_ranking_series_adds_new_series_targets(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
-    monkeypatch.setattr(hanime1_module.cfg.ranking, 'enabled', True)
-    monkeypatch.setattr(hanime1_module.cfg.ranking, 'periods', ['weekly', 'monthly'])
-    monkeypatch.setattr(hanime1_module.cfg.ranking, 'pages', 1)
+    monkeypatch.setattr(hanime1_module.cfg().ranking, 'enabled', True)
+    monkeypatch.setattr(hanime1_module.cfg().ranking, 'periods', ['weekly', 'monthly'])
+    monkeypatch.setattr(hanime1_module.cfg().ranking, 'pages', 1)
 
     async def _fake_collect_ranking_video_ids() -> list[str]:
         return ['100', '200', '300']
@@ -742,9 +742,9 @@ def test_extract_watch_metadata_parses_title_release_date_and_plot() -> None:
     assert metadata.cover_url == 'https://cdn.example.com/covers/demo.jpg'
 
 
-def test_build_download_command_includes_headers_and_proxy(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(hanime1_module.config, 'proxy', 'http://127.0.0.1:7890')
-
+def test_build_download_command_includes_headers(tmp_path) -> None:
+    # There is no proxy setting any more: yt-dlp reads HTTPS_PROXY from the
+    # environment, same as httpx.
     command = Hanime1._build_download_command(
         stream_url='https://video.example.com/master.m3u8',
         output_template=tmp_path / 'video.%(ext)s',
@@ -757,8 +757,7 @@ def test_build_download_command_includes_headers_and_proxy(monkeypatch, tmp_path
     assert 'https://hanime1.me/v/demo' in command
     assert '--add-header' in command
     assert 'Cookie:cf_clearance=token' in command
-    assert '--proxy' in command
-    assert 'http://127.0.0.1:7890' in command
+    assert '--proxy' not in command
 
 
 def test_get_cookie_header_uses_user_lang_only(tmp_path) -> None:
@@ -802,7 +801,7 @@ def test_get_items_from_series_seeds_filters_downloaded_ids(monkeypatch, tmp_pat
     assert [item.id for item in items] == ['12488']
     assert [item.title for item in items] == ['屈辱 02']
     assert [item.keyword for item in items] == ['屈辱']
-    assert all(item.page_url == f'{hanime1_module.cfg.host.rstrip("/")}/watch?v={item.id}' for item in items)
+    assert all(item.page_url == f'{hanime1_module.cfg().host.rstrip("/")}/watch?v={item.id}' for item in items)
 
 
 def test_get_items_skips_candidates_with_ignored_watch_markers(monkeypatch, tmp_path) -> None:
@@ -1028,7 +1027,7 @@ def test_parse_runtime_seed_supports_id_and_title_id_formats() -> None:
 def test_download_item_renames_and_moves_file(tmp_path, monkeypatch) -> None:
     h = _make_hanime1(tmp_path)
     output_dir = tmp_path / 'hanime1'
-    monkeypatch.setattr(hanime1_module.cfg, 'path', output_dir)
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
 
     item = HanimeRecord(
         id='video-123',
@@ -1084,7 +1083,7 @@ def test_download_item_renames_and_moves_file(tmp_path, monkeypatch) -> None:
 def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, monkeypatch) -> None:
     h = _make_hanime1(tmp_path)
     output_dir = tmp_path / 'hanime1'
-    monkeypatch.setattr(hanime1_module.cfg, 'path', output_dir)
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
 
     item = HanimeRecord(
         id='video-234',
@@ -1134,7 +1133,7 @@ def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, 
 def test_download_item_keeps_playlist_item_title_for_path_and_watch_title_for_metadata(tmp_path, monkeypatch) -> None:
     h = _make_hanime1(tmp_path)
     output_dir = tmp_path / 'hanime1'
-    monkeypatch.setattr(hanime1_module.cfg, 'path', output_dir)
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
 
     item = HanimeRecord(
         id='407017',
@@ -1186,7 +1185,7 @@ def test_download_item_raises_for_ignored_site_markers(tmp_path) -> None:
 def test_update_inserts_item_after_download(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
     output_dir = tmp_path / 'hanime1'
-    monkeypatch.setattr(hanime1_module.cfg, 'path', output_dir)
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
     item = HanimeRecord(
         id='video-123',
         title='Original Title',
@@ -1251,7 +1250,7 @@ def test_update_inserts_item_after_download(monkeypatch, tmp_path) -> None:
 def test_update_skips_ignored_items_without_db_insert(monkeypatch, tmp_path) -> None:
     h = _make_hanime1(tmp_path)
     output_dir = tmp_path / 'hanime1'
-    monkeypatch.setattr(hanime1_module.cfg, 'path', output_dir)
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
     item = HanimeRecord(
         id='video-ignored',
         title='OVA Demo [新番預告]',

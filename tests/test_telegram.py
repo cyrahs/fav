@@ -11,8 +11,16 @@ from telethon.errors import FloodWaitError
 from telethon.tl.types import PeerChannel
 
 import src.web.telegram as telegram_module
+from src.core import settings
 from src.tool.telegram_queue import TelegramMediaJob
 from src.web.telegram import Telegram, TelegramMediaEntry, TelegramSessionUnauthorizedError
+
+
+def _update_telegram_cfg(updates: dict) -> None:
+    """Mutate the pinned settings snapshot that Telegram.cfg resolves against."""
+    cfg = settings.load().web.telegram
+    for key, value in updates.items():
+        setattr(cfg, key, value)
 
 
 class _DummyClient:
@@ -237,11 +245,7 @@ def test_split_routes_reconcile_channel_once_and_stop_cursor_at_limit(monkeypatc
     queued: list[tuple[int, str]] = []
     cursors: list[int] = []
     scan_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        telegram_module,
-        'cfg',
-        telegram_module.cfg.model_copy(update={'scan_limit': 10, 'download_limit_per_channel': 2, 'history_wait_seconds': 0.5}),
-    )
+    _update_telegram_cfg({'scan_limit': 10, 'download_limit_per_channel': 2, 'history_wait_seconds': 0.5})
 
     async def _fake_state(*_args) -> telegram_module.TelegramChannelState:
         return telegram_module.TelegramChannelState(last_scanned_message_id=100, has_scan_state=True)
@@ -296,11 +300,7 @@ def test_reconciliation_enqueues_whole_album_before_advancing_cursor(monkeypatch
     account = _account(media_types=['image'])
     queued: list[int] = []
     cursors: list[int] = []
-    monkeypatch.setattr(
-        telegram_module,
-        'cfg',
-        telegram_module.cfg.model_copy(update={'download_limit_per_channel': 1}),
-    )
+    _update_telegram_cfg({'download_limit_per_channel': 1})
 
     async def _fake_state(*_args) -> telegram_module.TelegramChannelState:
         return telegram_module.TelegramChannelState(last_scanned_message_id=10, has_scan_state=True)
@@ -386,11 +386,7 @@ def test_new_media_type_backfills_full_recent_window(monkeypatch) -> None:
     queued: list[int] = []
     marked: list[list[telegram_module.TelegramMediaType]] = []
     scans: list[tuple[list[telegram_module.TelegramMediaType], bool]] = []
-    monkeypatch.setattr(
-        telegram_module,
-        'cfg',
-        telegram_module.cfg.model_copy(update={'scan_limit': 5, 'download_limit_per_channel': 1}),
-    )
+    _update_telegram_cfg({'scan_limit': 5, 'download_limit_per_channel': 1})
     monkeypatch.setattr(
         tg,
         'get_channel_state',
@@ -785,11 +781,7 @@ def test_flood_wait_cools_down_account_and_retries_job(monkeypatch) -> None:
             result=telegram_module.TelegramChannelState(last_scanned_message_id=0, has_scan_state=True),
         ),
     )
-    monkeypatch.setattr(
-        telegram_module,
-        'cfg',
-        telegram_module.cfg.model_copy(update={'channel_cooldown_seconds': 30}),
-    )
+    _update_telegram_cfg({'channel_cooldown_seconds': 30})
 
     async def _cooldown(_account, seconds: float, *, error: str = '') -> None:
         assert 'FloodWaitError' in error
@@ -856,11 +848,7 @@ def test_account_worker_is_serial_and_delays_between_successes(monkeypatch) -> N
     monkeypatch.setattr(telegram_module, 'claim_next_telegram_media_job', _claim)
     monkeypatch.setattr(tg, '_process_job', _process_job)
     monkeypatch.setattr(tg, '_sleep', _sleep)
-    monkeypatch.setattr(
-        telegram_module,
-        'cfg',
-        telegram_module.cfg.model_copy(update={'download_delay_seconds': 7}),
-    )
+    _update_telegram_cfg({'download_delay_seconds': 7})
 
     asyncio.run(
         tg._consume_account_queue(
@@ -934,7 +922,7 @@ def test_persistent_account_client_enables_updates_and_catch_up(monkeypatch) -> 
 
     assert client_kwargs == [
         {
-            'flood_sleep_threshold': telegram_module.cfg.flood_sleep_threshold_seconds,
+            'flood_sleep_threshold': settings.load().web.telegram.flood_sleep_threshold_seconds,
             'receive_updates': True,
             'catch_up': True,
         },
@@ -947,7 +935,7 @@ def test_accounts_run_in_parallel(monkeypatch) -> None:
     started: list[str] = []
     both_started = asyncio.Event()
     stop_event = asyncio.Event()
-    monkeypatch.setattr(telegram_module, 'cfg', telegram_module.cfg.model_copy(update={'accounts': accounts}))
+    _update_telegram_cfg({'accounts': accounts})
     monkeypatch.setattr(tg, '_initialize_tables', lambda: asyncio.sleep(0))
 
     async def _fake_run_account(account: telegram_module.TelegramAccount, _stop_event: asyncio.Event) -> None:

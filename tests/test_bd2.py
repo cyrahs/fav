@@ -13,7 +13,8 @@ import pytest
 import src.service.jobs as jobs_module
 import src.web.bd2 as bd2_module
 from src.api.schemas import JobRequestTarget
-from src.core.config import BD2
+from src.core import settings
+from src.core.settings import BD2
 from src.tool.bd2_l2d_viewer import ViewerResource
 from src.web.bd2 import (
     Asset,
@@ -101,22 +102,10 @@ def test_bd2_config_defaults_to_disabled_collection_bd2_path() -> None:
     assert cfg.path == Path('./collection/bd2')
 
 
-def test_scheduler_registration_includes_bd2(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_config = SimpleNamespace(
-        web=SimpleNamespace(
-            azurlane=_job_cfg(),
-            bd2=_job_cfg(enabled=False),
-            bilibili=_job_cfg(),
-            hanime1=_job_cfg(),
-            jandan=_job_cfg(),
-            nikke=_job_cfg(),
-            stellasora=_job_cfg(),
-            telegram=_job_cfg(),
-        ),
-    )
-    monkeypatch.setattr(jobs_module, 'config', fake_config)
+def test_scheduler_registration_includes_bd2() -> None:
+    fake_config = settings.Settings()
 
-    jobs = jobs_module.build_jobs()
+    jobs = jobs_module.build_jobs(fake_config)
     bd2_job = next(job for job in jobs if job.key == 'bd2')
 
     assert bd2_job.name == 'BD2'

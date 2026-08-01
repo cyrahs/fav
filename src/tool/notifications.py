@@ -13,7 +13,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-from src.core.config import config
+from src.core.env import env
 
 from . import database
 
@@ -151,8 +151,9 @@ class NotificationRecord:
         return parsed if isinstance(parsed, dict) else {}
 
     @property
-    def webhook_payload(self) -> dict[str, Any]:
+    def webhook_v3_payload(self) -> dict[str, Any]:
         payload = {
+            'notification_id': self.notification_id,
             'markdown': self.markdown,
             'image_url': self.image_url,
             'disable_web_page_preview': self.disable_web_page_preview,
@@ -172,13 +173,6 @@ class NotificationRecord:
         return payload
 
     @property
-    def webhook_v3_payload(self) -> dict[str, Any]:
-        return {
-            'notification_id': self.notification_id,
-            **self.webhook_payload,
-        }
-
-    @property
     def local_image_path(self) -> Path | None:
         image_path = self.payload_json.get('image_path')
         if not isinstance(image_path, str):
@@ -188,9 +182,9 @@ class NotificationRecord:
 
 
 def _postgres_dsn() -> str:
-    dsn = str(config.database.postgres_dsn).strip()
+    dsn = env.postgres_dsn.strip()
     if not dsn:
-        msg = 'database.postgres_dsn is required'
+        msg = 'POSTGRES_DSN is required'
         raise ValueError(msg)
     return dsn
 

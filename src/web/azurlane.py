@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from src.core import config, logger
+from src.core import logger, settings
 from src.tool import database
 from src.tool.azurlane_l2d_sources import (
     DEFAULT_USER_AGENT,
@@ -38,7 +38,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable
 
 log = logger.get('azurlane')
-cfg = config.web.azurlane
 
 _SECOND_FAILURE_COUNT = 2
 _API_REQUEST_INTERVAL_SECONDS = 0.5
@@ -748,7 +747,7 @@ class AzurLane:
         cdn_request_interval_seconds: float = _CDN_REQUEST_INTERVAL_SECONDS,
         asset_process_concurrency: int = _ASSET_PROCESS_CONCURRENCY,
     ) -> None:
-        self.path = Path(path or cfg.path)
+        self.path = Path(path or settings.load().web.azurlane.path)
         self._client = client
         self._source_client = source_client
         self._source_timeout = source_timeout

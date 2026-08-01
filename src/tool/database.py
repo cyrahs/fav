@@ -7,7 +7,8 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-from src.core import config, logger
+from src.core import logger
+from src.core.env import env
 
 log = logger.get('database')
 _DEFAULT_DB_MAX_BIND_PARAMS = 65535
@@ -47,9 +48,9 @@ async def advisory_lock(name: str) -> AsyncIterator[bool]:
 
 
 def _postgres_dsn() -> str:
-    dsn = config.database.postgres_dsn
+    dsn = env.postgres_dsn
     if not dsn:
-        msg = 'database.postgres_dsn is required'
+        msg = 'POSTGRES_DSN is required'
         raise ValueError(msg)
     return dsn
 

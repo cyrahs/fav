@@ -157,16 +157,13 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
     assert 'ON CONFLICT (dedupe_key) WHERE dedupe_key <> ' in captured['sql']
     assert 'event_version = notifications.event_version + 1' in captured['sql']
     assert 'notifications.next_attempt_at > CURRENT_TIMESTAMP' in captured['sql']
-    assert created.webhook_payload == {
+    assert created.webhook_v3_payload == {
+        'notification_id': 7,
         'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
         'image_url': '',
         'disable_web_page_preview': False,
         'disable_notification': False,
         'pin': True,
-    }
-    assert created.webhook_v3_payload == {
-        'notification_id': 7,
-        **created.webhook_payload,
     }
     assert captured['params'] == (
         'job_failed',
@@ -248,11 +245,11 @@ def test_enqueue_notification_with_dedupe_key_uses_upsert_action(monkeypatch) ->
     assert captured['params'][7] == 'job_failed:bilibili:bilibili:download:BV1TEST'
     assert captured['params'][13:17] == (WEBHOOK_ACTION_UPSERT, 1, 1, DELIVERY_PENDING)
     assert created.notification_id == 8
-    assert created.webhook_payload['action'] == WEBHOOK_ACTION_UPSERT
-    assert created.webhook_payload['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
-    assert created.webhook_payload['occurrence_count'] == 2
-    assert created.webhook_payload['event_version'] == 3
-    assert created.webhook_payload['pin'] is True
+    assert created.webhook_v3_payload['action'] == WEBHOOK_ACTION_UPSERT
+    assert created.webhook_v3_payload['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
+    assert created.webhook_v3_payload['occurrence_count'] == 2
+    assert created.webhook_v3_payload['event_version'] == 3
+    assert created.webhook_v3_payload['pin'] is True
 
 
 def test_notification_record_payload_json_handles_invalid_json() -> None:
@@ -390,10 +387,10 @@ def test_resolve_notification_updates_existing_dedupe_key(monkeypatch) -> None:
     assert '(webhook_action <> ? OR delivery_status = ?)' in captured['sql']
     assert captured['params'][12:15] == (WEBHOOK_ACTION_RESOLVE, DELIVERY_PENDING, 0)
     assert captured['params'][15:] == ('job_failed:bilibili:bilibili:download:BV1TEST', WEBHOOK_ACTION_RESOLVE, DELIVERY_FAILED)
-    assert resolved.webhook_payload['action'] == WEBHOOK_ACTION_RESOLVE
-    assert resolved.webhook_payload['event_version'] == 9
-    assert resolved.webhook_payload['pin'] is False
-    assert resolved.webhook_payload['disable_notification'] is True
+    assert resolved.webhook_v3_payload['action'] == WEBHOOK_ACTION_RESOLVE
+    assert resolved.webhook_v3_payload['event_version'] == 9
+    assert resolved.webhook_v3_payload['pin'] is False
+    assert resolved.webhook_v3_payload['disable_notification'] is True
 
 
 def test_reset_stale_sending_notifications_restores_expired_claims(monkeypatch) -> None:

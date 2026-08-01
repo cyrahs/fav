@@ -16,7 +16,8 @@ import pytest
 import src.service.jobs as jobs_module
 import src.web.azurlane as azurlane_module
 from src.api.schemas import JobRequestTarget
-from src.core.config import AzurLane as AzurLaneConfig
+from src.core import settings
+from src.core.settings import AzurLane as AzurLaneConfig
 from src.tool.azurlane_l2d_sources import L2D_SU_CATALOG_URL, NAGAMI_MAPPING_BUNDLE_URL
 from src.web import AzurLane
 
@@ -385,22 +386,13 @@ def test_azurlane_config_defaults_to_disabled_collection_path() -> None:
     assert cfg.path == Path('./collection/azurlane')
 
 
-def test_scheduler_registration_includes_azurlane(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_config = SimpleNamespace(
-        web=SimpleNamespace(
-            azurlane=_job_cfg(enabled=False, cron='5 1 * * *', run_on_start=True),
-            bd2=_job_cfg(),
-            bilibili=_job_cfg(),
-            hanime1=_job_cfg(),
-            jandan=_job_cfg(),
-            nikke=_job_cfg(),
-            stellasora=_job_cfg(),
-            telegram=_job_cfg(),
-        ),
-    )
-    monkeypatch.setattr(jobs_module, 'config', fake_config)
+def test_scheduler_registration_includes_azurlane() -> None:
+    fake_config = settings.Settings()
+    fake_config.web.azurlane.cron = '5 1 * * *'
+    fake_config.web.azurlane.run_on_start = True
+    fake_config.web.azurlane.enabled = False
 
-    jobs = jobs_module.build_jobs()
+    jobs = jobs_module.build_jobs(fake_config)
     azurlane_job = next(job for job in jobs if job.key == 'azurlane')
 
     assert azurlane_job.name == 'Azur Lane'

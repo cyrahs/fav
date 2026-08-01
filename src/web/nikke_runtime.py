@@ -638,11 +638,7 @@ def _runtime_player_matches_model(player: RuntimePlayerSnapshot, model: Mapping[
 
 
 def _track_zero_animation_events(player: RuntimePlayerSnapshot) -> list[RuntimeAnimationEvent]:
-    return [
-        event
-        for event in player.events
-        if event.animation and event.event_type == 'animationState' and event.track_index in {None, 0}
-    ]
+    return [event for event in player.events if event.animation and event.event_type == 'animationState' and event.track_index in {None, 0}]
 
 
 def _runtime_event_state(
@@ -806,9 +802,7 @@ def build_layer_capture_payload(capture: LayerCaptureBuildInput) -> dict[str, An
     source_url = capture.source_url or f'{GAMEKEE_BASE_URL}/nikke/tj/{capture.content_id}.html'
     containers = _normalize_runtime_containers(capture.containers)
     runtime_players = _normalize_runtime_players(capture.runtime_players)
-    runtime_player_by_container_index = {
-        player.container_index: player for player in runtime_players if player.container_index >= 0
-    }
+    runtime_player_by_container_index = {player.container_index: player for player in runtime_players if player.container_index >= 0}
     requested_live2d_keys = _unique_in_order(capture.requested_live2d_keys)
     model_keys = {_model_live2d_key(model) for model in capture.models if _model_live2d_key(model)}
     runtime_model_keys = [key for key in requested_live2d_keys if key in model_keys]
@@ -927,9 +921,7 @@ async def _read_runtime_players(page: Any) -> list[RuntimePlayerSnapshot]:
     if not isinstance(raw_players, list):
         raw_players = []
     return [
-        RuntimePlayerSnapshot.from_raw(item, fallback_index=index)
-        for index, item in enumerate(raw_players)
-        if isinstance(item, Mapping)
+        RuntimePlayerSnapshot.from_raw(item, fallback_index=index) for index, item in enumerate(raw_players) if isinstance(item, Mapping)
     ]
 
 

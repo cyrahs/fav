@@ -131,6 +131,29 @@ def create_control_request_sync(
     return _from_row(row)
 
 
+def list_control_requests_sync(dsn: str, *, status: str | None = None, limit: int = 50) -> list[ControlRequest]:
+    if status is not None and status not in VALID_STATUSES:
+        msg = f'Unsupported control request status: {status}'
+        raise ValueError(msg)
+
+    ensure_control_requests_table_sync(dsn)
+    bounded_limit = max(1, min(int(limit), 200))
+    query = """
+        SELECT id, kind, target, payload, status, requested_at, started_at, finished_at, result, error
+        FROM control_requests
+    """
+    params: tuple[Any, ...] = ()
+    if status is not None:
+        query += ' WHERE status = %s'
+        params = (status,)
+    query += ' ORDER BY requested_at DESC, id DESC LIMIT %s;'
+
+    with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as conn, conn.cursor() as cursor:
+        cursor.execute(query, (*params, bounded_limit))
+        rows = cursor.fetchall()
+    return [_from_row(row) for row in rows]
+
+
 def get_control_request_sync(dsn: str, request_id: int) -> ControlRequest | None:
     ensure_control_requests_table_sync(dsn)
     with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as conn, conn.cursor() as cursor:

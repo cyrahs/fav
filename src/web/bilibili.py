@@ -15,12 +15,11 @@ import bilibili_api as api
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
-from src.core import config, logger
+from src.core import logger, settings
 from src.tool import CookieCloudClient, database, ensure_unique_path, format_video_filename
 from src.tool.notifications import enqueue_notification, format_job_failure_dedupe_key, resolve_notification
 
 log = logger.get('bilibili')
-cfg = config.web.bilibili
 _KIBIBYTE = 1024
 _BILIBILI_SCHEMA_LOCK_ID = database.advisory_lock_id('bilibili:schema')
 _BILIBILI_CREATE_TABLE_SQL = """
@@ -66,12 +65,15 @@ class Bilibili:
 
     def __init__(self) -> None:
         """Initialize Bilibili instance with main and sub credentials."""
+        current = settings.load()
+        self.cfg = current.web.bilibili
+        self.cookiecloud_cfg = current.cookiecloud
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-bilibili-')
         self.cache_dir = Path(self._tmp_dir.name)
         self.cookie_path = self.cache_dir / 'bilibili.txt'
         self.update_cookie_from_cookiecloud(self.cookie_path)
         self.credential = self.create_credential(self.cookie_path)
-        self.user = api.user.User(uid=cfg.id, credential=self.credential)
+        self.user = api.user.User(uid=self.cfg.id, credential=self.credential)
         self.info_cache = {}
         log.debug('cache_dir: %s', self.cache_dir)
 
@@ -335,8 +337,8 @@ class Bilibili:
 
     def update_cookie_from_cookiecloud(self, save_path: Path) -> None:
         """Update cookie from cookiecloud."""
-        cc_cfg = config.cookiecloud
-        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password, proxy=config.proxy or None)
+        cc_cfg = self.cookiecloud_cfg
+        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password)
         client.save_to_netscape_format('bilibili.com', save_path)
 
     def create_credential(self, cookie_path: Path) -> api.Credential:
@@ -453,8 +455,6 @@ class Bilibili:
             '30',
             url,
         ]
-        if config.proxy:
-            command.extend(['--proxy', config.proxy])
 
         def _on_retry_before_sleep(retry_state: RetryCallState) -> None:
             # Keep retry logs at debug level to avoid alert noise from transient failures.
@@ -588,5 +588,5 @@ class Bilibili:
         """Update the favorite list of the main account."""
         await self._ensure_table()
 
-        await self.update_fav(cfg.fav_id, cfg.path / 'fav')
-        await self.update_fav(-1, cfg.path / 'toview')
+        await self.update_fav(self.cfg.fav_id, self.cfg.path / 'fav')
+        await self.update_fav(-1, self.cfg.path / 'toview')

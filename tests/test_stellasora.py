@@ -11,8 +11,8 @@ from src.web.stellasora import (
     parse_characters_page,
     parse_gallery_awakened_file_titles,
     parse_gallery_cg_file_titles,
-    parse_gallery_skin_file_titles,
     parse_gallery_memory_snapshot_file_titles,
+    parse_gallery_skin_file_titles,
     parse_list_of_discs_page_file_titles,
 )
 

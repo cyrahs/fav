@@ -15,12 +15,11 @@ from urllib.parse import quote, unquote, urlsplit, urlunsplit
 import httpx
 from Crypto.Cipher import AES
 
-from src.core import config, logger
+from src.core import logger, settings
 from src.tool import database, format_video_filename
 from src.tool.notifications import enqueue_notification
 
 log = logger.get('jandan')
-cfg = config.web.jandan
 
 _APP_VERSION = '2.6.0'
 _USER_AGENT = f'jian dan/{_APP_VERSION} (iPhone; iOS 26.1; Scale/3.00)'
@@ -295,6 +294,7 @@ def should_retry_jandan_api_exception(exc: Exception) -> bool:
 
 class Jandan:
     def __init__(self) -> None:
+        self.cfg = settings.load().web.jandan
         self.client = httpx.AsyncClient(
             headers={
                 'User-Agent': _USER_AGENT,
@@ -303,7 +303,6 @@ class Jandan:
             timeout=60,
             follow_redirects=True,
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=10),
-            proxy=config.proxy or None,
         )
 
     async def aclose(self) -> None:
@@ -372,8 +371,7 @@ class Jandan:
         if alter_statements:
             await database.query_db_batch(alter_statements)
 
-    @staticmethod
-    def _build_output_path(image: JandanImage) -> Path:
+    def _build_output_path(self, image: JandanImage) -> Path:
         ext = infer_image_extension(image.content_url, image.image_type)
         file_id = f'{image.pic_id}-{image.content_index}'
         if image.content_md5:
@@ -385,7 +383,7 @@ class Jandan:
             ext=ext,
         )
         folder = _FAV_TYPE_DIR.get(image.fav_type, f'type-{image.fav_type}')
-        return cfg.path / folder / filename
+        return self.cfg.path / folder / filename
 
     async def _state_for_image(self, image: JandanImage) -> tuple[bool, bool]:
         rows = await database.query_db(
@@ -570,9 +568,9 @@ class Jandan:
 
     async def _fetch_fav_page(self, *, fav_type: int, fav_start_date: str | None = None) -> list[dict[str, Any]]:
         request_payload = build_fav_request(
-            user_id=cfg.user_id,
+            user_id=self.cfg.user_id,
             fav_type=fav_type,
-            fav_num_limit=cfg.fav_num_limit,
+            fav_num_limit=self.cfg.fav_num_limit,
             fav_start_date=fav_start_date,
         )
         plain_payload = json.dumps(request_payload, ensure_ascii=False, separators=(',', ':'))
@@ -611,7 +609,7 @@ class Jandan:
         for attempt in range(1, attempts + 1):
             try:
                 response = await self.client.post(
-                    cfg.api_url,
+                    self.cfg.api_url,
                     content=f'data={data_value}',
                     headers=headers,
                 )
@@ -880,17 +878,17 @@ class Jandan:
         return downloaded_count, page_count, api_total_images, len(collected_images), len(pending_images)
 
     async def update(self) -> None:
-        if cfg.user_id <= 0:
+        if self.cfg.user_id <= 0:
             log.warning('Jandan user_id is not configured, skip update')
             return
 
         await self._ensure_table()
-        await asyncio.to_thread(cfg.path.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(self.cfg.path.mkdir, parents=True, exist_ok=True)
         total_downloaded = 0
         total_api_images = 0
         fav_type_stats: list[tuple[int, int, int, int, int]] = []
 
-        for fav_type in cfg.fav_types:
+        for fav_type in self.cfg.fav_types:
             downloaded_count, page_count, api_total_count, collected_count, pending_count = await self._crawl_fav_type(fav_type=fav_type)
             total_downloaded += downloaded_count
             total_api_images += api_total_count

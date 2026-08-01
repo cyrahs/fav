@@ -2,12 +2,12 @@
 
 import asyncio
 import json
-from types import SimpleNamespace
 
 import httpx
 import pytest
 
 import src.web.jandan as jandan_module
+from src.core import settings
 from src.web.jandan import (
     Jandan,
     build_fav_request,
@@ -24,6 +24,14 @@ from src.web.jandan import (
     should_retry_jandan_api_status,
     zulu_to_offset,
 )
+
+
+def _configure_jandan(**updates: object) -> None:
+    """Mutate the pinned settings snapshot that Jandan() reads in __init__."""
+    cfg = settings.load().web.jandan
+    for key, value in updates.items():
+        setattr(cfg, key, value)
+
 
 _PIC_A_ID = 6095815
 _PIC_B_ID = 6095816
@@ -277,9 +285,10 @@ def test_fetch_fav_page_retries_connect_timeout(monkeypatch) -> None:
         return httpx.Response(200, json={'code': 0, 'data': encrypted_payload})
 
     monkeypatch.setattr(jandan_module.asyncio, 'sleep', _fake_sleep)
-    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+    _configure_jandan(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45)
 
     job = Jandan.__new__(Jandan)
+    job.cfg = settings.load().web.jandan
     job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
 
     try:
@@ -309,9 +318,10 @@ def test_fetch_fav_page_retries_503_status(monkeypatch) -> None:
         return httpx.Response(200, json={'code': 0, 'data': encrypted_payload})
 
     monkeypatch.setattr(jandan_module.asyncio, 'sleep', _fake_sleep)
-    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+    _configure_jandan(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45)
 
     job = Jandan.__new__(Jandan)
+    job.cfg = settings.load().web.jandan
     job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
 
     try:
@@ -337,9 +347,10 @@ def test_fetch_fav_page_exhausts_extended_transient_retry_delays(monkeypatch) ->
         raise httpx.ReadTimeout('read timed out', request=request)
 
     monkeypatch.setattr(jandan_module.asyncio, 'sleep', _fake_sleep)
-    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+    _configure_jandan(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45)
 
     job = Jandan.__new__(Jandan)
+    job.cfg = settings.load().web.jandan
     job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
 
     try:
@@ -352,7 +363,7 @@ def test_fetch_fav_page_exhausts_extended_transient_retry_delays(monkeypatch) ->
     assert sleeps == [2.0, 5.0, 15.0, 30.0]
 
 
-def test_fetch_fav_page_does_not_retry_400(monkeypatch) -> None:
+def test_fetch_fav_page_does_not_retry_400() -> None:
     attempts = 0
 
     async def _handler(_request: httpx.Request) -> httpx.Response:
@@ -360,9 +371,10 @@ def test_fetch_fav_page_does_not_retry_400(monkeypatch) -> None:
         attempts += 1
         return httpx.Response(400)
 
-    monkeypatch.setattr(jandan_module, 'cfg', SimpleNamespace(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45))
+    _configure_jandan(api_url='https://i.jandan.net/api', user_id=42920, fav_num_limit=45)
 
     job = Jandan.__new__(Jandan)
+    job.cfg = settings.load().web.jandan
     job.client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
 
     try:

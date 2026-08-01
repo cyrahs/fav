@@ -22,12 +22,11 @@ from urllib.parse import unquote, urljoin, urlsplit
 import httpx
 from tqdm import tqdm
 
-from src.core import config, logger
+from src.core import logger, settings
 from src.tool import sanitize
 from src.tool.notifications import enqueue_notification
 
 log = logger.get('stellasora')
-cfg = config.web.stellasora
 
 BASE_URL = 'https://stellasora.miraheze.org'
 API_PATH = '/w/api.php'
@@ -539,7 +538,7 @@ class StellaSora:
     """Scraper for the Stella Sora Wiki."""
 
     def __init__(self, *, base_url: str = BASE_URL) -> None:
-        self.cfg = cfg
+        self.cfg = settings.load().web.stellasora
         self.path = self.cfg.path
         self.base_url = base_url.rstrip('/')
         self.client = httpx.AsyncClient(
@@ -547,7 +546,6 @@ class StellaSora:
             timeout=60,
             follow_redirects=True,
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=10),
-            proxy=config.proxy or None,
             headers={
                 'User-Agent': 'fav/0.1 (stellasora)',
             },

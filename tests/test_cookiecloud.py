@@ -1,4 +1,4 @@
-# ruff: noqa: S101
+# ruff: noqa: S101, PT011
 
 import base64
 import json
@@ -15,9 +15,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.core.config import config as app_config
+from src.core import settings
 from src.tool.cookiecloud import CookieCloudClient
-
 
 KEY_IV_LENGTH = 48
 KEY_LENGTH = 32
@@ -176,8 +175,18 @@ def test_save_to_netscape_format_errors_for_missing_domain(tmp_path: Path) -> No
 
 
 def test_save_to_netscape_format_live_bilibili(tmp_path: Path) -> None:
-    cfg = app_config.cookiecloud
-    client = CookieCloudClient(cfg.server_url, cfg.uuid, cfg.password, proxy=app_config.proxy or None)
+    # CookieCloud credentials now live in the database, so this live check is
+    # skipped unless a real deployment is reachable (see tests/conftest.py,
+    # which pins defaults-only settings by default).
+    settings.use(None)
+    try:
+        cfg = settings.load(force=True).cookiecloud
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f'Settings database unavailable: {exc}')
+    if not (cfg.server_url and cfg.uuid and cfg.password):
+        pytest.skip('CookieCloud is not configured')
+
+    client = CookieCloudClient(cfg.server_url, cfg.uuid, cfg.password)
     output_file = tmp_path / 'bilibili_cookies.txt'
 
     try:

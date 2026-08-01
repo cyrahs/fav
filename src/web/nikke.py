@@ -18,14 +18,13 @@ from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 
-from src.core import config, logger
+from src.core import logger, settings
 from src.tool import database
 from src.tool.filename import sanitize
 from src.web import nikke_layer_metadata as layer_metadata
 from src.web.nikke_runtime import RuntimeCaptureRequest, capture_gamekee_runtime_layers
 
 log = logger.get('nikke')
-cfg = config.web.nikke
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -1118,7 +1117,8 @@ def validate_asset_response(*, kind: str, content_type: str, body_prefix: bytes,
 
 class Nikke:
     def __init__(self, *, path: Path | None = None, client: httpx.AsyncClient | None = None) -> None:
-        self.path = Path(path or cfg.path)
+        self.cfg = settings.load().web.nikke
+        self.path = Path(path or self.cfg.path)
         self._client = client
         self._api_limiter = _RateLimiter(_API_REQUEST_INTERVAL_SECONDS)
         self._cdn_limiter = _RateLimiter(_CDN_REQUEST_INTERVAL_SECONDS)
@@ -1637,15 +1637,15 @@ class Nikke:
             content_id=content_id,
             live2d_models=live2d_models,
             previous_capture=previous_capture,
-            force_refresh=bool(getattr(cfg, 'runtime_capture_force_refresh', False)),
+            force_refresh=bool(self.cfg.runtime_capture_force_refresh),
         )
         capture_payload: dict[str, Any] | None = None
         action = 'skipped'
         if reuse_decision.get('reusable') and previous_capture is not None:
             capture_payload = previous_capture
             action = 'reused'
-        elif bool(getattr(cfg, 'runtime_capture_enabled', False)):
-            timeout_ms = int(float(getattr(cfg, 'runtime_capture_timeout_seconds', 60.0)) * 1000)
+        elif bool(self.cfg.runtime_capture_enabled):
+            timeout_ms = int(float(self.cfg.runtime_capture_timeout_seconds) * 1000)
             try:
                 capture_payload = await capture_gamekee_runtime_layers(
                     RuntimeCaptureRequest(

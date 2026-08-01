@@ -17,7 +17,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from src.core import config, logger
+from src.core import logger, settings
 from src.tool import database
 from src.tool.bd2_l2d_viewer import VIEWER_PAGE_URL, ViewerResource, fetch_viewer_resources, resource_stem_from_url, viewer_asset_url
 from src.tool.filename import sanitize
@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 log = logger.get('bd2')
-cfg = config.web.bd2
 
 GAMEKEE_BASE_URL = 'https://www.gamekee.com'
 GAME_ALIAS = 'zsca2'
@@ -1655,7 +1654,7 @@ class BD2:
         client: httpx.AsyncClient | None = None,
         viewer_resources: tuple[ViewerResource, ...] | None = None,
     ) -> None:
-        self.path = Path(path or cfg.path)
+        self.path = Path(path or settings.load().web.bd2.path)
         self._client = client
         self._viewer_resources = viewer_resources
         self._api_limiter = _RateLimiter(_API_REQUEST_INTERVAL_SECONDS)

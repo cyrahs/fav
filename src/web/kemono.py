@@ -6,12 +6,11 @@ from typing import Any
 import httpx
 from tqdm import tqdm
 
-from src.core import config, logger
-from src.core.config import KemonoCreator
+from src.core import logger, settings
+from src.core.settings import KemonoCreator
 from src.tool import database, sanitize
 
 log = logger.get('kemono')
-cfg = config.web.kemono
 
 BASE_URL = 'https://kemono.cr'
 API_PREFIX = '/api/v1'
@@ -35,10 +34,7 @@ class Post:
 
 class Kemono:
     def __init__(self) -> None:
-        if cfg is None:
-            msg = 'Kemono config is missing'
-            raise ValueError(msg)
-        self.cfg = cfg
+        self.cfg = settings.load().web.kemono
         self.client = httpx.AsyncClient(
             base_url=BASE_URL,
             headers={
@@ -47,7 +43,6 @@ class Kemono:
             timeout=60,
             follow_redirects=True,
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=10),
-            proxy=config.proxy or None,
         )
 
     async def _ensure_table(self) -> None:
@@ -164,9 +159,6 @@ class Kemono:
             )
 
     async def update(self) -> None:
-        if self.cfg is None:
-            log.warning('Kemono config is missing, skip update')
-            return
         if not self.cfg.creators:
             log.info('No kemono creators configured')
             return

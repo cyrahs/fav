@@ -23,7 +23,7 @@ import httpx
 from opencc import OpenCC
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from src.core import config, logger
+from src.core import logger, settings
 from src.tool import database, ensure_unique_path, format_video_filename, sanitize
 from src.tool.hanime1_series import ensure_hanime1_series_tables
 from src.tool.notifications import enqueue_notification, format_job_failure_dedupe_key, resolve_notification
@@ -37,7 +37,13 @@ from src.tool.runtime_config import (
 )
 
 log = logger.get('hanime1')
-cfg = config.web.hanime1
+
+
+def cfg() -> settings.Hanime1:
+    # Resolved per call (cached briefly in src.core.settings) so UI edits apply
+    # without a restart, and so static helpers below can reach it too.
+    return settings.load().web.hanime1
+
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
 _STREAM_URL_RE = re.compile(r'(?:https?:)?//[^\'"\s<>]+?\.(?:m3u8|mp4)(?:\?[^\'"\s<>]*)?', re.IGNORECASE)
@@ -193,7 +199,6 @@ class Hanime1:
             timeout=60,
             follow_redirects=True,
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=10),
-            proxy=config.proxy or None,
         )
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-hanime1-')
         self.cache_dir = Path(self._tmp_dir.name)
@@ -360,7 +365,7 @@ class Hanime1:
             return item.page_url
 
         video_code = Hanime1._extract_video_code(item.page_url) or sanitize(item.id, max_bytes=80)
-        return f'{cfg.host.rstrip("/")}/download?v={video_code}'
+        return f'{cfg().host.rstrip("/")}/download?v={video_code}'
 
     @staticmethod
     def _build_watch_page_url(item: HanimeRecord) -> str:
@@ -368,7 +373,7 @@ class Hanime1:
             return item.page_url
 
         video_code = Hanime1._extract_video_code(item.page_url) or sanitize(item.id, max_bytes=80)
-        return f'{cfg.host.rstrip("/")}/watch?v={video_code}'
+        return f'{cfg().host.rstrip("/")}/watch?v={video_code}'
 
     @staticmethod
     def _normalize_page_url(candidate_url: str) -> str:
@@ -376,10 +381,10 @@ class Hanime1:
         if normalized.startswith('//'):
             return f'https:{normalized}'
         if normalized.startswith('/'):
-            return f'{cfg.host.rstrip("/")}{normalized}'
+            return f'{cfg().host.rstrip("/")}{normalized}'
         if normalized.startswith(('http://', 'https://')):
             return normalized
-        return f'{cfg.host.rstrip("/")}/{normalized.lstrip("/")}'
+        return f'{cfg().host.rstrip("/")}/{normalized.lstrip("/")}'
 
     @staticmethod
     def extract_search_video_ids(page_html: str) -> list[str]:
@@ -609,8 +614,6 @@ class Hanime1:
         command.extend(['--add-header', f'User-Agent:{USER_AGENT}'])
         if cookie_header:
             command.extend(['--add-header', f'Cookie:{cookie_header}'])
-        if config.proxy:
-            command.extend(['--proxy', config.proxy])
         command.append(stream_url)
         return command
 
@@ -634,20 +637,20 @@ class Hanime1:
     @staticmethod
     def _resolve_output_dir(keyword: str | None) -> Path:
         if not keyword:
-            return cfg.path
+            return cfg().path
         normalized = sanitize(keyword.strip(), max_bytes=120)
         if not normalized:
-            return cfg.path
-        return cfg.path / normalized
+            return cfg().path
+        return cfg().path / normalized
 
     @staticmethod
     def _get_cookie_header() -> str:
         # Keep subtitle language stable in download page resolution.
-        return f'user_lang={cfg.user_lang}'
+        return f'user_lang={cfg().user_lang}'
 
     async def resolve_stream_from_download_page(self, item: HanimeRecord) -> tuple[str, str | None]:
         download_page_url = self._build_download_page_url(item)
-        referer = item.page_url or cfg.host.rstrip('/') + '/'
+        referer = item.page_url or cfg().host.rstrip('/') + '/'
         headers = {
             'Referer': referer,
             'User-Agent': USER_AGENT,
@@ -686,7 +689,7 @@ class Hanime1:
 
     async def _request_watch_page_html(self, item: HanimeRecord) -> str:
         watch_page_url = self._build_watch_page_url(item)
-        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
+        headers = await self._build_page_headers(referer=cfg().host.rstrip('/') + '/')
         res = await self.client.get(watch_page_url, headers=headers)
         res.raise_for_status()
         page_html = res.text
@@ -700,7 +703,7 @@ class Hanime1:
         if not query:
             return []
 
-        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
+        headers = await self._build_page_headers(referer=cfg().host.rstrip('/') + '/')
 
         collected_ids: list[str] = []
         seen_ids: set[str] = set()
@@ -708,7 +711,7 @@ class Hanime1:
         failures: list[str] = []
 
         for genre_value, genre_name in _SEARCH_ALLOWED_GENRES:
-            search_url = f'{cfg.host.rstrip("/")}/search?query={quote_plus(query)}&genre={quote_plus(genre_value)}'
+            search_url = f'{cfg().host.rstrip("/")}/search?query={quote_plus(query)}&genre={quote_plus(genre_value)}'
             try:
                 res = await self.client.get(search_url, headers=headers)
                 res.raise_for_status()
@@ -749,11 +752,11 @@ class Hanime1:
         params = f'genre={quote_plus(_RANKING_GENRE)}&sort={quote_plus(sort_value)}'
         if page > 1:
             params = f'{params}&page={page}'
-        return f'{cfg.host.rstrip("/")}/search?{params}'
+        return f'{cfg().host.rstrip("/")}/search?{params}'
 
     async def fetch_ranking_video_ids(self, *, period: str, page: int = 1) -> list[str]:
         ranking_url = self._build_ranking_page_url(period=period, page=page)
-        headers = await self._build_page_headers(referer=cfg.host.rstrip('/') + '/')
+        headers = await self._build_page_headers(referer=cfg().host.rstrip('/') + '/')
         res = await self.client.get(ranking_url, headers=headers)
         res.raise_for_status()
         page_html = res.text
@@ -772,7 +775,7 @@ class Hanime1:
 
     async def resolve_stream_from_page(self, page_url: str) -> tuple[str, str | None]:
         headers = {
-            'Referer': cfg.host.rstrip('/') + '/',
+            'Referer': cfg().host.rstrip('/') + '/',
             'User-Agent': USER_AGENT,
         }
         cookie_header = await asyncio.to_thread(self._get_cookie_header)
@@ -925,7 +928,7 @@ class Hanime1:
         return seeds
 
     async def _collect_ranking_video_ids(self) -> list[str]:
-        ranking_cfg = cfg.ranking
+        ranking_cfg = cfg().ranking
         collected_ids: list[str] = []
         seen_ids: set[str] = set()
 
@@ -1011,7 +1014,7 @@ class Hanime1:
         return seed, member_ids
 
     async def discover_ranking_series(self) -> list[RuntimeSeriesSeed]:
-        if not cfg.ranking.enabled:
+        if not cfg().ranking.enabled:
             return []
 
         ranking_video_ids = await self._collect_ranking_video_ids()
@@ -1031,7 +1034,7 @@ class Hanime1:
             item = HanimeRecord(
                 id=video_id,
                 title='',
-                page_url=f'{cfg.host.rstrip("/")}/watch?v={video_id}',
+                page_url=f'{cfg().host.rstrip("/")}/watch?v={video_id}',
                 stream_url=None,
             )
             try:
@@ -1121,7 +1124,7 @@ class Hanime1:
             seed_item = HanimeRecord(
                 id=seed.video_id,
                 title='',
-                page_url=f'{cfg.host.rstrip("/")}/watch?v={seed.video_id}',
+                page_url=f'{cfg().host.rstrip("/")}/watch?v={seed.video_id}',
                 stream_url=None,
             )
 
@@ -1237,7 +1240,7 @@ class Hanime1:
                 title=candidate.archive_title,
                 keyword=candidate.source_name,
                 uploader=None,
-                page_url=f'{cfg.host.rstrip("/")}/watch?v={candidate.video_id}',
+                page_url=f'{cfg().host.rstrip("/")}/watch?v={candidate.video_id}',
                 stream_url=None,
             )
             try:
@@ -1374,7 +1377,7 @@ class Hanime1:
             log.info('No new videos' if seeds else 'No Hanime1 series seeds configured in database')
             return
 
-        await asyncio.to_thread(cfg.path.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(cfg().path.mkdir, parents=True, exist_ok=True)
         total = len(items)
         log.info('Found %d new videos', total)
         for idx, item in enumerate(items, start=1):

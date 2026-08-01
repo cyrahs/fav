@@ -1,18 +1,29 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
 from time import monotonic
+from typing import Any
 
-from src.core import logger
-from src.core.config import config as app_config
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
+
+from src.core import logger, settings
+from src.core.settings import SECTION_MODELS, UnknownSectionError
 from src.service.jobs import ScheduledJob, build_jobs
-from src.tool.control_queue import ControlRequest, create_control_request_sync, get_control_request_sync
+from src.tool.control_queue import (
+    ControlRequest,
+    create_control_request_sync,
+    get_control_request_sync,
+    list_control_requests_sync,
+)
 from src.tool.hanime1_series import Hanime1SeriesService
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 
+from .archive import ARCHIVE_SOURCES, ArchiveLibrary, UnknownArchiveSourceError
 from .azurlane import AzurLaneCharacterNotFoundError, AzurLaneLibrary
 from .bd2 import BD2CharacterNotFoundError, BD2Library
 from .config import fetch_hanime1_videos_from_db
@@ -30,11 +41,15 @@ from .live2d_overrides import (
 )
 from .nikke import NikkeCharacterNotFoundError, NikkeLibrary
 from .schemas import (
+    ArchiveItem,
+    ArchiveListResponse,
+    ArchiveSourceStat,
     AzurLaneCharacterDetail,
     AzurLaneCharacterSummary,
     BD2CharacterDetail,
     BD2CharacterSummary,
     Hanime1Seed,
+    Hanime1SeedDetail,
     Hanime1Video,
     HealthResponse,
     JobRequest,
@@ -43,7 +58,9 @@ from .schemas import (
     NikkeCharacterDetail,
     NikkeCharacterSummary,
     ReadinessResponse,
+    SettingsSection,
 )
+from .settings_masking import mask_section, unmask_section
 
 log = logger.get('fav-api')
 
@@ -52,6 +69,9 @@ type Hanime1VideoFetcher = Callable[[str], list[dict[str, str | None]]]
 type JobProvider = Callable[[], list[ScheduledJob]]
 type ControlRequestCreator = Callable[[str, str], ControlRequest]
 type ControlRequestGetter = Callable[[int], ControlRequest | None]
+type ControlRequestLister = Callable[[str | None, int], list[ControlRequest]]
+type SettingsSectionGetter = Callable[[str], BaseModel]
+type SettingsSectionSaver = Callable[[str, dict[str, Any]], BaseModel]
 
 _READINESS_CACHE_TTL_SECONDS = 300
 _READINESS_PROBE_TIMEOUT_SECONDS = 10
@@ -80,7 +100,11 @@ class FavApiService:
         job_provider: JobProvider | None = None,
         control_request_creator: ControlRequestCreator | None = None,
         control_request_getter: ControlRequestGetter | None = None,
+        control_request_lister: ControlRequestLister | None = None,
+        settings_section_getter: SettingsSectionGetter | None = None,
+        settings_section_saver: SettingsSectionSaver | None = None,
         runtime_service: Hanime1SeriesService | None = None,
+        archive_library: ArchiveLibrary | None = None,
         azurlane_library: AzurLaneLibrary | None = None,
         nikke_library: NikkeLibrary | None = None,
         bd2_library: BD2Library | None = None,
@@ -89,7 +113,7 @@ class FavApiService:
         self._dsn = dsn
         self._token = token
         self._hanime1_video_fetcher = hanime1_video_fetcher or (
-            lambda dsn: fetch_hanime1_videos_from_db(dsn, host=app_config.web.hanime1.host)
+            lambda dsn: fetch_hanime1_videos_from_db(dsn, host=settings.load().web.hanime1.host)
         )
         self._now_provider = now_provider or (lambda: datetime.now(UTC))
         self._job_provider = job_provider or build_jobs
@@ -97,15 +121,20 @@ class FavApiService:
             lambda kind, target: create_control_request_sync(self._dsn, kind=kind, target=target)
         )
         self._control_request_getter = control_request_getter or (lambda request_id: get_control_request_sync(self._dsn, request_id))
+        self._control_request_lister = control_request_lister or (
+            lambda status, limit: list_control_requests_sync(self._dsn, status=status, limit=limit)
+        )
+        self._settings_section_getter = settings_section_getter or settings.load_section
+        self._settings_section_saver = settings_section_saver or settings.save_section
+        self._archive_library = archive_library or ArchiveLibrary(self._dsn)
         self._runtime_service = runtime_service or Hanime1SeriesService(
             dsn=self._dsn,
-            host=app_config.web.hanime1.host,
-            user_lang=app_config.web.hanime1.user_lang,
-            proxy=app_config.proxy or None,
+            host=settings.load().web.hanime1.host,
+            user_lang=settings.load().web.hanime1.user_lang,
         )
-        self._azurlane_library = azurlane_library or AzurLaneLibrary(app_config.web.azurlane.path)
-        self._nikke_library = nikke_library or NikkeLibrary(app_config.web.nikke.path)
-        self._bd2_library = bd2_library or BD2Library(app_config.web.bd2.path)
+        self._azurlane_library = azurlane_library or AzurLaneLibrary(settings.load().web.azurlane.path)
+        self._nikke_library = nikke_library or NikkeLibrary(settings.load().web.nikke.path)
+        self._bd2_library = bd2_library or BD2Library(settings.load().web.bd2.path)
         self._live2d_view_override_store = live2d_view_override_store or PostgresLive2DViewOverrideStore(self._dsn)
         self._readiness_cache: tuple[float, dict[str, object]] | None = None
         self._readiness_lock = asyncio.Lock()
@@ -168,7 +197,7 @@ class FavApiService:
         return payload if monotonic() - checked_at < _READINESS_CACHE_TTL_SECONDS else None
 
     async def _build_readiness(self) -> dict[str, object]:
-        if not app_config.web.hanime1.enabled:
+        if not settings.load().web.hanime1.enabled:
             return self._readiness_payload(component_status='skipped', code='disabled')
 
         seed_ids: list[str] = []
@@ -290,6 +319,95 @@ class FavApiService:
             raise ApiError(status_code=404, code='not_found', message='Job request not found.')
         return serialize_control_request(request)
 
+    def list_job_requests(self, *, status: str | None = None, limit: int = 50) -> list[dict[str, object]]:
+        try:
+            requests = self._control_request_lister(status, limit)
+        except ValueError as exc:
+            raise ApiError(status_code=422, code='invalid_status', message=str(exc)) from None
+        except Exception:
+            log.exception('Failed to list job requests')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return [serialize_control_request(request) for request in requests]
+
+    def list_settings(self) -> list[dict[str, object]]:
+        return [self.get_settings_section(section) for section in SECTION_MODELS]
+
+    def get_settings_section(self, section: str) -> dict[str, object]:
+        try:
+            model = self._settings_section_getter(section)
+        except UnknownSectionError:
+            raise ApiError(status_code=404, code='unknown_section', message=f'Unknown settings section: {section}') from None
+        except Exception:
+            log.exception('Failed to load settings section=%s', section)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+        payload = json.loads(model.model_dump_json())
+        validate_runnable = getattr(model, 'validate_runnable', None)
+        missing = list(validate_runnable()) if callable(validate_runnable) else []
+        return {
+            'section': section,
+            'value': mask_section(section, payload),
+            'missing_fields': missing,
+        }
+
+    def update_settings_section(self, section: str, payload: dict[str, Any]) -> dict[str, object]:
+        if section not in SECTION_MODELS:
+            raise ApiError(status_code=404, code='unknown_section', message=f'Unknown settings section: {section}')
+
+        try:
+            stored = json.loads(self._settings_section_getter(section).model_dump_json())
+        except Exception:
+            log.exception('Failed to load settings section=%s', section)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+        merged = unmask_section(section, payload, stored)
+        try:
+            saved = self._settings_section_saver(section, merged)
+        except PydanticValidationError as exc:
+            raise ApiError(
+                status_code=422,
+                code='invalid_settings',
+                message='Settings validation failed.',
+                details=json.loads(exc.json()),
+            ) from None
+        except ValueError as exc:
+            raise ApiError(status_code=422, code='invalid_settings', message=str(exc)) from None
+        except Exception:
+            log.exception('Failed to save settings section=%s', section)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+        saved_payload = json.loads(saved.model_dump_json())
+        validate_runnable = getattr(saved, 'validate_runnable', None)
+        missing = list(validate_runnable()) if callable(validate_runnable) else []
+        if getattr(saved, 'enabled', False) and missing:
+            log.warning('Settings section %s is enabled but incomplete: %s', section, ', '.join(missing))
+        return {
+            'section': section,
+            'value': mask_section(section, saved_payload),
+            'missing_fields': missing,
+        }
+
+    def list_archive_sources(self) -> list[dict[str, Any]]:
+        try:
+            return self._archive_library.list_sources()
+        except Exception:
+            log.exception('Failed to list archive sources')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+    def list_archive_items(self, *, source: str, query: str = '', limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        try:
+            return self._archive_library.list_items(source_key=source, query=query, limit=limit, offset=offset)
+        except UnknownArchiveSourceError:
+            raise ApiError(
+                status_code=404,
+                code='unknown_archive_source',
+                message=f'Unknown archive source: {source}',
+                details={'allowed_values': sorted(ARCHIVE_SOURCES)},
+            ) from None
+        except Exception:
+            log.exception('Failed to list archive items source=%s', source)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
     def list_hanime1_videos(self) -> list[dict[str, str | None]]:
         try:
             return self._hanime1_video_fetcher(self._dsn)
@@ -310,6 +428,33 @@ class FavApiService:
             log.exception('Failed to add Hanime1 series seed')
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
         return serialize_seed(created_seed)
+
+    def list_hanime1_seeds(self) -> list[dict[str, Any]]:
+        try:
+            seeds = self._runtime_service.list_seeds()
+        except Exception:
+            log.exception('Failed to list Hanime1 series seeds')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return [
+            {
+                **seed,
+                'created_at': serialize_datetime(seed.get('created_at')),
+                'updated_at': serialize_datetime(seed.get('updated_at')),
+                'last_scanned_at': serialize_datetime(seed.get('last_scanned_at')),
+            }
+            for seed in seeds
+        ]
+
+    def delete_hanime1_seed(self, canonical_video_id: str) -> None:
+        try:
+            deleted = self._runtime_service.delete_seed(canonical_video_id)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_seed', message='Seed id is invalid.') from None
+        except Exception:
+            log.exception('Failed to delete Hanime1 series seed id=%s', canonical_video_id)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        if not deleted:
+            raise ApiError(status_code=404, code='not_found', message='Hanime1 seed not found.')
 
     def list_azurlane_characters(self) -> list[dict[str, object]]:
         try:
@@ -553,6 +698,29 @@ class FavApiService:
     @staticmethod
     def model_live2d_view_override(payload: dict[str, object]) -> Live2DViewOverride:
         return Live2DViewOverride.model_validate(payload)
+
+    @staticmethod
+    def model_hanime1_seed_detail(payload: dict[str, Any]) -> Hanime1SeedDetail:
+        return Hanime1SeedDetail.model_validate(payload)
+
+    @staticmethod
+    def model_settings_section(payload: dict[str, object]) -> SettingsSection:
+        return SettingsSection.model_validate(payload)
+
+    @staticmethod
+    def model_archive_source(payload: dict[str, Any]) -> ArchiveSourceStat:
+        return ArchiveSourceStat.model_validate(payload)
+
+    @staticmethod
+    def model_archive_list(payload: dict[str, Any]) -> ArchiveListResponse:
+        return ArchiveListResponse.model_validate(
+            {
+                'items': [ArchiveItem.model_validate(item) for item in payload['items']],
+                'total': payload['total'],
+                'limit': payload['limit'],
+                'offset': payload['offset'],
+            },
+        )
 
 
 def _serialize_live2d_datetime(value: object) -> str:

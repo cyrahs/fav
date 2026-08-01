@@ -12,7 +12,7 @@ Examples:
   TG_SESSION_OVERWRITE=yes script/telegram_login.sh
 
 This starts Telethon's interactive login flow from manually entered API
-credentials and session path. It does not read config.toml.
+credentials and session path. It does not read stored settings.
 
 Prompts:
   api_id       Telegram application API ID from my.telegram.org

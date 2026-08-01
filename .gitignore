@@ -12,6 +12,13 @@ data
 
 .agents/
 
-config.toml
 
 log
+
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+
+# No longer read by the app; kept ignored so a leftover copy with real secrets
+# can never be committed while migrating its values into the web UI.
+config.toml

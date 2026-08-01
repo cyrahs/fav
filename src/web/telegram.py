@@ -12,8 +12,8 @@ from telethon.errors import FloodWaitError, MessageIdInvalidError, RPCError
 from telethon.tl.types import Channel, DocumentAttributeVideo, Message, MessageMediaDocument, MessageMediaPhoto, PeerChannel
 from tqdm import tqdm
 
-from src.core import config, logger
-from src.core.config import TelegramAccount, TelegramChannel, TelegramMediaType
+from src.core import logger, settings
+from src.core.settings import TelegramAccount, TelegramChannel, TelegramMediaType
 from src.tool import database, format_media_filename, sanitize
 from src.tool.notifications import enqueue_notification
 from src.tool.telegram_queue import (
@@ -29,7 +29,6 @@ from src.tool.telegram_queue import (
 )
 
 log = logger.get('telegram')
-cfg = config.web.telegram
 
 _TELEGRAM_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS telegram (
@@ -108,6 +107,11 @@ class Telegram:
         self._close_event = asyncio.Event()
         self._running = False
         self._closed = False
+
+    @property
+    def cfg(self) -> settings.Telegram:
+        # Long-lived runtime: resolve per access so UI edits apply without a restart.
+        return settings.load().web.telegram
 
     def __del__(self) -> None:
         with contextlib.suppress(Exception):
@@ -565,8 +569,8 @@ class Telegram:
             media_types,
             client=client,
             min_message_id=0,
-            limit=cfg.scan_limit,
-            wait_time=cfg.history_wait_seconds,
+            limit=self.cfg.scan_limit,
+            wait_time=self.cfg.history_wait_seconds,
             newest_window=True,
         )
         downloaded_ids = set(await self.get_downloaded_ids(account.name, channel_id))
@@ -595,7 +599,7 @@ class Telegram:
     ) -> None:
         """Reconcile channel history into the durable queue without downloading."""
         if account is None:
-            account = cfg.resolved_accounts()[0]
+            account = self.cfg.resolved_accounts()[0]
         selected_client = client or self._clients.get(account.name) or self.client
         if selected_client is None:
             msg = 'telegram client is not connected'
@@ -633,8 +637,8 @@ class Telegram:
             media_types,
             client=selected_client,
             min_message_id=state.last_scanned_message_id,
-            limit=cfg.scan_limit,
-            wait_time=cfg.history_wait_seconds,
+            limit=self.cfg.scan_limit,
+            wait_time=self.cfg.history_wait_seconds,
             newest_window=state.last_scanned_message_id == 0,
         )
         if scan.max_message_id <= state.last_scanned_message_id:
@@ -651,7 +655,7 @@ class Telegram:
             batch_ids = [self._message_id(item.msg) for item in batch]
             pending_entries = [item for item in batch if self._message_id(item.msg) not in downloaded_ids]
             if pending_entries:
-                if inserted_count >= cfg.download_limit_per_channel:
+                if inserted_count >= self.cfg.download_limit_per_channel:
                     limit_reached = True
                     break
                 inserted_count += await self._enqueue_entries(
@@ -684,7 +688,7 @@ class Telegram:
                     await self.update_channel(channel_id, account, client=client)
                 except FloodWaitError as exc:
                     wait_seconds = float(getattr(exc, 'seconds', 0) or 0)
-                    cooldown_seconds = max(wait_seconds, cfg.channel_cooldown_seconds)
+                    cooldown_seconds = max(wait_seconds, self.cfg.channel_cooldown_seconds)
                     await self.set_account_cooldown(
                         account,
                         cooldown_seconds,
@@ -700,7 +704,7 @@ class Telegram:
                     await self.set_channel_cooldown(
                         account.name,
                         channel_id,
-                        cfg.channel_cooldown_seconds,
+                        self.cfg.channel_cooldown_seconds,
                         error=f'{exc.__class__.__name__}: {exc}',
                     )
                     raise
@@ -859,7 +863,7 @@ class Telegram:
             return False
         except FloodWaitError as exc:
             wait_seconds = float(getattr(exc, 'seconds', 0) or 0)
-            cooldown_seconds = max(wait_seconds, cfg.channel_cooldown_seconds)
+            cooldown_seconds = max(wait_seconds, self.cfg.channel_cooldown_seconds)
             await self.set_account_cooldown(account, cooldown_seconds, error=f'FloodWaitError: {wait_seconds:.0f}s')
             await mark_telegram_media_job_retry(
                 job,
@@ -874,7 +878,7 @@ class Telegram:
             await self.set_channel_cooldown(
                 account.name,
                 job.channel_id,
-                min(delay, cfg.channel_cooldown_seconds) if cfg.channel_cooldown_seconds > 0 else delay,
+                min(delay, self.cfg.channel_cooldown_seconds) if self.cfg.channel_cooldown_seconds > 0 else delay,
                 error=f'{exc.__class__.__name__}: {exc}',
             )
             await mark_telegram_media_job_retry(
@@ -921,7 +925,7 @@ class Telegram:
                     await asyncio.wait_for(wake_event.wait(), timeout=_QUEUE_IDLE_POLL_SECONDS)
                 continue
             if delay_before_next_download:
-                await self._sleep(cfg.download_delay_seconds)
+                await self._sleep(self.cfg.download_delay_seconds)
             downloaded = await self._process_job(account=account, client=client, job=job, owner_token=owner_token)
             delay_before_next_download = downloaded
 
@@ -949,7 +953,7 @@ class Telegram:
             account.session_path,
             account.api_id,
             account.api_hash,
-            flood_sleep_threshold=cfg.flood_sleep_threshold_seconds,
+            flood_sleep_threshold=self.cfg.flood_sleep_threshold_seconds,
             receive_updates=True,
             catch_up=True,
         )
@@ -1022,7 +1026,7 @@ class Telegram:
         await self._initialize_tables()
         try:
             async with asyncio.TaskGroup() as task_group:
-                for account in cfg.resolved_accounts():
+                for account in self.cfg.resolved_accounts():
                     task_group.create_task(
                         self._run_account_forever(account, stop_event),
                         name=f'telegram-listener-{account.name}',
@@ -1032,7 +1036,7 @@ class Telegram:
 
     async def wait_until_ready(self) -> None:
         await asyncio.gather(
-            *(self._account_ready_events.setdefault(account.name, asyncio.Event()).wait() for account in cfg.resolved_accounts()),
+            *(self._account_ready_events.setdefault(account.name, asyncio.Event()).wait() for account in self.cfg.resolved_accounts()),
         )
 
     async def reconcile(self) -> None:
@@ -1041,7 +1045,7 @@ class Telegram:
             await self._run_one_shot()
             return
         tasks = []
-        for account in cfg.resolved_accounts():
+        for account in self.cfg.resolved_accounts():
             client = self._clients.get(account.name)
             if client is None:
                 log.warning('Telegram account %s is not connected; reconciliation deferred', account.name)
@@ -1061,7 +1065,7 @@ class Telegram:
             await self._run_one_shot_account(account)
 
     async def _run_one_shot(self) -> None:
-        for account in cfg.resolved_accounts():
+        for account in self.cfg.resolved_accounts():
             async with database.advisory_lock(self._account_lock_name(account)) as acquired:
                 if not acquired:
                     log.warning('Telegram account %s is already running; skip one-shot reconciliation', account.name)
@@ -1074,7 +1078,7 @@ class Telegram:
             account.session_path,
             account.api_id,
             account.api_hash,
-            flood_sleep_threshold=cfg.flood_sleep_threshold_seconds,
+            flood_sleep_threshold=self.cfg.flood_sleep_threshold_seconds,
             receive_updates=False,
         )
         self.client = client

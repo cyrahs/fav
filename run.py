@@ -2,15 +2,12 @@ import argparse
 import asyncio
 import contextlib
 import inspect
-import json
-import mimetypes
 import os
 import shutil
 import signal
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
-from pathlib import Path
 from time import perf_counter
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -18,9 +15,9 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from src.core import logger
-from src.core.config import config as app_config
+from src.core import logger, settings
 from src.service.jobs import ScheduledJob, build_jobs, resolve_trigger_jobs
+from src.tool import nasuchan
 from src.tool.control_queue import (
     STATUS_FAILED,
     STATUS_REJECTED,
@@ -44,21 +41,9 @@ from src.web.telegram import Telegram
 
 log = logger.get('main')
 _CONTROL_REQUEST_POLL_INTERVAL_SECONDS = 1.0
+_SETTINGS_POLL_INTERVAL_SECONDS = 15.0
 _NOTIFICATION_DELIVERY_POLL_INTERVAL_SECONDS = 1.0
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
-_WEBHOOK_CONNECT_TIMEOUT_SECONDS = 5.0
-_WEBHOOK_WRITE_TIMEOUT_SECONDS = 30.0
-_WEBHOOK_READ_TIMEOUT_SECONDS = 90.0
-_NOTIFICATION_WEBHOOK_V2_PATH = '/api/v2/notifications/webhook'
-_NOTIFICATION_WEBHOOK_V3_PATH = '/api/v3/notifications/webhook'
-_MAX_NOTIFICATION_IMAGE_BYTES = 9_500_000
-_HTTP_STATUS_SUCCESS_MIN = 200
-_HTTP_STATUS_SUCCESS_MAX = 299
-_HTTP_STATUS_SERVER_ERROR_MIN = 500
-_HTTP_STATUS_SERVER_ERROR_MAX = 599
-_V3_FALLBACK_STATUS_CODES = frozenset({404, 405})
-_V3_IMAGE_FALLBACK_STATUS_CODES = frozenset({413, 415})
-_RETRYABLE_STATUS_CODES = frozenset({408, 409, 425, 429})
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,13 +53,6 @@ class JobRunResult:
     success: bool
     error: str = ''
     cancelled: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class NotificationWebhookConfig:
-    v2_url: str
-    v3_url: str
-    token: str
 
 
 def _parse_args() -> argparse.Namespace:
@@ -114,20 +92,13 @@ def _resolve_scheduler_timezone() -> tzinfo:
         return UTC
 
 
-def _load_notification_webhook_config() -> NotificationWebhookConfig:
-    base_url = str(app_config.notifications.webhook_base_url).strip().rstrip('/')
-    token = str(app_config.notifications.webhook_token).strip()
-    if not base_url:
-        msg = 'notifications.webhook_base_url is required'
-        raise ValueError(msg)
-    if not token:
-        msg = 'notifications.webhook_token is required'
-        raise ValueError(msg)
-    return NotificationWebhookConfig(
-        v2_url=f'{base_url}{_NOTIFICATION_WEBHOOK_V2_PATH}',
-        v3_url=f'{base_url}{_NOTIFICATION_WEBHOOK_V3_PATH}',
-        token=token,
-    )
+def _load_nasuchan_config() -> nasuchan.NasuchanConfig | None:
+    """Resolve Nasuchan settings, or None when they have not been filled in yet.
+
+    An unconfigured deployment must still boot, so notifications simply stay
+    queued in PostgreSQL until Nasuchan is set up in the web UI.
+    """
+    return nasuchan.load_config()
 
 
 async def _shutdown_task(task: asyncio.Task[None] | None, *, name: str) -> None:
@@ -248,128 +219,25 @@ def _format_exception(exc: BaseException) -> str:
     return f'{exc.__class__.__name__}: {message}'
 
 
-def _notification_webhook_headers(token: str, *, idempotency_key: str | None = None) -> dict[str, str]:
-    headers = {'Authorization': f'Bearer {token}'}
-    if idempotency_key is not None:
-        headers['Idempotency-Key'] = idempotency_key
-    return headers
-
-
-def _notification_error_message(*, status_code: int, response_text: str) -> str:
-    detail = response_text.strip()
-    if detail:
-        return f'Webhook responded with HTTP {status_code}: {detail[:200]}'
-    return f'Webhook responded with HTTP {status_code}'
-
-
-def _is_retryable_status_code(status_code: int) -> bool:
-    return status_code in _RETRYABLE_STATUS_CODES or _HTTP_STATUS_SERVER_ERROR_MIN <= status_code <= _HTTP_STATUS_SERVER_ERROR_MAX
-
-
-def _read_bounded_notification_image(image_path: Path) -> tuple[str, bytes, str] | None:
-    content_type = mimetypes.guess_type(image_path.name)[0] or ''
-    if not content_type.startswith('image/'):
-        log.warning('Notification attachment %s is not a recognized image; using URL fallback', image_path)
-        return None
-    try:
-        with image_path.open('rb') as handle:
-            image_bytes = handle.read(_MAX_NOTIFICATION_IMAGE_BYTES + 1)
-    except OSError as exc:
-        log.warning(
-            'Failed to read notification image %s; using URL fallback: %s',
-            image_path,
-            exc,
-        )
-        return None
-    if len(image_bytes) > _MAX_NOTIFICATION_IMAGE_BYTES:
-        log.warning(
-            'Notification image %s exceeds upload limit of %s bytes; using URL fallback',
-            image_path,
-            _MAX_NOTIFICATION_IMAGE_BYTES,
-        )
-        return None
-    return image_path.name, image_bytes, content_type
-
-
-async def _post_notification_v3(
+async def _deliver_notification_to_nasuchan(
     *,
     notification: NotificationRecord,
     client: httpx.AsyncClient,
-    webhook_config: NotificationWebhookConfig,
-    include_local_image: bool,
-) -> httpx.Response:
-    request_kwargs: dict[str, object] = {'json': notification.webhook_v3_payload}
-    image_path = notification.local_image_path
-    if include_local_image and image_path is not None:
-        image_attachment = await asyncio.to_thread(_read_bounded_notification_image, image_path)
-        if image_attachment is not None:
-            filename, image_bytes, content_type = image_attachment
-            request_kwargs = {
-                'data': {'payload': json.dumps(notification.webhook_v3_payload, separators=(',', ':'))},
-                'files': {'image': (filename, image_bytes, content_type)},
-            }
-    return await client.post(
-        webhook_config.v3_url,
-        headers=_notification_webhook_headers(
-            webhook_config.token,
-            idempotency_key=f'fav:{notification.notification_id}:{notification.event_version}',
-        ),
-        **request_kwargs,
-    )
-
-
-async def _post_notification_v2(
-    *,
-    notification: NotificationRecord,
-    client: httpx.AsyncClient,
-    webhook_config: NotificationWebhookConfig,
-) -> httpx.Response:
-    return await client.post(
-        webhook_config.v2_url,
-        headers=_notification_webhook_headers(webhook_config.token),
-        json=notification.webhook_payload,
-    )
-
-
-async def _deliver_notification_via_webhook(
-    *,
-    notification: NotificationRecord,
-    client: httpx.AsyncClient,
-    webhook_config: NotificationWebhookConfig,
+    nasuchan_config: nasuchan.NasuchanConfig,
 ) -> None:
-    response = await _post_notification_v3(
+    response = await nasuchan.deliver(
         notification=notification,
         client=client,
-        webhook_config=webhook_config,
-        include_local_image=True,
+        config=nasuchan_config,
     )
-    if response.status_code in _V3_IMAGE_FALLBACK_STATUS_CODES and notification.local_image_path is not None:
-        log.warning(
-            'V3 webhook rejected notification image %s with HTTP %s; retrying without upload',
-            notification.notification_id,
-            response.status_code,
-        )
-        response = await _post_notification_v3(
-            notification=notification,
-            client=client,
-            webhook_config=webhook_config,
-            include_local_image=False,
-        )
-    if response.status_code in _V3_FALLBACK_STATUS_CODES:
-        log.info('V3 notification webhook is unavailable; using v2 for notification %s', notification.notification_id)
-        response = await _post_notification_v2(
-            notification=notification,
-            client=client,
-            webhook_config=webhook_config,
-        )
-    if _HTTP_STATUS_SUCCESS_MIN <= response.status_code <= _HTTP_STATUS_SUCCESS_MAX:
+    if nasuchan.is_success_status_code(response.status_code):
         await mark_notification_delivered(notification.notification_id, event_version=notification.event_version)
         log.info('Delivered notification %s', notification.notification_id)
         return
 
     attempt_count = notification.attempt_count + 1
-    error_message = _notification_error_message(status_code=response.status_code, response_text=response.text)
-    if _is_retryable_status_code(response.status_code):
+    error_message = nasuchan.error_message(status_code=response.status_code, response_text=response.text)
+    if nasuchan.is_retryable_status_code(response.status_code):
         await mark_notification_retry(
             notification.notification_id,
             event_version=notification.event_version,
@@ -388,21 +256,23 @@ async def _deliver_notification_via_webhook(
     log.warning('Webhook delivery permanently failed for notification %s: %s', notification.notification_id, error_message)
 
 
-async def _deliver_next_notification(
-    *,
-    client: httpx.AsyncClient,
-    webhook_config: NotificationWebhookConfig,
-) -> bool:
+async def _deliver_next_notification(*, client: httpx.AsyncClient) -> bool:
+    # Resolved per attempt so filling Nasuchan in from the web UI starts delivery
+    # without restarting the worker.
+    nasuchan_config = _load_nasuchan_config()
+    if nasuchan_config is None:
+        return False
+
     notification = await claim_next_pending_notification()
     if notification is None:
         return False
 
     attempt_count = notification.attempt_count + 1
     try:
-        await _deliver_notification_via_webhook(
+        await _deliver_notification_to_nasuchan(
             notification=notification,
             client=client,
-            webhook_config=webhook_config,
+            nasuchan_config=nasuchan_config,
         )
     except (httpx.RequestError, httpx.TimeoutException) as exc:
         error_message = f'{exc.__class__.__name__}: {exc}'
@@ -412,17 +282,13 @@ async def _deliver_next_notification(
             attempt_count=attempt_count,
             error_message=error_message,
         )
-        log.warning('Webhook request failed for notification %s: %s', notification.notification_id, error_message)
+        log.warning('Nasuchan request failed for notification %s: %s', notification.notification_id, error_message)
     return True
 
 
-async def _drain_pending_notifications(
-    *,
-    client: httpx.AsyncClient,
-    webhook_config: NotificationWebhookConfig,
-) -> int:
+async def _drain_pending_notifications(*, client: httpx.AsyncClient) -> int:
     delivered = 0
-    while await _deliver_next_notification(client=client, webhook_config=webhook_config):
+    while await _deliver_next_notification(client=client):
         delivered += 1
     return delivered
 
@@ -430,18 +296,23 @@ async def _drain_pending_notifications(
 async def _consume_notification_deliveries(
     *,
     client: httpx.AsyncClient,
-    webhook_config: NotificationWebhookConfig,
     stop_event: asyncio.Event,
 ) -> None:
+    warned_unconfigured = False
     while not stop_event.is_set():
         try:
-            processed = await _deliver_next_notification(client=client, webhook_config=webhook_config)
+            processed = await _deliver_next_notification(client=client)
         except Exception as exc:  # noqa: BLE001
             log.warning('Notification delivery loop failed: %s', exc)
             processed = False
 
         if processed:
+            warned_unconfigured = False
             continue
+
+        if not warned_unconfigured and _load_nasuchan_config() is None:
+            log.warning('Nasuchan is not configured; notifications stay queued until base_url and token are set')
+            warned_unconfigured = True
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=_NOTIFICATION_DELIVERY_POLL_INTERVAL_SECONDS)
@@ -598,9 +469,110 @@ async def _consume_control_requests(
         await _execute_control_request(request, all_jobs=all_jobs, runner_by_key=runner_by_key)
 
 
+def _missing_commands(job: ScheduledJob) -> list[str]:
+    return [command for command in job.required_commands if shutil.which(command) is None]
+
+
+def _sync_scheduled_jobs(
+    *,
+    scheduler: AsyncIOScheduler,
+    jobs: list[ScheduledJob],
+    runner_by_key: dict[str, Callable[[], object]],
+    timezone: tzinfo,
+) -> int:
+    """Bring the scheduler in line with `jobs`. Returns the number of changes made."""
+    changes = 0
+    for job in jobs:
+        existing = scheduler.get_job(job.key)
+        runner = runner_by_key.get(job.key)
+
+        if not job.enabled or runner is None:
+            if existing is not None:
+                scheduler.remove_job(job.key)
+                log.info('Unscheduled %s', job.name)
+                changes += 1
+            continue
+
+        missing = _missing_commands(job)
+        if missing:
+            # Enabled from the UI on a host that cannot run it; keep it parked
+            # rather than taking the whole worker down.
+            log.error('%s requires command(s) %s in PATH; not scheduling', job.name, ', '.join(missing))
+            if existing is not None:
+                scheduler.remove_job(job.key)
+                changes += 1
+            continue
+
+        try:
+            trigger = CronTrigger.from_crontab(job.cron, timezone=timezone)
+        except ValueError:
+            log.exception('Invalid cron for %s (%s); not scheduling', job.name, job.cron)
+            if existing is not None:
+                scheduler.remove_job(job.key)
+                changes += 1
+            continue
+
+        if existing is None:
+            scheduler.add_job(
+                runner,
+                trigger=trigger,
+                id=job.key,
+                name=job.name,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            log.info('Scheduled %s with cron %r', job.name, job.cron)
+            changes += 1
+            continue
+
+        if str(existing.trigger) != str(trigger):
+            scheduler.reschedule_job(job.key, trigger=trigger)
+            log.info('Rescheduled %s with cron %r', job.name, job.cron)
+            changes += 1
+    return changes
+
+
+async def _watch_settings(
+    *,
+    scheduler: AsyncIOScheduler,
+    runner_by_key: dict[str, Callable[[], object]],
+    timezone: tzinfo,
+    stop_event: asyncio.Event,
+) -> None:
+    """Reschedule jobs when the web UI edits their enabled/cron settings.
+
+    Deliberately independent of the control-request loop, which runs jobs
+    serially and would delay reschedules behind a long crawl.
+    """
+    last_version: str | None = None
+    while not stop_event.is_set():
+        try:
+            version = await asyncio.to_thread(settings.settings_version_sync)
+            if version != last_version:
+                if last_version is not None:
+                    await asyncio.to_thread(settings.load, force=True)
+                    changes = _sync_scheduled_jobs(
+                        scheduler=scheduler,
+                        jobs=build_jobs(),
+                        runner_by_key=runner_by_key,
+                        timezone=timezone,
+                    )
+                    log.info('Applied settings change (%d schedule update(s))', changes)
+                last_version = version
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Settings watcher failed: %s', exc)
+
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=_SETTINGS_POLL_INTERVAL_SECONDS)
+        except TimeoutError:
+            continue
+
+
 async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
     control_request_task: asyncio.Task[None] | None = None
     notification_delivery_task: asyncio.Task[None] | None = None
+    settings_watcher_task: asyncio.Task[None] | None = None
     telegram_runtime_task: asyncio.Task[None] | None = None
     telegram_ready_task: asyncio.Task[None] | None = None
     telegram_runtime: Telegram | None = None
@@ -610,21 +582,15 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         msg = 'Failed to resolve main task for signal handling'
         raise RuntimeError(msg)
     remove_signal_handlers = _install_signal_handlers(stop_event=stop_event, main_task=main_task)
-    webhook_config = _load_notification_webhook_config()
-    notification_client = httpx.AsyncClient(
-        timeout=httpx.Timeout(
-            connect=_WEBHOOK_CONNECT_TIMEOUT_SECONDS,
-            write=_WEBHOOK_WRITE_TIMEOUT_SECONDS,
-            read=_WEBHOOK_READ_TIMEOUT_SECONDS,
-            pool=_WEBHOOK_CONNECT_TIMEOUT_SECONDS,
-        ),
-    )
+    notification_client = nasuchan.build_client()
     all_jobs = build_jobs()
     jobs = [job for job in all_jobs if job.enabled]
     timezone = _resolve_scheduler_timezone()
     scheduler = AsyncIOScheduler(timezone=timezone)
     if trigger_target is None:
-        _validate_commands(jobs)
+        # Missing commands no longer abort startup: enabling a source is a UI
+        # action now, and a bad toggle must not crashloop the worker.
+        # _sync_scheduled_jobs logs and parks those jobs instead.
         log.info('Scheduler timezone: %s', getattr(timezone, 'key', str(timezone)))
 
     runner_by_key: dict[str, Callable[[], object]] = {}
@@ -647,29 +613,16 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
 
             runner_by_key[job.key] = runner
 
-            if trigger_target is not None:
-                continue
-
-            if not job.enabled:
-                log.info('%s is disabled; skipping schedule', job.name)
-                continue
-
-            try:
-                trigger = CronTrigger.from_crontab(job.cron, timezone=timezone)
-            except ValueError as exc:
-                log.exception('Invalid cron for %s (%s)', job.name, job.cron)
-                raise SystemExit(1) from exc
-
-            scheduler.add_job(
-                runner,
-                trigger=trigger,
-                id=job.key,
-                name=job.name,
-                coalesce=True,
-                max_instances=1,
-                misfire_grace_time=300,
+        if trigger_target is None:
+            for job in all_jobs:
+                if not job.enabled:
+                    log.info('%s is disabled; skipping schedule', job.name)
+            _sync_scheduled_jobs(
+                scheduler=scheduler,
+                jobs=all_jobs,
+                runner_by_key=runner_by_key,
+                timezone=timezone,
             )
-            log.info('Scheduled %s with cron %r', job.name, job.cron)
 
         if trigger_target is not None:
             trigger_jobs = resolve_trigger_jobs(trigger_target, all_jobs)
@@ -678,7 +631,7 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
                 if not job.enabled:
                     log.warning('%s is disabled in config; running once due to --trigger', job.name)
                 await runner_by_key[job.key]()
-            await _drain_pending_notifications(client=notification_client, webhook_config=webhook_config)
+            await _drain_pending_notifications(client=notification_client)
             return
 
         if not jobs:
@@ -705,11 +658,21 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
             name='control-request-consumer',
         )
         notification_delivery_task = asyncio.create_task(
-            _consume_notification_deliveries(client=notification_client, webhook_config=webhook_config, stop_event=stop_event),
+            _consume_notification_deliveries(client=notification_client, stop_event=stop_event),
             name='notification-delivery-consumer',
+        )
+        settings_watcher_task = asyncio.create_task(
+            _watch_settings(
+                scheduler=scheduler,
+                runner_by_key=runner_by_key,
+                timezone=timezone,
+                stop_event=stop_event,
+            ),
+            name='settings-watcher',
         )
         log.info('Control request consumer enabled')
         log.info('Notification delivery consumer enabled')
+        log.info('Settings watcher enabled (poll every %ss)', int(_SETTINGS_POLL_INTERVAL_SECONDS))
 
         scheduler.start()
         for job in jobs:
@@ -741,6 +704,7 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         remove_signal_handlers()
         await _shutdown_task(control_request_task, name='control request consumer')
         await _shutdown_task(notification_delivery_task, name='notification delivery consumer')
+        await _shutdown_task(settings_watcher_task, name='settings watcher')
         if telegram_runtime is not None:
             await telegram_runtime.aclose()
         await _shutdown_task(telegram_ready_task, name='telegram runtime readiness')

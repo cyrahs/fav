@@ -23,6 +23,9 @@ Thumbs.db
 # Project artifacts/config not needed in image
 bin/
 .cache/
-config.toml
 log/
 *.log
+
+# Front end is built inside the image
+web/node_modules/
+web/dist/

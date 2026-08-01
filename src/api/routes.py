@@ -8,9 +8,20 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 
-from .constants import API_V2_PREFIX, TAG_AZURLANE, TAG_BD2, TAG_HANIME1, TAG_JOBS, TAG_NIKKE
+from .constants import (
+    API_V2_PREFIX,
+    TAG_ARCHIVE,
+    TAG_AZURLANE,
+    TAG_BD2,
+    TAG_HANIME1,
+    TAG_JOBS,
+    TAG_NIKKE,
+    TAG_SETTINGS,
+)
 from .dependencies import get_api_service, require_api_token
 from .schemas import (
+    ArchiveListResponse,
+    ArchiveSourceListResponse,
     AzurLaneCharacterDetail,
     AzurLaneCharacterListResponse,
     AzurLaneSidebarCharacter,
@@ -22,15 +33,20 @@ from .schemas import (
     Hanime1ListResponse,
     Hanime1Seed,
     Hanime1SeedCreate,
+    Hanime1SeedListResponse,
     JobListResponse,
     JobRequest,
     JobRequestCreate,
+    JobRequestListResponse,
+    JobRequestStatus,
     Live2DViewOverride,
     Live2DViewOverrideUpsert,
     NikkeCharacterDetail,
     NikkeCharacterListResponse,
     NikkeSidebarCharacter,
     NikkeSidebarCharacterListResponse,
+    SettingsListResponse,
+    SettingsSection,
 )
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
@@ -47,6 +63,8 @@ NikkeLimitQuery = Annotated[int, Query(ge=1, le=500)]
 NikkeOffsetQuery = Annotated[int, Query(ge=0)]
 Live2DModelIdPath = Annotated[str, Path(min_length=1, max_length=160, pattern=r'^[A-Za-z0-9_.:-]+$')]
 Live2DProfilePath = Annotated[str, Path(min_length=1, max_length=64, pattern=r'^[A-Za-z0-9_-]+$')]
+SettingsSectionPath = Annotated[str, Path(min_length=1, max_length=64, pattern=r'^[a-z0-9_]+(\.[a-z0-9_]+)*$')]
+ArchiveSearchQuery = Annotated[str | None, Query(alias='q', min_length=1, max_length=200)]
 _DATE_PART_COUNT = 3
 _AZURLANE_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
 _BD2_SIDEBAR_CACHE_CONTROL = 'public, max-age=300'
@@ -296,6 +314,94 @@ def get_job_request(
 
 
 @router.get(
+    '/job-requests',
+    operation_id='listJobRequests',
+    response_model=JobRequestListResponse,
+    tags=[TAG_JOBS],
+)
+def list_job_requests(
+    service: ApiServiceDep,
+    status_filter: Annotated[JobRequestStatus | None, Query(alias='status')] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> JobRequestListResponse:
+    items = [
+        service.model_job_request(request)
+        for request in service.list_job_requests(
+            status=status_filter.value if status_filter is not None else None,
+            limit=limit,
+        )
+    ]
+    return JobRequestListResponse(items=items, total=len(items))
+
+
+@router.get(
+    '/settings',
+    operation_id='listSettings',
+    response_model=SettingsListResponse,
+    tags=[TAG_SETTINGS],
+)
+def list_settings(service: ApiServiceDep) -> SettingsListResponse:
+    items = [service.model_settings_section(section) for section in service.list_settings()]
+    return SettingsListResponse(items=items, total=len(items))
+
+
+@router.get(
+    '/settings/{section}',
+    operation_id='getSettingsSection',
+    response_model=SettingsSection,
+    tags=[TAG_SETTINGS],
+)
+def get_settings_section(
+    section: SettingsSectionPath,
+    service: ApiServiceDep,
+) -> SettingsSection:
+    return service.model_settings_section(service.get_settings_section(section))
+
+
+@router.put(
+    '/settings/{section}',
+    operation_id='updateSettingsSection',
+    response_model=SettingsSection,
+    tags=[TAG_SETTINGS],
+)
+def update_settings_section(
+    section: SettingsSectionPath,
+    payload: dict[str, Any],
+    service: ApiServiceDep,
+) -> SettingsSection:
+    return service.model_settings_section(service.update_settings_section(section, payload))
+
+
+@router.get(
+    '/archive/sources',
+    operation_id='listArchiveSources',
+    response_model=ArchiveSourceListResponse,
+    tags=[TAG_ARCHIVE],
+)
+def list_archive_sources(service: ApiServiceDep) -> ArchiveSourceListResponse:
+    items = [service.model_archive_source(source) for source in service.list_archive_sources()]
+    return ArchiveSourceListResponse(items=items, total=len(items))
+
+
+@router.get(
+    '/archive/items',
+    operation_id='listArchiveItems',
+    response_model=ArchiveListResponse,
+    tags=[TAG_ARCHIVE],
+)
+def list_archive_items(
+    service: ApiServiceDep,
+    source: Annotated[str, Query(min_length=1, max_length=40)],
+    query: ArchiveSearchQuery = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ArchiveListResponse:
+    return service.model_archive_list(
+        service.list_archive_items(source=source, query=query or '', limit=limit, offset=offset),
+    )
+
+
+@router.get(
     '/hanime1/videos',
     operation_id='listHanime1Videos',
     response_model=Hanime1ListResponse,
@@ -318,6 +424,31 @@ def create_hanime1_seed(
     service: ApiServiceDep,
 ) -> Hanime1Seed:
     return service.model_hanime1_seed(service.add_hanime1_seed(payload.seed))
+
+
+@router.get(
+    '/hanime1/seeds',
+    operation_id='listHanime1Seeds',
+    response_model=Hanime1SeedListResponse,
+    tags=[TAG_HANIME1],
+)
+def list_hanime1_seeds(service: ApiServiceDep) -> Hanime1SeedListResponse:
+    items = [service.model_hanime1_seed_detail(seed) for seed in service.list_hanime1_seeds()]
+    return Hanime1SeedListResponse(items=items, total=len(items))
+
+
+@router.delete(
+    '/hanime1/seeds/{canonical_video_id}',
+    operation_id='deleteHanime1Seed',
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=[TAG_HANIME1],
+)
+def delete_hanime1_seed(
+    canonical_video_id: Annotated[str, Path(min_length=1, max_length=32, pattern=r'^[0-9]+$')],
+    service: ApiServiceDep,
+) -> Response:
+    service.delete_hanime1_seed(canonical_video_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

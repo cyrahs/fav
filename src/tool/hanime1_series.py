@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 import psycopg
 from psycopg.rows import dict_row
@@ -8,6 +10,7 @@ from src.tool import database
 from src.tool.runtime_config import (
     Hanime1ParserIncompatibleError,
     RuntimeSeriesSeed,
+    build_hanime1_seed,
     extract_hanime1_seed_id,
     normalize_hanime1_seed,
     parse_hanime1_playlist,
@@ -91,6 +94,64 @@ class Hanime1SeriesService:
         final_seed = RuntimeSeriesSeed(video_id=canonical_id, title=to_simplified_chinese(resolved_title) or resolved_title)
         self._insert_series_seed(final_seed=final_seed, added_from_video_id=seed_id, series_ids=series_ids)
         return final_seed
+
+    def list_seeds(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cursor:
+            self._ensure_tables_sync(cursor)
+            cursor.execute(
+                """
+                SELECT series.canonical_video_id,
+                       series.title,
+                       series.added_from_video_id,
+                       series.created_at,
+                       series.updated_at,
+                       series.last_scanned_at,
+                       series.last_scan_error,
+                       COUNT(video.video_id) AS video_count
+                FROM hanime1_series AS series
+                LEFT JOIN hanime1_series_video AS video
+                  ON video.canonical_video_id = series.canonical_video_id
+                GROUP BY series.canonical_video_id
+                ORDER BY series.created_at, series.canonical_video_id;
+                """,
+            )
+            rows = cursor.fetchall()
+
+        seeds: list[dict[str, Any]] = []
+        for row in rows:
+            video_id = str(row['canonical_video_id'])
+            title = str(row['title'])
+            seeds.append(
+                {
+                    'video_id': video_id,
+                    'title': title,
+                    'label': build_hanime1_seed(seed_id=video_id, title=title),
+                    'added_from_video_id': str(row['added_from_video_id']),
+                    'video_count': int(row['video_count'] or 0),
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at'],
+                    'last_scanned_at': row['last_scanned_at'],
+                    'last_scan_error': str(row['last_scan_error'] or ''),
+                    'watch_url': f'{self._host}/watch?v={video_id}',
+                },
+            )
+        return seeds
+
+    def delete_seed(self, canonical_video_id: str) -> bool:
+        """Delete a series seed. Its hanime1_series_video rows cascade."""
+        normalized = canonical_video_id.strip()
+        if not normalized.isdecimal() or int(normalized) <= 0:
+            msg = 'invalid_seed'
+            raise ValueError(msg)
+        with self._connect() as conn, conn.cursor() as cursor:
+            self._ensure_tables_sync(cursor)
+            cursor.execute(
+                'DELETE FROM hanime1_series WHERE canonical_video_id = %s RETURNING canonical_video_id;',
+                (str(int(normalized)),),
+            )
+            deleted = cursor.fetchone() is not None
+            conn.commit()
+        return deleted
 
     def close(self) -> None:
         if self._owns_client:

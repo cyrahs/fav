@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.core.config import Hanime1Ranking, ScheduleJob, Telegram, TelegramAccount, TelegramChannel
+from src.core.settings import Hanime1Ranking, ScheduleJob, Telegram, TelegramAccount, TelegramChannel
 
 _TELEGRAM_DEFAULT_SCAN_LIMIT = 50
 _TELEGRAM_DEFAULT_DOWNLOAD_LIMIT_PER_CHANNEL = 2
@@ -19,7 +19,8 @@ def test_schedule_job_accepts_five_field_cron() -> None:
     job = ScheduleJob(cron='*/5 * * * *')
 
     assert job.cron == '*/5 * * * *'
-    assert job.enabled is True
+    # Defaults are off so an unconfigured deployment boots idle.
+    assert job.enabled is False
     assert job.run_on_start is False
 
 
@@ -46,9 +47,12 @@ def test_hanime1_ranking_rejects_non_positive_pages() -> None:
         Hanime1Ranking(pages=0)
 
 
-def test_telegram_rejects_empty_accounts() -> None:
-    with pytest.raises(ValidationError):
-        Telegram(accounts=[])
+def test_telegram_reports_empty_accounts_as_not_runnable() -> None:
+    # The settings form must be able to hold a half-filled section, so an empty
+    # account list validates but is reported as not runnable.
+    cfg = Telegram(accounts=[])
+
+    assert cfg.validate_runnable() == ['accounts']
 
 
 def test_telegram_accounts_config_resolves_named_accounts() -> None:

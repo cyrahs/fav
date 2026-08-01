@@ -46,6 +46,7 @@ class JobRequestTarget(StrEnum):
     BILIBILI = 'bilibili'
     HANIME1 = 'hanime1'
     JANDAN = 'jandan'
+    KEMONO = 'kemono'
     NIKKE = 'nikke'
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
@@ -65,6 +66,11 @@ class JobSummary(ApiSchema):
     enabled: bool
     run_on_start: bool
     cron: str
+    # Settings section that owns this job's enabled/cron fields.
+    section: str = ''
+    # Non-empty when the source is switched on but still missing required values,
+    # in which case the scheduler keeps it parked.
+    missing_fields: list[str] = Field(default_factory=list)
 
 
 class JobListResponse(ApiSchema):
@@ -79,6 +85,7 @@ class JobRequestCreate(ApiSchema):
 class JobRequest(ApiSchema):
     id: int
     target: JobRequestTarget
+    kind: str = 'trigger_job'
     status: JobRequestStatus
     requested_at: str
     started_at: str | None = None
@@ -91,6 +98,24 @@ class Hanime1Seed(ApiSchema):
     video_id: str
     title: str
     label: str
+
+
+class Hanime1SeedDetail(ApiSchema):
+    video_id: str
+    title: str
+    label: str
+    added_from_video_id: str
+    video_count: int
+    created_at: str | None = None
+    updated_at: str | None = None
+    last_scanned_at: str | None = None
+    last_scan_error: str = ''
+    watch_url: str
+
+
+class Hanime1SeedListResponse(ApiSchema):
+    items: list[Hanime1SeedDetail]
+    total: int
 
 
 class Hanime1Video(ApiSchema):
@@ -562,3 +587,49 @@ class NikkeCharacterDetail(NikkeCharacterSummary):
     runtime_animation_metadata_status: Literal['complete', 'incomplete', 'error', 'missing'] = 'missing'
     runtime_animation_metadata_issues: list[dict[str, Any]] = Field(default_factory=list)
     assets: list[NikkeAsset] = Field(default_factory=list)
+
+
+class JobRequestListResponse(ApiSchema):
+    items: list[JobRequest]
+    total: int
+
+
+class ArchiveSourceStat(ApiSchema):
+    source: str
+    name: str
+    total: int
+    latest_at: str | None = None
+
+
+class ArchiveSourceListResponse(ApiSchema):
+    items: list[ArchiveSourceStat]
+    total: int
+
+
+class ArchiveItem(ApiSchema):
+    source: str
+    id: str
+    title: str
+    subtitle: str = ''
+    created_at: str | None = None
+    url: str | None = None
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArchiveListResponse(ApiSchema):
+    items: list[ArchiveItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class SettingsSection(ApiSchema):
+    section: str
+    value: dict[str, Any]
+    # Field names that must be filled in before this section's job can run.
+    missing_fields: list[str] = Field(default_factory=list)
+
+
+class SettingsListResponse(ApiSchema):
+    items: list[SettingsSection]
+    total: int

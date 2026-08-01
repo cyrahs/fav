@@ -5,8 +5,8 @@ from typing import Literal
 import psycopg
 from psycopg.rows import dict_row
 
-from src.core import config
-from src.core.config import TelegramMediaType
+from src.core.env import env
+from src.core.settings import TelegramMediaType
 from src.tool import database
 
 TelegramQueueSource = Literal['event', 'reconciliation']
@@ -57,9 +57,9 @@ class TelegramMediaJob:
 
 
 def _postgres_dsn() -> str:
-    dsn = str(config.database.postgres_dsn).strip()
+    dsn = env.postgres_dsn.strip()
     if not dsn:
-        msg = 'database.postgres_dsn is required'
+        msg = 'POSTGRES_DSN is required'
         raise ValueError(msg)
     return dsn
 

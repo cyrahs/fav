@@ -27,68 +27,29 @@ uv sync
 
 ### Configure
 
-This project **requires** a local `config.toml` in the repo root. It is intentionally gitignored (`.gitignore`).
+There is **no `config.toml`**. Only bootstrap values come from the environment; everything else lives
+in the `app_settings` table and is edited from the web UI at `http://<host>:<API_PORT>/`.
 
-Do not commit secrets. Use placeholders when sharing examples or logs.
+Create a `.env` (gitignored; see `.env.example`):
 
-Minimal template (fill in your own values):
-
-```toml
-proxy = ""
-
-[cookiecloud]
-server_url = "https://your-cookiecloud.example"
-uuid = "..."
-password = "..."
-
-[web.bilibili]
-id = 123
-fav_id = 456
-path = "./collection/bilibili"
-enabled = true
-cron = "*/30 * * * *"
-
-[database]
-postgres_dsn = "postgresql://user:password@127.0.0.1:5432/fav"
-
-[web.telegram]
-enabled = true
-cron = "*/30 * * * *"
-
-[[web.telegram.accounts]]
-name = "cyrah"
-api_id = 123
-api_hash = "..."
-session_path = "./data/telethon-session"
-
-[[web.telegram.accounts.channels]]
-id = 1234567890
-path = "./collection/telegram/channel-name"
-
-[web.stellasora]
-path = "./collection/stellasora"
-enabled = true
-cron = "0 */6 * * *"
-
-[web.azurlane]
-path = "./collection/azurlane"
-enabled = false
-cron = "0 */6 * * *"
-
-[web.kemono]
-enabled = false
-cron = "0 */6 * * *"
-path = "./collection/kemono"
-
-[[web.kemono.creators]]
-service = "fanbox"
-id = "..."
-name = "..."
+```bash
+POSTGRES_DSN=postgresql://user:password@127.0.0.1:5432/fav
+API_TOKEN=replace-with-a-strong-random-token
+API_BIND=127.0.0.1
+API_PORT=8091
 ```
 
+`API_TOKEN` is required — it protects the settings API, so an empty one would leave a fresh instance
+world-writable.
+
 Notes:
-- Config is loaded in `src/core/config.py` via `pydantic-settings` from `./config.toml` only.
-- PostgreSQL is used to dedupe downloads and store metadata.
+- `src/core/env.py` holds the bootstrap model; it is import-time and immutable.
+- `src/core/settings.py` holds the full model tree plus the `app_settings` read/write helpers.
+- `settings.load()` returns a snapshot with a 2s TTL cache. Resolve it per use — never snapshot a
+  section at module import, or UI edits will not apply until a restart.
+- `settings.use(snapshot)` pins a snapshot and bypasses the database; `tests/conftest.py` uses it in
+  an autouse fixture so the suite never needs PostgreSQL.
+- There is no proxy setting: `httpx` and `yt-dlp` both read `HTTP_PROXY` / `HTTPS_PROXY`.
 
 ### Run
 
@@ -97,7 +58,7 @@ uv run python run.py
 ```
 
 `run.py` is a long-running scheduler process intended for Deployment.
-It schedules jobs using cron expressions from `config.toml`:
+It schedules jobs using cron expressions from the `app_settings` table, and reschedules them in place within ~15s of a change:
 - `web.bilibili.cron` -> `src/web/bilibili.py` (`Bilibili().update()`)
 - `web.telegram.cron` -> `src/web/telegram.py` (`Telegram().update()`)
 - `web.stellasora.cron` -> `src/web/stellasora.py` (`StellaSora().update()`)
@@ -108,7 +69,11 @@ Kemono is implemented in `src/web/kemono.py` but is not called from `run.py` in 
 ## Project Layout
 
 - `run.py`: long-running scheduler for update jobs
-- `src/core/config.py`: typed config models; loads `config.toml` at import time
+- `src/core/env.py`: bootstrap env model (`POSTGRES_DSN`, `API_TOKEN`, bind/port)
+- `src/core/settings.py`: typed settings models + `app_settings` table read/write
+- `src/tool/nasuchan.py`: Nasuchan v3 notification delivery
+- `src/api/archive.py`: read-only archive browsing (whitelisted tables/columns)
+- `web/`: React + Vite front end, built to `web/dist` and served by the API
 - `src/core/logger.py`: tqdm-friendly logging (avoid `print()`)
 - `src/tool/cookiecloud.py`: fetch + decrypt CookieCloud cookies (used for Bilibili)
 - `src/tool/database.py`: PostgreSQL database helpers
@@ -141,7 +106,7 @@ Run:
 uv run pytest
 ```
 
-`tests/test_cookiecloud.py` includes a "live" test that uses your `config.toml` CookieCloud settings and may be skipped if CookieCloud is unreachable. If you want to skip it explicitly:
+`tests/test_cookiecloud.py` includes a "live" test that reads CookieCloud settings from the database and is skipped when they are unset or the database is unreachable. If you want to skip it explicitly:
 
 ```bash
 uv run pytest -k 'not test_save_to_netscape_format_live_bilibili'
@@ -154,7 +119,7 @@ Use `from src.core import logger` and `logger.get('name')`. The logging handler 
 ### Filenames and paths
 
 - Use `src/tool/filename.py` helpers (`sanitize`, `format_video_filename`, `ensure_unique_path`) for anything written to disk.
-- Outputs are typically rooted under paths from `config.toml` (often `./collection/...`).
+- Outputs are typically rooted under paths from the settings table (often `./collection/...`).
 
 ### Network + external services
 
@@ -169,14 +134,14 @@ When adding tests, prefer dependency injection / fakes to avoid live calls. If y
 
 ## Docker
 
-`Dockerfile` builds a runtime image and downloads a `yt-dlp` binary at build time. It does **not** bake in `config.toml`; you should mount it.
+`Dockerfile` builds the front end in a Node stage, then a runtime image with a `yt-dlp` binary. Configuration is supplied through environment variables.
 
 Example:
 
 ```bash
 docker build -t fav .
 docker run --rm \
-  -v "$PWD/config.toml:/app/config.toml:ro" \
+  --env-file .env \
   -v "$PWD/collection:/app/collection" \
   -v "$PWD/log:/app/log" \
   fav
@@ -184,8 +149,9 @@ docker run --rm \
 
 ## Making Changes Safely
 
-- Avoid logging secrets (CookieCloud password, PostgreSQL credentials, Telegram API hash).
-- Keep `config.toml` out of git history (it is gitignored; do not override that).
+- Avoid logging secrets (CookieCloud password, PostgreSQL credentials, Telegram API hash, Nasuchan token).
+- Keep `.env` out of git history (it is gitignored; do not override that).
+- Secrets in `app_settings` are masked on read; preserve that when touching the settings API.
 - If you change database schemas (`CREATE TABLE ...` blocks), preserve backward compatibility or provide a migration strategy.
 
 Any new source should:

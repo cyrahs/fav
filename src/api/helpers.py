@@ -19,13 +19,15 @@ def serialize_datetime(value: datetime | None) -> str | None:
     return value.astimezone(UTC).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
 
 
-def serialize_job(job: ScheduledJob) -> dict[str, str | bool]:
+def serialize_job(job: ScheduledJob) -> dict[str, object]:
     return {
         'key': job.key,
         'name': job.name,
         'enabled': job.enabled,
         'run_on_start': job.run_on_start,
         'cron': job.cron,
+        'section': job.section,
+        'missing_fields': list(job.missing_fields),
     }
 
 
@@ -33,6 +35,7 @@ def serialize_control_request(request: ControlRequest) -> dict[str, object]:
     return {
         'id': request.request_id,
         'target': request.target,
+        'kind': request.kind,
         'status': request.status,
         'requested_at': serialize_datetime(request.requested_at),
         'started_at': serialize_datetime(request.started_at),

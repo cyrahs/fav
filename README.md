@@ -2,6 +2,73 @@
 
 Automation toolkit for collecting content from multiple sources and deduplicating with PostgreSQL.
 
+## Configuration
+
+There is no `config.toml`. Bootstrap values come from the environment, and everything else lives in
+the `app_settings` table and is edited from the web UI.
+
+### Environment (`.env`)
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `POSTGRES_DSN` | yes | — | Database connection string |
+| `API_TOKEN` | yes | — | Bearer token for every `/api/v2/*` endpoint and for the web UI login |
+| `API_BIND` | no | `0.0.0.0` | API listen address |
+| `API_PORT` | no | `8091` | API listen port |
+| `API_CORS_ORIGINS` | no | empty | Comma-separated origins, for separate front ends such as the Live2D viewer |
+| `API_CORS_ALLOW_CREDENTIALS` | no | `false` | Only if a browser must send credentialed requests |
+| `TZ` | no | `UTC` | Scheduler timezone |
+
+`API_TOKEN` is mandatory: an empty token would leave the settings API of a freshly provisioned
+instance world-writable. See `.env.example`.
+
+There is no proxy setting. `httpx` and `yt-dlp` both honour `HTTP_PROXY` / `HTTPS_PROXY`, so set
+those in the environment if you need one.
+
+### Database-backed settings
+
+Everything else — per-source `enabled`, `cron`, paths, Telegram accounts and channel routes, Kemono
+creators, Hanime1 ranking, CookieCloud, Nasuchan — is stored per section in `app_settings`:
+
+```sql
+CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
+```
+
+Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
+`web.hanime1`, `web.jandan`, `web.kemono`, `cookiecloud`, `nasuchan`.
+
+Every section is constructible from defaults, so an empty database boots with all sources disabled.
+Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports
+them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
+crashing.
+
+Secrets (`web.telegram.accounts[].api_hash`, `cookiecloud.password`, `nasuchan.token`) are stored in
+plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
+keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
+UI cannot shuffle credentials between them.
+
+The worker polls `app_settings` every 15 seconds and reschedules APScheduler jobs in place, so
+`enabled` and `cron` changes apply without a restart.
+
+**Known limitation:** the Telegram realtime listener is created at process start. Toggling
+`web.telegram.enabled` at runtime only affects its cron reconciliation job; the listener still needs
+a worker restart.
+
+## Web UI
+
+`web/` is a React + TypeScript + Vite front end served by FastAPI from `web/dist` when that directory
+exists (API-only otherwise). Pages: overview, archive records, jobs, settings. Cron fields show a
+live natural-language description of the expression.
+
+```bash
+cd web
+npm install
+npm run dev     # http://localhost:5173, proxies /api to http://127.0.0.1:8091
+npm run build   # emits web/dist, which the API then serves at /
+```
+
+Log in with `API_TOKEN`; it is kept in `sessionStorage` for that tab only.
+
 ## API Backend
 
 This repository exposes an internal FastAPI backend for control, archived catalog reads, and Hanime1 scan-target creation.
@@ -30,6 +97,14 @@ Protected endpoints:
 - `POST /api/v2/job-requests`
 - `GET /api/v2/job-requests/{id}`
 - `POST /api/v2/hanime1/seeds`
+- `GET /api/v2/hanime1/seeds`
+- `DELETE /api/v2/hanime1/seeds/{canonical_video_id}`
+- `GET /api/v2/job-requests`
+- `GET /api/v2/settings`
+- `GET /api/v2/settings/{section}`
+- `PUT /api/v2/settings/{section}`
+- `GET /api/v2/archive/sources`
+- `GET /api/v2/archive/items`
 - `GET /api/v2/nikke/characters`
 - `GET /api/v2/nikke/sidebar/characters`
 - `GET /api/v2/nikke/characters/{content_id}`
@@ -42,7 +117,7 @@ Protected endpoints:
 
 All `/api/v2/*` endpoints require:
 
-- `Authorization: Bearer <api.token>`
+- `Authorization: Bearer <API_TOKEN>`
 
 The API contract is OpenAPI-first. Use `/openapi.json` or `/docs` for the exact request and response schema.
 
@@ -74,53 +149,32 @@ stored as model variants on the anchored costume instead of separate characters.
 
 ### Config source
 
-The API reads runtime settings from `config.toml`:
+Bootstrap comes from the environment (see [Configuration](#configuration)); everything else is read
+from the `app_settings` table.
 
-- `database.postgres_dsn` (required)
-- `api.token` (required)
-- `api.bind` (optional, default `127.0.0.1`)
-- `api.port` (optional, default `8091`)
-- `api.cors_origins` (optional, default `[]`)
-- `api.cors_allow_credentials` (optional, default `false`)
-- `notifications.webhook_base_url` (required for worker delivery)
-- `notifications.webhook_token` (required for worker delivery)
+### Nasuchan notifications
 
-Example:
+The worker delivers notifications through Nasuchan's **v3** webhook only (`/api/v3/notifications/webhook`)
+with a stable idempotency key. When a notification has a local image, it uploads the image so Telegram
+can use its normal compressed-photo path; oversized or rejected images fall back to the remote image
+URL or text. All of this lives in `src/tool/nasuchan.py` — it is Nasuchan-specific by design, not a
+generic webhook layer.
 
-```toml
-[database]
-postgres_dsn = "postgresql://user:password@127.0.0.1:5432/fav"
+Configure it in the `nasuchan` settings section:
 
-[api]
-token = "replace-with-strong-random-token"
-bind = "127.0.0.1"
-port = 8091
-cors_origins = ["https://game-view.s117.me"]
-cors_allow_credentials = false
+| Field | Purpose |
+| --- | --- |
+| `base_url` | Nasuchan origin, e.g. `https://internal.example.com` |
+| `token` | Bearer token (write-only in the UI) |
 
-[notifications]
-webhook_base_url = "https://internal.example.com"
-webhook_token = "replace-with-webhook-bearer-token"
-```
+Until both are set, notifications simply stay queued in PostgreSQL and the worker logs a warning —
+an unconfigured deployment still boots.
 
-Use `cors_allow_credentials = true` only if the browser needs to send cookies or other credentialed requests to the API origin.
+### Azur Lane
 
-The worker delivers notifications through Nasuchan's v3 webhook with a stable
-idempotency key. When a notification has a local image, it uploads the image so
-Telegram can use its normal compressed-photo path. Oversized or rejected images
-fall back to the remote image URL or text, and deployments that do not expose
-the v3 endpoint fall back to the v2 JSON webhook.
-
-Azur Lane crawler/archive settings:
-
-```toml
-[web.azurlane]
-enabled = false
-path = "./collection/azurlane"
-cron = "0 */6 * * *"
-```
-
-Set `enabled = true` to schedule Azur Lane archive updates. The API reads Azur Lane manifests from `web.azurlane.path` even when the scheduled job is disabled.
+Azur Lane crawler settings live in the `web.azurlane` section (`enabled`, `path`, `cron`). Set
+`enabled` to true to schedule archive updates. The API reads Azur Lane manifests from the configured
+path even when the scheduled job is disabled.
 
 ### Run
 
@@ -208,5 +262,5 @@ Deploying the image without overriding the command will start both services.
 `script/hanime1_downloaded_marker.user.js` consumes the Hanime1 downloaded-list endpoint.
 
 - Endpoint: `GET /api/v2/hanime1/videos`
-- Auth: `Authorization: Bearer <api.token>`
+- Auth: `Authorization: Bearer <API_TOKEN>`
 - Response shape: `{"items":[{"video_id":"1001","title":"...","downloaded":true,"uploader":"...","release_date":"2024-01-01","plot":"...","watch_url":"https://hanime1.me/watch?v=1001"}],"total":1}`

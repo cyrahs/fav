@@ -6,7 +6,6 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +13,8 @@ import src.service.jobs as jobs_module
 import src.web.nikke as nikke_module
 import src.web.nikke_layer_metadata as layer_metadata_module
 from src.api.schemas import JobRequestTarget
-from src.core.config import Nikke as NikkeConfig
+from src.core import settings
+from src.core.settings import Nikke as NikkeConfig
 from src.web.nikke import (
     Asset,
     AssetProcessingError,
@@ -37,8 +37,10 @@ from src.web.nikke_layer_metadata import (
 )
 
 
-def _job_cfg(*, enabled: bool = True) -> SimpleNamespace:
-    return SimpleNamespace(cron='0 */6 * * *', enabled=enabled, run_on_start=False)
+def _configure_nikke(crawler: Nikke, **updates: object) -> None:
+    """Nikke snapshots its settings in __init__, so patch the instance copy."""
+    for key, value in updates.items():
+        setattr(crawler.cfg, key, value)
 
 
 def test_nikke_config_defaults_to_disabled_collection_nikke_path() -> None:
@@ -54,22 +56,12 @@ def test_nikke_config_defaults_to_disabled_collection_nikke_path() -> None:
     assert cfg.runtime_capture_force_refresh is False
 
 
-def test_scheduler_registration_includes_nikke(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_config = SimpleNamespace(
-        web=SimpleNamespace(
-            azurlane=_job_cfg(),
-            bd2=_job_cfg(),
-            bilibili=_job_cfg(),
-            hanime1=_job_cfg(),
-            jandan=_job_cfg(),
-            nikke=_job_cfg(enabled=False),
-            stellasora=_job_cfg(),
-            telegram=_job_cfg(),
-        ),
-    )
-    monkeypatch.setattr(jobs_module, 'config', fake_config)
-
-    jobs = jobs_module.build_jobs()
+def test_scheduler_registration_includes_nikke() -> None:
+    fake_config = settings.Settings()
+    for attr in ('azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'stellasora', 'telegram'):
+        getattr(fake_config.web, attr).enabled = True
+    fake_config.web.nikke.enabled = False
+    jobs = jobs_module.build_jobs(fake_config)
     nikke_job = next(job for job in jobs if job.key == 'nikke')
 
     assert nikke_job.name == 'Nikke'
@@ -914,11 +906,7 @@ def test_crawl_page_reuses_previous_layer_capture_before_manifest_write(monkeypa
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError
@@ -959,11 +947,7 @@ def test_crawl_page_captures_runtime_layers_when_enabled(monkeypatch: pytest.Mon
     captured_payloads: list[dict[str, object]] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=12.5),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=12.5)
 
     async def _fake_capture(request: object) -> dict[str, object]:
         events.append('capture')
@@ -1026,11 +1010,7 @@ def test_crawl_page_writes_failed_layer_capture_summary_without_blocking_manifes
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _failing_capture(_request: object) -> dict[str, object]:
         events.append('capture')
@@ -1066,11 +1046,7 @@ def test_crawl_page_writes_skipped_layer_capture_summary_when_runtime_disabled(
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError
@@ -1108,11 +1084,7 @@ def test_crawl_page_does_not_backfill_raw_capture_when_runtime_not_allowed(
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError
@@ -1165,11 +1137,7 @@ def test_crawl_page_preserves_committed_manifest_layer_metadata_when_runtime_not
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError
@@ -1252,11 +1220,7 @@ def test_crawl_page_ignores_corrupt_previous_layer_capture_without_blocking_mani
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError
@@ -1294,11 +1258,7 @@ def test_crawl_page_falls_back_to_manifest_summary_when_raw_capture_is_corrupt(
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError
@@ -1336,11 +1296,7 @@ def test_crawl_page_reuses_manifest_layer_summary_without_writing_raw_capture(
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=False, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError
@@ -1376,11 +1332,7 @@ def test_crawl_page_writes_no_multi_full_layer_capture_summary(
     events: list[str] = []
     crawler = Nikke(path=tmp_path)
     _install_crawl_page_fakes(monkeypatch, crawler, content_json=content_json, reverse_bind=reverse_bind, events=events)
-    monkeypatch.setattr(
-        nikke_module,
-        'cfg',
-        SimpleNamespace(runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0),
-    )
+    _configure_nikke(crawler, runtime_capture_enabled=True, runtime_capture_force_refresh=False, runtime_capture_timeout_seconds=60.0)
 
     async def _unexpected_capture(_request: object) -> dict[str, object]:
         raise AssertionError

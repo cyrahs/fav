@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-from src.core.config import config
-from src.web import BD2, AzurLane, Bilibili, Hanime1, Jandan, Nikke, StellaSora, Telegram
+from src.core import settings
+from src.web import BD2, AzurLane, Bilibili, Hanime1, Jandan, Kemono, Nikke, StellaSora, Telegram
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -19,99 +19,67 @@ class ScheduledJob:
     run_on_start: bool
     required_commands: tuple[str, ...]
     factory: Callable[[], object]
+    section: str = ''
+    missing_fields: tuple[str, ...] = field(default=())
 
-    def as_public_dict(self) -> dict[str, str | bool]:
+    def as_public_dict(self) -> dict[str, Any]:
         return {
             'key': self.key,
             'name': self.name,
+            'cron': self.cron,
             'enabled': self.enabled,
             'run_on_start': self.run_on_start,
+            'section': self.section,
+            'missing_fields': list(self.missing_fields),
         }
 
 
-def build_jobs() -> list[ScheduledJob]:
-    bilibili_cfg = config.web.bilibili
-    jandan_cfg = config.web.jandan
-    telegram_cfg = config.web.telegram
-    stellasora_cfg = config.web.stellasora
-    hanime1_cfg = config.web.hanime1
-    nikke_cfg = config.web.nikke
-    bd2_cfg = config.web.bd2
-    azurlane_cfg = config.web.azurlane
-    return [
-        ScheduledJob(
-            key='bilibili',
-            name='Bilibili',
-            cron=bilibili_cfg.cron,
-            enabled=bilibili_cfg.enabled,
-            run_on_start=bilibili_cfg.run_on_start,
-            required_commands=('yt-dlp',),
-            factory=Bilibili,
-        ),
-        ScheduledJob(
-            key='hanime1',
-            name='Hanime1',
-            cron=hanime1_cfg.cron,
-            enabled=hanime1_cfg.enabled,
-            run_on_start=hanime1_cfg.run_on_start,
-            required_commands=('yt-dlp',),
-            factory=Hanime1,
-        ),
-        ScheduledJob(
-            key='jandan',
-            name='Jandan',
-            cron=jandan_cfg.cron,
-            enabled=jandan_cfg.enabled,
-            run_on_start=jandan_cfg.run_on_start,
-            required_commands=(),
-            factory=Jandan,
-        ),
-        ScheduledJob(
-            key='nikke',
-            name='Nikke',
-            cron=nikke_cfg.cron,
-            enabled=nikke_cfg.enabled,
-            run_on_start=nikke_cfg.run_on_start,
-            required_commands=(),
-            factory=Nikke,
-        ),
-        ScheduledJob(
-            key='bd2',
-            name='BD2',
-            cron=bd2_cfg.cron,
-            enabled=bd2_cfg.enabled,
-            run_on_start=bd2_cfg.run_on_start,
-            required_commands=(),
-            factory=BD2,
-        ),
-        ScheduledJob(
-            key='azurlane',
-            name='Azur Lane',
-            cron=azurlane_cfg.cron,
-            enabled=azurlane_cfg.enabled,
-            run_on_start=azurlane_cfg.run_on_start,
-            required_commands=(),
-            factory=AzurLane,
-        ),
-        ScheduledJob(
-            key='telegram',
-            name='Telegram',
-            cron=telegram_cfg.cron,
-            enabled=telegram_cfg.enabled,
-            run_on_start=telegram_cfg.run_on_start,
-            required_commands=(),
-            factory=Telegram,
-        ),
-        ScheduledJob(
-            key='stellasora',
-            name='StellaSora',
-            cron=stellasora_cfg.cron,
-            enabled=stellasora_cfg.enabled,
-            run_on_start=stellasora_cfg.run_on_start,
-            required_commands=(),
-            factory=StellaSora,
-        ),
-    ]
+@dataclass(frozen=True, slots=True)
+class JobSpec:
+    key: str
+    name: str
+    attr: str
+    required_commands: tuple[str, ...]
+    factory: Callable[[], object]
+
+
+JOB_SPECS: tuple[JobSpec, ...] = (
+    JobSpec(key='bilibili', name='Bilibili', attr='bilibili', required_commands=('yt-dlp',), factory=Bilibili),
+    JobSpec(key='hanime1', name='Hanime1', attr='hanime1', required_commands=('yt-dlp',), factory=Hanime1),
+    JobSpec(key='jandan', name='Jandan', attr='jandan', required_commands=(), factory=Jandan),
+    JobSpec(key='kemono', name='Kemono', attr='kemono', required_commands=(), factory=Kemono),
+    JobSpec(key='nikke', name='Nikke', attr='nikke', required_commands=(), factory=Nikke),
+    JobSpec(key='bd2', name='BD2', attr='bd2', required_commands=(), factory=BD2),
+    JobSpec(key='azurlane', name='Azur Lane', attr='azurlane', required_commands=(), factory=AzurLane),
+    JobSpec(key='telegram', name='Telegram', attr='telegram', required_commands=(), factory=Telegram),
+    JobSpec(key='stellasora', name='StellaSora', attr='stellasora', required_commands=(), factory=StellaSora),
+)
+
+JOB_KEYS: tuple[str, ...] = tuple(spec.key for spec in JOB_SPECS)
+
+
+def build_jobs(current: settings.Settings | None = None) -> list[ScheduledJob]:
+    resolved = current if current is not None else settings.load()
+    jobs: list[ScheduledJob] = []
+    for spec in JOB_SPECS:
+        job_cfg = getattr(resolved.web, spec.attr)
+        missing = tuple(job_cfg.validate_runnable())
+        jobs.append(
+            ScheduledJob(
+                key=spec.key,
+                name=spec.name,
+                cron=job_cfg.cron,
+                # A source with an incomplete configuration stays out of the
+                # scheduler even when the UI toggle says enabled.
+                enabled=job_cfg.enabled and not missing,
+                run_on_start=job_cfg.run_on_start,
+                required_commands=spec.required_commands,
+                factory=spec.factory,
+                section=f'web.{spec.attr}',
+                missing_fields=missing,
+            ),
+        )
+    return jobs
 
 
 def resolve_trigger_jobs(trigger_target: str, all_jobs: list[ScheduledJob]) -> list[ScheduledJob]:

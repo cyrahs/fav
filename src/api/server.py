@@ -3,7 +3,7 @@ from __future__ import annotations
 import uvicorn
 
 from src.core import logger
-from src.core.config import config as app_config
+from src.core.env import env
 
 from .app import create_app
 from .config import (
@@ -11,7 +11,7 @@ from .config import (
     fetch_hanime1_videos_from_db,
 )
 from .config import (
-    load_config_from_settings as _load_config_from_settings,
+    load_config_from_env as _load_config_from_env,
 )
 from .models import ApiConfig
 from .service import FavApiService
@@ -19,12 +19,12 @@ from .service import FavApiService
 log = logger.get('fav-api')
 
 
-def load_config_from_settings() -> ApiConfig:
-    return _load_config_from_settings(app_config)
+def load_config_from_env() -> ApiConfig:
+    return _load_config_from_env(env)
 
 
 def main() -> None:
-    config = load_config_from_settings()
+    config = load_config_from_env()
     log.info('Starting fav API on %s:%d', config.bind, config.port)
     uvicorn.run(create_app(config=config), host=config.bind, port=config.port, log_level='info')
 
@@ -32,10 +32,10 @@ def main() -> None:
 __all__ = [
     'ApiConfig',
     'FavApiService',
-    'app_config',
     'create_app',
+    'env',
     'fetch_hanime1_downloaded_ids_from_db',
     'fetch_hanime1_videos_from_db',
-    'load_config_from_settings',
+    'load_config_from_env',
     'main',
 ]

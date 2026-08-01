@@ -15,7 +15,7 @@ Examples:
   script/telegram_channels.sh cyrah --resolve https://t.me/example_channel
   script/telegram_channels.sh --all
 
-This reads Telegram accounts from config.toml and uses their configured
+This reads Telegram accounts from the app_settings table and uses their configured
 session_path files. It does not start an interactive login flow.
 EOF
 }
@@ -62,11 +62,11 @@ def parse_args() -> argparse.Namespace:
 
 def load_accounts() -> list[Any]:
     try:
-        from src.core.config import config
+        from src.core import settings
 
-        return config.web.telegram.resolved_accounts()
+        return settings.load().web.telegram.resolved_accounts()
     except Exception as exc:
-        msg = f'Failed to load config.toml: {exc.__class__.__name__}: {exc}'
+        msg = f'Failed to load Telegram settings: {exc.__class__.__name__}: {exc}'
         raise SystemExit(msg) from exc
 
 
