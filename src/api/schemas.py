@@ -633,3 +633,9 @@ class SettingsSection(ApiSchema):
 class SettingsListResponse(ApiSchema):
     items: list[SettingsSection]
     total: int
+
+
+class TelegramNotificationTestResponse(ApiSchema):
+    status: Literal['delivered']
+    message_id: int | None = None
+    warnings: list[str] = Field(default_factory=list)

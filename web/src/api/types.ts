@@ -26,6 +26,12 @@ export interface SettingsSection {
   missing_fields: string[];
 }
 
+export interface TelegramNotificationTest {
+  status: 'delivered';
+  message_id: number | null;
+  warnings: string[];
+}
+
 export interface ArchiveSourceStat {
   source: string;
   name: string;

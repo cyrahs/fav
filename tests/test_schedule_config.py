@@ -1,11 +1,11 @@
-# ruff: noqa: INP001, S101
+# ruff: noqa: INP001, S101, S105, S106
 
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from src.core.settings import Hanime1Ranking, ScheduleJob, Telegram, TelegramAccount, TelegramChannel
+from src.core.settings import Hanime1Ranking, ScheduleJob, Telegram, TelegramAccount, TelegramChannel, TelegramNotification
 
 _TELEGRAM_DEFAULT_SCAN_LIMIT = 50
 _TELEGRAM_DEFAULT_DOWNLOAD_LIMIT_PER_CHANNEL = 2
@@ -27,6 +27,19 @@ def test_schedule_job_accepts_five_field_cron() -> None:
 def test_schedule_job_rejects_non_five_field_cron() -> None:
     with pytest.raises(ValidationError):
         ScheduleJob(cron='*/5 * * *')
+
+
+def test_telegram_notification_requires_credentials_to_be_configured() -> None:
+    cfg = TelegramNotification(enabled=True, bot_token=' 123:token ', chat_id=' -100123 ', message_thread_id=42)
+
+    assert cfg.configured is True
+    assert cfg.bot_token == '123:token'
+    assert cfg.chat_id == '-100123'
+
+
+def test_telegram_notification_rejects_invalid_message_thread_id() -> None:
+    with pytest.raises(ValidationError):
+        TelegramNotification(message_thread_id=0)
 
 
 def test_hanime1_ranking_dedupes_periods() -> None:

@@ -6,7 +6,7 @@ secret values with a short masked preview; writes treat a masked (or absent)
 value as "keep what is already stored".
 
 The rules are spelled out per section rather than derived from a path DSL: there
-are only three secrets, and telegram's has to be matched by account name so that
+are only a few secrets, and telegram's has to be matched by account name so that
 reordering or inserting accounts in the UI cannot shuffle credentials between
 them.
 """
@@ -54,8 +54,8 @@ def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
     masked = dict(payload)
     if section == 'cookiecloud':
         _mask_scalar(masked, 'password')
-    elif section == 'nasuchan':
-        _mask_scalar(masked, 'token')
+    elif section == 'notifications.telegram':
+        _mask_scalar(masked, 'bot_token')
     elif section == 'web.telegram':
         masked['accounts'] = [{**account} for account in _telegram_accounts(masked)]
         for account in _telegram_accounts(masked):
@@ -68,8 +68,8 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
     merged = dict(payload)
     if section == 'cookiecloud':
         _keep_secret(merged, 'password', str(stored.get('password') or ''))
-    elif section == 'nasuchan':
-        _keep_secret(merged, 'token', str(stored.get('token') or ''))
+    elif section == 'notifications.telegram':
+        _keep_secret(merged, 'bot_token', str(stored.get('bot_token') or ''))
     elif section == 'web.telegram':
         # Matched by account name: the UI may reorder, insert, or drop accounts
         # between the GET and the PUT.

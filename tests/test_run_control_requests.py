@@ -1,15 +1,11 @@
-# ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, S106, EM101, S105
+# ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, S106, EM101, PLR2004, TRY003
 
 import asyncio
-import json
 from datetime import UTC, datetime
-from types import SimpleNamespace
-
-import httpx
 
 import run as run_module
 from src.service.jobs import ScheduledJob
-from src.tool import nasuchan
+from src.tool import telegram_bot
 from src.tool.control_queue import STATUS_FAILED, STATUS_REJECTED, STATUS_SUCCEEDED, ControlRequest
 from src.tool.notifications import WEBHOOK_ACTION_UPSERT, NotificationRecord
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
@@ -71,11 +67,8 @@ def _notification(
     )
 
 
-def _nasuchan_config() -> nasuchan.NasuchanConfig:
-    return nasuchan.NasuchanConfig(
-        webhook_url='https://hooks.example.com/api/v3/notifications/webhook',
-        token='token',
-    )
+def _telegram_config() -> telegram_bot.TelegramBotConfig:
+    return telegram_bot.TelegramBotConfig(bot_token='123:token', chat_id='-100123')
 
 
 def test_execute_control_request_rejects_disabled_target(monkeypatch) -> None:
@@ -380,224 +373,74 @@ def test_run_job_can_reuse_singleton_worker_without_closing_it() -> None:
     assert calls == ['update']
 
 
-def test_load_nasuchan_config_returns_none_when_unconfigured(pinned_settings) -> None:
-    # A fresh deployment has no Nasuchan settings yet; notifications must stay
-    # queued rather than crashing the worker.
-    pinned_settings.nasuchan.base_url = ''
-    pinned_settings.nasuchan.token = ''
-
-    assert run_module._load_nasuchan_config() is None
-
-
-def test_load_nasuchan_config_builds_v3_url(pinned_settings) -> None:
-    pinned_settings.nasuchan.base_url = 'https://hooks.example.com'
-    pinned_settings.nasuchan.token = 'token'
-
-    config = run_module._load_nasuchan_config()
-
-    assert config is not None
-    assert config.webhook_url == 'https://hooks.example.com/api/v3/notifications/webhook'
-    assert config.token == 'token'
-
-
-def test_deliver_next_notification_marks_delivered(monkeypatch) -> None:
+def test_deliver_next_notification_uses_direct_telegram(monkeypatch) -> None:
     delivered: list[tuple[int, int]] = []
-    posted_payloads: list[dict[str, object]] = []
+    delivery_configs: list[telegram_bot.TelegramBotConfig] = []
 
     async def _fake_claim() -> NotificationRecord | None:
         return _notification()
 
+    async def _fake_deliver(*, notification, client, config):
+        assert notification.notification_id == 7
+        assert client is not None
+        delivery_configs.append(config)
+        return telegram_bot.TelegramDeliveryResult(message_id=99, media_status='none')
+
     async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
         delivered.append((notification_id, event_version))
 
-    class _FakeClient:
-        async def post(self, *_args, **kwargs):
-            posted_payloads.append(kwargs['json'])
-            return SimpleNamespace(status_code=204, text='')
-
     monkeypatch.setattr(run_module, 'claim_next_pending_notification', _fake_claim)
+    monkeypatch.setattr(run_module, '_load_telegram_bot_config', _telegram_config)
+    monkeypatch.setattr(run_module.telegram_bot, 'deliver', _fake_deliver)
     monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
-    monkeypatch.setattr(run_module, '_load_nasuchan_config', _nasuchan_config)
 
-    processed = asyncio.run(
-        run_module._deliver_next_notification(client=_FakeClient()),
-    )
+    processed = asyncio.run(run_module._deliver_next_notification(client=object()))
 
     assert processed is True
+    assert delivery_configs == [_telegram_config()]
     assert delivered == [(7, 3)]
-    assert posted_payloads[0]['action'] == WEBHOOK_ACTION_UPSERT
-    assert posted_payloads[0]['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
-    assert posted_payloads[0]['occurrence_count'] == 1
-    assert posted_payloads[0]['event_version'] == _notification().event_version
-    assert posted_payloads[0]['pin'] is True
 
 
-def test_deliver_notification_uploads_local_image(tmp_path, monkeypatch) -> None:
-    image_path = tmp_path / 'demo image.png'
-    image_path.write_bytes(b'png-data')
-    notification = _notification(payload=json.dumps({'image_path': str(image_path)}))
-    captured: dict[str, object] = {}
+def test_deliver_next_notification_leaves_queue_untouched_when_telegram_is_disabled(monkeypatch) -> None:
+    async def _unexpected_claim() -> NotificationRecord | None:
+        msg = 'The outbox must not be claimed without an enabled Telegram destination'
+        raise AssertionError(msg)
 
-    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
-        captured['delivered'] = notification_id
-        captured['event_version'] = event_version
+    monkeypatch.setattr(run_module, '_load_telegram_bot_config', lambda: None)
+    monkeypatch.setattr(run_module, 'claim_next_pending_notification', _unexpected_claim)
 
-    class _FakeClient:
-        async def post(self, url: str, **kwargs):
-            captured['url'] = url
-            captured.update(kwargs)
-            return SimpleNamespace(status_code=204, text='')
-
-    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
-
-    asyncio.run(
-        run_module._deliver_notification_to_nasuchan(
-            notification=notification,
-            client=_FakeClient(),
-            nasuchan_config=_nasuchan_config(),
-        ),
-    )
-
-    assert captured['delivered'] == notification.notification_id
-    assert captured['event_version'] == notification.event_version
-    assert 'json' not in captured
-    assert captured['url'] == _nasuchan_config().webhook_url
-    assert captured['headers']['Idempotency-Key'] == f'fav:{notification.notification_id}:{notification.event_version}'
-    assert json.loads(captured['data']['payload']) == notification.webhook_v3_payload
-    assert captured['files'] == {'image': ('demo image.png', b'png-data', 'image/png')}
+    assert asyncio.run(run_module._deliver_next_notification(client=object())) is False
 
 
-def test_deliver_notification_retries_v3_without_image_when_attachment_is_rejected(tmp_path, monkeypatch) -> None:
-    image_path = tmp_path / 'demo.png'
-    image_path.write_bytes(b'png-data')
-    notification = _notification(
-        payload=json.dumps({'image_path': str(image_path)}),
-        image_url='https://example.com/fallback.png',
-    )
-    delivered: list[int] = []
-    requests: list[tuple[str, dict[str, object]]] = []
+def test_direct_telegram_retry_uses_server_retry_after(monkeypatch) -> None:
+    retried: list[dict[str, object]] = []
 
-    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
-        assert event_version == notification.event_version
-        delivered.append(notification_id)
+    async def _fake_deliver(**_kwargs):
+        raise telegram_bot.TelegramDeliveryError('Telegram rate limited', retryable=True, retry_after_seconds=120)
 
-    class _FakeClient:
-        async def post(self, url: str, **kwargs):
-            requests.append((url, kwargs))
-            status_code = 413 if len(requests) == 1 else 204
-            return SimpleNamespace(status_code=status_code, text='')
+    async def _fake_mark_retry(notification_id: int, **kwargs) -> None:
+        retried.append({'notification_id': notification_id, **kwargs})
 
-    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
-
-    asyncio.run(
-        run_module._deliver_notification_to_nasuchan(
-            notification=notification,
-            client=_FakeClient(),
-            nasuchan_config=_nasuchan_config(),
-        ),
-    )
-
-    assert delivered == [notification.notification_id]
-    assert [url for url, _ in requests] == [_nasuchan_config().webhook_url, _nasuchan_config().webhook_url]
-    assert 'files' in requests[0][1]
-    assert requests[1][1]['json'] == notification.webhook_v3_payload
-    assert 'files' not in requests[1][1]
-
-
-def test_deliver_notification_does_not_upload_oversized_local_image(tmp_path, monkeypatch) -> None:
-    image_path = tmp_path / 'oversized.png'
-    image_path.write_bytes(b'x' * (nasuchan.MAX_IMAGE_BYTES + 1))
-    notification = _notification(
-        payload=json.dumps({'image_path': str(image_path)}),
-        image_url='https://example.com/fallback.png',
-    )
-    captured: dict[str, object] = {}
-
-    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
-        captured['delivered'] = notification_id
-        captured['event_version'] = event_version
-
-    class _FakeClient:
-        async def post(self, url: str, **kwargs):
-            captured['url'] = url
-            captured.update(kwargs)
-            return SimpleNamespace(status_code=204, text='')
-
-    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
-
-    asyncio.run(
-        run_module._deliver_notification_to_nasuchan(
-            notification=notification,
-            client=_FakeClient(),
-            nasuchan_config=_nasuchan_config(),
-        ),
-    )
-
-    assert captured['delivered'] == notification.notification_id
-    assert captured['event_version'] == notification.event_version
-    assert captured['json'] == notification.webhook_v3_payload
-    assert 'files' not in captured
-
-
-def test_deliver_notification_falls_back_to_image_url_when_local_image_is_missing(tmp_path, monkeypatch) -> None:
-    notification = _notification(
-        payload=json.dumps({'image_path': str(tmp_path / 'missing.png')}),
-        image_url='https://example.com/fallback.png',
-    )
-    captured: dict[str, object] = {}
-
-    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
-        captured['delivered'] = notification_id
-        captured['event_version'] = event_version
-
-    class _FakeClient:
-        async def post(self, url: str, **kwargs):
-            captured['url'] = url
-            captured.update(kwargs)
-            return SimpleNamespace(status_code=204, text='')
-
-    monkeypatch.setattr(run_module, 'mark_notification_delivered', _fake_mark_delivered)
-
-    asyncio.run(
-        run_module._deliver_notification_to_nasuchan(
-            notification=notification,
-            client=_FakeClient(),
-            nasuchan_config=_nasuchan_config(),
-        ),
-    )
-
-    assert captured['delivered'] == notification.notification_id
-    assert captured['event_version'] == notification.event_version
-    assert captured['url'] == _nasuchan_config().webhook_url
-    assert captured['json'] == notification.webhook_v3_payload
-    assert 'data' not in captured
-    assert 'files' not in captured
-
-
-def test_deliver_next_notification_retries_request_error(monkeypatch) -> None:
-    retried: list[tuple[int, int, int, str]] = []
-
-    async def _fake_claim() -> NotificationRecord | None:
-        return _notification(attempt_count=2)
-
-    async def _fake_mark_retry(notification_id: int, *, event_version: int, attempt_count: int, error_message: str) -> None:
-        retried.append((notification_id, event_version, attempt_count, error_message))
-
-    class _FakeClient:
-        async def post(self, *_args, **_kwargs):
-            request = httpx.Request('POST', 'https://hooks.example.com/api/v2/notifications/webhook')
-            raise httpx.RequestError('boom', request=request)
-
-    monkeypatch.setattr(run_module, 'claim_next_pending_notification', _fake_claim)
+    monkeypatch.setattr(run_module.telegram_bot, 'deliver', _fake_deliver)
     monkeypatch.setattr(run_module, 'mark_notification_retry', _fake_mark_retry)
-    monkeypatch.setattr(run_module, '_load_nasuchan_config', _nasuchan_config)
 
-    processed = asyncio.run(
-        run_module._deliver_next_notification(client=_FakeClient()),
+    asyncio.run(
+        run_module._deliver_notification_to_telegram(
+            notification=_notification(attempt_count=2),
+            client=object(),
+            telegram_config=_telegram_config(),
+        ),
     )
 
-    assert processed is True
-    assert retried == [(7, 3, 3, 'RequestError: boom')]
+    assert retried == [
+        {
+            'notification_id': 7,
+            'event_version': 3,
+            'attempt_count': 3,
+            'error_message': 'Telegram rate limited',
+            'retry_after_seconds': 120,
+        },
+    ]
 
 
 def test_main_starts_notification_consumer_and_closes_client(monkeypatch) -> None:
@@ -630,12 +473,11 @@ def test_main_starts_notification_consumer_and_closes_client(monkeypatch) -> Non
         stop_event.set()
 
     monkeypatch.setattr(run_module, 'build_jobs', list)
-    monkeypatch.setattr(run_module, '_load_nasuchan_config', _nasuchan_config)
     monkeypatch.setattr(run_module, '_validate_commands', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(run_module, 'AsyncIOScheduler', _FakeScheduler)
     monkeypatch.setattr(run_module, '_consume_control_requests', _fake_consume_control_requests)
     monkeypatch.setattr(run_module, '_consume_notification_deliveries', _fake_consume_notifications)
-    monkeypatch.setattr(run_module.nasuchan, 'build_client', _FakeClient)
+    monkeypatch.setattr(run_module.telegram_bot, 'build_client', _FakeClient)
 
     asyncio.run(run_module.main())
 

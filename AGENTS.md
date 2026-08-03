@@ -71,7 +71,7 @@ Kemono is implemented in `src/web/kemono.py` but is not called from `run.py` in 
 - `run.py`: long-running scheduler for update jobs
 - `src/core/env.py`: bootstrap env model (`POSTGRES_DSN`, `API_TOKEN`, bind/port)
 - `src/core/settings.py`: typed settings models + `app_settings` table read/write
-- `src/tool/nasuchan.py`: Nasuchan v3 notification delivery
+- `src/tool/telegram_bot.py`: direct Telegram Bot API notification delivery
 - `src/api/archive.py`: read-only archive browsing (whitelisted tables/columns)
 - `web/`: React + Vite front end, built to `web/dist` and served by the API
 - `src/core/logger.py`: tqdm-friendly logging (avoid `print()`)
@@ -149,7 +149,7 @@ docker run --rm \
 
 ## Making Changes Safely
 
-- Avoid logging secrets (CookieCloud password, PostgreSQL credentials, Telegram API hash, Nasuchan token).
+- Avoid logging secrets (CookieCloud password, PostgreSQL credentials, Telegram API hash, Telegram Bot token).
 - Keep `.env` out of git history (it is gitignored; do not override that).
 - Secrets in `app_settings` are masked on read; preserve that when touching the settings API.
 - If you change database schemas (`CREATE TABLE ...` blocks), preserve backward compatibility or provide a migration strategy.

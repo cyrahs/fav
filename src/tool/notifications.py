@@ -151,28 +151,6 @@ class NotificationRecord:
         return parsed if isinstance(parsed, dict) else {}
 
     @property
-    def webhook_v3_payload(self) -> dict[str, Any]:
-        payload = {
-            'notification_id': self.notification_id,
-            'markdown': self.markdown,
-            'image_url': self.image_url,
-            'disable_web_page_preview': self.disable_web_page_preview,
-            'disable_notification': self.disable_notification,
-            'pin': self.pin,
-        }
-        if self.dedupe_key or self.webhook_action != WEBHOOK_ACTION_SEND:
-            payload.update(
-                {
-                    'notification_id': self.notification_id,
-                    'dedupe_key': self.dedupe_key,
-                    'action': self.webhook_action,
-                    'occurrence_count': self.occurrence_count,
-                    'event_version': self.event_version,
-                },
-            )
-        return payload
-
-    @property
     def local_image_path(self) -> Path | None:
         image_path = self.payload_json.get('image_path')
         if not isinstance(image_path, str):
@@ -619,9 +597,11 @@ async def mark_notification_retry(
     event_version: int,
     attempt_count: int,
     error_message: str,
+    retry_after_seconds: int | None = None,
 ) -> None:
     await ensure_notifications_table()
-    next_attempt_at = datetime.now(tz=UTC) + timedelta(seconds=retry_delay_seconds(attempt_count))
+    delay_seconds = max(retry_delay_seconds(attempt_count), retry_after_seconds or 0)
+    next_attempt_at = datetime.now(tz=UTC) + timedelta(seconds=delay_seconds)
     await database.query_db(
         """
         UPDATE notifications

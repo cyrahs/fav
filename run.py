@@ -17,7 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from src.core import logger, settings
 from src.service.jobs import ScheduledJob, build_jobs, resolve_trigger_jobs
-from src.tool import nasuchan
+from src.tool import telegram_bot
 from src.tool.control_queue import (
     STATUS_FAILED,
     STATUS_REJECTED,
@@ -92,13 +92,9 @@ def _resolve_scheduler_timezone() -> tzinfo:
         return UTC
 
 
-def _load_nasuchan_config() -> nasuchan.NasuchanConfig | None:
-    """Resolve Nasuchan settings, or None when they have not been filled in yet.
-
-    An unconfigured deployment must still boot, so notifications simply stay
-    queued in PostgreSQL until Nasuchan is set up in the web UI.
-    """
-    return nasuchan.load_config()
+def _load_telegram_bot_config() -> telegram_bot.TelegramBotConfig | None:
+    """Resolve the enabled direct Telegram delivery configuration."""
+    return telegram_bot.load_config()
 
 
 async def _shutdown_task(task: asyncio.Task[None] | None, *, name: str) -> None:
@@ -219,70 +215,55 @@ def _format_exception(exc: BaseException) -> str:
     return f'{exc.__class__.__name__}: {message}'
 
 
-async def _deliver_notification_to_nasuchan(
+async def _deliver_notification_to_telegram(
     *,
     notification: NotificationRecord,
     client: httpx.AsyncClient,
-    nasuchan_config: nasuchan.NasuchanConfig,
+    telegram_config: telegram_bot.TelegramBotConfig,
 ) -> None:
-    response = await nasuchan.deliver(
-        notification=notification,
-        client=client,
-        config=nasuchan_config,
-    )
-    if nasuchan.is_success_status_code(response.status_code):
-        await mark_notification_delivered(notification.notification_id, event_version=notification.event_version)
-        log.info('Delivered notification %s', notification.notification_id)
-        return
-
     attempt_count = notification.attempt_count + 1
-    error_message = nasuchan.error_message(status_code=response.status_code, response_text=response.text)
-    if nasuchan.is_retryable_status_code(response.status_code):
-        await mark_notification_retry(
+    try:
+        result = await telegram_bot.deliver(notification=notification, client=client, config=telegram_config)
+    except telegram_bot.TelegramDeliveryError as exc:
+        error_message = str(exc)
+        if exc.retryable:
+            await mark_notification_retry(
+                notification.notification_id,
+                event_version=notification.event_version,
+                attempt_count=attempt_count,
+                error_message=error_message,
+                retry_after_seconds=exc.retry_after_seconds,
+            )
+            log.warning('Telegram delivery retry scheduled for notification %s: %s', notification.notification_id, error_message)
+            return
+        await mark_notification_failed(
             notification.notification_id,
             event_version=notification.event_version,
             attempt_count=attempt_count,
             error_message=error_message,
         )
-        log.warning('Webhook delivery retry scheduled for notification %s: %s', notification.notification_id, error_message)
+        log.warning('Telegram delivery permanently failed for notification %s: %s', notification.notification_id, error_message)
         return
 
-    await mark_notification_failed(
-        notification.notification_id,
-        event_version=notification.event_version,
-        attempt_count=attempt_count,
-        error_message=error_message,
-    )
-    log.warning('Webhook delivery permanently failed for notification %s: %s', notification.notification_id, error_message)
+    await mark_notification_delivered(notification.notification_id, event_version=notification.event_version)
+    log.info('Delivered notification %s through Telegram (message %s)', notification.notification_id, result.message_id)
 
 
 async def _deliver_next_notification(*, client: httpx.AsyncClient) -> bool:
-    # Resolved per attempt so filling Nasuchan in from the web UI starts delivery
-    # without restarting the worker.
-    nasuchan_config = _load_nasuchan_config()
-    if nasuchan_config is None:
+    # Resolve settings per attempt so UI changes take effect without restarting.
+    telegram_config = _load_telegram_bot_config()
+    if telegram_config is None:
         return False
 
     notification = await claim_next_pending_notification()
     if notification is None:
         return False
 
-    attempt_count = notification.attempt_count + 1
-    try:
-        await _deliver_notification_to_nasuchan(
-            notification=notification,
-            client=client,
-            nasuchan_config=nasuchan_config,
-        )
-    except (httpx.RequestError, httpx.TimeoutException) as exc:
-        error_message = f'{exc.__class__.__name__}: {exc}'
-        await mark_notification_retry(
-            notification.notification_id,
-            event_version=notification.event_version,
-            attempt_count=attempt_count,
-            error_message=error_message,
-        )
-        log.warning('Nasuchan request failed for notification %s: %s', notification.notification_id, error_message)
+    await _deliver_notification_to_telegram(
+        notification=notification,
+        client=client,
+        telegram_config=telegram_config,
+    )
     return True
 
 
@@ -310,8 +291,8 @@ async def _consume_notification_deliveries(
             warned_unconfigured = False
             continue
 
-        if not warned_unconfigured and _load_nasuchan_config() is None:
-            log.warning('Nasuchan is not configured; notifications stay queued until base_url and token are set')
+        if not warned_unconfigured and _load_telegram_bot_config() is None:
+            log.warning('Telegram notifications are not configured; notifications stay queued until bot_token and chat_id are set')
             warned_unconfigured = True
 
         try:
@@ -582,7 +563,7 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         msg = 'Failed to resolve main task for signal handling'
         raise RuntimeError(msg)
     remove_signal_handlers = _install_signal_handlers(stop_event=stop_event, main_task=main_task)
-    notification_client = nasuchan.build_client()
+    notification_client = telegram_bot.build_client()
     all_jobs = build_jobs()
     jobs = [job for job in all_jobs if job.enabled]
     timezone = _resolve_scheduler_timezone()

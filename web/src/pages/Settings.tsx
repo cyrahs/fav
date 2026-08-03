@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
+import type { Hanime1Seed, ListResponse, SettingsSection, TelegramNotificationTest } from '../api/types';
 import { describeCron } from '../components/CronInput';
 
 const SECTION_LABELS: Record<string, string> = {
@@ -15,13 +15,17 @@ const SECTION_LABELS: Record<string, string> = {
   'web.jandan': '煎蛋',
   'web.kemono': 'Kemono',
   cookiecloud: 'CookieCloud',
-  nasuchan: 'Nasuchan 通知',
+  'notifications.telegram': 'Telegram Bot 通知',
 };
 
 const SECRET_HINT = '留空或保持掩码不变即不修改。';
 
 function hasSecret(section: string): boolean {
-  return section === 'cookiecloud' || section === 'nasuchan' || section === 'web.telegram';
+  return (
+    section === 'cookiecloud' ||
+    section === 'notifications.telegram' ||
+    section === 'web.telegram'
+  );
 }
 
 /**
@@ -35,10 +39,12 @@ function SectionEditor({ section }: { section: SettingsSection }) {
   const [draft, setDraft] = useState(() => JSON.stringify(section.value, null, 2));
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [testResult, setTestResult] = useState('');
 
   useEffect(() => {
     setDraft(JSON.stringify(section.value, null, 2));
     setError('');
+    setTestResult('');
   }, [section.value]);
 
   let parsed: Record<string, unknown> | null = null;
@@ -75,6 +81,19 @@ function SectionEditor({ section }: { section: SettingsSection }) {
     },
   });
 
+  const testTelegram = useMutation({
+    mutationFn: () => api.post<TelegramNotificationTest>('/api/v2/notifications/telegram/test', {}),
+    onSuccess: (result) => {
+      setError('');
+      const message = result.message_id === null ? '测试消息已发送' : `测试消息已发送（message_id: ${result.message_id}）`;
+      setTestResult(result.warnings.length > 0 ? `${message}；${result.warnings.join('；')}` : message);
+    },
+    onError: (err: Error) => {
+      setTestResult('');
+      setError(err.message);
+    },
+  });
+
   return (
     <details className="section-editor">
       <summary>
@@ -84,6 +103,7 @@ function SectionEditor({ section }: { section: SettingsSection }) {
       </summary>
 
       {hasSecret(section.section) && <p className="muted">{SECRET_HINT}</p>}
+      {section.section === 'notifications.telegram' && <p className="muted">请先保存配置，再发送测试消息。</p>}
 
       <textarea
         className="json-editor"
@@ -100,6 +120,7 @@ function SectionEditor({ section }: { section: SettingsSection }) {
       )}
       {parseError && <p className="warn">{parseError}</p>}
       {error && <pre className="warn wrap">{error}</pre>}
+      {testResult && <p className="ok">{testResult}</p>}
 
       <div className="actions">
         <button type="button" disabled={!parsed || save.isPending} onClick={() => save.mutate()}>
@@ -108,6 +129,11 @@ function SectionEditor({ section }: { section: SettingsSection }) {
         <button type="button" className="ghost" onClick={() => setDraft(JSON.stringify(section.value, null, 2))}>
           重置
         </button>
+        {section.section === 'notifications.telegram' && (
+          <button type="button" className="ghost" disabled={testTelegram.isPending} onClick={() => testTelegram.mutate()}>
+            {testTelegram.isPending ? '发送中…' : '发送测试'}
+          </button>
+        )}
         {saved && <span className="ok">已保存</span>}
       </div>
     </details>

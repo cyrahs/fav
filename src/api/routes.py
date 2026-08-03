@@ -47,6 +47,7 @@ from .schemas import (
     NikkeSidebarCharacterListResponse,
     SettingsListResponse,
     SettingsSection,
+    TelegramNotificationTestResponse,
 )
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
@@ -370,6 +371,16 @@ def update_settings_section(
     service: ApiServiceDep,
 ) -> SettingsSection:
     return service.model_settings_section(service.update_settings_section(section, payload))
+
+
+@router.post(
+    '/notifications/telegram/test',
+    operation_id='testTelegramNotification',
+    response_model=TelegramNotificationTestResponse,
+    tags=[TAG_SETTINGS],
+)
+async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotificationTestResponse:
+    return service.model_telegram_notification_test(await service.test_telegram_notification())
 
 
 @router.get(

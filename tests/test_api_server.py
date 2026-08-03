@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, S105, S106, ANN001, ARG005, PLR0913, PLR2004
+# ruff: noqa: INP001, S101, S105, S106, ANN001, ARG005, PLR0913, PLR2004, TRY003, EM101
 
 from datetime import UTC, datetime
 from time import sleep
@@ -14,6 +14,7 @@ from src.core import settings
 from src.service.jobs import ScheduledJob
 from src.tool.control_queue import ControlRequest
 from src.tool.runtime_config import Hanime1ParserIncompatibleError, RuntimeSeriesSeed
+from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult
 
 _FIXED_NOW = datetime(2026, 3, 2, 0, 0, tzinfo=UTC)
 _VALID_TOKEN = 'token-for-tests'
@@ -124,6 +125,7 @@ def _build_service(
     request_creator=None,
     request_getter=None,
     runtime_service: _RuntimeService | None = None,
+    telegram_notification_tester=None,
 ) -> api_server.FavApiService:
     runtime = runtime_service or _RuntimeService()
     # Readiness probes Hanime1, which is disabled by default on a fresh install.
@@ -137,6 +139,7 @@ def _build_service(
         control_request_creator=request_creator,
         control_request_getter=request_getter,
         runtime_service=runtime,
+        telegram_notification_tester=telegram_notification_tester,
     )
 
 
@@ -320,6 +323,7 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     assert set(payload['paths']['/api/v2/hanime1/seeds/{canonical_video_id}']) == {'delete'}
     assert '/api/v2/settings' in payload['paths']
     assert set(payload['paths']['/api/v2/settings/{section}']) == {'get', 'put'}
+    assert set(payload['paths']['/api/v2/notifications/telegram/test']) == {'post'}
     assert '/api/v2/archive/sources' in payload['paths']
     assert '/api/v2/archive/items' in payload['paths']
     assert '/api/v2/hanime1/seeds/{video_id}' not in payload['paths']
@@ -335,6 +339,36 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
             'message': 'Not Found',
             'details': None,
         },
+    }
+
+
+def test_telegram_notification_test_endpoint_returns_delivery_result() -> None:
+    async def _test_notification() -> TelegramDeliveryResult:
+        return TelegramDeliveryResult(message_id=77, media_status='none', warnings=('Pinning failed',))
+
+    service = _build_service(token=_VALID_TOKEN, telegram_notification_tester=_test_notification)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post('/api/v2/notifications/telegram/test', headers=_auth_headers(), json={})
+
+    assert response.status_code == 200
+    assert response.json() == {'status': 'delivered', 'message_id': 77, 'warnings': ['Pinning failed']}
+
+
+def test_telegram_notification_test_endpoint_returns_sanitized_delivery_error() -> None:
+    async def _test_notification() -> TelegramDeliveryResult:
+        raise TelegramDeliveryError('Telegram Bot API responded with error 401: Unauthorized', retryable=False)
+
+    service = _build_service(token=_VALID_TOKEN, telegram_notification_tester=_test_notification)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post('/api/v2/notifications/telegram/test', headers=_auth_headers(), json={})
+
+    assert response.status_code == 502
+    assert response.json()['error'] == {
+        'code': 'telegram_delivery_failed',
+        'message': 'Telegram Bot API responded with error 401: Unauthorized',
+        'details': None,
     }
 
 

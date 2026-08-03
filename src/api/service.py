@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
@@ -22,6 +22,7 @@ from src.tool.control_queue import (
 )
 from src.tool.hanime1_series import Hanime1SeriesService
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
+from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
 
 from .archive import ARCHIVE_SOURCES, ArchiveLibrary, UnknownArchiveSourceError
 from .azurlane import AzurLaneCharacterNotFoundError, AzurLaneLibrary
@@ -59,6 +60,7 @@ from .schemas import (
     NikkeCharacterSummary,
     ReadinessResponse,
     SettingsSection,
+    TelegramNotificationTestResponse,
 )
 from .settings_masking import mask_section, unmask_section
 
@@ -72,6 +74,7 @@ type ControlRequestGetter = Callable[[int], ControlRequest | None]
 type ControlRequestLister = Callable[[str | None, int], list[ControlRequest]]
 type SettingsSectionGetter = Callable[[str], BaseModel]
 type SettingsSectionSaver = Callable[[str, dict[str, Any]], BaseModel]
+type TelegramNotificationTester = Callable[[], Awaitable[TelegramDeliveryResult]]
 
 _READINESS_CACHE_TTL_SECONDS = 300
 _READINESS_PROBE_TIMEOUT_SECONDS = 10
@@ -103,6 +106,7 @@ class FavApiService:
         control_request_lister: ControlRequestLister | None = None,
         settings_section_getter: SettingsSectionGetter | None = None,
         settings_section_saver: SettingsSectionSaver | None = None,
+        telegram_notification_tester: TelegramNotificationTester | None = None,
         runtime_service: Hanime1SeriesService | None = None,
         archive_library: ArchiveLibrary | None = None,
         azurlane_library: AzurLaneLibrary | None = None,
@@ -126,6 +130,7 @@ class FavApiService:
         )
         self._settings_section_getter = settings_section_getter or settings.load_section
         self._settings_section_saver = settings_section_saver or settings.save_section
+        self._telegram_notification_tester = telegram_notification_tester or send_test_notification
         self._archive_library = archive_library or ArchiveLibrary(self._dsn)
         self._runtime_service = runtime_service or Hanime1SeriesService(
             dsn=self._dsn,
@@ -385,6 +390,23 @@ class FavApiService:
             'section': section,
             'value': mask_section(section, saved_payload),
             'missing_fields': missing,
+        }
+
+    async def test_telegram_notification(self) -> dict[str, object]:
+        try:
+            result = await self._telegram_notification_tester()
+        except TelegramNotConfiguredError:
+            raise ApiError(
+                status_code=422,
+                code='telegram_not_configured',
+                message='Save bot_token and chat_id before sending a test notification.',
+            ) from None
+        except TelegramDeliveryError as exc:
+            raise ApiError(status_code=502, code='telegram_delivery_failed', message=str(exc)) from None
+        return {
+            'status': 'delivered',
+            'message_id': result.message_id,
+            'warnings': list(result.warnings),
         }
 
     def list_archive_sources(self) -> list[dict[str, Any]]:
@@ -706,6 +728,10 @@ class FavApiService:
     @staticmethod
     def model_settings_section(payload: dict[str, object]) -> SettingsSection:
         return SettingsSection.model_validate(payload)
+
+    @staticmethod
+    def model_telegram_notification_test(payload: dict[str, object]) -> TelegramNotificationTestResponse:
+        return TelegramNotificationTestResponse.model_validate(payload)
 
     @staticmethod
     def model_archive_source(payload: dict[str, Any]) -> ArchiveSourceStat:

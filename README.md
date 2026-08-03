@@ -28,21 +28,21 @@ those in the environment if you need one.
 ### Database-backed settings
 
 Everything else — per-source `enabled`, `cron`, paths, Telegram accounts and channel routes, Kemono
-creators, Hanime1 ranking, CookieCloud, Nasuchan — is stored per section in `app_settings`:
+creators, Hanime1 ranking, CookieCloud, and notification delivery — is stored per section in `app_settings`:
 
 ```sql
 CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `cookiecloud`, `nasuchan`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `cookiecloud`, `notifications.telegram`.
 
 Every section is constructible from defaults, so an empty database boots with all sources disabled.
 Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports
 them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
 crashing.
 
-Secrets (`web.telegram.accounts[].api_hash`, `cookiecloud.password`, `nasuchan.token`) are stored in
+Secrets (`web.telegram.accounts[].api_hash`, `cookiecloud.password`, `notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
 UI cannot shuffle credentials between them.
@@ -152,23 +152,26 @@ stored as model variants on the anchored costume instead of separate characters.
 Bootstrap comes from the environment (see [Configuration](#configuration)); everything else is read
 from the `app_settings` table.
 
-### Nasuchan notifications
+### Telegram Bot notifications
 
-The worker delivers notifications through Nasuchan's **v3** webhook only (`/api/v3/notifications/webhook`)
-with a stable idempotency key. When a notification has a local image, it uploads the image so Telegram
-can use its normal compressed-photo path; oversized or rejected images fall back to the remote image
-URL or text. All of this lives in `src/tool/nasuchan.py` — it is Nasuchan-specific by design, not a
-generic webhook layer.
+The worker delivers queued notifications directly through Telegram's Bot API. It prefers a local
+image, then a remote image URL, and finally text. Telegram rate-limit responses are fed into the
+PostgreSQL outbox retry schedule. Pinning is best-effort so a missing pin permission does not resend
+an already delivered message. The API origin is fixed to `https://api.telegram.org` so a retained
+masked token cannot be redirected to another host.
 
-Configure it in the `nasuchan` settings section:
+Configure the `notifications.telegram` settings section in the web UI, save it, and use **Send test**
+before enabling delivery:
 
 | Field | Purpose |
 | --- | --- |
-| `base_url` | Nasuchan origin, e.g. `https://internal.example.com` |
-| `token` | Bearer token (write-only in the UI) |
+| `enabled` | Route outbox deliveries directly to Telegram |
+| `bot_token` | BotFather token (masked after save) |
+| `chat_id` | Destination chat, group, or channel ID; stored as a string |
+| `message_thread_id` | Optional forum topic ID |
 
-Until both are set, notifications simply stay queued in PostgreSQL and the worker logs a warning —
-an unconfigured deployment still boots.
+If Telegram delivery is disabled or incomplete, notifications stay queued and an unconfigured
+deployment still boots.
 
 ### Azur Lane
 

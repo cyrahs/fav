@@ -335,23 +335,35 @@ class Kemono(ScheduleJob):
         return [] if self.creators else ['creators']
 
 
-class Nasuchan(BaseModel):
-    base_url: str = ''
-    token: str = ''
+class TelegramNotification(BaseModel):
+    enabled: bool = False
+    bot_token: str = ''
+    chat_id: str = ''
+    message_thread_id: int | None = None
 
-    @field_validator('base_url')
+    @field_validator('bot_token', 'chat_id')
     @classmethod
-    def normalize_base_url(cls, value: str) -> str:
-        return value.strip().rstrip('/')
-
-    @field_validator('token')
-    @classmethod
-    def normalize_token(cls, value: str) -> str:
+    def normalize_text(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator('message_thread_id')
+    @classmethod
+    def validate_message_thread_id(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            msg = 'message_thread_id must be a positive integer'
+            raise ValueError(msg)
+        return value
 
     @property
     def configured(self) -> bool:
-        return bool(self.base_url and self.token)
+        return bool(self.bot_token and self.chat_id)
+
+    def validate_runnable(self) -> list[str]:
+        return [name for name in ('bot_token', 'chat_id') if not getattr(self, name)]
+
+
+class Notifications(BaseModel):
+    telegram: TelegramNotification = Field(default_factory=TelegramNotification)
 
 
 class Web(BaseModel):
@@ -369,7 +381,7 @@ class Web(BaseModel):
 class Settings(BaseModel):
     web: Web = Field(default_factory=Web)
     cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
-    nasuchan: Nasuchan = Field(default_factory=Nasuchan)
+    notifications: Notifications = Field(default_factory=Notifications)
 
 
 SECTION_MODELS: dict[str, type[BaseModel]] = {
@@ -383,14 +395,14 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.jandan': Jandan,
     'web.kemono': Kemono,
     'cookiecloud': CookieCloud,
-    'nasuchan': Nasuchan,
+    'notifications.telegram': TelegramNotification,
 }
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.telegram': ('accounts[].api_hash',),
     'cookiecloud': ('password',),
-    'nasuchan': ('token',),
+    'notifications.telegram': ('bot_token',),
 }
 
 
