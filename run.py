@@ -656,10 +656,6 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         log.info('Settings watcher enabled (poll every %ss)', int(_SETTINGS_POLL_INTERVAL_SECONDS))
 
         scheduler.start()
-        for job in jobs:
-            if job.run_on_start:
-                log.info('Run-on-start enabled for %s', job.name)
-                await runner_by_key[job.key]()
 
         if telegram_runtime_task is None:
             await stop_event.wait()

@@ -16,7 +16,6 @@ class ScheduledJob:
     name: str
     cron: str
     enabled: bool
-    run_on_start: bool
     required_commands: tuple[str, ...]
     factory: Callable[[], object]
     section: str = ''
@@ -28,7 +27,6 @@ class ScheduledJob:
             'name': self.name,
             'cron': self.cron,
             'enabled': self.enabled,
-            'run_on_start': self.run_on_start,
             'section': self.section,
             'missing_fields': list(self.missing_fields),
         }
@@ -72,7 +70,6 @@ def build_jobs(current: settings.Settings | None = None) -> list[ScheduledJob]:
                 # A source with an incomplete configuration stays out of the
                 # scheduler even when the UI toggle says enabled.
                 enabled=job_cfg.enabled and not missing,
-                run_on_start=job_cfg.run_on_start,
                 required_commands=spec.required_commands,
                 factory=spec.factory,
                 section=f'web.{spec.attr}',

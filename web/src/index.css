@@ -376,6 +376,186 @@ button.danger {
   resize: vertical;
 }
 
+.badge-dirty {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* ---------- settings forms ---------- */
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px 18px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+/* Wide blocks span the whole grid instead of being squeezed into one column. */
+.field-grid > .repeater,
+.field-grid > .subsection,
+.field-grid > .field-checks {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field > label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.field > label:empty {
+  display: none;
+}
+
+.field-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.field .warn {
+  font-size: 11px;
+  margin: 0;
+}
+
+.field-checks {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.field-check {
+  gap: 4px;
+}
+
+.checkbox-group {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-top: 3px;
+}
+
+select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  width: 100%;
+}
+
+.mono-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.subsection {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.subsection > h4,
+.subsection > summary {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.subsection > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.repeater {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* Blocks sitting directly in an account card need their own spacing -- inside a
+   field grid the grid gap supplies it, but here there is no gap to inherit. */
+.account-card > .repeater,
+.account-card > .subsection {
+  margin-top: 16px;
+}
+
+.repeater-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.repeater-head h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.account-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.account-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.table.compact th,
+.table.compact td {
+  padding: 6px 10px 6px 0;
+  vertical-align: top;
+}
+
+.table.compact .cell-id {
+  width: 190px;
+}
+
+.table.compact .cell-media {
+  width: 170px;
+}
+
+.cc-test {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.cc-test .warn,
+.cc-test .ok {
+  margin: 0;
+}
+
+.issues {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.issues li {
+  font-size: 12px;
+}
+
 .login {
   display: flex;
   align-items: center;

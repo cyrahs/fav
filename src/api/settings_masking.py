@@ -6,9 +6,9 @@ secret values with a short masked preview; writes treat a masked (or absent)
 value as "keep what is already stored".
 
 The rules are spelled out per section rather than derived from a path DSL: there
-are only a few secrets, and telegram's has to be matched by account name so that
-reordering or inserting accounts in the UI cannot shuffle credentials between
-them.
+are only three secrets, and the per-account ones have to be matched by account
+name so that reordering or inserting accounts in the UI cannot shuffle
+credentials between them.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def is_masked(value: Any) -> bool:
     return isinstance(value, str) and value.endswith(MASK_SUFFIX)
 
 
-def _keep_secret(payload: dict[str, Any], key: str, stored_value: str) -> None:
+def keep_secret(payload: dict[str, Any], key: str, stored_value: str) -> None:
     value = payload.get(key)
     if key not in payload or value is None or is_masked(value):
         payload[key] = stored_value
@@ -43,38 +43,58 @@ def _mask_scalar(payload: dict[str, Any], key: str) -> None:
         payload[key] = mask_value(value)
 
 
-def _telegram_accounts(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _accounts(payload: dict[str, Any]) -> list[dict[str, Any]]:
     accounts = payload.get('accounts')
     if not isinstance(accounts, list):
         return []
     return [account for account in accounts if isinstance(account, dict)]
 
 
+def _account_cookiecloud(account: dict[str, Any]) -> dict[str, Any] | None:
+    nested = account.get('cookiecloud')
+    return nested if isinstance(nested, dict) else None
+
+
 def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
     masked = dict(payload)
-    if section == 'cookiecloud':
-        _mask_scalar(masked, 'password')
-    elif section == 'notifications.telegram':
+    if section == 'notifications.telegram':
         _mask_scalar(masked, 'bot_token')
     elif section == 'web.telegram':
-        masked['accounts'] = [{**account} for account in _telegram_accounts(masked)]
-        for account in _telegram_accounts(masked):
+        masked['accounts'] = [{**account} for account in _accounts(masked)]
+        for account in _accounts(masked):
             _mask_scalar(account, 'api_hash')
+    elif section == 'web.bilibili':
+        masked['accounts'] = [{**account} for account in _accounts(masked)]
+        for account in _accounts(masked):
+            nested = _account_cookiecloud(account)
+            if nested is not None:
+                account['cookiecloud'] = {**nested}
+                _mask_scalar(account['cookiecloud'], 'password')
     return masked
 
 
 def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]) -> dict[str, Any]:
     """Restore secrets the client sent back masked (or omitted entirely)."""
     merged = dict(payload)
-    if section == 'cookiecloud':
-        _keep_secret(merged, 'password', str(stored.get('password') or ''))
-    elif section == 'notifications.telegram':
-        _keep_secret(merged, 'bot_token', str(stored.get('bot_token') or ''))
+    if section == 'notifications.telegram':
+        keep_secret(merged, 'bot_token', str(stored.get('bot_token') or ''))
     elif section == 'web.telegram':
         # Matched by account name: the UI may reorder, insert, or drop accounts
         # between the GET and the PUT.
-        stored_hashes = {str(account.get('name') or ''): str(account.get('api_hash') or '') for account in _telegram_accounts(stored)}
-        merged['accounts'] = [{**account} for account in _telegram_accounts(merged)]
-        for account in _telegram_accounts(merged):
-            _keep_secret(account, 'api_hash', stored_hashes.get(str(account.get('name') or ''), ''))
+        stored_hashes = {str(account.get('name') or ''): str(account.get('api_hash') or '') for account in _accounts(stored)}
+        merged['accounts'] = [{**account} for account in _accounts(merged)]
+        for account in _accounts(merged):
+            keep_secret(account, 'api_hash', stored_hashes.get(str(account.get('name') or ''), ''))
+    elif section == 'web.bilibili':
+        stored_passwords = {
+            str(account.get('name') or ''): str((_account_cookiecloud(account) or {}).get('password') or '')
+            for account in _accounts(stored)
+        }
+        merged['accounts'] = [{**account} for account in _accounts(merged)]
+        for account in _accounts(merged):
+            nested = _account_cookiecloud(account)
+            if nested is None:
+                continue
+            account['cookiecloud'] = {**nested}
+            keep_secret(account['cookiecloud'], 'password', stored_passwords.get(str(account.get('name') or ''), ''))
     return merged

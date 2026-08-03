@@ -49,7 +49,6 @@ def test_nikke_config_defaults_to_disabled_collection_nikke_path() -> None:
 
     assert cfg.enabled is False
     assert cfg.cron == '0 */6 * * *'
-    assert cfg.run_on_start is False
     assert cfg.path == Path('./collection/nikke')
     assert cfg.runtime_capture_enabled is False
     assert cfg.runtime_capture_timeout_seconds == expected_runtime_timeout_seconds

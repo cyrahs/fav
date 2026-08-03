@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import src.web.bilibili as bilibili_module
+from src.core import settings
 from src.web.bilibili import Bilibili
 
 
@@ -631,3 +632,144 @@ def test_download_retry_does_not_emit_warning_per_attempt(tmp_path, monkeypatch)
     assert calls['count'] == 3
     assert warnings == []
     assert exc_info.value.notification_dedupe_key == 'bilibili:download:BV1TEST1'
+
+
+def _account(name: str, **overrides) -> settings.BilibiliAccount:
+    payload = {'name': name, 'favorites': [{'fav_id': 100, 'path': f'collection/bilibili/{name}/fav'}]}
+    payload.update(overrides)
+    return settings.BilibiliAccount.model_validate(payload)
+
+
+def _collect_update_calls(crawler: Bilibili, monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str]]:
+    """Record (fav_id, path) for each update_fav call and skip the real crawl."""
+    calls: list[tuple[int, str]] = []
+
+    async def _fake_update_fav(fav_id: int, path: Path) -> None:
+        calls.append((fav_id, str(path)))
+
+    async def _fake_ensure_table() -> None:
+        return None
+
+    monkeypatch.setattr(crawler, 'update_fav', _fake_update_fav)
+    monkeypatch.setattr(crawler, '_ensure_table', _fake_ensure_table)
+    monkeypatch.setattr(crawler, '_activate_account', lambda _account: None)
+    return calls
+
+
+def test_update_walks_every_account_and_favourite(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    crawler.cfg = settings.Bilibili(
+        accounts=[
+            _account(
+                'main',
+                favorites=[
+                    {'fav_id': 11, 'path': 'collection/bilibili/main/fav-a'},
+                    {'fav_id': 22, 'path': 'collection/bilibili/main/fav-b'},
+                ],
+            ),
+            _account('alt', favorites=[{'fav_id': 33, 'path': 'collection/bilibili/alt/fav'}]),
+        ],
+    )
+    calls = _collect_update_calls(crawler, monkeypatch)
+
+    asyncio.run(crawler.update())
+
+    assert calls == [
+        (11, 'collection/bilibili/main/fav-a'),
+        (22, 'collection/bilibili/main/fav-b'),
+        (33, 'collection/bilibili/alt/fav'),
+    ]
+
+
+def test_update_skips_toview_when_the_account_has_it_disabled(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    crawler.cfg = settings.Bilibili(accounts=[_account('main', toview_enabled=False)])
+    calls = _collect_update_calls(crawler, monkeypatch)
+
+    asyncio.run(crawler.update())
+
+    assert all(fav_id != bilibili_module._TOVIEW_FAV_ID for fav_id, _ in calls)
+
+
+def test_update_uses_the_accounts_own_toview_path(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    crawler.cfg = settings.Bilibili(
+        accounts=[
+            _account(
+                'main',
+                favorites=[{'fav_id': 11, 'path': 'collection/bilibili/main/fav'}],
+                toview_enabled=True,
+                toview_path='collection/bilibili/main/later',
+            ),
+        ],
+    )
+    calls = _collect_update_calls(crawler, monkeypatch)
+
+    asyncio.run(crawler.update())
+
+    # Favourites first, then watch-later, into directories that do not overlap.
+    assert calls == [
+        (11, 'collection/bilibili/main/fav'),
+        (bilibili_module._TOVIEW_FAV_ID, 'collection/bilibili/main/later'),
+    ]
+
+
+def test_update_activates_each_account_before_its_favourites(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    crawler.cfg = settings.Bilibili(accounts=[_account('main'), _account('alt')])
+    events: list[str] = []
+
+    async def _fake_update_fav(fav_id: int, _path: Path) -> None:
+        events.append(f'fav:{fav_id}')
+
+    async def _fake_ensure_table() -> None:
+        return None
+
+    monkeypatch.setattr(crawler, 'update_fav', _fake_update_fav)
+    monkeypatch.setattr(crawler, '_ensure_table', _fake_ensure_table)
+    monkeypatch.setattr(crawler, '_activate_account', lambda account: events.append(f'activate:{account.name}'))
+
+    asyncio.run(crawler.update())
+
+    assert events == ['activate:main', 'fav:100', 'activate:alt', 'fav:100']
+
+
+def test_each_account_uses_its_own_credentials(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    crawler.cfg = settings.Bilibili(
+        accounts=[
+            _account('main', cookiecloud={'server_url': 'https://cc.a', 'uuid': 'uuid-A', 'password': 'pw-A'}),
+            _account('alt', cookiecloud={'server_url': 'https://cc.b', 'uuid': 'uuid-B', 'password': 'pw-B'}),
+        ],
+    )
+    used: list[tuple[str, str]] = []
+
+    async def _fake_update_fav(_fav_id: int, _path: Path) -> None:
+        return None
+
+    async def _fake_ensure_table() -> None:
+        return None
+
+    monkeypatch.setattr(crawler, 'update_fav', _fake_update_fav)
+    monkeypatch.setattr(crawler, '_ensure_table', _fake_ensure_table)
+    monkeypatch.setattr(crawler, 'create_credential', lambda _path: object())
+    monkeypatch.setattr(
+        bilibili_module.Bilibili,
+        'update_cookie_from_cookiecloud',
+        staticmethod(lambda path, cfg: used.append((path.name, cfg.uuid))),
+    )
+
+    asyncio.run(crawler.update())
+
+    # Separate cookie files, separate credentials.
+    assert used == [('bilibili-main.txt', 'uuid-A'), ('bilibili-alt.txt', 'uuid-B')]
+
+
+def test_an_account_without_credentials_is_reported_as_not_runnable() -> None:
+    cfg = settings.Bilibili(accounts=[_account('main', cookiecloud={})])
+
+    assert cfg.validate_runnable() == [
+        'accounts[0].cookiecloud.server_url',
+        'accounts[0].cookiecloud.uuid',
+        'accounts[0].cookiecloud.password',
+    ]

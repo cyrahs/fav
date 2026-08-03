@@ -21,7 +21,6 @@ def test_schedule_job_accepts_five_field_cron() -> None:
     assert job.cron == '*/5 * * * *'
     # Defaults are off so an unconfigured deployment boots idle.
     assert job.enabled is False
-    assert job.run_on_start is False
 
 
 def test_schedule_job_rejects_non_five_field_cron() -> None:
@@ -40,6 +39,10 @@ def test_telegram_notification_requires_credentials_to_be_configured() -> None:
 def test_telegram_notification_rejects_invalid_message_thread_id() -> None:
     with pytest.raises(ValidationError):
         TelegramNotification(message_thread_id=0)
+
+
+def test_telegram_notification_reports_missing_credentials() -> None:
+    assert TelegramNotification(enabled=True).validate_runnable() == ['bot_token', 'chat_id']
 
 
 def test_hanime1_ranking_dedupes_periods() -> None:

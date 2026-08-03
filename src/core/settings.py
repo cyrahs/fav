@@ -24,7 +24,7 @@ from src.core import logger
 from src.core.env import env
 
 _CRON_FIELDS = 5
-_TELEGRAM_ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+_ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 TelegramMediaType = Literal['video', 'image']
 
 CREATE_APP_SETTINGS_TABLE_SQL = """
@@ -45,7 +45,6 @@ class ScheduleJob(BaseModel):
     # Defaults are off so an unconfigured deployment starts up idle instead of
     # crawling with placeholder credentials.
     enabled: bool = False
-    run_on_start: bool = False
 
     @field_validator('cron')
     @classmethod
@@ -61,21 +60,6 @@ class ScheduleJob(BaseModel):
         return []
 
 
-class Bilibili(ScheduleJob):
-    id: int = 0
-    fav_id: int = 0
-    path: Path = Path('./collection/bilibili')
-    cron: str = '*/30 * * * *'
-
-    def validate_runnable(self) -> list[str]:
-        missing: list[str] = []
-        if self.id <= 0:
-            missing.append('id')
-        if self.fav_id <= 0:
-            missing.append('fav_id')
-        return missing
-
-
 class CookieCloud(BaseModel):
     server_url: str = ''
     uuid: str = ''
@@ -83,6 +67,93 @@ class CookieCloud(BaseModel):
 
     def validate_runnable(self) -> list[str]:
         return [name for name in ('server_url', 'uuid', 'password') if not getattr(self, name).strip()]
+
+    @property
+    def configured(self) -> bool:
+        return not self.validate_runnable()
+
+
+class BilibiliFavorite(BaseModel):
+    """One favourite list and the directory its videos land in."""
+
+    fav_id: int
+    path: Path
+
+    @field_validator('fav_id')
+    @classmethod
+    def validate_fav_id(cls, value: int) -> int:
+        if value <= 0:
+            msg = 'bilibili fav_id must be a positive favourite list id'
+            raise ValueError(msg)
+        return value
+
+
+class BilibiliAccount(BaseModel):
+    """One logged-in Bilibili account, its favourite lists, and its watch-later list.
+
+    Each account carries its own CookieCloud credentials -- they are what identifies
+    the account, since Bilibili's watch-later list is always the logged-in user's.
+    """
+
+    name: str
+    favorites: list[BilibiliFavorite] = Field(default_factory=list)
+    toview_enabled: bool = False
+    toview_path: Path = Path('./collection/bilibili/toview')
+    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+
+    @field_validator('name')
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'bilibili account name cannot be empty'
+            raise ValueError(msg)
+        if not _ACCOUNT_NAME_RE.fullmatch(normalized):
+            msg = 'bilibili account name must contain only ASCII letters, digits, underscores, or hyphens'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('favorites')
+    @classmethod
+    def validate_favorites(cls, value: list[BilibiliFavorite]) -> list[BilibiliFavorite]:
+        seen: set[int] = set()
+        for favorite in value:
+            if favorite.fav_id in seen:
+                msg = f'duplicate bilibili favourite list id: {favorite.fav_id}'
+                raise ValueError(msg)
+            seen.add(favorite.fav_id)
+        return value
+
+    def validate_runnable(self) -> list[str]:
+        missing = [f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable()]
+        # An account that collects neither favourites nor watch-later has nothing to do.
+        if not self.favorites and not self.toview_enabled:
+            missing.append('favorites')
+        return missing
+
+
+class Bilibili(ScheduleJob):
+    cron: str = '*/30 * * * *'
+    accounts: list[BilibiliAccount] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def validate_accounts(self) -> Self:
+        account_names: set[str] = set()
+        for account in self.accounts:
+            normalized = account.name.casefold()
+            if normalized in account_names:
+                msg = f'duplicate bilibili account name: {account.name}'
+                raise ValueError(msg)
+            account_names.add(normalized)
+        return self
+
+    def validate_runnable(self) -> list[str]:
+        if not self.accounts:
+            return ['accounts']
+        missing: list[str] = []
+        for index, account in enumerate(self.accounts):
+            missing.extend(f'accounts[{index}].{field_name}' for field_name in account.validate_runnable())
+        return missing
 
 
 def _normalize_telegram_channel_id(channel_id: int) -> int:
@@ -139,7 +210,7 @@ class TelegramAccount(BaseModel):
         if not normalized:
             msg = 'telegram account name cannot be empty'
             raise ValueError(msg)
-        if not _TELEGRAM_ACCOUNT_NAME_RE.fullmatch(normalized):
+        if not _ACCOUNT_NAME_RE.fullmatch(normalized):
             msg = 'telegram account name must contain only ASCII letters, digits, underscores, or hyphens'
             raise ValueError(msg)
         return normalized
@@ -380,7 +451,6 @@ class Web(BaseModel):
 
 class Settings(BaseModel):
     web: Web = Field(default_factory=Web)
-    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
     notifications: Notifications = Field(default_factory=Notifications)
 
 
@@ -394,14 +464,13 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.hanime1': Hanime1,
     'web.jandan': Jandan,
     'web.kemono': Kemono,
-    'cookiecloud': CookieCloud,
     'notifications.telegram': TelegramNotification,
 }
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
+    'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.telegram': ('accounts[].api_hash',),
-    'cookiecloud': ('password',),
     'notifications.telegram': ('bot_token',),
 }
 

@@ -30,6 +30,8 @@ from .schemas import (
     BD2CharacterListResponse,
     BD2SidebarCharacter,
     BD2SidebarCharacterListResponse,
+    CookieCloudTestRequest,
+    CookieCloudTestResult,
     Hanime1ListResponse,
     Hanime1Seed,
     Hanime1SeedCreate,
@@ -380,7 +382,19 @@ def update_settings_section(
     tags=[TAG_SETTINGS],
 )
 async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotificationTestResponse:
+    """Send a test message with the stored bot credentials."""
     return service.model_telegram_notification_test(await service.test_telegram_notification())
+
+
+@router.post(
+    '/cookiecloud/test',
+    operation_id='testCookieCloud',
+    response_model=CookieCloudTestResult,
+    tags=[TAG_SETTINGS],
+)
+def test_cookiecloud(payload: CookieCloudTestRequest, service: ApiServiceDep) -> CookieCloudTestResult:
+    """Check a CookieCloud configuration without saving it."""
+    return CookieCloudTestResult.model_validate(service.test_cookiecloud(payload.model_dump()))
 
 
 @router.get(

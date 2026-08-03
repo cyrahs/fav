@@ -149,7 +149,7 @@ docker run --rm \
 
 ## Making Changes Safely
 
-- Avoid logging secrets (CookieCloud password, PostgreSQL credentials, Telegram API hash, Telegram Bot token).
+- Avoid logging secrets (CookieCloud password, PostgreSQL credentials, Telegram API hash, Telegram bot token).
 - Keep `.env` out of git history (it is gitignored; do not override that).
 - Secrets in `app_settings` are masked on read; preserve that when touching the settings API.
 - If you change database schemas (`CREATE TABLE ...` blocks), preserve backward compatibility or provide a migration strategy.

@@ -1,6 +1,7 @@
 import base64
 import json
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -11,6 +12,10 @@ from Crypto.Util.Padding import unpad
 from src.core import logger
 
 log = logger.get('cookiecloud')
+
+BILIBILI_DOMAIN = 'bilibili.com'
+# The cookies src/web/bilibili.py needs to build a Credential.
+BILIBILI_REQUIRED_COOKIES = ('sessdata', 'bili_jct', 'buvid3', 'dedeuserid')
 
 
 class CookieCloudClient:
@@ -117,3 +122,100 @@ class CookieCloudClient:
             cookie_content.append(line)
 
         output_path.write_text('\n'.join(cookie_content))
+
+
+@dataclass(frozen=True, slots=True)
+class CookieCloudProbe:
+    """Outcome of a connectivity/credential check against a CookieCloud server."""
+
+    ok: bool
+    code: str
+    message: str
+    domain_count: int = 0
+    bilibili_cookie_count: int = 0
+    missing_cookies: tuple[str, ...] = field(default=())
+
+
+def _fetch_for_probe(server_url: str, uuid: str, password: str) -> tuple[dict[str, list[dict]] | None, CookieCloudProbe | None]:
+    """Return (cookies, None) on success or (None, failure) describing what went wrong."""
+    client = CookieCloudClient(server_url, uuid, password)
+    try:
+        return (client.get_cookies(), None)
+    except ConnectionError as exc:
+        return (None, CookieCloudProbe(ok=False, code='unreachable', message=str(exc)))
+    except httpx.HTTPStatusError as exc:
+        return (
+            None,
+            CookieCloudProbe(
+                ok=False,
+                code='http_error',
+                message=f'CookieCloud server returned HTTP {exc.response.status_code}',
+            ),
+        )
+    except (ValueError, KeyError) as exc:
+        # unpad/base64/JSON all fail this way when the password is wrong.
+        log.debug('CookieCloud decrypt failed: %s', exc)
+        return (
+            None,
+            CookieCloudProbe(
+                ok=False,
+                code='decrypt_failed',
+                message='Could not decrypt the vault. Check the UUID and password.',
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning('CookieCloud probe failed: %s', exc)
+        return (None, CookieCloudProbe(ok=False, code='error', message=str(exc)))
+    finally:
+        client.client.close()
+
+
+def probe(server_url: str, uuid: str, password: str, *, domain: str = BILIBILI_DOMAIN) -> CookieCloudProbe:
+    """Fetch and decrypt a CookieCloud vault, reporting why it is unusable if it is.
+
+    Distinguishes the failure modes an operator actually needs to tell apart: the
+    server being unreachable, the password being wrong (decryption fails), and the
+    vault simply not carrying the cookies this deployment needs.
+    """
+    missing_config = [name for name, value in (('server_url', server_url), ('uuid', uuid), ('password', password)) if not value.strip()]
+    if missing_config:
+        return CookieCloudProbe(
+            ok=False,
+            code='incomplete',
+            message=f'Missing: {", ".join(missing_config)}',
+        )
+
+    cookies, failure = _fetch_for_probe(server_url, uuid, password)
+    if failure is not None:
+        return failure
+    assert cookies is not None  # noqa: S101 - _fetch_for_probe returns one or the other
+
+    domain_count = len(cookies)
+    domain_cookies = cookies.get(domain) or []
+    if not domain_cookies:
+        return CookieCloudProbe(
+            ok=False,
+            code='no_domain_cookies',
+            message=f'Vault decrypted ({domain_count} domains) but has no cookies for {domain}.',
+            domain_count=domain_count,
+        )
+
+    present = {str(cookie.get('name', '')).lower() for cookie in domain_cookies if isinstance(cookie, dict)}
+    missing = tuple(name for name in BILIBILI_REQUIRED_COOKIES if name not in present)
+    if missing:
+        return CookieCloudProbe(
+            ok=False,
+            code='missing_cookies',
+            message=f'{domain} cookies are present but incomplete; missing {", ".join(missing)}. Re-sync the browser extension.',
+            domain_count=domain_count,
+            bilibili_cookie_count=len(domain_cookies),
+            missing_cookies=missing,
+        )
+
+    return CookieCloudProbe(
+        ok=True,
+        code='ok',
+        message=f'OK — {domain_count} domains, {len(domain_cookies)} cookies for {domain}.',
+        domain_count=domain_count,
+        bilibili_cookie_count=len(domain_cookies),
+    )

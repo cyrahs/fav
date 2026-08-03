@@ -84,13 +84,12 @@ class _RuntimeService:
         return None
 
 
-def _job(*, key: str, enabled: bool = True, run_on_start: bool = False) -> ScheduledJob:
+def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
     return ScheduledJob(
         key=key,
         name=key.title(),
         cron='*/30 * * * *',
         enabled=enabled,
-        run_on_start=run_on_start,
         required_commands=(),
         factory=object,
         section=f'web.{key}',
@@ -435,7 +434,7 @@ def test_jobs_endpoint_rejects_invalid_token() -> None:
 def test_jobs_endpoint_returns_registered_jobs() -> None:
     service = _build_service(
         token=_VALID_TOKEN,
-        jobs=[_job(key='bilibili', enabled=True), _job(key='telegram', enabled=False, run_on_start=True)],
+        jobs=[_job(key='bilibili', enabled=True), _job(key='telegram', enabled=False)],
     )
 
     with TestClient(create_app(service=service)) as client:
@@ -448,7 +447,6 @@ def test_jobs_endpoint_returns_registered_jobs() -> None:
                 'key': 'bilibili',
                 'name': 'Bilibili',
                 'enabled': True,
-                'run_on_start': False,
                 'cron': '*/30 * * * *',
                 'section': 'web.bilibili',
                 'missing_fields': [],
@@ -457,7 +455,6 @@ def test_jobs_endpoint_returns_registered_jobs() -> None:
                 'key': 'telegram',
                 'name': 'Telegram',
                 'enabled': False,
-                'run_on_start': True,
                 'cron': '*/30 * * * *',
                 'section': 'web.telegram',
                 'missing_fields': [],
@@ -716,3 +713,178 @@ def test_load_config_from_env_rejects_empty_api_token(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match=r'API_TOKEN is required'):
         api_server.load_config_from_env()
+
+
+def _settings_service(*, saved: list[tuple[str, dict]]) -> api_server.FavApiService:
+    """Service wired to in-memory settings so the enable guard can be exercised."""
+
+    def getter(section: str):
+        return settings.SECTION_MODELS[section]()
+
+    def saver(section: str, payload: dict):
+        saved.append((section, payload))
+        return settings.SECTION_MODELS[section].model_validate(payload)
+
+    return api_server.FavApiService(
+        dsn='postgresql://db.local/fav',
+        token=_VALID_TOKEN,
+        now_provider=lambda: _FIXED_NOW,
+        settings_section_getter=getter,
+        settings_section_saver=saver,
+    )
+
+
+def test_update_settings_section_rejects_enabling_an_incomplete_source() -> None:
+    saved: list[tuple[str, dict]] = []
+    service = _settings_service(saved=saved)
+
+    with pytest.raises(api_service_module.ApiError) as excinfo:
+        # Bilibili needs at least one account before it can run.
+        service.update_settings_section('web.bilibili', {'cron': '0 * * * *', 'enabled': True})
+
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.code == 'incomplete_settings'
+    assert excinfo.value.details == {'missing_fields': ['accounts']}
+    # The rejected payload must not have been persisted.
+    assert saved == []
+
+
+def test_update_settings_section_allows_an_incomplete_source_while_disabled() -> None:
+    saved: list[tuple[str, dict]] = []
+    service = _settings_service(saved=saved)
+
+    result = service.update_settings_section('web.bilibili', {'cron': '0 * * * *', 'enabled': False})
+
+    assert result['missing_fields'] == ['accounts']
+    assert len(saved) == 1
+
+
+def test_update_settings_section_accepts_enabling_a_complete_source() -> None:
+    saved: list[tuple[str, dict]] = []
+    service = _settings_service(saved=saved)
+
+    result = service.update_settings_section(
+        'web.bilibili',
+        {
+            'cron': '0 * * * *',
+            'enabled': True,
+            'accounts': [
+                {
+                    'name': 'main',
+                    'favorites': [{'fav_id': 99, 'path': 'collection/bilibili/fav'}],
+                    'cookiecloud': {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'pw'},
+                },
+            ],
+        },
+    )
+
+    assert result['missing_fields'] == []
+    assert saved[0][1]['enabled'] is True
+
+
+def _cookiecloud_service(*, sections: dict) -> tuple[api_server.FavApiService, list[tuple[str, str, str]]]:
+    """Service whose settings come from `sections`, recording what the probe was handed."""
+    probed: list[tuple[str, str, str]] = []
+
+    def getter(section: str):
+        return settings.SECTION_MODELS[section].model_validate(sections.get(section, {}))
+
+    service = api_server.FavApiService(
+        dsn='postgresql://db.local/fav',
+        token=_VALID_TOKEN,
+        now_provider=lambda: _FIXED_NOW,
+        settings_section_getter=getter,
+    )
+    return service, probed
+
+
+def _stub_probe(monkeypatch, probed: list[tuple[str, str, str]]) -> None:
+    def _fake_probe(server_url: str, uuid: str, password: str, **_kwargs):
+        probed.append((server_url, uuid, password))
+        return api_service_module.cookiecloud_tool.CookieCloudProbe(ok=True, code='ok', message='OK')
+
+    monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
+
+
+_BILIBILI_WITH_CC = {
+    'accounts': [
+        {
+            'name': 'main',
+            'toview_enabled': True,
+            'cookiecloud': {'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main-pw'},
+        },
+    ],
+}
+
+
+def test_test_cookiecloud_resolves_a_masked_password_from_storage(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'web.bilibili': _BILIBILI_WITH_CC})
+    _stub_probe(monkeypatch, probed)
+
+    result = service.test_cookiecloud(
+        {'account': 'main', 'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main••••'},
+    )
+
+    assert result['ok'] is True
+    assert probed == [('https://cc.main', 'main-uuid', 'main-pw')]
+
+
+def test_test_cookiecloud_uses_an_unsaved_draft_password(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'web.bilibili': _BILIBILI_WITH_CC})
+    _stub_probe(monkeypatch, probed)
+
+    service.test_cookiecloud({'account': 'main', 'server_url': 'https://cc.new', 'uuid': 'new-uuid', 'password': 'typed-pw'})
+
+    assert probed == [('https://cc.new', 'new-uuid', 'typed-pw')]
+
+
+def test_test_cookiecloud_matches_the_stored_password_by_account_name(monkeypatch) -> None:
+    sections = {
+        'web.bilibili': {
+            'accounts': [
+                {
+                    'name': 'main',
+                    'toview_enabled': True,
+                    'cookiecloud': {'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main-pw'},
+                },
+                {
+                    'name': 'alt',
+                    'toview_enabled': True,
+                    'cookiecloud': {'server_url': 'https://cc.alt', 'uuid': 'alt-uuid', 'password': 'alt-pw'},
+                },
+            ],
+        },
+    }
+    service, probed = _cookiecloud_service(sections=sections)
+    _stub_probe(monkeypatch, probed)
+
+    # The second account's mask must resolve to the second account's password.
+    service.test_cookiecloud(
+        {
+            'account': 'alt',
+            'server_url': 'https://cc.alt',
+            'uuid': 'alt-uuid',
+            'password': 'alt-••••',
+        },
+    )
+
+    assert probed == [('https://cc.alt', 'alt-uuid', 'alt-pw')]
+
+
+def test_test_cookiecloud_requires_an_account() -> None:
+    service, _ = _cookiecloud_service(sections={})
+
+    with pytest.raises(api_service_module.ApiError) as excinfo:
+        service.test_cookiecloud({'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'p'})
+
+    assert excinfo.value.status_code == 422
+    assert 'account' in excinfo.value.message
+
+
+def test_test_cookiecloud_for_an_unknown_account_has_no_stored_password_to_fall_back_on(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'web.bilibili': _BILIBILI_WITH_CC})
+    _stub_probe(monkeypatch, probed)
+
+    service.test_cookiecloud({'account': 'ghost', 'server_url': 'https://cc.x', 'uuid': 'x', 'password': 'shor••••'})
+
+    assert probed == [('https://cc.x', 'x', '')]

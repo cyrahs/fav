@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { Hanime1Seed, ListResponse, SettingsSection, TelegramNotificationTest } from '../api/types';
-import { describeCron } from '../components/CronInput';
+import type { Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
+import { TelegramNotificationTest } from '../components/TelegramNotificationTest';
+import { JOBS_PAGE_ONLY_SECTIONS, SECTION_FORMS, validateSection } from '../components/sectionForms';
 
 const SECTION_LABELS: Record<string, string> = {
   'web.bilibili': 'Bilibili',
@@ -14,54 +15,50 @@ const SECTION_LABELS: Record<string, string> = {
   'web.hanime1': 'Hanime1',
   'web.jandan': '煎蛋',
   'web.kemono': 'Kemono',
-  cookiecloud: 'CookieCloud',
-  'notifications.telegram': 'Telegram Bot 通知',
+  'notifications.telegram': 'Telegram 通知',
 };
 
-const SECRET_HINT = '留空或保持掩码不变即不修改。';
-
-function hasSecret(section: string): boolean {
-  return (
-    section === 'cookiecloud' ||
-    section === 'notifications.telegram' ||
-    section === 'web.telegram'
-  );
-}
-
 /**
- * Sections vary in shape (nested accounts, creator lists, ranking config), so the
- * editor is a JSON textarea with validation rather than a bespoke form per source.
- * The cron field gets a live natural-language hint since it is the value most
- * often edited by hand.
+ * Each section gets a typed form from SECTION_FORMS; the raw-JSON editor stays
+ * behind a toggle as an escape hatch for anything the form does not model (and
+ * as the fallback if the backend grows a section this build predates).
  */
 function SectionEditor({ section }: { section: SettingsSection }) {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState(() => JSON.stringify(section.value, null, 2));
+  const [draft, setDraft] = useState<Record<string, unknown>>(section.value);
+  const [rawMode, setRawMode] = useState(false);
+  const [rawText, setRawText] = useState(() => JSON.stringify(section.value, null, 2));
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
-  const [testResult, setTestResult] = useState('');
 
   useEffect(() => {
-    setDraft(JSON.stringify(section.value, null, 2));
+    setDraft(section.value);
+    setRawText(JSON.stringify(section.value, null, 2));
     setError('');
-    setTestResult('');
   }, [section.value]);
 
-  let parsed: Record<string, unknown> | null = null;
+  const Form = SECTION_FORMS[section.section];
+  const useRaw = rawMode || Form === undefined;
+
+  // In raw mode the textarea is the source of truth; parse it before validating.
+  let parsed: Record<string, unknown> | null = draft;
   let parseError = '';
-  try {
-    const candidate = JSON.parse(draft);
-    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
-      parseError = '内容必须是一个 JSON 对象';
-    } else {
-      parsed = candidate as Record<string, unknown>;
+  if (useRaw) {
+    parsed = null;
+    try {
+      const candidate: unknown = JSON.parse(rawText);
+      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        parseError = '内容必须是一个 JSON 对象';
+      } else {
+        parsed = candidate as Record<string, unknown>;
+      }
+    } catch (err) {
+      parseError = err instanceof Error ? err.message : 'JSON 解析失败';
     }
-  } catch (err) {
-    parseError = err instanceof Error ? err.message : 'JSON 解析失败';
   }
 
-  const cron = typeof parsed?.cron === 'string' ? parsed.cron : '';
-  const cronDescription = cron ? describeCron(cron) : null;
+  const issues = parsed ? validateSection(section.section, parsed) : [];
+  const dirty = JSON.stringify(parsed) !== JSON.stringify(section.value);
 
   const save = useMutation({
     mutationFn: () => api.put<SettingsSection>(`/api/v2/settings/${section.section}`, parsed),
@@ -81,57 +78,84 @@ function SectionEditor({ section }: { section: SettingsSection }) {
     },
   });
 
-  const testTelegram = useMutation({
-    mutationFn: () => api.post<TelegramNotificationTest>('/api/v2/notifications/telegram/test', {}),
-    onSuccess: (result) => {
-      setError('');
-      const message = result.message_id === null ? '测试消息已发送' : `测试消息已发送（message_id: ${result.message_id}）`;
-      setTestResult(result.warnings.length > 0 ? `${message}；${result.warnings.join('；')}` : message);
-    },
-    onError: (err: Error) => {
-      setTestResult('');
-      setError(err.message);
-    },
-  });
+  const reset = () => {
+    setDraft(section.value);
+    setRawText(JSON.stringify(section.value, null, 2));
+    setError('');
+  };
 
   return (
     <details className="section-editor">
       <summary>
         <span>{SECTION_LABELS[section.section] ?? section.section}</span>
         <code className="muted">{section.section}</code>
+        {dirty && <span className="badge-dirty">未保存</span>}
         {section.missing_fields.length > 0 && <span className="warn">缺少 {section.missing_fields.join(', ')}</span>}
       </summary>
 
-      {hasSecret(section.section) && <p className="muted">{SECRET_HINT}</p>}
-      {section.section === 'notifications.telegram' && <p className="muted">请先保存配置，再发送测试消息。</p>}
-
-      <textarea
-        className="json-editor"
-        spellCheck={false}
-        rows={Math.min(28, draft.split('\n').length + 2)}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-      />
-
-      {cronDescription && (
-        <p className={cronDescription.valid ? 'cron-hint' : 'cron-hint cron-hint-error'}>
-          cron：{cronDescription.text}
-        </p>
+      {useRaw ? (
+        <>
+          {Form === undefined && <p className="muted">这个 section 没有对应的表单，使用 JSON 编辑。</p>}
+          <textarea
+            className="json-editor"
+            spellCheck={false}
+            rows={Math.min(28, rawText.split('\n').length + 2)}
+            value={rawText}
+            onChange={(event) => setRawText(event.target.value)}
+          />
+        </>
+      ) : (
+        <Form
+          value={draft}
+          onChange={(next) => {
+            setDraft(next);
+            setRawText(JSON.stringify(next, null, 2));
+          }}
+        />
       )}
+
+      {section.section === 'notifications.telegram' && <TelegramNotificationTest dirty={dirty} />}
+
       {parseError && <p className="warn">{parseError}</p>}
+      {issues.length > 0 && (
+        <ul className="issues">
+          {issues.map((issue) => (
+            <li key={issue} className="warn">
+              {issue}
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <pre className="warn wrap">{error}</pre>}
-      {testResult && <p className="ok">{testResult}</p>}
 
       <div className="actions">
-        <button type="button" disabled={!parsed || save.isPending} onClick={() => save.mutate()}>
+        <button
+          type="button"
+          disabled={!parsed || issues.length > 0 || save.isPending}
+          onClick={() => save.mutate()}
+        >
           {save.isPending ? '保存中…' : '保存'}
         </button>
-        <button type="button" className="ghost" onClick={() => setDraft(JSON.stringify(section.value, null, 2))}>
+        <button type="button" className="ghost" onClick={reset}>
           重置
         </button>
-        {section.section === 'notifications.telegram' && (
-          <button type="button" className="ghost" disabled={testTelegram.isPending} onClick={() => testTelegram.mutate()}>
-            {testTelegram.isPending ? '发送中…' : '发送测试'}
+        {Form !== undefined && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              // Carry the current draft across so switching modes never loses edits.
+              if (!rawMode) {
+                setRawText(JSON.stringify(draft, null, 2));
+              } else if (parsed) {
+                setDraft(parsed);
+              }
+              setRawMode(!rawMode);
+            }}
+            disabled={rawMode && !parsed}
+            title={rawMode && !parsed ? 'JSON 无法解析，修好后才能切回表单' : undefined}
+          >
+            {rawMode ? '返回表单' : 'JSON 编辑'}
           </button>
         )}
         {saved && <span className="ok">已保存</span>}
@@ -244,14 +268,16 @@ export function SettingsPage() {
       <section className="card">
         <h2>配置</h2>
         <p className="muted">
-          所有配置存放在数据库里，保存后立即生效（调度变更最多延迟 15 秒）。
+          所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。
           Telegram 的实时监听在进程启动时建立，改动其账号后需重启 worker。
         </p>
         {settings.isLoading && <p>加载中…</p>}
         {settings.error && <p className="warn">{(settings.error as Error).message}</p>}
-        {settings.data?.items.map((section) => (
-          <SectionEditor key={section.section} section={section} />
-        ))}
+        {settings.data?.items
+          .filter((section) => !JOBS_PAGE_ONLY_SECTIONS.has(section.section))
+          .map((section) => (
+            <SectionEditor key={section.section} section={section} />
+          ))}
       </section>
 
       <Hanime1Seeds />

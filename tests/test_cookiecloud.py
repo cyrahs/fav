@@ -175,16 +175,18 @@ def test_save_to_netscape_format_errors_for_missing_domain(tmp_path: Path) -> No
 
 
 def test_save_to_netscape_format_live_bilibili(tmp_path: Path) -> None:
-    # CookieCloud credentials now live in the database, so this live check is
-    # skipped unless a real deployment is reachable (see tests/conftest.py,
-    # which pins defaults-only settings by default).
+    # CookieCloud credentials live per bilibili account in the database, so this
+    # live check is skipped unless a real deployment is reachable (see
+    # tests/conftest.py, which pins defaults-only settings by default).
     settings.use(None)
     try:
-        cfg = settings.load(force=True).cookiecloud
+        accounts = settings.load(force=True).web.bilibili.accounts
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f'Settings database unavailable: {exc}')
-    if not (cfg.server_url and cfg.uuid and cfg.password):
-        pytest.skip('CookieCloud is not configured')
+    configured = [account.cookiecloud for account in accounts if account.cookiecloud.configured]
+    if not configured:
+        pytest.skip('No bilibili account has CookieCloud configured')
+    cfg = configured[0]
 
     client = CookieCloudClient(cfg.server_url, cfg.uuid, cfg.password)
     output_file = tmp_path / 'bilibili_cookies.txt'

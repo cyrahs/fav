@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Job, JobRequest, ListResponse, SettingsSection } from '../api/types';
 import { CronInput, describeCron } from '../components/CronInput';
@@ -22,6 +23,9 @@ function JobRow({ job }: { job: Job }) {
 
   const dirty = cron !== job.cron || enabled !== job.enabled;
   const cronValid = describeCron(cron).valid;
+  // The API rejects enabling an incomplete source, so block it here rather than
+  // letting the user submit a toggle that can only come back as a 422.
+  const incomplete = job.missing_fields.length > 0;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -52,8 +56,12 @@ function JobRow({ job }: { job: Job }) {
       <td>
         <strong>{job.name}</strong>
         <div className="muted mono">{job.key}</div>
-        {job.missing_fields.length > 0 && (
-          <div className="warn">配置不完整，缺少：{job.missing_fields.join(', ')}</div>
+        {incomplete && (
+          <div className="warn">
+            配置不完整，缺少：{job.missing_fields.join(', ')}
+            <br />
+            <Link to="/settings">前往配置</Link>
+          </div>
         )}
         {error && <div className="warn">{error}</div>}
       </td>
@@ -61,9 +69,14 @@ function JobRow({ job }: { job: Job }) {
         <CronInput id={`cron-${job.key}`} value={cron} onChange={setCron} />
       </td>
       <td>
-        <label className="switch">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-          <span>{enabled ? '启用' : '停用'}</span>
+        <label className="switch" title={incomplete ? '配置不完整，无法启用' : undefined}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            disabled={incomplete}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          <span>{incomplete ? '未就绪' : enabled ? '启用' : '停用'}</span>
         </label>
       </td>
       <td className="actions">

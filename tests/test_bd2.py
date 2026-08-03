@@ -34,7 +34,7 @@ _INTERACTION_LIVE2D_ROW = 7
 
 
 def _job_cfg(*, enabled: bool = True) -> SimpleNamespace:
-    return SimpleNamespace(cron='0 */6 * * *', enabled=enabled, run_on_start=False)
+    return SimpleNamespace(cron='0 */6 * * *', enabled=enabled)
 
 
 def _text(key: str, value: str) -> dict[str, object]:
@@ -98,7 +98,6 @@ def test_bd2_config_defaults_to_disabled_collection_bd2_path() -> None:
 
     assert cfg.enabled is False
     assert cfg.cron == '0 */6 * * *'
-    assert cfg.run_on_start is False
     assert cfg.path == Path('./collection/bd2')
 
 

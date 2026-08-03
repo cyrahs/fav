@@ -21,6 +21,8 @@ from src.tool.notifications import enqueue_notification, format_job_failure_dedu
 
 log = logger.get('bilibili')
 _KIBIBYTE = 1024
+# Sentinel fav_id for watch-later rows; the bilibili table has no separate column for it.
+_TOVIEW_FAV_ID = -1
 _BILIBILI_SCHEMA_LOCK_ID = database.advisory_lock_id('bilibili:schema')
 _BILIBILI_CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS bilibili (
@@ -64,16 +66,12 @@ class Bilibili:
     """Class to interact with Bilibili API."""
 
     def __init__(self) -> None:
-        """Initialize Bilibili instance with main and sub credentials."""
-        current = settings.load()
-        self.cfg = current.web.bilibili
-        self.cookiecloud_cfg = current.cookiecloud
+        """Initialize Bilibili instance; per-account credentials are loaded in update()."""
+        self.cfg = settings.load().web.bilibili
         self._tmp_dir = tempfile.TemporaryDirectory(prefix='fav-bilibili-')
         self.cache_dir = Path(self._tmp_dir.name)
         self.cookie_path = self.cache_dir / 'bilibili.txt'
-        self.update_cookie_from_cookiecloud(self.cookie_path)
-        self.credential = self.create_credential(self.cookie_path)
-        self.user = api.user.User(uid=self.cfg.id, credential=self.credential)
+        self.credential: api.Credential | None = None
         self.info_cache = {}
         log.debug('cache_dir: %s', self.cache_dir)
 
@@ -218,7 +216,7 @@ class Bilibili:
         release_date: str | None = None,
         cover_url: str | None = None,
     ) -> bool:
-        source = 'toview' if fav_id == -1 else 'fav'
+        source = 'toview' if fav_id == _TOVIEW_FAV_ID else 'fav'
         url = f'https://www.bilibili.com/video/{bvid}'
         resolution_label = resolution or 'unknown'
         file_size_label = self._format_file_size(file_size_bytes) or 'unknown'
@@ -268,7 +266,7 @@ class Bilibili:
         release_date: str | None = None,
         cover_url: str | None = None,
     ) -> bool:
-        source = 'toview' if fav_id == -1 else 'fav'
+        source = 'toview' if fav_id == _TOVIEW_FAV_ID else 'fav'
         url = f'https://www.bilibili.com/video/{bvid}'
         resolution_label = resolution or 'unknown'
         file_size_label = self._format_file_size(file_size_bytes) or 'unknown'
@@ -335,11 +333,22 @@ class Bilibili:
         row = await cursor.fetchone()
         return bool(row and row['has_bvid_arbiter'])
 
-    def update_cookie_from_cookiecloud(self, save_path: Path) -> None:
-        """Update cookie from cookiecloud."""
-        cc_cfg = self.cookiecloud_cfg
+    @staticmethod
+    def update_cookie_from_cookiecloud(save_path: Path, cc_cfg: settings.CookieCloud) -> None:
+        """Fetch this account's bilibili.com cookies into a Netscape cookie file."""
         client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password)
         client.save_to_netscape_format('bilibili.com', save_path)
+
+    def _activate_account(self, account: settings.BilibiliAccount) -> None:
+        """Point the shared cookie/credential state at one account.
+
+        Each account gets its own cookie file, and the video info cache is dropped
+        because visibility of a video depends on who is logged in.
+        """
+        self.cookie_path = self.cache_dir / f'bilibili-{account.name}.txt'
+        self.update_cookie_from_cookiecloud(self.cookie_path, account.cookiecloud)
+        self.credential = self.create_credential(self.cookie_path)
+        self.info_cache = {}
 
     def create_credential(self, cookie_path: Path) -> api.Credential:
         """Create credential from cookie file."""
@@ -394,9 +403,8 @@ class Bilibili:
         recovery_notifications_succeeded = True
         for v in result.copy():
             if v.get_bvid() in exists_ids:
-                recovery_notifications_succeeded = (
-                    await self._resolve_existing_download_failure_notification(v, fav_id=-1) and recovery_notifications_succeeded
-                )
+                recovered = await self._resolve_existing_download_failure_notification(v, fav_id=_TOVIEW_FAV_ID)
+                recovery_notifications_succeeded = recovered and recovery_notifications_succeeded
                 result.remove(v)
         log.info('Find %d toviews to download', len(result))
         return (result, True, recovery_notifications_succeeded)
@@ -496,7 +504,7 @@ class Bilibili:
         has_any_toviews = False
         recovery_notifications_succeeded = True
         # for toview
-        if fav_id == -1:
+        if fav_id == _TOVIEW_FAV_ID:
             videos, has_any_toviews, recovery_notifications_succeeded = await self.get_toviews()
         else:
             videos, recovery_notifications_succeeded = await self.get_favs(fav_id)
@@ -566,10 +574,10 @@ class Bilibili:
             log.info('No new videos')
 
         # Clear toview list only after the download pass completes successfully.
-        if fav_id == -1 and has_any_toviews and recovery_notifications_succeeded:
+        if fav_id == _TOVIEW_FAV_ID and has_any_toviews and recovery_notifications_succeeded:
             log.info('Clearing toview list ...')
             await api.user.clear_toview_list(credential=self.credential)
-        elif fav_id == -1 and has_any_toviews:
+        elif fav_id == _TOVIEW_FAV_ID and has_any_toviews:
             log.warning('Skip clearing toview list because a download recovery notification did not enqueue successfully')
 
     async def _ensure_table(self) -> None:
@@ -585,8 +593,19 @@ class Bilibili:
         log.debug('bilibili table initialized')
 
     async def update(self) -> None:
-        """Update the favorite list of the main account."""
+        """Walk every configured account: its favourite lists, then its watch-later list."""
         await self._ensure_table()
 
-        await self.update_fav(self.cfg.fav_id, self.cfg.path / 'fav')
-        await self.update_fav(-1, self.cfg.path / 'toview')
+        if not self.cfg.accounts:
+            log.warning('No bilibili accounts configured; nothing to do')
+            return
+
+        for account in self.cfg.accounts:
+            log.info('Processing bilibili account %s', account.name)
+            await asyncio.to_thread(self._activate_account, account)
+            for favorite in account.favorites:
+                log.info('Account %s: favourite list %d -> %s', account.name, favorite.fav_id, favorite.path)
+                await self.update_fav(favorite.fav_id, favorite.path)
+            if account.toview_enabled:
+                log.info('Account %s: watch-later -> %s', account.name, account.toview_path)
+                await self.update_fav(_TOVIEW_FAV_ID, account.toview_path)

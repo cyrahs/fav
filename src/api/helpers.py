@@ -24,7 +24,6 @@ def serialize_job(job: ScheduledJob) -> dict[str, object]:
         'key': job.key,
         'name': job.name,
         'enabled': job.enabled,
-        'run_on_start': job.run_on_start,
         'cron': job.cron,
         'section': job.section,
         'missing_fields': list(job.missing_fields),

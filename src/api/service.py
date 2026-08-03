@@ -14,6 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 from src.core import logger, settings
 from src.core.settings import SECTION_MODELS, UnknownSectionError
 from src.service.jobs import ScheduledJob, build_jobs
+from src.tool import cookiecloud as cookiecloud_tool
 from src.tool.control_queue import (
     ControlRequest,
     create_control_request_sync,
@@ -62,7 +63,7 @@ from .schemas import (
     SettingsSection,
     TelegramNotificationTestResponse,
 )
-from .settings_masking import mask_section, unmask_section
+from .settings_masking import keep_secret, mask_section, unmask_section
 
 log = logger.get('fav-api')
 
@@ -77,6 +78,7 @@ type SettingsSectionSaver = Callable[[str, dict[str, Any]], BaseModel]
 type TelegramNotificationTester = Callable[[], Awaitable[TelegramDeliveryResult]]
 
 _READINESS_CACHE_TTL_SECONDS = 300
+
 _READINESS_PROBE_TIMEOUT_SECONDS = 10
 _READINESS_TOTAL_TIMEOUT_SECONDS = 12
 _READINESS_SAMPLE_SIZE = 3
@@ -90,6 +92,12 @@ _READINESS_MESSAGES = {
     'upstream_timeout': 'Hanime1 readiness check timed out.',
     'upstream_unavailable': 'Hanime1 watch pages are unavailable.',
 }
+
+
+def _missing_fields(model: BaseModel) -> list[str]:
+    """Fields a section still needs before its source can run; empty for sections without a job."""
+    validate_runnable = getattr(model, 'validate_runnable', None)
+    return list(validate_runnable()) if callable(validate_runnable) else []
 
 
 class FavApiService:
@@ -347,12 +355,10 @@ class FavApiService:
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
         payload = json.loads(model.model_dump_json())
-        validate_runnable = getattr(model, 'validate_runnable', None)
-        missing = list(validate_runnable()) if callable(validate_runnable) else []
         return {
             'section': section,
             'value': mask_section(section, payload),
-            'missing_fields': missing,
+            'missing_fields': _missing_fields(model),
         }
 
     def update_settings_section(self, section: str, payload: dict[str, Any]) -> dict[str, object]:
@@ -366,8 +372,11 @@ class FavApiService:
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
         merged = unmask_section(section, payload, stored)
+
+        # Validate before persisting so an incomplete source is rejected instead of
+        # being written and then silently parked by the scheduler.
         try:
-            saved = self._settings_section_saver(section, merged)
+            candidate = SECTION_MODELS[section].model_validate(merged)
         except PydanticValidationError as exc:
             raise ApiError(
                 status_code=422,
@@ -377,15 +386,24 @@ class FavApiService:
             ) from None
         except ValueError as exc:
             raise ApiError(status_code=422, code='invalid_settings', message=str(exc)) from None
+
+        candidate_missing = _missing_fields(candidate)
+        if getattr(candidate, 'enabled', False) and candidate_missing:
+            raise ApiError(
+                status_code=422,
+                code='incomplete_settings',
+                message='Cannot enable a source while its configuration is incomplete.',
+                details={'missing_fields': candidate_missing},
+            )
+
+        try:
+            saved = self._settings_section_saver(section, merged)
         except Exception:
             log.exception('Failed to save settings section=%s', section)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
         saved_payload = json.loads(saved.model_dump_json())
-        validate_runnable = getattr(saved, 'validate_runnable', None)
-        missing = list(validate_runnable()) if callable(validate_runnable) else []
-        if getattr(saved, 'enabled', False) and missing:
-            log.warning('Settings section %s is enabled but incomplete: %s', section, ', '.join(missing))
+        missing = _missing_fields(saved)
         return {
             'section': section,
             'value': mask_section(section, saved_payload),
@@ -393,6 +411,7 @@ class FavApiService:
         }
 
     async def test_telegram_notification(self) -> dict[str, object]:
+        """Send a test message so the operator can confirm the bot can reach the chat."""
         try:
             result = await self._telegram_notification_tester()
         except TelegramNotConfiguredError:
@@ -407,6 +426,47 @@ class FavApiService:
             'status': 'delivered',
             'message_id': result.message_id,
             'warnings': list(result.warnings),
+        }
+
+    def _stored_account_password(self, account: str) -> str:
+        """The CookieCloud password stored for one bilibili account, matched by name."""
+        try:
+            stored = json.loads(self._settings_section_getter('web.bilibili').model_dump_json())
+        except UnknownSectionError:
+            raise ApiError(status_code=404, code='unknown_section', message='Unknown settings section: web.bilibili') from None
+        except Exception:
+            log.exception('Failed to load web.bilibili for cookiecloud test')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+        accounts = stored.get('accounts')
+        for candidate in accounts if isinstance(accounts, list) else []:
+            if isinstance(candidate, dict) and str(candidate.get('name') or '') == account:
+                nested = candidate.get('cookiecloud')
+                nested = nested if isinstance(nested, dict) else {}
+                return str(nested.get('password') or '')
+        return ''
+
+    def test_cookiecloud(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Check one bilibili account's CookieCloud credentials without saving them.
+
+        The draft from the form wins, except that a masked or omitted password is
+        resolved against what is stored for that account.
+        """
+        account = str(payload.get('account') or '')
+        if not account:
+            raise ApiError(status_code=422, code='invalid_settings', message='account is required.')
+
+        draft = {key: str(payload.get(key) or '') for key in ('server_url', 'uuid', 'password')}
+        keep_secret(draft, 'password', self._stored_account_password(account))
+
+        result = cookiecloud_tool.probe(draft['server_url'], draft['uuid'], draft['password'])
+        return {
+            'ok': result.ok,
+            'code': result.code,
+            'message': result.message,
+            'domain_count': result.domain_count,
+            'bilibili_cookie_count': result.bilibili_cookie_count,
+            'missing_cookies': list(result.missing_cookies),
         }
 
     def list_archive_sources(self) -> list[dict[str, Any]]:

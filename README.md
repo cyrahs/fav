@@ -27,25 +27,67 @@ those in the environment if you need one.
 
 ### Database-backed settings
 
-Everything else — per-source `enabled`, `cron`, paths, Telegram accounts and channel routes, Kemono
-creators, Hanime1 ranking, CookieCloud, and notification delivery — is stored per section in `app_settings`:
+Everything else — per-source `enabled`, `cron`, paths, Bilibili and Telegram accounts, Kemono
+creators, Hanime1 ranking, and notification delivery — is stored per section in `app_settings`:
 
 ```sql
 CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `cookiecloud`, `notifications.telegram`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `notifications.telegram`.
+
+#### Bilibili accounts
+
+`web.bilibili` holds a list of accounts, each with its own favourite lists and watch-later setting:
+
+```jsonc
+{
+  "cron": "*/30 * * * *",
+  "enabled": true,
+  "accounts": [
+    {
+      "name": "main",                                  // ASCII slug; names the cookie file
+      "favorites": [
+        { "fav_id": 123456789, "path": "collection/bilibili/main/fav" },
+        { "fav_id": 987654321, "path": "collection/bilibili/main/music" }
+      ],
+      "toview_enabled": true,                          // watch-later is opt-in per account
+      "toview_path": "collection/bilibili/main/later",  // its own directory, not a subdir of the favourites
+      "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." }  // this account's login
+    }
+  ]
+}
+```
+
+Each favourite list names its own directory, and watch-later has a separate one, so the two no longer
+share a parent. An account needs complete CookieCloud credentials plus either a favourite list or
+`toview_enabled` before it is runnable; the credentials *are* the account identity, since the
+watch-later list is always the logged-in user's. There is no shared `cookiecloud` section — Bilibili
+was its only consumer. Watch-later is still cleared after a successful pass, so only enable it for
+accounts whose list you want consumed.
+
+Deduplication is by `bvid` across the whole `bilibili` table, so a video favourited by two accounts
+downloads once, into whichever directory is reached first.
+
+`POST /api/v2/cookiecloud/test` checks one account's credentials without saving them, and the settings
+page exposes it as a 测试连接 button inside each account. It fetches and
+decrypts the vault and reports which failure it hit — server unreachable, decrypt failed (wrong UUID
+or password), no `bilibili.com` cookies, or a vault missing some of `sessdata` / `bili_jct` /
+`buvid3` / `dedeuserid`. A masked password in the request resolves to the one stored under that
+account name, so what is checked is what the crawler would actually use.
 
 Every section is constructible from defaults, so an empty database boots with all sources disabled.
 Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports
 them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
 crashing.
 
-Secrets (`web.telegram.accounts[].api_hash`, `cookiecloud.password`, `notifications.telegram.bot_token`) are stored in
+Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.telegram.accounts[].api_hash`,
+`notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
-UI cannot shuffle credentials between them.
+UI cannot shuffle credentials between them; the same holds for Bilibili's per-account CookieCloud
+password.
 
 The worker polls `app_settings` every 15 seconds and reschedules APScheduler jobs in place, so
 `enabled` and `cron` changes apply without a restart.
@@ -59,6 +101,21 @@ a worker restart.
 `web/` is a React + TypeScript + Vite front end served by FastAPI from `web/dist` when that directory
 exists (API-only otherwise). Pages: overview, archive records, jobs, settings. Cron fields show a
 live natural-language description of the expression.
+
+The jobs page owns `cron` and `enabled` for every source, plus manual 立即运行. Sources with an
+incomplete configuration cannot be enabled: the toggle is disabled and `PUT /api/v2/settings/{section}`
+answers `422 incomplete_settings` with the missing field names.
+
+The settings page owns everything else and renders a typed form per section — checkboxes for toggles
+and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels
+and Kemono creators — validated
+locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
+do not appear there at all; their `path` keeps its default and can be changed through the API if a
+deployment needs to. Every listed section also has a `JSON 编辑` toggle for raw editing, which is what
+a section gets if this build predates it. Secret fields (`api_hash`, CookieCloud password, Telegram
+bot token) read back masked; leaving the mask in place keeps the stored value. Note that `PUT` replaces a
+whole section, so a partial payload resets omitted fields to their defaults — the UI always sends the
+complete object.
 
 ```bash
 cd web
@@ -103,6 +160,8 @@ Protected endpoints:
 - `GET /api/v2/settings`
 - `GET /api/v2/settings/{section}`
 - `PUT /api/v2/settings/{section}`
+- `POST /api/v2/cookiecloud/test`
+- `POST /api/v2/notifications/telegram/test`
 - `GET /api/v2/archive/sources`
 - `GET /api/v2/archive/items`
 - `GET /api/v2/nikke/characters`
@@ -155,23 +214,25 @@ from the `app_settings` table.
 ### Telegram Bot notifications
 
 The worker delivers queued notifications directly through Telegram's Bot API. It prefers a local
-image, then a remote image URL, and finally text. Telegram rate-limit responses are fed into the
-PostgreSQL outbox retry schedule. Pinning is best-effort so a missing pin permission does not resend
-an already delivered message. The API origin is fixed to `https://api.telegram.org` so a retained
-masked token cannot be redirected to another host.
+image, then a remote image URL, and finally text. Telegram rate-limit responses feed the PostgreSQL
+outbox retry schedule. Pinning is best-effort so a missing pin permission does not resend an already
+delivered message. The API origin is fixed to `https://api.telegram.org` so a retained masked token
+cannot be redirected to another host.
 
-Configure the `notifications.telegram` settings section in the web UI, save it, and use **Send test**
-before enabling delivery:
+Configure the `notifications.telegram` section in the web UI, save it, then use 发送测试消息 before
+switching `enabled` on:
 
 | Field | Purpose |
 | --- | --- |
-| `enabled` | Route outbox deliveries directly to Telegram |
+| `enabled` | Route outbox deliveries to Telegram |
 | `bot_token` | BotFather token (masked after save) |
 | `chat_id` | Destination chat, group, or channel ID; stored as a string |
 | `message_thread_id` | Optional forum topic ID |
 
-If Telegram delivery is disabled or incomplete, notifications stay queued and an unconfigured
-deployment still boots.
+The test button sends through the **saved** credentials, not the form draft, so save before testing.
+If delivery is disabled or incomplete, notifications stay queued and an unconfigured deployment
+still boots.
+
 
 ### Azur Lane
 
@@ -217,7 +278,7 @@ account session owner restarts.
 The configured cron is a reconciliation scan for messages missed during disconnects; it only adds durable queue jobs.
 The first reconciliation without an existing cursor considers the latest `scan_limit` messages. Later scans continue
 from the saved per-channel cursor, which advances only after all selected media have been persisted. Existing Telegram
-archive rows seed the initial cursor when upgrading. `run_on_start` controls the immediate reconciliation scan; event
+archive rows seed the initial cursor when upgrading. Use the jobs page's 立即运行 to force a reconciliation scan; event
 listeners always start when Telegram is enabled.
 
 `download_limit_per_channel` limits newly queued reconciliation jobs, not real-time events. Successful downloads are

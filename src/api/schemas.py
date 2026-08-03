@@ -64,7 +64,6 @@ class JobSummary(ApiSchema):
     key: str
     name: str
     enabled: bool
-    run_on_start: bool
     cron: str
     # Settings section that owns this job's enabled/cron fields.
     section: str = ''
@@ -639,3 +638,21 @@ class TelegramNotificationTestResponse(ApiSchema):
     status: Literal['delivered']
     message_id: int | None = None
     warnings: list[str] = Field(default_factory=list)
+
+
+class CookieCloudTestRequest(ApiSchema):
+    # Names the bilibili account a masked password resolves against.
+    account: str = ''
+    server_url: str = ''
+    uuid: str = ''
+    # A masked value (or an omitted one) means "test what is already stored".
+    password: str = ''
+
+
+class CookieCloudTestResult(ApiSchema):
+    ok: bool
+    code: str
+    message: str
+    domain_count: int = 0
+    bilibili_cookie_count: int = 0
+    missing_cookies: list[str] = Field(default_factory=list)
