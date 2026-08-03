@@ -211,6 +211,21 @@ button.danger {
   flex-wrap: wrap;
 }
 
+/* On a table cell the flex display above would replace `table-cell`, dropping the
+   cell out of the row box so its bottom border no longer lines up with its
+   neighbours. Keep it a cell and space the buttons with margins instead. */
+td.actions {
+  display: table-cell;
+}
+
+td.actions > * {
+  margin: 0 8px 4px 0;
+}
+
+td.actions > *:last-child {
+  margin-right: 0;
+}
+
 .cron-cell {
   min-width: 260px;
 }
