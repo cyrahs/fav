@@ -63,9 +63,17 @@ a:hover {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 700;
   font-size: 18px;
   letter-spacing: 0.04em;
+}
+
+.brand svg {
+  color: var(--accent);
+  flex: none;
 }
 
 .topbar nav {

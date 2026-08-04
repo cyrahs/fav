@@ -182,4 +182,25 @@ def _mount_web_ui(app: FastAPI) -> None:
 
     app.state.web_dist_dir = dist_dir
     app.mount('/assets', StaticFiles(directory=dist_dir / 'assets'), name='web-assets')
+
+    # Icons live at the document root because browsers request them there
+    # (/favicon.ico unprompted), and the SPA fallback would otherwise answer
+    # those requests with index.html.
+    for name in ('favicon.ico', 'icon.svg', 'apple-touch-icon.png'):
+        path = dist_dir / name
+        if path.is_file():
+            app.add_api_route(
+                f'/{name}',
+                _static_file_endpoint(path),
+                methods=['GET'],
+                include_in_schema=False,
+            )
+
     log.info('Serving web UI from %s', dist_dir)
+
+
+def _static_file_endpoint(path: Path):  # noqa: ANN202  # returns an inner endpoint coroutine
+    async def endpoint() -> FileResponse:
+        return FileResponse(path)
+
+    return endpoint

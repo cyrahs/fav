@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { clearToken, getToken, onUnauthorized, setToken, verifyToken } from './api/client';
+import { Logo } from './components/Logo';
 import { JobsPage } from './pages/Jobs';
 import { OverviewPage } from './pages/Overview';
 import { RecordsPage } from './pages/Records';
@@ -32,7 +33,10 @@ function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
   return (
     <div className="login">
       <form className="card" onSubmit={submit}>
-        <h1>fav 管理</h1>
+        <h1 className="brand">
+          <Logo size={22} />
+          fav 管理
+        </h1>
         <p className="muted">输入部署的 API_TOKEN。它只保存在本标签页的 sessionStorage 中。</p>
         <input
           type="password"
@@ -62,7 +66,10 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">fav</span>
+        <span className="brand">
+          <Logo />
+          fav
+        </span>
         <nav>
           <NavLink to="/" end>
             概览
