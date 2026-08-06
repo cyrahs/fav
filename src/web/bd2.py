@@ -20,7 +20,15 @@ import httpx
 from src.core import logger, settings
 from src.tool import database
 from src.tool.bd2_l2d_viewer import VIEWER_PAGE_URL, ViewerResource, fetch_viewer_resources, resource_stem_from_url, viewer_asset_url
+from src.tool.content_discovery import (
+    CharacterSnapshot,
+    collection_item_names,
+    has_character_snapshot,
+    load_character_snapshot,
+    new_collection_item_names,
+)
 from src.tool.filename import sanitize
+from src.tool.notifications import enqueue_notification
 from src.web.nikke import (
     Asset,
     BlobRef,
@@ -1661,6 +1669,7 @@ class BD2:
         self._cdn_limiter = _RateLimiter(_CDN_REQUEST_INTERVAL_SECONDS)
         self._cdn_semaphore = asyncio.Semaphore(_CDN_CONCURRENCY)
         self._circuit_breaker = _CircuitBreaker()
+        self._notify_discoveries = False
 
     @asynccontextmanager
     async def _http_client(self) -> AsyncIterator[httpx.AsyncClient]:
@@ -1792,6 +1801,52 @@ class BD2:
 
     async def _ensure_schema(self) -> None:
         await database.query_db_multi(_CREATE_SCHEMA_SQL)
+
+    async def _notify_content_discovery(self, *, snapshot: CharacterSnapshot, character: dict[str, Any]) -> None:
+        if not self._notify_discoveries or (snapshot.exists and snapshot.character is None):
+            return
+
+        content_id = int(character['content_id'])
+        character_name = str(character.get('title') or content_id)
+        current_skins = collection_item_names(
+            character.get('costumes'),
+            identity_fields=('style_name', 'title'),
+            display_fields=('title', 'style_name'),
+            fallback_label='Skin',
+        )
+        if snapshot.exists:
+            previous_skins = collection_item_names(
+                (snapshot.character or {}).get('costumes'),
+                identity_fields=('style_name', 'title'),
+                display_fields=('title', 'style_name'),
+                fallback_label='Skin',
+            )
+            skin_names = new_collection_item_names(previous_skins, current_skins)
+            discovery = 'skin'
+        else:
+            skin_names = list(current_skins.values())
+            discovery = 'character'
+
+        if snapshot.exists and not skin_names:
+            return
+
+        body = f'Character: {character_name}\nSkin: {", ".join(skin_names) or "None"}'
+        try:
+            await enqueue_notification(
+                kind='content_discovered',
+                source='bd2',
+                title=f'BD2 new {discovery}: {character_name}',
+                body=body,
+                link_url=f'{GAMEKEE_BASE_URL}/{GAME_ALIAS}/tj/{content_id}.html',
+                payload={
+                    'content_id': content_id,
+                    'character_name': character_name,
+                    'skin_names': skin_names,
+                    'discovery': discovery,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue BD2 %s notification for content_id=%d: %s', discovery, content_id, exc)
 
     async def _upsert_tree_pages(self, rows: list[dict[str, Any]], *, deactivate_missing: bool) -> None:
         statements: list[tuple[str, tuple[Any, ...]]] = []
@@ -2354,6 +2409,7 @@ class BD2:
 
         name = detail_name(detail, content_id, tree_row)
         root = output_root(self.path, detail, content_id, tree_row)
+        previous_character = load_character_snapshot(base_dir=self.path, current_root=root, content_id=content_id)
         manifest_path = root / 'manifest.json'
         hash_value = content_hash(detail_response=detail_response, content_json=content_json, tree_row=tree_row)
         await self._upsert_page_fetch_start(
@@ -2392,20 +2448,19 @@ class BD2:
             'asset_counts': asset_counts(assets),
         }
         write_json(root / 'manifest.json', manifest)
-        write_json(
-            root / 'character.json',
-            {
-                'content_id': content_id,
-                'title': name,
-                'entry_id': detail.get('entry_id'),
-                'tree_row': tree_row,
-                'base_info': base_info,
-                'costumes': content_summary.get('costumes', []),
-                'live2d_models': live2d_models,
-            },
-        )
+        character = {
+            'content_id': content_id,
+            'title': name,
+            'entry_id': detail.get('entry_id'),
+            'tree_row': tree_row,
+            'base_info': base_info,
+            'costumes': content_summary.get('costumes', []),
+            'live2d_models': live2d_models,
+        }
+        write_json(root / 'character.json', character)
         if not skip_assets:
             await self._replace_page_assets_and_mark_completed(content_id=content_id, assets=assets)
+        await self._notify_content_discovery(snapshot=previous_character, character=character)
         return root
 
     async def download_character(self, target: str, *, skip_assets: bool = False) -> Path:
@@ -2430,6 +2485,7 @@ class BD2:
                 return
 
             await self._ensure_schema()
+            self._notify_discoveries = has_character_snapshot(self.path)
             self.path.mkdir(parents=True, exist_ok=True)
             async with self._http_client() as client:
                 rows = await self._fetch_tree_rows(client)

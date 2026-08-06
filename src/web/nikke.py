@@ -20,7 +20,15 @@ import httpx
 
 from src.core import logger, settings
 from src.tool import database
+from src.tool.content_discovery import (
+    CharacterSnapshot,
+    collection_item_names,
+    has_character_snapshot,
+    load_character_snapshot,
+    new_collection_item_names,
+)
 from src.tool.filename import sanitize
+from src.tool.notifications import enqueue_notification
 from src.web import nikke_layer_metadata as layer_metadata
 from src.web.nikke_runtime import RuntimeCaptureRequest, capture_gamekee_runtime_layers
 
@@ -1124,6 +1132,7 @@ class Nikke:
         self._cdn_limiter = _RateLimiter(_CDN_REQUEST_INTERVAL_SECONDS)
         self._cdn_semaphore = asyncio.Semaphore(_CDN_CONCURRENCY)
         self._circuit_breaker = _CircuitBreaker()
+        self._notify_discoveries = False
 
     @asynccontextmanager
     async def _http_client(self) -> AsyncIterator[httpx.AsyncClient]:
@@ -1254,6 +1263,52 @@ class Nikke:
 
     async def _ensure_schema(self) -> None:
         await database.query_db_multi(_CREATE_SCHEMA_SQL)
+
+    async def _notify_content_discovery(self, *, snapshot: CharacterSnapshot, character: dict[str, Any]) -> None:
+        if not self._notify_discoveries or (snapshot.exists and snapshot.character is None):
+            return
+
+        content_id = int(character['content_id'])
+        character_name = str(character.get('title') or content_id)
+        current_skins = collection_item_names(
+            character.get('skins'),
+            identity_fields=('name', 'title'),
+            display_fields=('title', 'name'),
+            fallback_label='Skin',
+        )
+        if snapshot.exists:
+            previous_skins = collection_item_names(
+                (snapshot.character or {}).get('skins'),
+                identity_fields=('name', 'title'),
+                display_fields=('title', 'name'),
+                fallback_label='Skin',
+            )
+            skin_names = new_collection_item_names(previous_skins, current_skins)
+            discovery = 'skin'
+        else:
+            skin_names = list(current_skins.values())
+            discovery = 'character'
+
+        if snapshot.exists and not skin_names:
+            return
+
+        body = f'Character: {character_name}\nSkin: {", ".join(skin_names) or "None"}'
+        try:
+            await enqueue_notification(
+                kind='content_discovered',
+                source='nikke',
+                title=f'NIKKE new {discovery}: {character_name}',
+                body=body,
+                link_url=f'{GAMEKEE_BASE_URL}/nikke/tj/{content_id}.html',
+                payload={
+                    'content_id': content_id,
+                    'character_name': character_name,
+                    'skin_names': skin_names,
+                    'discovery': discovery,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue NIKKE %s notification for content_id=%d: %s', discovery, content_id, exc)
 
     async def _upsert_list_pages(self, rows: list[dict[str, Any]]) -> None:
         statements: list[tuple[str, tuple[Any, ...]]] = []
@@ -1834,6 +1889,7 @@ class Nikke:
 
         name = detail_name(detail, content_id, tj_list_row)
         root = output_root(self.path, detail, content_id, tj_list_row)
+        previous_character = load_character_snapshot(base_dir=self.path, current_root=root, content_id=content_id)
         manifest_path = root / 'manifest.json'
         hash_value = content_hash(detail_response=detail_response, content_json=content_json, tj_list_row=tj_list_row)
         await self._upsert_page_fetch_start(
@@ -1901,6 +1957,7 @@ class Nikke:
         write_json(root / 'character.json', character)
         if not skip_assets:
             await self._replace_page_assets_and_mark_completed(content_id=content_id, assets=assets)
+        await self._notify_content_discovery(snapshot=previous_character, character=character)
         return root
 
     async def download_character(self, target: str, *, skip_assets: bool = False) -> Path:
@@ -1926,6 +1983,7 @@ class Nikke:
                 return
 
             await self._ensure_schema()
+            self._notify_discoveries = has_character_snapshot(self.path)
             self.path.mkdir(parents=True, exist_ok=True)
             async with self._http_client() as client:
                 rows = await self._fetch_tj_list_rows(client)
