@@ -1200,6 +1200,181 @@ def test_azurlane_update_records_list_level_character_metadata(tmp_path: Path, m
     assert metadata['skin_series'] == ['Skin', 'Swimsuits']
 
 
+def _origin_split_handlers(
+    catalog: str,
+    *,
+    detail_payload: str,
+    origin_urls: list[str],
+    direct_urls: list[str],
+    origin_failures: int = 0,
+) -> tuple[Any, Any]:
+    state = {'failures': origin_failures}
+
+    def origin_handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        origin_urls.append(url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if '/data/ships/' in url:
+            if state['failures'] > 0:
+                state['failures'] -= 1
+                return httpx.Response(503)
+            return httpx.Response(200, text=detail_payload, headers={'content-type': 'application/json'})
+        return httpx.Response(404)
+
+    def direct_handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        direct_urls.append(url)
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url.endswith('.model3.json'):
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        return httpx.Response(200, content=b'bytes', headers={'content-type': 'application/octet-stream'})
+
+    return origin_handler, direct_handler
+
+
+def _run_with_origin_split(tmp_path: Path, origin_handler: Any, direct_handler: Any, **kwargs: Any) -> None:
+    with (
+        httpx.Client(transport=httpx.MockTransport(direct_handler)) as source_client,
+        httpx.Client(transport=httpx.MockTransport(origin_handler)) as origin_source_client,
+    ):
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(direct_handler))
+        origin_client = httpx.AsyncClient(transport=httpx.MockTransport(origin_handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                origin_client=origin_client,
+                origin_source_client=origin_source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+                **kwargs,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+            asyncio.run(origin_client.aclose())
+
+
+def test_azurlane_sends_only_l2d_su_origin_traffic_through_the_origin_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    detail_payload = json.dumps({'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+    origin_urls: list[str] = []
+    direct_urls: list[str] = []
+    origin_handler, direct_handler = _origin_split_handlers(
+        catalog,
+        detail_payload=detail_payload,
+        origin_urls=origin_urls,
+        direct_urls=direct_urls,
+    )
+
+    _run_with_origin_split(tmp_path, origin_handler, direct_handler)
+
+    # The origin client carries l2d.su and nothing else: routing CDN assets through a metered
+    # proxy would multiply its bandwidth by orders of magnitude.
+    assert origin_urls, 'expected the origin client to be used'
+    assert all(url.startswith('https://l2d.su/') for url in origin_urls)
+    assert not [url for url in direct_urls if url.startswith('https://l2d.su/')]
+    assert _PRIMARY_INDEX_URL in origin_urls
+    assert NAGAMI_MAPPING_URL in direct_urls
+    assert [url for url in direct_urls if url.startswith(L2D_SU_STATIC_BASE_URL)]
+
+
+def test_azurlane_retries_ship_detail_on_another_proxy_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    detail_payload = json.dumps({'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+    origin_urls: list[str] = []
+    direct_urls: list[str] = []
+    origin_handler, direct_handler = _origin_split_handlers(
+        catalog,
+        detail_payload=detail_payload,
+        origin_urls=origin_urls,
+        direct_urls=direct_urls,
+        origin_failures=2,
+    )
+
+    _run_with_origin_split(tmp_path, origin_handler, direct_handler)
+
+    # Two exits refused before a third served the payload; the detail still lands.
+    expected_attempts = 3
+    detail_requests = [url for url in origin_urls if '/data/ships/' in url]
+    assert len(detail_requests) == expected_attempts
+    assert fake_db.ship_details[1]['payload']['ship']['className'] == 'J Class'
+
+
+def test_azurlane_gives_up_on_ship_detail_after_the_attempt_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    origin_urls: list[str] = []
+    direct_urls: list[str] = []
+    origin_handler, direct_handler = _origin_split_handlers(
+        catalog,
+        detail_payload='',
+        origin_urls=origin_urls,
+        direct_urls=direct_urls,
+        origin_failures=99,
+    )
+
+    _run_with_origin_split(tmp_path, origin_handler, direct_handler, origin_attempts=2)
+
+    # A ship whose detail never arrives must not block the rest of the run.
+    configured_attempts = 2
+    assert len([url for url in origin_urls if '/data/ships/' in url]) == configured_attempts
+    assert fake_db.ship_details == {}
+    assert fake_db.models['azurlane:painting:javelin:javelin']['completed'] is True
+
+
+def test_azurlane_origin_client_disables_connection_reuse(tmp_path: Path) -> None:
+    crawler = AzurLane(path=tmp_path, origin_proxy='http://user:pass@proxy.example:8080')
+
+    async def check() -> None:
+        async with crawler._http_client() as direct, crawler._origin_http_client(direct) as origin:
+            assert origin is not direct
+            # Reaching into httpx internals because keep-alive has no public accessor, and the
+            # invariant matters: an HTTPS request through a proxy lives in a CONNECT tunnel that
+            # is pinned to one exit IP, so a reused connection would push the whole backfill
+            # through a single address and leave retries stuck on the same failing exit.
+            assert origin._transport._pool._max_keepalive_connections == 0
+            assert direct._transport._pool._max_keepalive_connections > 0
+
+    asyncio.run(check())
+
+
+def test_azurlane_origin_client_is_the_direct_client_when_no_proxy_is_configured(tmp_path: Path) -> None:
+    crawler = AzurLane(path=tmp_path, origin_proxy='')
+
+    async def check() -> None:
+        async with crawler._http_client() as direct, crawler._origin_http_client(direct) as origin:
+            assert origin is direct
+
+    asyncio.run(check())
+
+
+def test_azurlane_reads_the_origin_request_interval_from_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    configured_interval = 7.5
+    config = settings.Settings()
+    config.web.azurlane.origin_request_interval_seconds = configured_interval
+    monkeypatch.setattr(azurlane_module.settings, 'load', lambda: config)
+
+    crawler = AzurLane(path=tmp_path)
+
+    assert crawler._origin_limiter._min_interval_seconds == configured_interval
+    assert crawler._origin_source_limiter._min_interval_seconds == configured_interval
+
+
 def test_azurlane_index_requests_pass_through_the_origin_throttle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_db = _install_fake_database(monkeypatch)
     catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])

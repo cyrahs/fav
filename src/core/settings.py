@@ -325,6 +325,25 @@ class BD2(ScheduleJob):
 class AzurLane(ScheduleJob):
     path: Path = Path('./collection/azurlane')
     cron: str = '0 */6 * * *'
+    # The l2d.su origin blocks datacenter IPs outright, so its index and per-ship detail
+    # requests can be routed through a proxy. Assets live on a CDN and never use it.
+    origin_proxy: str = ''
+    # Spacing between l2d.su origin requests. A rotating proxy gives each request its own exit
+    # IP, so this is about being gentle with the origin rather than protecting a single address.
+    origin_request_interval_seconds: float = 3.0
+
+    @field_validator('origin_proxy')
+    @classmethod
+    def normalize_origin_proxy(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('origin_request_interval_seconds')
+    @classmethod
+    def validate_origin_request_interval(cls, value: float) -> float:
+        if value < 0:
+            msg = 'origin_request_interval_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
 
 
 class Hanime1RankingDeepScan(BaseModel):
@@ -492,6 +511,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
+    'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),

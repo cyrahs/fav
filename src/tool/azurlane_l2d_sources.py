@@ -938,17 +938,20 @@ def fetch_source_snapshots(
     *,
     timeout: float = 30.0,
     client: httpx.Client | None = None,
+    origin_client: httpx.Client | None = None,
     origin_throttle: Callable[[], None] | None = None,
 ) -> AzurLaneSourceSnapshots:
+    """Fetch both sources. ``origin_client`` serves l2d.su only, so a proxy configured there
+    never carries the CDN-hosted nagami mapping."""
     if client is not None:
         return AzurLaneSourceSnapshots(
-            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=client, origin_throttle=origin_throttle),
+            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=origin_client or client, origin_throttle=origin_throttle),
             nagami=fetch_nagami_snapshot(timeout=timeout, client=client),
         )
 
     with httpx.Client(follow_redirects=True, timeout=timeout, headers=_request_headers()) as owned_client:
         return AzurLaneSourceSnapshots(
-            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=owned_client, origin_throttle=origin_throttle),
+            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=origin_client or owned_client, origin_throttle=origin_throttle),
             nagami=fetch_nagami_snapshot(timeout=timeout, client=owned_client),
         )
 
