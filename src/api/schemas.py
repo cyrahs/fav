@@ -646,6 +646,18 @@ class TelegramNotificationTestResponse(ApiSchema):
     warnings: list[str] = Field(default_factory=list)
 
 
+class AzurLaneProxyTestRequest(ApiSchema):
+    # A masked value (or an omitted one) means "test what is already stored".
+    origin_proxy: str = ''
+
+
+class AzurLaneProxyTestResult(ApiSchema):
+    ok: bool
+    code: str
+    message: str
+    exit_ip: str = ''
+
+
 class CookieCloudTestRequest(ApiSchema):
     # Names the bilibili account a masked password resolves against.
     account: str = ''

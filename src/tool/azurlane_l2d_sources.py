@@ -784,6 +784,75 @@ def model_probe_urls(entry: ModelEntry) -> tuple[str, ...]:
     return (manifest.parts[0].skeleton_url, spine_parts_manifest_url(entry.resources.primary_url))
 
 
+@dataclass(frozen=True, slots=True)
+class L2DSuOriginProbe:
+    """Outcome of a connectivity check against the l2d.su origin."""
+
+    ok: bool
+    code: str
+    message: str
+    exit_ip: str = ''
+
+
+def probe_l2d_su_origin(
+    proxy: str,
+    *,
+    timeout: float = 45.0,
+    region: str = L2D_SU_PRIMARY_REGION,
+    client: httpx.Client | None = None,
+) -> L2DSuOriginProbe:
+    """Check that the origin is reachable through ``proxy``, reporting why it is not if it is not.
+
+    Uses a HEAD against the ship index: it exercises the same host, headers and TLS path the
+    crawler uses, without pulling the payload. Connection reuse is disabled to match the crawler,
+    so this also exercises a freshly rotated exit.
+    """
+    if client is None and not proxy.strip():
+        return L2DSuOriginProbe(ok=False, code='incomplete', message='No proxy configured.')
+
+    url = l2d_su_ship_index_url(region)
+    if client is not None:
+        return _run_origin_probe(client, url=url)
+
+    with httpx.Client(
+        proxy=proxy.strip(),
+        follow_redirects=True,
+        timeout=timeout,
+        headers=_request_headers(),
+        limits=httpx.Limits(max_keepalive_connections=0),
+    ) as owned_client:
+        return _run_origin_probe(owned_client, url=url)
+
+
+def _run_origin_probe(client: httpx.Client, *, url: str) -> L2DSuOriginProbe:
+    try:
+        exit_ip = _probe_exit_ip(client)
+        response = client.head(url)
+    except httpx.ProxyError as exc:
+        return L2DSuOriginProbe(ok=False, code='proxy_error', message=f'Proxy refused the connection: {exc}')
+    except httpx.HTTPError as exc:
+        # The origin null-routes blocked addresses, so this is what a banned exit looks like.
+        return L2DSuOriginProbe(ok=False, code='unreachable', message=f'Could not reach {url}: {exc}')
+
+    if response.status_code >= HTTP_ERROR_MIN:
+        return L2DSuOriginProbe(
+            ok=False,
+            code='http_error',
+            message=f'{url} returned HTTP {response.status_code}.',
+            exit_ip=exit_ip,
+        )
+    return L2DSuOriginProbe(ok=True, code='ok', message=f'Reached {url} through the proxy.', exit_ip=exit_ip)
+
+
+def _probe_exit_ip(client: httpx.Client) -> str:
+    """Best-effort exit address, shown so an operator can tell residential from datacenter."""
+    try:
+        response = client.get('https://checkip.amazonaws.com', timeout=20.0)
+    except httpx.HTTPError:
+        return ''
+    return response.text.strip() if response.status_code < HTTP_ERROR_MIN else ''
+
+
 def parse_l2d_su_ship_class(source: str) -> str:
     """Ship class name from a per-ship detail payload; the index does not carry it."""
     payload = _decode_json_object(source, context='l2d.su ship detail')

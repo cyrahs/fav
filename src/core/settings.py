@@ -357,6 +357,11 @@ class AzurLane(ScheduleJob):
             raise ValueError(msg)
         return value
 
+    def validate_runnable(self) -> list[str]:
+        # The l2d.su origin null-routes datacenter IPs, so without a residential proxy the
+        # crawler cannot read the catalog at all and would silently preserve stale state.
+        return [] if self.origin_proxy else ['origin_proxy']
+
 
 class Hanime1RankingDeepScan(BaseModel):
     enabled: bool = False

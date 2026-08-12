@@ -67,6 +67,13 @@ export interface Readiness {
   checks: Record<string, { status: string; code: string; message: string; sampled_targets: number }>;
 }
 
+export interface AzurLaneProxyTestResult {
+  ok: boolean;
+  code: string;
+  message: string;
+  exit_ip: string;
+}
+
 export interface CookieCloudTestResult {
   ok: boolean;
   code: string;

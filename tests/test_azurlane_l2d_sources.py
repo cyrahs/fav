@@ -45,6 +45,7 @@ from src.tool.azurlane_l2d_sources import (
     parse_l2d_su_ship_voices,
     parse_nagami_mapping,
     parse_spine_parts_manifest,
+    probe_l2d_su_origin,
     spine_parts_manifest_url,
     spine_resource_manifest,
     validate_azurlane_model_catalog_resources,
@@ -449,6 +450,35 @@ def test_apply_l2d_su_ship_classes_attaches_detail_only_class_names() -> None:
 
     assert {entry.character.class_name for entry in patched.entries} == {'J Class'}
     assert apply_l2d_su_ship_classes(catalog, {}) is catalog
+
+
+def _origin_probe(handler: Any) -> Any:
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        return probe_l2d_su_origin('http://user:pass@proxy.example:8080', client=client)
+
+
+def test_probe_l2d_su_origin_reports_each_failure_mode() -> None:
+    def blocked(request: httpx.Request) -> httpx.Response:
+        message = 'null routed'
+        raise httpx.ConnectError(message, request=request)
+
+    def rejected(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403 if '/data/' in str(request.url) else 200, text='1.2.3.4')
+
+    def reachable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text='203.0.113.7' if 'checkip' in str(request.url) else '')
+
+    # An unconfigured proxy is reported as such rather than attempted.
+    assert probe_l2d_su_origin('  ').code == 'incomplete'
+
+    blocked_result = _origin_probe(blocked)
+    assert (blocked_result.ok, blocked_result.code) == (False, 'unreachable')
+
+    rejected_result = _origin_probe(rejected)
+    assert (rejected_result.ok, rejected_result.code, rejected_result.exit_ip) == (False, 'http_error', '1.2.3.4')
+
+    ok_result = _origin_probe(reachable)
+    assert (ok_result.ok, ok_result.code, ok_result.exit_ip) == (True, 'ok', '203.0.113.7')
 
 
 def test_parse_l2d_su_ship_class_reads_class_name() -> None:

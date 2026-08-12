@@ -24,6 +24,8 @@ from .schemas import (
     ArchiveSourceListResponse,
     AzurLaneCharacterDetail,
     AzurLaneCharacterListResponse,
+    AzurLaneProxyTestRequest,
+    AzurLaneProxyTestResult,
     AzurLaneSidebarCharacter,
     AzurLaneSidebarCharacterListResponse,
     BD2CharacterDetail,
@@ -386,6 +388,17 @@ def update_settings_section(
 async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotificationTestResponse:
     """Send a test message with the stored bot credentials."""
     return service.model_telegram_notification_test(await service.test_telegram_notification())
+
+
+@router.post(
+    '/azurlane/proxy/test',
+    operation_id='testAzurLaneProxy',
+    response_model=AzurLaneProxyTestResult,
+    tags=[TAG_SETTINGS],
+)
+def test_azurlane_proxy(payload: AzurLaneProxyTestRequest, service: ApiServiceDep) -> AzurLaneProxyTestResult:
+    """Check that the l2d.su origin is reachable through a proxy, without saving it."""
+    return AzurLaneProxyTestResult.model_validate(service.test_azurlane_proxy(payload.model_dump()))
 
 
 @router.post(
