@@ -26,7 +26,7 @@ from src.tool.runtime_config import Hanime1ParserIncompatibleError
 from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
 
 from .archive import ARCHIVE_SOURCES, ArchiveLibrary, UnknownArchiveSourceError
-from .azurlane import AzurLaneCharacterNotFoundError, AzurLaneLibrary
+from .azurlane import AzurLaneAssetNotFoundError, AzurLaneCharacterNotFoundError, AzurLaneLibrary
 from .bd2 import BD2CharacterNotFoundError, BD2Library
 from .config import fetch_hanime1_videos_from_db
 from .constants import AUTH_PREFIX, WWW_AUTHENTICATE_BEARER
@@ -552,6 +552,15 @@ class FavApiService:
             raise ApiError(status_code=404, code='azurlane_character_not_found', message='Azur Lane character not found.') from None
         except Exception:
             log.exception('Failed to get Azur Lane character character_key=%s', character_key)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+    def get_azurlane_ship_detail(self, character_key: str) -> dict[str, object]:
+        try:
+            return self._azurlane_library.get_ship_detail(character_key)
+        except (AzurLaneCharacterNotFoundError, AzurLaneAssetNotFoundError):
+            raise ApiError(status_code=404, code='azurlane_ship_detail_not_found', message='Azur Lane ship detail not found.') from None
+        except Exception:
+            log.exception('Failed to get Azur Lane ship detail character_key=%s', character_key)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
     def list_bd2_characters(self) -> list[dict[str, object]]:

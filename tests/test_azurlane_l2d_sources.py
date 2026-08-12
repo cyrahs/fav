@@ -7,20 +7,27 @@ import os
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
+from typing import Any
 
 import httpx
 import pytest
 
 from src.tool.azurlane_l2d_sources import (
-    L2D_SU_CATALOG_URL,
-    NAGAMI_MAPPING_BUNDLE_URL,
+    L2D_SU_ENGLISH_REGION,
+    L2D_SU_PRIMARY_REGION,
+    L2D_SU_STATIC_BASE_URL,
+    NAGAMI_MAPPING_URL,
     AzurLaneModelCatalog,
     AzurLaneSourceSnapshots,
+    L2DSuCharacterSnapshot,
+    L2DSuModelSnapshot,
     L2DSuSourceSnapshot,
     ModelEntry,
     NagamiSourceSnapshot,
     SourceFetchMetadata,
     SourceSchemaError,
+    SpineModelPart,
+    apply_l2d_su_model_paths,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     enumerate_azurlane_model_resources,
@@ -28,12 +35,22 @@ from src.tool.azurlane_l2d_sources import (
     fetch_l2d_su_snapshot,
     fetch_nagami_snapshot,
     fetch_source_snapshots,
-    parse_l2d_su_catalog,
-    parse_nagami_mapping_bundle,
+    l2d_su_character_fingerprint,
+    l2d_su_ship_index_url,
+    model_probe_urls,
+    parse_l2d_su_ship_index,
+    parse_l2d_su_ship_models,
+    parse_l2d_su_ship_voices,
+    parse_nagami_mapping,
+    parse_spine_parts_manifest,
+    spine_parts_manifest_url,
+    spine_resource_manifest,
     validate_azurlane_model_catalog_resources,
 )
 
 _LIVE_SOURCE_SMOKE_ENV = 'FAV_RUN_LIVE_AZURLANE_SOURCE_SMOKE'
+_PRIMARY_INDEX_URL = l2d_su_ship_index_url(L2D_SU_PRIMARY_REGION)
+_ENGLISH_INDEX_URL = l2d_su_ship_index_url(L2D_SU_ENGLISH_REGION)
 
 
 def _skip_unless_live_source_smoke_enabled() -> None:
@@ -41,77 +58,149 @@ def _skip_unless_live_source_smoke_enabled() -> None:
         pytest.skip(f'Set {_LIVE_SOURCE_SMOKE_ENV}=1 to run the live Azur Lane source smoke test.')
 
 
-def _l2d_su_payload() -> str:
+def _skin(  # noqa: PLR0913
+    skin_id: int,
+    name: str,
+    *,
+    key: str,
+    kind: str = 'live2d',
+    skin_type_name: str = 'Skin',
+    live2d_plus: bool = False,
+) -> dict[str, object]:
+    feature_tag = 'spine' if kind == 'spine' else ('Live2D+' if live2d_plus else 'Live2D')
+    return {
+        'id': skin_id,
+        'name': name,
+        'groupIndex': 1,
+        'skinType': 4,
+        'skinTypeName': skin_type_name,
+        'featureTags': [feature_tag],
+        'painting': key,
+        'prefab': key,
+        'dynamicType': kind,
+        'isLive2d': kind == 'live2d',
+        'isLive2dPlus': live2d_plus,
+        'isDynamic': True,
+        'isSpine': kind == 'spine',
+    }
+
+
+def _static_skin(skin_id: int, name: str, *, key: str) -> dict[str, object]:
+    return {
+        'id': skin_id,
+        'name': name,
+        'skinTypeName': 'Default',
+        'featureTags': [],
+        'painting': key,
+        'prefab': key,
+        'dynamicType': 'painting',
+        'isLive2d': False,
+        'isLive2dPlus': False,
+        'isDynamic': False,
+        'isSpine': False,
+        'paintingFaceIds': ['1', '2'],
+        'assetPaths': {
+            'squareIcon': f'squareicon/{key}',
+            'shipyardIcon': f'shipyardicon/{key}',
+            'qIcon': f'qicon/{key}',
+            'painting': f'painting/{key}',
+        },
+    }
+
+
+def _ship(  # noqa: PLR0913
+    ship_group_id: int,
+    resource_key: str,
+    name: str,
+    *,
+    english_name: str = '',
+    nation: str = 'Royal Navy',
+    ship_type: str = 'Destroyer',
+    rarity: str = 'SR',
+    skins: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    return {
+        'shipGroupId': ship_group_id,
+        'name': name,
+        'englishName': english_name,
+        'nationName': nation,
+        'typeName': ship_type,
+        'rarityName': rarity,
+        'resourceKey': resource_key,
+        'skins': skins or [],
+    }
+
+
+def _ship_index_payload(ships: list[dict[str, object]], *, region: str = 'CN', new_skins: list[dict[str, object]] | None = None) -> str:
     return json.dumps(
         {
-            'Master': [
-                {
-                    'gameId': 1,
-                    'gameName': '碧蓝航线',
-                    'character': [
-                        {
-                            'charId': 1,
-                            'charKey': 'biaoqiang',
-                            'charName': '标枪',
-                            'charNameEn': 'Javelin',
-                            'live2d': [
-                                {
-                                    'costumeId': 1,
-                                    'costumeName': '默认',
-                                    'costumeNameEn': 'Default',
-                                    'path': 'https://static.l2d.su/live2d/azurlane/biaoqiang/biaoqiang.model3.json',
-                                },
-                            ],
-                            'spine': [],
-                        },
-                        {
-                            'charId': 2,
-                            'charKey': 'yilisi',
-                            'charName': '伊莉丝',
-                            'charNameEn': 'yilisi',
-                            'live2d': [],
-                            'spine': [
-                                {
-                                    'costumeId': 2,
-                                    'costumeName': '某位女神的午后',
-                                    'costumeNameEn': '某位女神的午后',
-                                    'path': 'https://static.l2d.su/live2d/azurlane/yilisi_2_doa',
-                                },
-                            ],
-                        },
-                    ],
-                },
-                {
-                    'gameId': 2,
-                    'gameName': 'unused',
-                    'character': [],
-                },
-            ],
+            'generatedAt': '2026-08-12T04:33:18.041Z',
+            'locale': region,
+            'version': '9.7.295',
+            'ships': ships,
+            'newSkins': new_skins or [],
         },
         ensure_ascii=False,
     )
 
 
-def _nagami_bundle() -> str:
-    return 'const e=JSON.parse(`{"guanghui_7":"Illustrious - Our Private \\\\"Study\\\\" Session","z23":"Z23"}`);export{e as default};'
+def _nagami_mapping_payload(mapping: dict[str, object]) -> str:
+    return json.dumps(mapping, ensure_ascii=False)
 
 
-def _nagami_bundle_from_mapping(mapping: dict[str, str]) -> str:
-    return f'const e=JSON.parse(`{json.dumps(mapping, ensure_ascii=False)}`);export{{e as default}};'
-
-
-def _catalog_payload(characters: list[dict[str, object]]) -> str:
+def _spine_parts_payload(key: str, suffixes: tuple[str, ...]) -> str:
     return json.dumps(
         {
-            'Master': [
+            'version': 1,
+            'models': [
                 {
-                    'gameId': 1,
-                    'gameName': '碧蓝航线',
-                    'character': characters,
-                },
+                    'name': f'{key}{suffix}',
+                    'skeleton': f'{key}{suffix}.skel',
+                    'atlases': [f'{key}{suffix}.atlas'],
+                    'animation': 'normal',
+                    'loop': True,
+                }
+                for suffix in suffixes
             ],
         },
-        ensure_ascii=False,
+    )
+
+
+def _live2d_url(key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/live2d/{key}/{key}.model3.json'
+
+
+def _spine_url(key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/spinepainting/{key}'
+
+
+def _model(kind: str, item: dict[str, Any]) -> L2DSuModelSnapshot:
+    return L2DSuModelSnapshot(
+        kind=kind,
+        costume_id=item['costumeId'],
+        costume_name=item['costumeName'],
+        costume_name_en=item['costumeNameEn'],
+        path=item['path'],
+        model_key=item.get('modelKey', ''),
+        skin_type=item.get('skinType', 'Skin'),
+        feature_tags=tuple(item.get('featureTags', ())),
+    )
+
+
+def _characters(items: list[dict[str, Any]]) -> tuple[L2DSuCharacterSnapshot, ...]:
+    return tuple(
+        L2DSuCharacterSnapshot(
+            char_id=item['charId'],
+            char_key=item['charKey'],
+            char_name=item['charName'],
+            char_name_en=item['charNameEn'],
+            nation=item.get('nation', ''),
+            ship_type=item.get('shipType', ''),
+            rarity=item.get('rarity', ''),
+            live2d=tuple(_model('live2d', model) for model in item.get('live2d', [])),
+            spine=tuple(_model('spine', model) for model in item.get('spine', [])),
+        )
+        for item in items
     )
 
 
@@ -150,19 +239,18 @@ def _live2d_model3_payload(*, display_info: str | None = None) -> str:
     return json.dumps({'Version': 3, 'FileReferences': file_references})
 
 
-def _source_snapshots(l2d_su_payload: str, nagami_mapping: dict[str, str]) -> AzurLaneSourceSnapshots:
-    l2d_su = parse_l2d_su_catalog(l2d_su_payload)
-    nagami = parse_nagami_mapping_bundle(_nagami_bundle_from_mapping(nagami_mapping))
+def _source_snapshots(characters: tuple[L2DSuCharacterSnapshot, ...], nagami_mapping: dict[str, str]) -> AzurLaneSourceSnapshots:
+    nagami = parse_nagami_mapping(_nagami_mapping_payload(nagami_mapping))
     return AzurLaneSourceSnapshots(
         l2d_su=L2DSuSourceSnapshot(
-            metadata=SourceFetchMetadata.for_url(L2D_SU_CATALOG_URL, http_status=200),
-            game_id=l2d_su.game_id,
-            game_name=l2d_su.game_name,
-            source_game_count=l2d_su.source_game_count,
-            characters=l2d_su.characters,
+            metadata=SourceFetchMetadata.for_url(_PRIMARY_INDEX_URL, http_status=200),
+            region=L2D_SU_PRIMARY_REGION,
+            game_version='9.7.295',
+            ship_count=len(characters),
+            characters=characters,
         ),
         nagami=NagamiSourceSnapshot(
-            metadata=SourceFetchMetadata.for_url(NAGAMI_MAPPING_BUNDLE_URL, http_status=200),
+            metadata=SourceFetchMetadata.for_url(NAGAMI_MAPPING_URL, http_status=200),
             entries=nagami.entries,
         ),
     )
@@ -176,85 +264,338 @@ def _catalog_entry(catalog: AzurLaneModelCatalog, entry_id: str) -> ModelEntry:
     return {entry.id: entry for entry in catalog.entries}[entry_id]
 
 
-def test_parse_l2d_su_catalog_returns_azur_lane_snapshot_data() -> None:
-    parsed = parse_l2d_su_catalog(_l2d_su_payload())
+def test_parse_l2d_su_ship_index_derives_model_urls_from_skin_keys() -> None:
+    payload = _ship_index_payload(
+        [
+            _ship(
+                1,
+                'biaoqiang',
+                '标枪',
+                english_name='HMS Javelin',
+                skins=[
+                    _static_skin(10, '标枪', key='biaoqiang'),
+                    _skin(11, '默认', key='biaoqiang_2'),
+                ],
+            ),
+            _ship(2, 'yilisi', '伊莉丝', skins=[_skin(20, '某位女神的午后', key='yilisi_2_doa', kind='spine')]),
+        ],
+        new_skins=[{'shipGroupId': 2, 'shipName': '伊莉丝', 'skinName': '某位女神的午后', 'skinType': 'Spine', 'skinIds': [20]}],
+    )
 
-    assert parsed.game_id == 1
-    assert parsed.game_name == '碧蓝航线'
-    assert parsed.source_game_count == 2
+    parsed = parse_l2d_su_ship_index(payload, region='CN')
+
+    assert parsed.region == 'CN'
+    assert parsed.game_version == '9.7.295'
+    assert parsed.ship_count == 2
     assert parsed.summary() == {
         'character_count': 2,
         'live2d_count': 1,
         'spine_count': 1,
+        'painting_count': 3,
     }
-    assert parsed.characters[0].live2d[0].path.endswith('/biaoqiang/biaoqiang.model3.json')
-    assert parsed.characters[1].spine[0].kind == 'spine'
+    assert parsed.characters[0].char_name_en == 'HMS Javelin'
+    assert parsed.characters[0].live2d[0].path == 'https://static.l2d.su/azurlane/live2d/biaoqiang_2/biaoqiang_2.model3.json'
+    assert parsed.characters[0].live2d[0].feature_tags == ('Live2D',)
+    assert parsed.characters[1].spine[0].path == 'https://static.l2d.su/azurlane/spinepainting/yilisi_2_doa'
+    assert parsed.characters[1].spine[0].model_key == 'yilisi_2_doa'
+    assert parsed.new_skins[0].skin_ids == (20,)
+    assert [painting.model_key for painting in parsed.characters[0].paintings] == ['biaoqiang', 'biaoqiang_2']
+    assert parsed.characters[0].paintings[0].path == 'https://static.l2d.su/azurlane/painting/biaoqiang.webp'
+    assert parsed.characters[0].paintings[0].face_ids == ('1', '2')
+    assert parsed.characters[0].paintings[0].square_icon == 'squareicon/biaoqiang'
 
 
-def test_parse_l2d_su_catalog_rejects_schema_failures() -> None:
-    with pytest.raises(SourceSchemaError, match='Master list'):
-        parse_l2d_su_catalog(json.dumps({'Master': {}}))
+def test_parse_l2d_su_ship_index_rejects_html_and_schema_failures() -> None:
+    with pytest.raises(SourceSchemaError, match='ships list'):
+        parse_l2d_su_ship_index(json.dumps({'ships': {}}))
 
 
-def test_parse_l2d_su_catalog_treats_missing_model_lists_as_empty() -> None:
-    payload = json.dumps(
-        {
-            'Master': [
-                {
-                    'gameId': 1,
-                    'gameName': '碧蓝航线',
-                    'character': [
-                        {
-                            'charId': 1,
-                            'charKey': 'biaoqiang',
-                            'charName': '标枪',
-                            'charNameEn': 'Javelin',
-                        },
-                    ],
-                },
-            ],
-        },
-        ensure_ascii=False,
-    )
+def test_parse_l2d_su_ship_index_treats_ships_without_model_skins_as_empty() -> None:
+    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '标枪', key='biaoqiang')])])
 
-    parsed = parse_l2d_su_catalog(payload)
+    parsed = parse_l2d_su_ship_index(payload)
 
     assert parsed.summary() == {
         'character_count': 1,
         'live2d_count': 0,
         'spine_count': 0,
+        'painting_count': 1,
     }
 
 
-def test_parse_nagami_mapping_bundle_decodes_embedded_template_json() -> None:
-    parsed = parse_nagami_mapping_bundle(_nagami_bundle())
+def test_parse_l2d_su_ship_models_maps_costume_ids_to_absolute_urls() -> None:
+    payload = json.dumps(
+        {
+            'ship': {
+                'shipGroupId': 40505,
+                'skins': [
+                    {'id': 405050, 'model': {'type': 'spine', 'path': 'spinepainting/bisimaiZ', 'key': 'bisimaiZ'}},
+                    {'id': 405051, 'model': {'type': 'live2d', 'path': 'live2d/Z23/Z23.model3.json', 'key': 'Z23'}},
+                    {'id': 405052},
+                    {'id': 405053, 'model': {'type': 'spine', 'path': 'https://mirror.example/spine/x'}},
+                ],
+            },
+        },
+    )
+
+    assert parse_l2d_su_ship_models(payload) == {
+        405050: 'https://static.l2d.su/azurlane/spinepainting/bisimaiZ',
+        405051: 'https://static.l2d.su/azurlane/live2d/Z23/Z23.model3.json',
+        405053: 'https://mirror.example/spine/x',
+    }
+
+
+def test_parse_l2d_su_ship_models_rejects_payloads_without_a_ship() -> None:
+    with pytest.raises(SourceSchemaError, match='ship object'):
+        parse_l2d_su_ship_models(json.dumps({'generatedAt': '2026-08-12'}))
+
+
+def test_model_probe_urls_cover_both_spine_layouts() -> None:
+    snapshots = _source_snapshots(
+        _characters(
+            [
+                {
+                    'charId': 1,
+                    'charKey': 'guanghui',
+                    'charName': '光辉',
+                    'charNameEn': 'Illustrious',
+                    'live2d': [
+                        {
+                            'costumeId': 7,
+                            'costumeName': '私人茶会',
+                            'costumeNameEn': 'Study Session',
+                            'path': _live2d_url('guanghui_7'),
+                        },
+                    ],
+                    'spine': [
+                        {
+                            'costumeId': 8,
+                            'costumeName': '慵懒时光',
+                            'costumeNameEn': 'Lazy Days',
+                            'path': _spine_url('lafei_12'),
+                        },
+                    ],
+                },
+            ],
+        ),
+        {},
+    )
+    catalog = build_azurlane_model_catalog(snapshots)
+
+    assert model_probe_urls(_catalog_entry(catalog, 'azurlane:live2d:guanghui:guanghui_7')) == (_live2d_url('guanghui_7'),)
+    assert model_probe_urls(_catalog_entry(catalog, 'azurlane:spine:guanghui:lafei_12')) == (
+        f'{_spine_url("lafei_12")}/lafei_12.skel',
+        f'{_spine_url("lafei_12")}/lafei_12.json',
+    )
+
+
+def test_apply_l2d_su_model_paths_corrects_l2d_su_entries_only() -> None:
+    snapshots = _source_snapshots(
+        _characters(
+            [
+                {
+                    'charId': 40505,
+                    'charKey': 'bisimaiz',
+                    'charName': '俾斯麦Zwei',
+                    'charNameEn': 'Bismarck Zwei',
+                    'spine': [
+                        {
+                            'costumeId': 405050,
+                            'costumeName': '俾斯麦Zwei',
+                            'costumeNameEn': 'Bismarck Zwei',
+                            'path': _spine_url('bisimaiz'),
+                        },
+                    ],
+                },
+            ],
+        ),
+        {'shengluyisi_2': 'St. Louis - Blue and White Pottery'},
+    )
+    catalog = build_azurlane_model_catalog(snapshots)
+    corrected = _spine_url('bisimaiZ')
+
+    patched = apply_l2d_su_model_paths(catalog, {405050: corrected, 999: 'https://ignored.example/x'})
+
+    assert _catalog_entry(patched, 'azurlane:spine:bisimaiz:bisimaiz').resources.primary_url == corrected
+    nagami_entry = _catalog_entry(patched, 'azurlane:live2d:shengluyisi:shengluyisi_2')
+    assert nagami_entry.resources.primary_url == 'https://cdn.nagami.moe/live2d/shengluyisi_2/shengluyisi_2.model3.json'
+    assert apply_l2d_su_model_paths(catalog, {}) is catalog
+
+
+def test_parse_l2d_su_ship_voices_reads_words_and_extra_words() -> None:
+    payload = json.dumps(
+        {
+            'ship': {
+                'shipGroupId': 960007,
+                'skins': [
+                    {
+                        'id': 9600070,
+                        'words': [
+                            {
+                                'key': 'battle',
+                                'voiceName': '旗舰开战',
+                                'resourceKey': 'warcry',
+                                'voicePath': 'cue/cv-960007-battle/warcry',
+                                'l2dAction': 'battle',
+                                'spineAction': 'attack',
+                                'faceId': '5',
+                                'text': '风暴啊，请赐予我力量。',  # noqa: RUF001
+                            },
+                        ],
+                        'extraWords': [
+                            {'key': 'detail', 'voicePath': 'cue/cv-960007/detail_ex1100', 'text': '手伸出来……'},
+                        ],
+                    },
+                    {'id': 9600071, 'words': []},
+                ],
+            },
+        },
+        ensure_ascii=False,
+    )
+
+    voices = parse_l2d_su_ship_voices(payload)
+
+    assert set(voices) == {9600070}
+    battle, extra = voices[9600070]
+    assert battle.voice_path == 'cue/cv-960007-battle/warcry'
+    assert battle.face_id == '5'
+    assert battle.l2d_action == 'battle'
+    assert battle.is_extra is False
+    assert extra.voice_path == 'cue/cv-960007/detail_ex1100'
+    assert extra.is_extra is True
+
+
+def test_l2d_su_character_fingerprint_tracks_skin_changes() -> None:
+    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '标枪', key='biaoqiang')])])
+    changed = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '新皮肤', key='biaoqiang')])])
+
+    baseline = l2d_su_character_fingerprint(parse_l2d_su_ship_index(payload).characters[0])
+
+    assert l2d_su_character_fingerprint(parse_l2d_su_ship_index(payload).characters[0]) == baseline
+    assert l2d_su_character_fingerprint(parse_l2d_su_ship_index(changed).characters[0]) != baseline
+
+
+def test_enumerate_painting_resources_covers_image_faces_icons_and_voices() -> None:
+    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '标枪', key='biaoqiang')])])
+    parsed = parse_l2d_su_ship_index(payload, region='CN')
+    catalog = build_azurlane_model_catalog(_source_snapshots(parsed.characters, {}))
+    entry = _catalog_entry(catalog, 'azurlane:painting:biaoqiang:biaoqiang')
+    detail = json.dumps(
+        {'ship': {'shipGroupId': 1, 'skins': [{'id': 10, 'words': [{'key': 'detail', 'voicePath': 'cue/cv-1/detail'}]}]}},
+    )
+
+    enumeration = enumerate_azurlane_model_resources(entry, voice_lines=parse_l2d_su_ship_voices(detail)[10])
+
+    by_kind = defaultdict(list)
+    for asset in enumeration.assets:
+        by_kind[asset.kind].append(asset)
+    assert sorted(by_kind) == ['icon.q', 'icon.shipyard', 'icon.square', 'painting.face', 'painting.image', 'voice.audio']
+    assert by_kind['painting.image'][0].source_url == f'{L2D_SU_STATIC_BASE_URL}/painting/biaoqiang.webp'
+    assert by_kind['painting.image'][0].local_path == 'assets/painting/biaoqiang/biaoqiang.webp'
+    assert [asset.source_url for asset in by_kind['painting.face']] == [
+        f'{L2D_SU_STATIC_BASE_URL}/paintingface/biaoqiang/1.webp',
+        f'{L2D_SU_STATIC_BASE_URL}/paintingface/biaoqiang/2.webp',
+    ]
+    assert by_kind['painting.face'][0].local_path == 'assets/painting/biaoqiang/paintingface/biaoqiang/1.webp'
+    assert by_kind['icon.square'][0].source_url == f'{L2D_SU_STATIC_BASE_URL}/squareicon/biaoqiang.webp'
+    assert by_kind['voice.audio'][0].source_url == f'{L2D_SU_STATIC_BASE_URL}/cue/cv-1/detail.ogg'
+    assert by_kind['voice.audio'][0].local_path == 'assets/painting/biaoqiang/cue/cv-1/detail.ogg'
+    assert by_kind['voice.audio'][0].context['text'] == ''
+    assert by_kind['voice.audio'][0].context['key'] == 'detail'
+
+
+def test_painting_entries_keep_their_paths_when_model_paths_are_applied() -> None:
+    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(10, '默认', key='biaoqiang')])])
+    parsed = parse_l2d_su_ship_index(payload, region='CN')
+    catalog = build_azurlane_model_catalog(_source_snapshots(parsed.characters, {}))
+    resolved_model_url = _live2d_url('Biaoqiang')
+
+    patched = apply_l2d_su_model_paths(catalog, {10: resolved_model_url})
+
+    assert _catalog_entry(patched, 'azurlane:live2d:biaoqiang:biaoqiang').resources.primary_url == resolved_model_url
+    painting = _catalog_entry(patched, 'azurlane:painting:biaoqiang:biaoqiang')
+    assert painting.resources.primary_url == f'{L2D_SU_STATIC_BASE_URL}/painting/biaoqiang.webp'
+    assert model_probe_urls(painting) == (painting.resources.primary_url,)
+
+
+def test_parse_l2d_su_ship_index_prefers_painting_over_prefab_for_the_model_key() -> None:
+    skin = _skin(307172, '苍空的凯歌', key='yunlong_3', kind='spine')
+    skin['prefab'] = 'yunlong_2'
+    payload = _ship_index_payload([_ship(30717, 'yunlong', '云龙', skins=[skin])])
+
+    parsed = parse_l2d_su_ship_index(payload)
+
+    assert parsed.characters[0].spine[0].model_key == 'yunlong_3'
+    assert parsed.characters[0].spine[0].path == 'https://static.l2d.su/azurlane/spinepainting/yunlong_3'
+
+
+def test_parse_nagami_mapping_reads_name_and_background() -> None:
+    parsed = parse_nagami_mapping(
+        _nagami_mapping_payload(
+            {
+                'guanghui_7': {'name': 'Illustrious - Our Private "Study" Session', 'bg': '145'},
+                'z23': 'Z23',
+            },
+        ),
+    )
 
     assert parsed.summary() == {'entry_count': 2}
-    assert {entry.key: entry.name for entry in parsed.entries} == {
-        'guanghui_7': 'Illustrious - Our Private "Study" Session',
-        'z23': 'Z23',
+    assert {entry.key: (entry.name, entry.background) for entry in parsed.entries} == {
+        'guanghui_7': ('Illustrious - Our Private "Study" Session', '145'),
+        'z23': ('Z23', ''),
     }
 
 
-def test_fetch_l2d_su_snapshot_records_metadata_and_counts() -> None:
+def test_fetch_l2d_su_snapshot_merges_english_names_and_records_metadata() -> None:
+    primary = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(11, '闪耀的白刃', key='biaoqiang_2')])])
+    english = _ship_index_payload(
+        [_ship(1, 'biaoqiang', 'Javelin', skins=[_skin(11, 'Gleaming White Blade', key='biaoqiang_2')])],
+        region='EN',
+    )
+    requested_urls: list[str] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
-        assert str(request.url) == L2D_SU_CATALOG_URL
+        url = str(request.url)
+        requested_urls.append(url)
+        if url == _ENGLISH_INDEX_URL:
+            return httpx.Response(200, text=english)
         return httpx.Response(
             200,
             headers={'ETag': '"abc"', 'Last-Modified': 'Thu, 14 May 2026 00:00:00 GMT'},
-            text=_l2d_su_payload(),
+            text=primary,
         )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         snapshot = fetch_l2d_su_snapshot(client=client)
 
+    assert requested_urls == [_PRIMARY_INDEX_URL, _ENGLISH_INDEX_URL]
     assert snapshot.errors == ()
-    assert snapshot.metadata.url == L2D_SU_CATALOG_URL
+    assert snapshot.metadata.url == _PRIMARY_INDEX_URL
     assert snapshot.metadata.http_status == 200
     assert snapshot.metadata.etag == '"abc"'
     assert snapshot.metadata.last_modified == 'Thu, 14 May 2026 00:00:00 GMT'
     assert datetime.fromisoformat(snapshot.metadata.fetched_at).tzinfo is not None
-    assert snapshot.summary()['character_count'] == 2
+    assert snapshot.summary()['character_count'] == 1
+    assert snapshot.characters[0].char_name == '标枪'
+    assert snapshot.characters[0].char_name_en == 'Javelin'
+    assert snapshot.characters[0].live2d[0].costume_name == '闪耀的白刃'
+    assert snapshot.characters[0].live2d[0].costume_name_en == 'Gleaming White Blade'
+
+
+def test_fetch_l2d_su_snapshot_reports_english_region_failure_without_dropping_models() -> None:
+    primary = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(11, '闪耀的白刃', key='biaoqiang_2')])])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == _ENGLISH_INDEX_URL:
+            return httpx.Response(503)
+        return httpx.Response(200, text=primary)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        snapshot = fetch_l2d_su_snapshot(client=client)
+
+    assert snapshot.summary()['live2d_count'] == 1
+    assert snapshot.characters[0].live2d[0].costume_name_en == ''
+    assert [(error.kind, error.url, error.http_status) for error in snapshot.errors] == [('network', _ENGLISH_INDEX_URL, 503)]
 
 
 def test_fetch_nagami_snapshot_returns_network_error() -> None:
@@ -270,9 +611,9 @@ def test_fetch_nagami_snapshot_returns_network_error() -> None:
     assert snapshot.errors[0].http_status is None
 
 
-def test_fetch_l2d_su_snapshot_returns_parse_error() -> None:
+def test_fetch_l2d_su_snapshot_returns_parse_error_for_spa_html() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text='not json')
+        return httpx.Response(200, text='<!doctype html><html><body><div id="root"></div></body></html>')
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         snapshot = fetch_l2d_su_snapshot(client=client)
@@ -284,7 +625,7 @@ def test_fetch_l2d_su_snapshot_returns_parse_error() -> None:
 
 def test_fetch_nagami_snapshot_returns_schema_error() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text='const e=JSON.parse(`{"bad":""}`);')
+        return httpx.Response(200, text=_nagami_mapping_payload({'bad': {'name': ''}}))
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         snapshot = fetch_nagami_snapshot(client=client)
@@ -309,17 +650,17 @@ def test_fetch_source_snapshots_live_counts_close_to_plan_baseline() -> None:
 
     l2d_su_summary = snapshots.l2d_su.summary()
     nagami_summary = snapshots.nagami.summary()
-    assert 190 <= l2d_su_summary['character_count'] <= 240
-    assert 190 <= l2d_su_summary['live2d_count'] <= 250
-    assert 80 <= l2d_su_summary['spine_count'] <= 130
-    assert 180 <= nagami_summary['entry_count'] <= 230
-    assert snapshots.l2d_su.metadata.url == L2D_SU_CATALOG_URL
-    assert snapshots.nagami.metadata.url == NAGAMI_MAPPING_BUNDLE_URL
+    assert 700 <= l2d_su_summary['character_count'] <= 1200
+    assert 200 <= l2d_su_summary['live2d_count'] <= 400
+    assert 150 <= l2d_su_summary['spine_count'] <= 300
+    assert 180 <= nagami_summary['entry_count'] <= 300
+    assert snapshots.l2d_su.metadata.url == _PRIMARY_INDEX_URL
+    assert snapshots.nagami.metadata.url == NAGAMI_MAPPING_URL
 
 
 def test_build_azurlane_model_catalog_merges_exact_nagami_fallback_and_prefers_l2d_su() -> None:
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -363,11 +704,12 @@ def test_build_azurlane_model_catalog_merges_exact_nagami_fallback_and_prefers_l
 
     assert catalog.summary() == {
         'entry_count': 3,
-        'by_type': {'live2d': 2, 'spine': 1},
+        'by_type': {'live2d': 2, 'spine': 1, 'painting': 0},
         'by_source': {'l2d.su': 1, 'nagami': 1, 'merged': 1},
         'by_type_source': {
             'live2d': {'l2d.su': 0, 'nagami': 1, 'merged': 1},
             'spine': {'l2d.su': 1, 'nagami': 0, 'merged': 0},
+            'painting': {'l2d.su': 0, 'nagami': 0, 'merged': 0},
         },
         'nagami_fallback_candidate_count': 2,
     }
@@ -391,7 +733,7 @@ def test_build_azurlane_model_catalog_merges_exact_nagami_fallback_and_prefers_l
 
 def test_build_azurlane_model_catalog_keeps_l2d_su_path_variant_separate_from_nagami_fallback() -> None:
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 3,
@@ -432,7 +774,7 @@ def test_build_azurlane_model_catalog_keeps_l2d_su_path_variant_separate_from_na
 
 def test_catalog_ids_are_key_based_and_searches_character_and_costume_names() -> None:
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -471,7 +813,7 @@ def test_catalog_ids_are_key_based_and_searches_character_and_costume_names() ->
 
 def test_catalog_merges_duplicate_assets_and_keeps_different_assets_as_variants() -> None:
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -520,7 +862,7 @@ def test_catalog_merges_duplicate_assets_and_keeps_different_assets_as_variants(
 def test_enumerate_live2d_model3_resources_with_paths_and_contexts() -> None:
     primary_url = 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -597,7 +939,7 @@ def test_enumerate_live2d_model3_resources_with_paths_and_contexts() -> None:
 def test_enumerate_spine_resources_parses_atlas_texture_pages() -> None:
     spine_base_url = 'https://static.example/live2d/azurlane/yilisi_2_doa'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 2,
@@ -630,7 +972,8 @@ format: RGBA8888
 
     catalog = build_azurlane_model_catalog(snapshots)
     entry = _catalog_entry(catalog, 'azurlane:spine:yilisi:yilisi_2_doa')
-    enumeration = enumerate_azurlane_model_resources(entry, atlas_source=atlas_source)
+    atlas_url = f'{spine_base_url}/yilisi_2_doa.atlas'
+    enumeration = enumerate_azurlane_model_resources(entry, atlas_sources={atlas_url: atlas_source})
 
     assert [asset.kind for asset in enumeration.assets] == ['spine.skel', 'spine.atlas', 'spine.texture', 'spine.texture']
     assert [asset.source_url for asset in enumeration.assets] == [
@@ -649,10 +992,87 @@ format: RGBA8888
     assert enumeration.assets[-1].context['page_index'] == 1
 
 
+def test_spine_resource_manifest_defaults_to_a_single_part_named_after_the_directory() -> None:
+    base_url = _spine_url('yuanchou_2')
+
+    manifest = spine_resource_manifest(base_url)
+
+    assert spine_parts_manifest_url(base_url) == f'{base_url}/yuanchou_2.json'
+    assert manifest.parts_manifest_url == ''
+    assert manifest.parts == (
+        SpineModelPart(name='yuanchou_2', skeleton_url=f'{base_url}/yuanchou_2.skel', atlas_urls=(f'{base_url}/yuanchou_2.atlas',)),
+    )
+    assert spine_resource_manifest(f'{base_url}/yuanchou_2.atlas') == manifest
+
+
+def test_parse_spine_parts_manifest_resolves_each_part_against_the_manifest_url() -> None:
+    base_url = _spine_url('lafei_12')
+    parts = parse_spine_parts_manifest(_spine_parts_payload('lafei_12', ('B', 'T')), parts_manifest_url=f'{base_url}/lafei_12.json')
+
+    assert parts == (
+        SpineModelPart(name='lafei_12B', skeleton_url=f'{base_url}/lafei_12B.skel', atlas_urls=(f'{base_url}/lafei_12B.atlas',)),
+        SpineModelPart(name='lafei_12T', skeleton_url=f'{base_url}/lafei_12T.skel', atlas_urls=(f'{base_url}/lafei_12T.atlas',)),
+    )
+
+
+def test_parse_spine_parts_manifest_rejects_payloads_without_models() -> None:
+    with pytest.raises(SourceSchemaError, match='models list'):
+        parse_spine_parts_manifest(json.dumps({'version': 1}), parts_manifest_url='https://static.example/spine/x.json')
+
+
+def test_enumerate_spine_resources_covers_every_part_of_a_multi_part_model() -> None:
+    spine_base_url = _spine_url('lafei_12')
+    snapshots = _source_snapshots(
+        _characters(
+            [
+                {
+                    'charId': 10117,
+                    'charKey': 'lafei',
+                    'charName': '拉菲',
+                    'charNameEn': 'Laffey',
+                    'spine': [
+                        {
+                            'costumeId': 131172,
+                            'costumeName': '慵懒时光',
+                            'costumeNameEn': 'Lazy Days',
+                            'path': spine_base_url,
+                        },
+                    ],
+                },
+            ],
+        ),
+        {},
+    )
+    parts_source = _spine_parts_payload('lafei_12', ('B', 'T'))
+    atlas_sources = {
+        f'{spine_base_url}/lafei_12B.atlas': '\nlafei_12B.webp\nsize: 4096,4096\n',
+        f'{spine_base_url}/lafei_12T.atlas': '\nlafei_12T.webp\nsize: 4096,4096\n',
+    }
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    entry = _catalog_entry(catalog, 'azurlane:spine:lafei:lafei_12')
+    enumeration = enumerate_azurlane_model_resources(entry, spine_parts_source=parts_source, atlas_sources=atlas_sources)
+
+    assert [(asset.kind, asset.source_url) for asset in enumeration.assets] == [
+        ('spine.parts', f'{spine_base_url}/lafei_12.json'),
+        ('spine.skel', f'{spine_base_url}/lafei_12B.skel'),
+        ('spine.atlas', f'{spine_base_url}/lafei_12B.atlas'),
+        ('spine.texture', f'{spine_base_url}/lafei_12B.webp'),
+        ('spine.skel', f'{spine_base_url}/lafei_12T.skel'),
+        ('spine.atlas', f'{spine_base_url}/lafei_12T.atlas'),
+        ('spine.texture', f'{spine_base_url}/lafei_12T.webp'),
+    ]
+    assert [asset.local_path for asset in enumeration.assets][:2] == [
+        'assets/spine/lafei_12/lafei_12.json',
+        'assets/spine/lafei_12/lafei_12B.skel',
+    ]
+    assert enumeration.assets[1].context['spine_part'] == 'lafei_12B'
+
+
 def test_enumerate_live2d_missing_optional_resources_does_not_fail() -> None:
     primary_url = 'https://static.example/live2d/azurlane/minimal/minimal.model3.json'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 3,
@@ -701,7 +1121,7 @@ def test_enumerate_live2d_missing_optional_resources_does_not_fail() -> None:
 def test_enumerated_resource_paths_are_deterministic_and_variant_safe() -> None:
     primary_url = 'https://static.example/live2d/azurlane/biaoqiang/biaoqiang.model3.json'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 4,
@@ -750,7 +1170,7 @@ def test_enumerated_resource_paths_are_deterministic_and_variant_safe() -> None:
 def test_validate_catalog_resources_marks_live2d_valid_and_populates_resource_summary() -> None:
     primary_url = 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -820,7 +1240,7 @@ def test_validate_catalog_resources_marks_live2d_fallback_only_when_primary_is_b
     primary_url = 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.model3.json'
     fallback_url = 'https://cdn.nagami.moe/live2d/guanghui_7/guanghui_7.model3.json'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -873,7 +1293,7 @@ def test_validate_catalog_resources_marks_live2d_fallback_only_when_primary_is_b
 def test_validate_catalog_resources_marks_spine_valid_and_checks_atlas_texture() -> None:
     spine_base_url = 'https://static.example/live2d/azurlane/yilisi_2_doa'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 2,
@@ -915,14 +1335,67 @@ def test_validate_catalog_resources_marks_spine_valid_and_checks_atlas_texture()
     entry = report.catalog.entries[0]
     assert entry.availability.state == 'valid'
     assert entry.availability.validated_url == spine_base_url
+    assert entry.resource_summary.skeleton == skel_url
     assert entry.resource_summary.textures == (texture_url,)
     assert {check.kind for check in report.entries[0].checks} == {'spine.skel', 'spine.atlas', 'spine.texture'}
+
+
+def test_validate_catalog_resources_falls_back_to_the_spine_parts_manifest() -> None:
+    spine_base_url = _spine_url('lafei_12')
+    snapshots = _source_snapshots(
+        _characters(
+            [
+                {
+                    'charId': 10117,
+                    'charKey': 'lafei',
+                    'charName': '拉菲',
+                    'charNameEn': 'Laffey',
+                    'spine': [
+                        {
+                            'costumeId': 131172,
+                            'costumeName': '慵懒时光',
+                            'costumeNameEn': 'Lazy Days',
+                            'path': spine_base_url,
+                        },
+                    ],
+                },
+            ],
+        ),
+        {},
+    )
+    parts_url = f'{spine_base_url}/lafei_12.json'
+    part_skeletons = {f'{spine_base_url}/lafei_12B.skel', f'{spine_base_url}/lafei_12T.skel'}
+    part_atlases = {f'{spine_base_url}/lafei_12B.atlas': 'lafei_12B.webp', f'{spine_base_url}/lafei_12T.atlas': 'lafei_12T.webp'}
+    part_textures = {f'{spine_base_url}/lafei_12B.webp', f'{spine_base_url}/lafei_12T.webp'}
+    requested: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        requested.append((request.method, url))
+        if request.method == 'HEAD' and url in part_skeletons | part_textures:
+            return httpx.Response(200)
+        if request.method == 'GET' and url == parts_url:
+            return httpx.Response(200, text=_spine_parts_payload('lafei_12', ('B', 'T')))
+        if request.method == 'GET' and url in part_atlases:
+            return httpx.Response(200, text=f'\n{part_atlases[url]}\nsize: 4096,4096\nformat: RGBA8888\n')
+        return httpx.Response(404)
+
+    catalog = build_azurlane_model_catalog(snapshots)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        report = validate_azurlane_model_catalog_resources(catalog, client=client)
+
+    entry = report.catalog.entries[0]
+    assert requested[:2] == [('HEAD', f'{spine_base_url}/lafei_12.skel'), ('GET', parts_url)]
+    assert entry.availability.state == 'valid'
+    assert entry.resource_summary.skeleton == f'{spine_base_url}/lafei_12B.skel'
+    assert set(entry.resource_summary.textures) == part_textures
+    assert {check.kind for check in report.entries[0].checks} == {'spine.parts', 'spine.skel', 'spine.atlas', 'spine.texture'}
 
 
 def test_validate_catalog_resources_checks_l2d_su_spine_suffix_assets_without_suffix() -> None:
     spine_base_url = 'https://static.example/live2d/azurlane/aerbien_4-spine'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 3,
@@ -983,7 +1456,7 @@ def test_validate_catalog_resources_records_broken_urls_and_leaves_unselected_en
     broken_url = 'https://static.example/live2d/azurlane/missing/missing.model3.json'
     unchecked_url = 'https://static.example/live2d/azurlane/unchecked/unchecked.model3.json'
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -1048,7 +1521,7 @@ def test_health_report_detects_source_catalog_and_resource_drift() -> None:
     recovered_url = 'https://static.example/live2d/azurlane/old/old.model3.json'
     new_url = 'https://static.example/live2d/azurlane/new/new.model3.json'
     previous_snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -1070,7 +1543,7 @@ def test_health_report_detects_source_catalog_and_resource_drift() -> None:
         {},
     )
     current_snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -1108,11 +1581,11 @@ def test_health_report_detects_source_catalog_and_resource_drift() -> None:
     )
     previous_snapshots = replace(
         previous_snapshots,
-        l2d_su=replace(previous_snapshots.l2d_su, metadata=SourceFetchMetadata.for_url(L2D_SU_CATALOG_URL, http_status=200, etag='"old"')),
+        l2d_su=replace(previous_snapshots.l2d_su, metadata=SourceFetchMetadata.for_url(_PRIMARY_INDEX_URL, http_status=200, etag='"old"')),
     )
     current_snapshots = replace(
         current_snapshots,
-        l2d_su=replace(current_snapshots.l2d_su, metadata=SourceFetchMetadata.for_url(L2D_SU_CATALOG_URL, http_status=200, etag='"new"')),
+        l2d_su=replace(current_snapshots.l2d_su, metadata=SourceFetchMetadata.for_url(_PRIMARY_INDEX_URL, http_status=200, etag='"new"')),
     )
 
     previous_catalog = build_azurlane_model_catalog(previous_snapshots)
@@ -1177,7 +1650,7 @@ def test_health_report_detects_source_catalog_and_resource_drift() -> None:
 
 def test_health_report_marks_source_changed_when_only_entry_count_delta_changes() -> None:
     snapshots = _source_snapshots(
-        _catalog_payload(
+        _characters(
             [
                 {
                     'charId': 1,
@@ -1199,7 +1672,7 @@ def test_health_report_marks_source_changed_when_only_entry_count_delta_changes(
         {},
     )
     metadata = SourceFetchMetadata.for_url(
-        L2D_SU_CATALOG_URL,
+        _PRIMARY_INDEX_URL,
         http_status=200,
         etag='"same"',
         last_modified='Thu, 14 May 2026 00:00:00 GMT',
@@ -1229,7 +1702,7 @@ def test_health_report_marks_source_changed_when_only_entry_count_delta_changes(
 
 def test_fetch_health_report_records_source_errors_without_raising() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if str(request.url) == L2D_SU_CATALOG_URL:
+        if str(request.url) == _PRIMARY_INDEX_URL:
             message = 'l2d unavailable'
             raise httpx.ConnectError(message, request=request)
         message = 'nagami unavailable'
@@ -1265,11 +1738,12 @@ def test_build_azurlane_model_catalog_live_counts_and_source_merges() -> None:
     assert catalog_summary['by_source']['merged'] >= 180
     assert catalog_summary['nagami_fallback_candidate_count'] == nagami_summary['entry_count']
 
-    shared_old_entry = catalog.search('Delirious Duel')[0]
-    assert shared_old_entry.id == 'azurlane:live2d:xingdengbao:xingdengbao_2'
+    shared_old_entry = _catalog_entry(catalog, 'azurlane:live2d:xingdengbao:xingdengbao_2')
     assert shared_old_entry.source == 'merged'
-    assert shared_old_entry.resources.primary_url.startswith('https://static.l2d.su/live2d/azurlane/xingdengbao_2/')
+    assert shared_old_entry.resources.primary_url == _live2d_url('xingdengbao_2')
     assert shared_old_entry.resources.fallback_url == 'https://cdn.nagami.moe/live2d/xingdengbao_2/xingdengbao_2.model3.json'
+    assert shared_old_entry.character.nation
+    assert shared_old_entry.costume.feature_tags
 
     newer_l2d_su_costume_keys = {
         'Hindenburg': 'xingdengbao_3',
@@ -1281,7 +1755,7 @@ def test_build_azurlane_model_catalog_live_counts_and_source_merges() -> None:
         matches = [entry for entry in catalog.entries if entry.type == 'live2d' and entry.costume.key == costume_key]
         assert len(matches) == 1
         assert matches[0].source != 'nagami'
-        assert matches[0].resources.primary_url.startswith(f'https://static.l2d.su/live2d/azurlane/{costume_key}/')
+        assert matches[0].resources.primary_url == _live2d_url(costume_key)
 
     assets_by_logical_key: defaultdict[tuple[str, str, str], set[str]] = defaultdict(set)
     ids_by_logical_key: defaultdict[tuple[str, str, str], set[str]] = defaultdict(set)

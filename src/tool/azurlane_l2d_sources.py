@@ -15,19 +15,24 @@ import httpx
 from src.tool.filename import sanitize
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
-L2D_SU_CATALOG_URL = 'https://l2d.su/json/live2dMaster.json'
-NAGAMI_MAPPING_BUNDLE_URL = 'https://azurlane.nagami.moe/_app/immutable/chunks/l2d_mapping.oLieetCb.js'
+L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://l2d.su/data/ships-{region}.json'
+L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://l2d.su/data/ships/{region}/{ship_id}.json'
+L2D_SU_STATIC_BASE_URL = 'https://static.l2d.su/azurlane'
+L2D_SU_REFERER = 'https://l2d.su/'
+L2D_SU_PRIMARY_REGION = 'CN'
+L2D_SU_ENGLISH_REGION = 'EN'
+NAGAMI_MAPPING_URL = 'https://data.nagami.moe/live2d/l2d_mapping.json'
 NAGAMI_LIVE2D_BASE_URL = 'https://cdn.nagami.moe/live2d'
-AZUR_LANE_GAME_ID = 1
 DEFAULT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 HTTP_ERROR_MIN = 400
 CATALOG_ENTRY_ID_PREFIX = 'azurlane'
 CATALOG_VARIANT_TOKEN_SIZE = 6
+SPINE_PARTS_MANIFEST_EXTENSION = '.json'
 
 SourceErrorKind = Literal['network', 'parse', 'schema']
-L2DSuModelKind = Literal['live2d', 'spine']
+L2DSuModelKind = Literal['live2d', 'spine', 'painting']
 CatalogSource = Literal['l2d.su', 'nagami', 'merged']
 AvailabilityState = Literal['valid', 'fallback-only', 'broken', 'unchecked']
 ResourceValidationStatus = Literal['ok', 'missing', 'network', 'parse', 'schema', 'unchecked']
@@ -43,12 +48,19 @@ ResourceAssetKind = Literal[
     'live2d.motion',
     'live2d.audio',
     'live2d.text',
+    'spine.parts',
     'spine.skel',
     'spine.atlas',
     'spine.texture',
+    'painting.image',
+    'painting.face',
+    'icon.square',
+    'icon.shipyard',
+    'icon.q',
+    'voice.audio',
 ]
 
-_MODEL_TYPES: tuple[L2DSuModelKind, ...] = ('live2d', 'spine')
+_MODEL_TYPES: tuple[L2DSuModelKind, ...] = ('live2d', 'spine', 'painting')
 _CATALOG_SOURCES: tuple[CatalogSource, ...] = ('l2d.su', 'nagami', 'merged')
 _AVAILABILITY_STATES: tuple[AvailabilityState, ...] = ('valid', 'fallback-only', 'broken', 'unchecked')
 _NAGAMI_COSTUME_SUFFIX_RE = re.compile(r'_\d+$')
@@ -63,9 +75,16 @@ _RESOURCE_EXTENSION_BY_KIND: dict[ResourceAssetKind, str] = {
     'live2d.motion': '.motion3.json',
     'live2d.audio': '.wav',
     'live2d.text': '.txt',
+    'spine.parts': '.json',
     'spine.skel': '.skel',
     'spine.atlas': '.atlas',
     'spine.texture': '.webp',
+    'painting.image': '.webp',
+    'painting.face': '.webp',
+    'icon.square': '.webp',
+    'icon.shipyard': '.webp',
+    'icon.q': '.webp',
+    'voice.audio': '.ogg',
 }
 
 
@@ -119,6 +138,14 @@ class L2DSuModelSnapshot:
     costume_name: str
     costume_name_en: str
     path: str
+    model_key: str = ''
+    skin_type: str = ''
+    feature_tags: tuple[str, ...] = ()
+    is_live2d_plus: bool = False
+    face_ids: tuple[str, ...] = ()
+    square_icon: str = ''
+    shipyard_icon: str = ''
+    q_icon: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,32 +154,67 @@ class L2DSuCharacterSnapshot:
     char_key: str
     char_name: str
     char_name_en: str
+    nation: str = ''
+    ship_type: str = ''
+    rarity: str = ''
     live2d: tuple[L2DSuModelSnapshot, ...] = ()
     spine: tuple[L2DSuModelSnapshot, ...] = ()
+    paintings: tuple[L2DSuModelSnapshot, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class L2DSuCatalogData:
-    game_id: int
-    game_name: str
-    source_game_count: int
+class L2DSuVoiceLine:
+    key: str
+    voice_name: str
+    resource_key: str
+    voice_path: str
+    text: str
+    face_id: str = ''
+    l2d_action: str = ''
+    spine_action: str = ''
+    is_extra: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class L2DSuNewSkin:
+    ship_group_id: int
+    ship_name: str
+    skin_name: str
+    skin_type: str
+    skin_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class L2DSuIndexData:
+    region: str
+    game_version: str
+    generated_at: str
+    ship_count: int
     characters: tuple[L2DSuCharacterSnapshot, ...]
+    new_skins: tuple[L2DSuNewSkin, ...] = ()
+    filters: dict[str, Any] = field(default_factory=dict)
+    skin_update_history: tuple[dict[str, Any], ...] = ()
 
     def summary(self) -> dict[str, int]:
         return {
             'character_count': len(self.characters),
             'live2d_count': sum(len(character.live2d) for character in self.characters),
             'spine_count': sum(len(character.spine) for character in self.characters),
+            'painting_count': sum(len(character.paintings) for character in self.characters),
         }
 
 
 @dataclass(frozen=True, slots=True)
 class L2DSuSourceSnapshot:
     metadata: SourceFetchMetadata
-    game_id: int = 0
-    game_name: str = ''
-    source_game_count: int = 0
+    region: str = ''
+    game_version: str = ''
+    generated_at: str = ''
+    ship_count: int = 0
     characters: tuple[L2DSuCharacterSnapshot, ...] = ()
+    new_skins: tuple[L2DSuNewSkin, ...] = ()
+    filters: dict[str, Any] = field(default_factory=dict)
+    skin_update_history: tuple[dict[str, Any], ...] = ()
     errors: tuple[SourceSnapshotError, ...] = ()
     source: Literal['l2d.su'] = 'l2d.su'
 
@@ -161,6 +223,8 @@ class L2DSuSourceSnapshot:
             'character_count': len(self.characters),
             'live2d_count': sum(len(character.live2d) for character in self.characters),
             'spine_count': sum(len(character.spine) for character in self.characters),
+            'painting_count': sum(len(character.paintings) for character in self.characters),
+            'new_skin_count': len(self.new_skins),
             'error_count': len(self.errors),
         }
 
@@ -172,6 +236,7 @@ class L2DSuSourceSnapshot:
 class NagamiMappingEntry:
     key: str
     name: str
+    background: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +279,9 @@ class ModelCharacter:
     id: int | None = None
     name_zh: str = ''
     name_en: str = ''
+    nation: str = ''
+    ship_type: str = ''
+    rarity: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +290,13 @@ class ModelCostume:
     id: int | None = None
     name_zh: str = ''
     name_en: str = ''
+    skin_type: str = ''
+    feature_tags: tuple[str, ...] = ()
+    is_live2d_plus: bool = False
+    face_ids: tuple[str, ...] = ()
+    square_icon: str = ''
+    shipyard_icon: str = ''
+    q_icon: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +309,7 @@ class ModelResources:
 @dataclass(frozen=True, slots=True)
 class ModelResourceSummary:
     moc3: str = ''
+    skeleton: str = ''
     textures: tuple[str, ...] = ()
     physics: str = ''
     display_info: str = ''
@@ -539,10 +615,16 @@ class Live2DResourceManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class SpineModelPart:
+    name: str
+    skeleton_url: str
+    atlas_urls: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class SpineResourceManifest:
-    skel_url: str
-    atlas_url: str
-    texture_urls: tuple[str, ...]
+    parts: tuple[SpineModelPart, ...]
+    parts_manifest_url: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -586,91 +668,212 @@ class _Live2DMotionReferences:
     name: str = ''
 
 
-def parse_l2d_su_catalog(source: str, *, game_id: int = AZUR_LANE_GAME_ID) -> L2DSuCatalogData:
-    try:
-        payload = json.loads(source)
-    except json.JSONDecodeError as exc:
-        msg = f'l2d.su catalog is not valid JSON: {exc.msg}'
-        raise SourceParseError(msg) from exc
+def l2d_su_ship_index_url(region: str = L2D_SU_PRIMARY_REGION) -> str:
+    return L2D_SU_SHIP_INDEX_URL_TEMPLATE.format(region=region)
 
-    if not isinstance(payload, dict):
-        msg = 'l2d.su catalog root must be an object'
-        raise SourceSchemaError(msg)
-    masters = payload.get('Master')
-    if not isinstance(masters, list):
-        msg = 'l2d.su catalog must contain a Master list'
-        raise SourceSchemaError(msg)
 
-    selected = _select_l2d_su_master(masters, game_id=game_id)
-    characters = selected.get('character')
-    if not isinstance(characters, list):
-        msg = f'l2d.su game {game_id} must contain a character list'
+def l2d_su_ship_detail_url(ship_id: int, region: str = L2D_SU_PRIMARY_REGION) -> str:
+    return L2D_SU_SHIP_DETAIL_URL_TEMPLATE.format(region=region, ship_id=ship_id)
+
+
+def parse_l2d_su_ship_models(source: str) -> dict[int, str]:
+    """Map costume_id to the authoritative model URL from a per-ship detail payload."""
+    payload = _decode_json_object(source, context='l2d.su ship detail')
+    ship = payload.get('ship')
+    if not isinstance(ship, dict):
+        msg = 'l2d.su ship detail must contain a ship object'
         raise SourceSchemaError(msg)
 
-    return L2DSuCatalogData(
-        game_id=_required_int(selected, 'gameId', context=f'l2d.su game {game_id}'),
-        game_name=_required_str(selected, 'gameName', context=f'l2d.su game {game_id}'),
-        source_game_count=len(masters),
-        characters=tuple(_parse_l2d_su_character(item, index=index) for index, item in enumerate(characters)),
+    skins = ship.get('skins')
+    if not isinstance(skins, list):
+        msg = 'l2d.su ship detail must contain a skins list'
+        raise SourceSchemaError(msg)
+
+    models: dict[int, str] = {}
+    for skin in skins:
+        if not isinstance(skin, dict):
+            continue
+        model = skin.get('model')
+        costume_id = skin.get('id')
+        if not isinstance(model, dict) or not isinstance(costume_id, int) or isinstance(costume_id, bool):
+            continue
+        path = _optional_str(model, 'path')
+        if path:
+            models[costume_id] = _l2d_su_static_url(path)
+    return models
+
+
+def parse_l2d_su_ship_voices(source: str) -> dict[int, tuple[L2DSuVoiceLine, ...]]:
+    """Map costume_id to its voice lines from a per-ship detail payload."""
+    payload = _decode_json_object(source, context='l2d.su ship detail')
+    ship = payload.get('ship')
+    if not isinstance(ship, dict):
+        msg = 'l2d.su ship detail must contain a ship object'
+        raise SourceSchemaError(msg)
+    skins = ship.get('skins')
+    if not isinstance(skins, list):
+        msg = 'l2d.su ship detail must contain a skins list'
+        raise SourceSchemaError(msg)
+
+    voices: dict[int, tuple[L2DSuVoiceLine, ...]] = {}
+    for skin in skins:
+        if not isinstance(skin, dict):
+            continue
+        costume_id = skin.get('id')
+        if not isinstance(costume_id, int) or isinstance(costume_id, bool):
+            continue
+        lines = (
+            *_parse_l2d_su_voice_lines(skin.get('words'), is_extra=False),
+            *_parse_l2d_su_voice_lines(skin.get('extraWords'), is_extra=True),
+        )
+        if lines:
+            voices[costume_id] = lines
+    return voices
+
+
+def _parse_l2d_su_voice_lines(value: Any, *, is_extra: bool) -> tuple[L2DSuVoiceLine, ...]:
+    if not isinstance(value, list):
+        return ()
+
+    lines: list[L2DSuVoiceLine] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        voice_path = _optional_str(item, 'voicePath')
+        if not voice_path:
+            continue
+        lines.append(
+            L2DSuVoiceLine(
+                key=_optional_str(item, 'key'),
+                voice_name=_optional_str(item, 'voiceName'),
+                resource_key=_optional_str(item, 'resourceKey'),
+                voice_path=voice_path,
+                text=_optional_str(item, 'text'),
+                face_id=_optional_str(item, 'faceId'),
+                l2d_action=_optional_str(item, 'l2dAction'),
+                spine_action=_optional_str(item, 'spineAction'),
+                is_extra=is_extra,
+            ),
+        )
+    return tuple(lines)
+
+
+def l2d_su_character_fingerprint(character: L2DSuCharacterSnapshot) -> str:
+    """Stable digest of a ship's index entry, used to detect when its detail payload is stale."""
+    models = sorted(
+        (*character.live2d, *character.spine, *character.paintings),
+        key=lambda model: (model.kind, model.costume_id, model.model_key),
+    )
+    parts = [f'{character.char_id}:{character.char_key}:{character.char_name}']
+    parts.extend(f'{model.kind}:{model.costume_id}:{model.model_key}:{model.costume_name}:{",".join(model.face_ids)}' for model in models)
+    return blake2b('|'.join(parts).encode(), digest_size=16).hexdigest()
+
+
+def model_probe_urls(entry: ModelEntry) -> tuple[str, ...]:
+    """URLs that prove a model's assets exist, cheapest first."""
+    if entry.type in {'live2d', 'painting'}:
+        return (entry.resources.primary_url,)
+    manifest = spine_resource_manifest(entry.resources.primary_url)
+    return (manifest.parts[0].skeleton_url, spine_parts_manifest_url(entry.resources.primary_url))
+
+
+def apply_l2d_su_model_paths(catalog: AzurLaneModelCatalog, paths: Mapping[int, str]) -> AzurLaneModelCatalog:
+    if not paths:
+        return catalog
+
+    entries = tuple(_entry_with_resolved_path(entry, paths) for entry in catalog.entries)
+    return replace(catalog, entries=entries)
+
+
+def _entry_with_resolved_path(entry: ModelEntry, paths: Mapping[int, str]) -> ModelEntry:
+    if entry.type == 'painting' or entry.source == 'nagami' or entry.costume.id is None:
+        return entry
+    resolved = paths.get(entry.costume.id)
+    if not resolved or resolved == entry.resources.primary_url:
+        return entry
+    return replace(entry, resources=replace(entry.resources, primary_url=resolved))
+
+
+def _l2d_su_static_url(path: str) -> str:
+    if path.startswith(('http://', 'https://')):
+        return path
+    return f'{L2D_SU_STATIC_BASE_URL}/{path.lstrip("/")}'
+
+
+def parse_l2d_su_ship_index(source: str, *, region: str = '') -> L2DSuIndexData:
+    payload = _decode_json_object(source, context='l2d.su ship index')
+    ships = payload.get('ships')
+    if not isinstance(ships, list):
+        msg = 'l2d.su ship index must contain a ships list'
+        raise SourceSchemaError(msg)
+
+    filters = payload.get('filters')
+    history = payload.get('skinUpdateHistory')
+    return L2DSuIndexData(
+        region=_optional_str(payload, 'locale') or region,
+        game_version=_optional_str(payload, 'version'),
+        generated_at=_optional_str(payload, 'generatedAt'),
+        ship_count=len(ships),
+        characters=tuple(_parse_l2d_su_ship(item, index=index) for index, item in enumerate(ships)),
+        new_skins=_parse_l2d_su_new_skins(payload.get('newSkins')),
+        filters=filters if isinstance(filters, dict) else {},
+        skin_update_history=tuple(item for item in history if isinstance(item, dict)) if isinstance(history, list) else (),
     )
 
 
-def parse_nagami_mapping_bundle(source: str) -> NagamiMappingData:
-    template_source = _extract_json_parse_template(source)
-    json_source = _decode_js_template_literal(template_source)
-    try:
-        payload = json.loads(json_source)
-    except json.JSONDecodeError as exc:
-        msg = f'Nagami mapping bundle contains invalid JSON: {exc.msg}'
-        raise SourceParseError(msg) from exc
+def merge_l2d_su_english_names(primary: L2DSuIndexData, english: L2DSuIndexData) -> L2DSuIndexData:
+    english_by_char_id = {character.char_id: character for character in english.characters}
+    characters = tuple(
+        _character_with_english_names(character, english_by_char_id.get(character.char_id)) for character in primary.characters
+    )
+    return replace(primary, characters=characters)
 
-    if not isinstance(payload, dict):
-        msg = 'Nagami mapping root must be an object'
-        raise SourceSchemaError(msg)
 
+def parse_nagami_mapping(source: str) -> NagamiMappingData:
+    payload = _decode_json_object(source, context='Nagami mapping')
     entries: list[NagamiMappingEntry] = []
     for key, value in payload.items():
         if not isinstance(key, str) or not key.strip():
             msg = 'Nagami mapping keys must be non-empty strings'
             raise SourceSchemaError(msg)
-        if not isinstance(value, str) or not value.strip():
-            msg = f'Nagami mapping value for {key!r} must be a non-empty string'
-            raise SourceSchemaError(msg)
-        entries.append(NagamiMappingEntry(key=key, name=value))
+        entries.append(_parse_nagami_mapping_entry(key, value))
     return NagamiMappingData(entries=tuple(sorted(entries, key=lambda entry: entry.key.casefold())))
 
 
 def fetch_l2d_su_snapshot(
     *,
-    url: str = L2D_SU_CATALOG_URL,
+    region: str = L2D_SU_PRIMARY_REGION,
+    english_region: str = L2D_SU_ENGLISH_REGION,
     timeout: float = 30.0,
     client: httpx.Client | None = None,
 ) -> L2DSuSourceSnapshot:
-    response, metadata, error = _fetch_source(url=url, timeout=timeout, client=client)
-    if error is not None:
-        return L2DSuSourceSnapshot(metadata=metadata, errors=(error,))
-    if response is None:
-        return L2DSuSourceSnapshot(metadata=metadata, errors=(_source_error('network', 'Fetch did not return a response', metadata),))
+    parsed, metadata, errors = _fetch_l2d_su_index(region=region, timeout=timeout, client=client)
+    if parsed is None:
+        return L2DSuSourceSnapshot(metadata=metadata, region=region, errors=errors)
 
-    try:
-        parsed = parse_l2d_su_catalog(response.text)
-    except SourceParseError as exc:
-        return L2DSuSourceSnapshot(metadata=metadata, errors=(_source_error('parse', str(exc), metadata),))
-    except SourceSchemaError as exc:
-        return L2DSuSourceSnapshot(metadata=metadata, errors=(_source_error('schema', str(exc), metadata),))
+    if english_region and english_region != region:
+        english, _english_metadata, english_errors = _fetch_l2d_su_index(region=english_region, timeout=timeout, client=client)
+        errors = (*errors, *english_errors)
+        if english is not None:
+            parsed = merge_l2d_su_english_names(parsed, english)
 
     return L2DSuSourceSnapshot(
         metadata=metadata,
-        game_id=parsed.game_id,
-        game_name=parsed.game_name,
-        source_game_count=parsed.source_game_count,
+        region=parsed.region,
+        game_version=parsed.game_version,
+        generated_at=parsed.generated_at,
+        ship_count=parsed.ship_count,
         characters=parsed.characters,
+        new_skins=parsed.new_skins,
+        filters=parsed.filters,
+        skin_update_history=parsed.skin_update_history,
+        errors=errors,
     )
 
 
 def fetch_nagami_snapshot(
     *,
-    url: str = NAGAMI_MAPPING_BUNDLE_URL,
+    url: str = NAGAMI_MAPPING_URL,
     timeout: float = 30.0,
     client: httpx.Client | None = None,
 ) -> NagamiSourceSnapshot:
@@ -681,7 +884,7 @@ def fetch_nagami_snapshot(
         return NagamiSourceSnapshot(metadata=metadata, errors=(_source_error('network', 'Fetch did not return a response', metadata),))
 
     try:
-        parsed = parse_nagami_mapping_bundle(response.text)
+        parsed = parse_nagami_mapping(response.text)
     except SourceParseError as exc:
         return NagamiSourceSnapshot(metadata=metadata, errors=(_source_error('parse', str(exc), metadata),))
     except SourceSchemaError as exc:
@@ -715,7 +918,7 @@ def build_azurlane_model_catalog(snapshots: AzurLaneSourceSnapshots) -> AzurLane
     entries_by_id: dict[str, ModelEntry] = {}
 
     for character in sorted(snapshots.l2d_su.characters, key=lambda item: (_catalog_key(item.char_key), item.char_id)):
-        l2d_su_models = (*character.live2d, *character.spine)
+        l2d_su_models = (*character.live2d, *character.spine, *character.paintings)
         for model in sorted(l2d_su_models, key=lambda item: (item.kind, _l2d_su_model_key(item), item.costume_id, item.path)):
             entry, matched_key = _l2d_su_entry(character=character, model=model, nagami_by_key=nagami_by_key)
             _add_catalog_entry(entries_by_id, entry)
@@ -741,15 +944,19 @@ def enumerate_azurlane_model_resources(
     entry: ModelEntry,
     *,
     model3_source: str | None = None,
-    atlas_source: str | None = None,
+    spine_parts_source: str | None = None,
+    atlas_sources: Mapping[str, str] | None = None,
+    voice_lines: tuple[L2DSuVoiceLine, ...] = (),
 ) -> AzurLaneModelResourceEnumeration:
     if entry.type == 'live2d':
         if model3_source is None:
             msg = f'Live2D entry {entry.id} requires model3_source for resource enumeration'
             raise SourceSchemaError(msg)
         specs = _live2d_resource_specs(entry, model3_source=model3_source)
+    elif entry.type == 'painting':
+        specs = _painting_resource_specs(entry, voice_lines=voice_lines)
     else:
-        specs = _spine_resource_specs(entry, atlas_source=atlas_source)
+        specs = _spine_resource_specs(entry, parts_source=spine_parts_source, atlas_sources=atlas_sources)
 
     return AzurLaneModelResourceEnumeration(
         model_id=entry.id,
@@ -848,7 +1055,7 @@ def _l2d_su_endpoint_health(snapshot: L2DSuSourceSnapshot) -> SourceEndpointHeal
         etag=snapshot.metadata.etag,
         last_modified=snapshot.metadata.last_modified,
         fetched_at=snapshot.metadata.fetched_at,
-        entry_count=sum(len(character.live2d) + len(character.spine) for character in snapshot.characters),
+        entry_count=sum(len(character.live2d) + len(character.spine) + len(character.paintings) for character in snapshot.characters),
         entry_ids=entry_ids,
         errors=snapshot.errors,
     )
@@ -984,7 +1191,7 @@ def _l2d_su_source_entry_ids(snapshot: L2DSuSourceSnapshot) -> tuple[str, ...]:
     entry_ids = [
         _catalog_entry_id(model.kind, character.char_key, _l2d_su_model_key(model))
         for character in snapshot.characters
-        for model in (*character.live2d, *character.spine)
+        for model in (*character.live2d, *character.spine, *character.paintings)
     ]
     return tuple(sorted(set(entry_ids)))
 
@@ -1078,7 +1285,29 @@ def _validate_resource_candidate(
 ) -> ResourceCandidateValidation:
     if entry.type == 'live2d':
         return _validate_live2d_resource_candidate(url=url, source=source, timeout=timeout, client=client)
+    if entry.type == 'painting':
+        return _validate_painting_resource_candidate(url=url, source=source, timeout=timeout, client=client)
     return _validate_spine_resource_candidate(url=url, source=source, timeout=timeout, client=client)
+
+
+def _validate_painting_resource_candidate(
+    *,
+    url: str,
+    source: ResourceValidationSource,
+    timeout: float,
+    client: httpx.Client,
+) -> ResourceCandidateValidation:
+    context = ResourceRequestContext(timeout=timeout, client=client)
+    check = _probe_resource(url=url, kind='painting.image', source=source, context=context)
+    if check.ok:
+        return ResourceCandidateValidation(
+            ok=True,
+            url=url,
+            resource_summary=ModelResourceSummary(textures=(url,)),
+            display_info_url='',
+            checks=(check,),
+        )
+    return _failed_candidate(url=url, check=check)
 
 
 def _validated_entry_result(
@@ -1187,33 +1416,25 @@ def _validate_spine_resource_candidate(
     client: httpx.Client,
 ) -> ResourceCandidateValidation:
     context = ResourceRequestContext(timeout=timeout, client=client)
-    manifest = _spine_resource_manifest(url)
-    checks = [
-        _probe_resource(url=manifest.skel_url, kind='spine.skel', source=source, context=context),
-    ]
+    manifest, checks, checked_skeleton_urls = _resolve_spine_manifest_for_validation(url=url, source=source, context=context)
 
-    response, atlas_check = _request_resource(
-        method='GET',
-        url=manifest.atlas_url,
-        kind='spine.atlas',
-        source=source,
-        context=context,
+    texture_urls: list[str] = []
+    for part in manifest.parts:
+        if part.skeleton_url not in checked_skeleton_urls:
+            checks.append(_probe_resource(url=part.skeleton_url, kind='spine.skel', source=source, context=context))
+        for atlas_url in part.atlas_urls:
+            atlas_check, part_texture_urls = _validate_spine_atlas(atlas_url=atlas_url, source=source, context=context)
+            checks.append(atlas_check)
+            texture_urls.extend(part_texture_urls)
+
+    unique_texture_urls = _unique_non_empty(texture_urls)
+    checks.extend(
+        _probe_resource(url=texture_url, kind='spine.texture', source=source, context=context) for texture_url in unique_texture_urls
     )
-    checks.append(atlas_check)
-
-    texture_urls = manifest.texture_urls
-    if atlas_check.ok and response is not None:
-        try:
-            texture_urls = _parse_spine_atlas_texture_urls(response.text, atlas_url=manifest.atlas_url)
-        except SourceParseError as exc:
-            checks[-1] = replace(atlas_check, ok=False, status='parse', message=str(exc))
-            texture_urls = ()
-        except SourceSchemaError as exc:
-            checks[-1] = replace(atlas_check, ok=False, status='schema', message=str(exc))
-            texture_urls = ()
-
-    checks.extend(_probe_resource(url=texture_url, kind='spine.texture', source=source, context=context) for texture_url in texture_urls)
-    resource_summary = ModelResourceSummary(textures=texture_urls)
+    resource_summary = ModelResourceSummary(
+        skeleton=manifest.parts[0].skeleton_url if manifest.parts else '',
+        textures=unique_texture_urls,
+    )
     if all(check.ok for check in checks):
         return ResourceCandidateValidation(ok=True, url=url, resource_summary=resource_summary, display_info_url='', checks=tuple(checks))
 
@@ -1225,6 +1446,51 @@ def _validate_spine_resource_candidate(
         checks=tuple(checks),
         message=_resource_failure_message(checks),
     )
+
+
+def _resolve_spine_manifest_for_validation(
+    *,
+    url: str,
+    source: ResourceValidationSource,
+    context: ResourceRequestContext,
+) -> tuple[SpineResourceManifest, list[ResourceCheck], set[str]]:
+    manifest = spine_resource_manifest(url)
+    single_part_url = manifest.parts[0].skeleton_url
+    single_part_check = _probe_resource(url=single_part_url, kind='spine.skel', source=source, context=context)
+    if single_part_check.ok:
+        return manifest, [single_part_check], {single_part_url}
+
+    parts_url = spine_parts_manifest_url(url)
+    response, parts_check = _request_resource(method='GET', url=parts_url, kind='spine.parts', source=source, context=context)
+    if not parts_check.ok or response is None:
+        return manifest, [single_part_check], {single_part_url}
+
+    empty_manifest = replace(manifest, parts=())
+    try:
+        parts_manifest = spine_resource_manifest(url, parts_source=response.text)
+    except SourceParseError as exc:
+        return empty_manifest, [single_part_check, replace(parts_check, ok=False, status='parse', message=str(exc))], set()
+    except SourceSchemaError as exc:
+        return empty_manifest, [single_part_check, replace(parts_check, ok=False, status='schema', message=str(exc))], set()
+    return parts_manifest, [parts_check], set()
+
+
+def _validate_spine_atlas(
+    *,
+    atlas_url: str,
+    source: ResourceValidationSource,
+    context: ResourceRequestContext,
+) -> tuple[ResourceCheck, tuple[str, ...]]:
+    response, atlas_check = _request_resource(method='GET', url=atlas_url, kind='spine.atlas', source=source, context=context)
+    if not atlas_check.ok or response is None:
+        return atlas_check, ()
+
+    try:
+        return atlas_check, _parse_spine_atlas_texture_urls(response.text, atlas_url=atlas_url)
+    except SourceParseError as exc:
+        return replace(atlas_check, ok=False, status='parse', message=str(exc)), ()
+    except SourceSchemaError as exc:
+        return replace(atlas_check, ok=False, status='schema', message=str(exc)), ()
 
 
 def _live2d_resource_specs(entry: ModelEntry, *, model3_source: str) -> tuple[_ResourceSpec, ...]:
@@ -1261,47 +1527,141 @@ def _live2d_resource_specs(entry: ModelEntry, *, model3_source: str) -> tuple[_R
     return tuple(specs)
 
 
-def _spine_resource_specs(entry: ModelEntry, *, atlas_source: str | None) -> tuple[_ResourceSpec, ...]:
-    manifest = _spine_resource_manifest(entry.resources.primary_url)
-    fallback_manifest = _spine_resource_manifest(entry.resources.fallback_url) if entry.resources.fallback_url else None
-    specs = [
-        _ResourceSpec(
-            kind='spine.skel',
-            source_url=manifest.skel_url,
-            fallback_url=fallback_manifest.skel_url if fallback_manifest is not None else '',
-            base_url=manifest.skel_url,
-            context=_asset_context(entry, {'spine_field': 'skel'}),
-        ),
-        _ResourceSpec(
-            kind='spine.atlas',
-            source_url=manifest.atlas_url,
-            fallback_url=fallback_manifest.atlas_url if fallback_manifest is not None else '',
-            base_url=manifest.atlas_url,
-            context=_asset_context(entry, {'spine_field': 'atlas'}),
-        ),
-    ]
-
-    if atlas_source is None:
-        return tuple(specs)
-
-    for page_index, texture_path in enumerate(_parse_spine_atlas_texture_paths(atlas_source)):
+def _spine_resource_specs(
+    entry: ModelEntry,
+    *,
+    parts_source: str | None,
+    atlas_sources: Mapping[str, str] | None,
+) -> tuple[_ResourceSpec, ...]:
+    manifest = spine_resource_manifest(entry.resources.primary_url, parts_source=parts_source)
+    specs: list[_ResourceSpec] = []
+    if manifest.parts_manifest_url:
         specs.append(
             _ResourceSpec(
+                kind='spine.parts',
+                source_url=manifest.parts_manifest_url,
+                fallback_url='',
+                base_url=manifest.parts_manifest_url,
+                context=_asset_context(entry, {'spine_field': 'parts'}),
+            ),
+        )
+
+    for part in manifest.parts:
+        specs.append(
+            _ResourceSpec(
+                kind='spine.skel',
+                source_url=part.skeleton_url,
+                fallback_url='',
+                base_url=part.skeleton_url,
+                context=_asset_context(entry, {'spine_field': 'skel', 'spine_part': part.name}),
+            ),
+        )
+        for atlas_url in part.atlas_urls:
+            specs.append(  # noqa: PERF401
+                _ResourceSpec(
+                    kind='spine.atlas',
+                    source_url=atlas_url,
+                    fallback_url='',
+                    base_url=atlas_url,
+                    context=_asset_context(entry, {'spine_field': 'atlas', 'spine_part': part.name}),
+                ),
+            )
+        specs.extend(_spine_texture_specs(entry, part=part, atlas_sources=atlas_sources))
+    return tuple(specs)
+
+
+def _spine_texture_specs(
+    entry: ModelEntry,
+    *,
+    part: SpineModelPart,
+    atlas_sources: Mapping[str, str] | None,
+) -> tuple[_ResourceSpec, ...]:
+    if atlas_sources is None:
+        return ()
+
+    specs: list[_ResourceSpec] = []
+    for atlas_url in part.atlas_urls:
+        atlas_source = atlas_sources.get(atlas_url)
+        if atlas_source is None:
+            continue
+        specs.extend(
+            _ResourceSpec(
                 kind='spine.texture',
-                source_url=_resolve_resource_url(manifest.atlas_url, texture_path),
-                fallback_url=_resolve_resource_url(fallback_manifest.atlas_url, texture_path) if fallback_manifest is not None else '',
-                base_url=manifest.atlas_url,
+                source_url=_resolve_resource_url(atlas_url, texture_path),
+                fallback_url='',
+                base_url=atlas_url,
                 context=_asset_context(
                     entry,
                     {
                         'spine_field': 'texture',
+                        'spine_part': part.name,
                         'atlas_page': texture_path,
                         'page_index': page_index,
                     },
                 ),
-            ),
+            )
+            for page_index, texture_path in enumerate(_parse_spine_atlas_texture_paths(atlas_source))
         )
     return tuple(specs)
+
+
+def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoiceLine, ...]) -> tuple[_ResourceSpec, ...]:
+    painting_key = _painting_key_from_url(entry.resources.primary_url)
+    specs = [
+        _ResourceSpec(
+            kind='painting.image',
+            source_url=entry.resources.primary_url,
+            fallback_url='',
+            base_url=entry.resources.primary_url,
+            context=_asset_context(entry, {'painting_field': 'image'}),
+        ),
+    ]
+    specs.extend(
+        _ResourceSpec(
+            kind='painting.face',
+            source_url=l2d_su_painting_face_url(painting_key, face_id),
+            fallback_url='',
+            base_url=_l2d_su_relative_base_url(),
+            context=_asset_context(entry, {'painting_field': 'face', 'face_id': face_id}),
+        )
+        for face_id in entry.costume.face_ids
+    )
+    icon_fields: tuple[tuple[ResourceAssetKind, str], ...] = (
+        ('icon.square', entry.costume.square_icon),
+        ('icon.shipyard', entry.costume.shipyard_icon),
+        ('icon.q', entry.costume.q_icon),
+    )
+    specs.extend(
+        _ResourceSpec(
+            kind=kind,
+            source_url=l2d_su_icon_url(icon_path),
+            fallback_url='',
+            base_url=_l2d_su_relative_base_url(),
+            context=_asset_context(entry, {'painting_field': 'icon', 'icon_path': icon_path}),
+        )
+        for kind, icon_path in icon_fields
+        if icon_path
+    )
+    specs.extend(
+        _ResourceSpec(
+            kind='voice.audio',
+            source_url=l2d_su_voice_url(line.voice_path),
+            fallback_url='',
+            base_url=_l2d_su_relative_base_url(),
+            context=_asset_context(entry, {'painting_field': 'voice', **asdict(line)}),
+        )
+        for line in voice_lines
+    )
+    return tuple(specs)
+
+
+def _painting_key_from_url(url: str) -> str:
+    return PurePosixPath(urlsplit(url).path).name.removesuffix('.webp')
+
+
+def _l2d_su_relative_base_url() -> str:
+    """Base marker that makes local paths mirror the CDN layout below the azurlane root."""
+    return f'{L2D_SU_STATIC_BASE_URL}/marker'
 
 
 def _enumerated_resources_from_specs(entry: ModelEntry, specs: tuple[_ResourceSpec, ...]) -> tuple[AzurLaneEnumeratedResource, ...]:
@@ -1754,17 +2114,63 @@ def _context_text(context: dict[str, Any], key: str) -> str:
     return value if isinstance(value, str) else ''
 
 
-def _spine_resource_manifest(url: str) -> SpineResourceManifest:
+def spine_parts_manifest_url(url: str) -> str:
+    return f'{_spine_stem_url(url)}{SPINE_PARTS_MANIFEST_EXTENSION}'
+
+
+def spine_resource_manifest(url: str, *, parts_source: str | None = None) -> SpineResourceManifest:
+    stem_url = _spine_stem_url(url)
+    if parts_source is None:
+        name = PurePosixPath(urlsplit(stem_url).path).name
+        part = SpineModelPart(name=name, skeleton_url=f'{stem_url}.skel', atlas_urls=(f'{stem_url}.atlas',))
+        return SpineResourceManifest(parts=(part,))
+
+    parts_url = spine_parts_manifest_url(url)
+    return SpineResourceManifest(
+        parts=parse_spine_parts_manifest(parts_source, parts_manifest_url=parts_url),
+        parts_manifest_url=parts_url,
+    )
+
+
+def parse_spine_parts_manifest(source: str, *, parts_manifest_url: str) -> tuple[SpineModelPart, ...]:
+    payload = _decode_json_object(source, context='Spine parts manifest')
+    models = payload.get('models')
+    if not isinstance(models, list):
+        msg = 'Spine parts manifest must contain a models list'
+        raise SourceSchemaError(msg)
+
+    parts = tuple(
+        _spine_model_part(model, parts_manifest_url=parts_manifest_url, index=index)
+        for index, model in enumerate(models)
+        if isinstance(model, dict)
+    )
+    if parts:
+        return parts
+    msg = 'Spine parts manifest does not contain a model with a skeleton'
+    raise SourceSchemaError(msg)
+
+
+def _spine_model_part(model: dict[str, Any], *, parts_manifest_url: str, index: int) -> SpineModelPart:
+    context = f'Spine parts manifest models[{index}]'
+    skeleton = _required_str(model, 'skeleton', context=context)
+    atlases = model.get('atlases')
+    atlas_paths = _string_tuple(atlases) if isinstance(atlases, list) else ()
+    return SpineModelPart(
+        name=_optional_str(model, 'name') or _resource_basename(skeleton),
+        skeleton_url=_resolve_resource_url(parts_manifest_url, skeleton),
+        atlas_urls=tuple(_resolve_resource_url(parts_manifest_url, atlas_path) for atlas_path in atlas_paths),
+    )
+
+
+def _spine_stem_url(url: str) -> str:
     base_url = url.rstrip('/')
+    for suffix in ('.skel', '.atlas', SPINE_PARTS_MANIFEST_EXTENSION):
+        if base_url.endswith(suffix):
+            return base_url.removesuffix(suffix)
+
     path_name = PurePosixPath(urlsplit(base_url).path).name
-    if base_url.endswith('.skel'):
-        stem_url = base_url.removesuffix('.skel')
-    elif base_url.endswith('.atlas'):
-        stem_url = base_url.removesuffix('.atlas')
-    else:
-        file_stem = path_name.removesuffix('-spine') if path_name.endswith('-spine') else path_name
-        stem_url = f'{base_url}/{file_stem}'
-    return SpineResourceManifest(skel_url=f'{stem_url}.skel', atlas_url=f'{stem_url}.atlas', texture_urls=())
+    file_stem = path_name.removesuffix('-spine') if path_name.endswith('-spine') else path_name
+    return f'{base_url}/{file_stem}'
 
 
 def _parse_spine_atlas_texture_urls(source: str, *, atlas_url: str) -> tuple[str, ...]:
@@ -1849,12 +2255,22 @@ def _l2d_su_entry(
                 key=_catalog_key(character.char_key),
                 name_zh=character.char_name,
                 name_en=character.char_name_en,
+                nation=character.nation,
+                ship_type=character.ship_type,
+                rarity=character.rarity,
             ),
             costume=ModelCostume(
                 id=model.costume_id,
                 key=_catalog_key(model_key),
                 name_zh=model.costume_name,
                 name_en=model.costume_name_en,
+                skin_type=model.skin_type,
+                feature_tags=model.feature_tags,
+                is_live2d_plus=model.is_live2d_plus,
+                face_ids=model.face_ids,
+                square_icon=model.square_icon,
+                shipyard_icon=model.shipyard_icon,
+                q_icon=model.q_icon,
             ),
             resources=ModelResources(primary_url=model.path, fallback_url=fallback_url),
         ),
@@ -1937,6 +2353,8 @@ def _l2d_su_model_key(model: L2DSuModelSnapshot) -> str:
         if parent:
             return _catalog_key(parent)
         filename = filename.removesuffix('.model3.json')
+    if model.kind == 'painting':
+        filename = filename.removesuffix('.webp')
     if filename:
         return _catalog_key(filename)
     return f'costume-{model.costume_id}'
@@ -2056,47 +2474,191 @@ def _source_error(kind: SourceErrorKind, message: str, metadata: SourceFetchMeta
     return SourceSnapshotError(kind=kind, message=message, url=metadata.url, http_status=metadata.http_status)
 
 
-def _select_l2d_su_master(masters: list[Any], *, game_id: int) -> dict[str, Any]:
-    for item in masters:
-        if isinstance(item, dict) and item.get('gameId') == game_id:
-            return item
-    msg = f'l2d.su catalog does not contain gameId={game_id}'
-    raise SourceSchemaError(msg)
+def _decode_json_object(source: str, *, context: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(source)
+    except json.JSONDecodeError as exc:
+        msg = f'{context} is not valid JSON: {exc.msg}'
+        raise SourceParseError(msg) from exc
+
+    if not isinstance(payload, dict):
+        msg = f'{context} root must be an object'
+        raise SourceSchemaError(msg)
+    return payload
 
 
-def _parse_l2d_su_character(item: Any, *, index: int) -> L2DSuCharacterSnapshot:
-    context = f'l2d.su character[{index}]'
+def _parse_l2d_su_ship(item: Any, *, index: int) -> L2DSuCharacterSnapshot:
+    context = f'l2d.su ships[{index}]'
     if not isinstance(item, dict):
         msg = f'{context} must be an object'
         raise SourceSchemaError(msg)
 
+    models = _parse_l2d_su_skins(item, context=context)
     return L2DSuCharacterSnapshot(
-        char_id=_required_int(item, 'charId', context=context),
-        char_key=_required_str(item, 'charKey', context=context),
-        char_name=_required_str(item, 'charName', context=context),
-        char_name_en=_required_str(item, 'charNameEn', context=context),
-        live2d=_parse_l2d_su_models(item, field_name='live2d', context=context),
-        spine=_parse_l2d_su_models(item, field_name='spine', context=context),
+        char_id=_required_int(item, 'shipGroupId', context=context),
+        char_key=_required_str(item, 'resourceKey', context=context),
+        char_name=_required_str(item, 'name', context=context),
+        char_name_en=_optional_str(item, 'englishName'),
+        nation=_optional_str(item, 'nationName'),
+        ship_type=_optional_str(item, 'typeName'),
+        rarity=_optional_str(item, 'rarityName'),
+        live2d=tuple(model for model in models if model.kind == 'live2d'),
+        spine=tuple(model for model in models if model.kind == 'spine'),
+        paintings=tuple(model for model in models if model.kind == 'painting'),
     )
 
 
-def _parse_l2d_su_models(item: dict[str, Any], *, field_name: L2DSuModelKind, context: str) -> tuple[L2DSuModelSnapshot, ...]:
-    models = item.get(field_name, [])
-    if not isinstance(models, list):
-        msg = f'{context}.{field_name} must be a list'
+def _parse_l2d_su_skins(item: dict[str, Any], *, context: str) -> tuple[L2DSuModelSnapshot, ...]:
+    skins = item.get('skins', [])
+    if not isinstance(skins, list):
+        msg = f'{context}.skins must be a list'
         raise SourceSchemaError(msg)
 
-    return tuple(
-        L2DSuModelSnapshot(
-            kind=field_name,
-            costume_id=_required_int(model, 'costumeId', context=f'{context}.{field_name}[{index}]'),
-            costume_name=_required_str(model, 'costumeName', context=f'{context}.{field_name}[{index}]'),
-            costume_name_en=_required_str(model, 'costumeNameEn', context=f'{context}.{field_name}[{index}]'),
-            path=_required_str(model, 'path', context=f'{context}.{field_name}[{index}]'),
-        )
-        for index, model in enumerate(models)
-        if _assert_object(model, context=f'{context}.{field_name}[{index}]')
+    models: list[L2DSuModelSnapshot] = []
+    for index, skin in enumerate(skins):
+        if not _assert_object(skin, context=f'{context}.skins[{index}]'):
+            continue
+        models.extend(_parse_l2d_su_skin(skin, context=f'{context}.skins[{index}]'))
+    return tuple(models)
+
+
+def _parse_l2d_su_skin(skin: dict[str, Any], *, context: str) -> tuple[L2DSuModelSnapshot, ...]:
+    snapshots: list[L2DSuModelSnapshot] = []
+    kind = _l2d_su_skin_kind(skin)
+    model_key = _optional_str(skin, 'painting') or _optional_str(skin, 'prefab')
+    if kind is not None and model_key:
+        snapshots.append(_l2d_su_skin_snapshot(skin, kind=kind, model_key=model_key, context=context))
+
+    painting_key = _optional_str(skin, 'painting')
+    if painting_key:
+        snapshots.append(_l2d_su_skin_snapshot(skin, kind='painting', model_key=painting_key, context=context))
+    return tuple(snapshots)
+
+
+def _l2d_su_skin_snapshot(skin: dict[str, Any], *, kind: L2DSuModelKind, model_key: str, context: str) -> L2DSuModelSnapshot:
+    asset_paths = skin.get('assetPaths')
+    icons = asset_paths if isinstance(asset_paths, dict) else {}
+    return L2DSuModelSnapshot(
+        kind=kind,
+        costume_id=_required_int(skin, 'id', context=context),
+        costume_name=_optional_str(skin, 'name') or model_key,
+        costume_name_en='',
+        path=_l2d_su_model_url(kind=kind, model_key=model_key),
+        model_key=model_key,
+        skin_type=_optional_str(skin, 'skinTypeName'),
+        feature_tags=_string_tuple(skin.get('featureTags')),
+        is_live2d_plus=skin.get('isLive2dPlus') is True,
+        face_ids=_string_tuple(skin.get('paintingFaceIds')),
+        square_icon=_optional_str(icons, 'squareIcon'),
+        shipyard_icon=_optional_str(icons, 'shipyardIcon'),
+        q_icon=_optional_str(icons, 'qIcon'),
     )
+
+
+def _l2d_su_skin_kind(skin: dict[str, Any]) -> L2DSuModelKind | None:
+    dynamic_type = _optional_str(skin, 'dynamicType')
+    if skin.get('isLive2d') is True or dynamic_type == 'live2d':
+        return 'live2d'
+    if skin.get('isSpine') is True or dynamic_type == 'spine':
+        return 'spine'
+    return None
+
+
+def _l2d_su_model_url(*, kind: L2DSuModelKind, model_key: str) -> str:
+    if kind == 'live2d':
+        relative_path = f'live2d/{model_key}/{model_key}.model3.json'
+    elif kind == 'spine':
+        relative_path = f'spinepainting/{model_key}'
+    else:
+        relative_path = f'painting/{model_key}.webp'
+    return f'{L2D_SU_STATIC_BASE_URL}/{relative_path}'
+
+
+def l2d_su_painting_url(painting_key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/painting/{painting_key}.webp'
+
+
+def l2d_su_painting_face_url(painting_key: str, face_id: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/paintingface/{painting_key}/{face_id}.webp'
+
+
+def l2d_su_icon_url(icon_path: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/{icon_path}.webp'
+
+
+def l2d_su_voice_url(voice_path: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/{voice_path}.ogg'
+
+
+def _parse_l2d_su_new_skins(value: Any) -> tuple[L2DSuNewSkin, ...]:
+    if not isinstance(value, list):
+        return ()
+
+    return tuple(
+        L2DSuNewSkin(
+            ship_group_id=item.get('shipGroupId') if isinstance(item.get('shipGroupId'), int) else 0,
+            ship_name=_optional_str(item, 'shipName'),
+            skin_name=_optional_str(item, 'skinName'),
+            skin_type=_optional_str(item, 'skinType'),
+            skin_ids=tuple(skin_id for skin_id in item.get('skinIds', []) if isinstance(skin_id, int) and not isinstance(skin_id, bool)),
+        )
+        for item in value
+        if isinstance(item, dict)
+    )
+
+
+def _character_with_english_names(
+    character: L2DSuCharacterSnapshot,
+    english: L2DSuCharacterSnapshot | None,
+) -> L2DSuCharacterSnapshot:
+    if english is None:
+        return character
+
+    english_names = {model.costume_id: model.costume_name for model in (*english.live2d, *english.spine, *english.paintings)}
+    return replace(
+        character,
+        char_name_en=english.char_name or character.char_name_en,
+        live2d=tuple(replace(model, costume_name_en=english_names.get(model.costume_id, '')) for model in character.live2d),
+        spine=tuple(replace(model, costume_name_en=english_names.get(model.costume_id, '')) for model in character.spine),
+        paintings=tuple(replace(model, costume_name_en=english_names.get(model.costume_id, '')) for model in character.paintings),
+    )
+
+
+def _fetch_l2d_su_index(
+    *,
+    region: str,
+    timeout: float,
+    client: httpx.Client | None,
+) -> tuple[L2DSuIndexData | None, SourceFetchMetadata, tuple[SourceSnapshotError, ...]]:
+    url = l2d_su_ship_index_url(region)
+    response, metadata, error = _fetch_source(url=url, timeout=timeout, client=client)
+    if error is not None:
+        return None, metadata, (error,)
+    if response is None:
+        return None, metadata, (_source_error('network', 'Fetch did not return a response', metadata),)
+
+    try:
+        parsed = parse_l2d_su_ship_index(response.text, region=region)
+    except SourceParseError as exc:
+        return None, metadata, (_source_error('parse', str(exc), metadata),)
+    except SourceSchemaError as exc:
+        return None, metadata, (_source_error('schema', str(exc), metadata),)
+    return parsed, metadata, ()
+
+
+def _parse_nagami_mapping_entry(key: str, value: Any) -> NagamiMappingEntry:
+    if isinstance(value, str):
+        name, background = value, ''
+    elif isinstance(value, dict):
+        name, background = _optional_str(value, 'name'), _optional_str(value, 'bg')
+    else:
+        msg = f'Nagami mapping value for {key!r} must be a string or an object'
+        raise SourceSchemaError(msg)
+
+    if not name.strip():
+        msg = f'Nagami mapping name for {key!r} must be a non-empty string'
+        raise SourceSchemaError(msg)
+    return NagamiMappingEntry(key=key, name=name, background=background)
 
 
 def _assert_object(value: Any, *, context: str) -> bool:
@@ -2122,108 +2684,23 @@ def _required_str(item: dict[str, Any], field_name: str, *, context: str) -> str
     return value
 
 
-def _extract_json_parse_template(source: str) -> str:
-    marker = 'JSON.parse(`'
-    start = source.find(marker)
-    if start < 0:
-        msg = 'Nagami mapping bundle does not contain JSON.parse(`...`)'
-        raise SourceParseError(msg)
-
-    template_start = start + len(marker)
-    escaped = False
-    for index, char in enumerate(source[template_start:], start=template_start):
-        if escaped:
-            escaped = False
-            continue
-        if char == '\\':
-            escaped = True
-            continue
-        if char == '`':
-            return source[template_start:index]
-
-    msg = 'Nagami mapping bundle template literal is not closed'
-    raise SourceParseError(msg)
+def _optional_str(item: dict[str, Any], field_name: str) -> str:
+    value = item.get(field_name)
+    if not isinstance(value, str):
+        return ''
+    return value.strip()
 
 
-def _decode_js_template_literal(source: str) -> str:  # noqa: C901, PLR0912
-    decoded: list[str] = []
-    index = 0
-    while index < len(source):
-        char = source[index]
-        if char != '\\':
-            decoded.append(char)
-            index += 1
-            continue
-
-        index += 1
-        if index >= len(source):
-            msg = 'Nagami mapping bundle has a dangling template escape'
-            raise SourceParseError(msg)
-
-        escaped = source[index]
-        if escaped in {'`', '\\', '$', '"', "'"}:
-            decoded.append(escaped)
-        elif escaped == 'n':
-            decoded.append('\n')
-        elif escaped == 'r':
-            decoded.append('\r')
-        elif escaped == 't':
-            decoded.append('\t')
-        elif escaped == 'b':
-            decoded.append('\b')
-        elif escaped == 'f':
-            decoded.append('\f')
-        elif escaped == 'v':
-            decoded.append('\v')
-        elif escaped == '0':
-            decoded.append('\0')
-        elif escaped == 'x':
-            index = _append_hex_escape(source=source, index=index, length=2, decoded=decoded)
-        elif escaped == 'u':
-            index = _append_unicode_escape(source=source, index=index, decoded=decoded)
-        elif escaped in {'\n', '\r'}:
-            if escaped == '\r' and index + 1 < len(source) and source[index + 1] == '\n':
-                index += 1
-        else:
-            decoded.append(escaped)
-        index += 1
-    return ''.join(decoded)
-
-
-def _append_hex_escape(*, source: str, index: int, length: int, decoded: list[str]) -> int:
-    start = index + 1
-    end = start + length
-    if end > len(source):
-        msg = 'Nagami mapping bundle has an incomplete hex escape'
-        raise SourceParseError(msg)
-    raw = source[start:end]
-    try:
-        decoded.append(chr(int(raw, 16)))
-    except ValueError as exc:
-        msg = f'Nagami mapping bundle has an invalid hex escape: {raw!r}'
-        raise SourceParseError(msg) from exc
-    return end - 1
-
-
-def _append_unicode_escape(*, source: str, index: int, decoded: list[str]) -> int:
-    if index + 1 < len(source) and source[index + 1] == '{':
-        end = source.find('}', index + 2)
-        if end < 0:
-            msg = 'Nagami mapping bundle has an unclosed unicode escape'
-            raise SourceParseError(msg)
-        raw = source[index + 2 : end]
-        try:
-            decoded.append(chr(int(raw, 16)))
-        except ValueError as exc:
-            msg = f'Nagami mapping bundle has an invalid unicode escape: {raw!r}'
-            raise SourceParseError(msg) from exc
-        return end
-    return _append_hex_escape(source=source, index=index, length=4, decoded=decoded)
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
 
 
 def _request_headers() -> dict[str, str]:
     return {
         'Accept': 'application/json, text/javascript, */*',
+        'Referer': L2D_SU_REFERER,
         'User-Agent': DEFAULT_USER_AGENT,
     }
 
