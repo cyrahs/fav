@@ -28,6 +28,7 @@ from src.tool.azurlane_l2d_sources import (
     SourceSchemaError,
     SpineModelPart,
     apply_l2d_su_model_paths,
+    apply_l2d_su_ship_classes,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     enumerate_azurlane_model_resources,
@@ -38,6 +39,7 @@ from src.tool.azurlane_l2d_sources import (
     l2d_su_character_fingerprint,
     l2d_su_ship_index_url,
     model_probe_urls,
+    parse_l2d_su_ship_class,
     parse_l2d_su_ship_index,
     parse_l2d_su_ship_models,
     parse_l2d_su_ship_voices,
@@ -420,6 +422,42 @@ def test_apply_l2d_su_model_paths_corrects_l2d_su_entries_only() -> None:
     nagami_entry = _catalog_entry(patched, 'azurlane:live2d:shengluyisi:shengluyisi_2')
     assert nagami_entry.resources.primary_url == 'https://cdn.nagami.moe/live2d/shengluyisi_2/shengluyisi_2.model3.json'
     assert apply_l2d_su_model_paths(catalog, {}) is catalog
+
+
+def test_parse_l2d_su_ship_index_aggregates_skin_series_and_default_skin() -> None:
+    dressed = _skin(11, '泳装', key='biaoqiang_2')
+    dressed['shopTypeName'] = 'Swimsuits'
+    repeat = _skin(12, '另一件泳装', key='biaoqiang_3')
+    repeat['shopTypeName'] = 'Swimsuits'
+    ship = _ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '标枪', key='biaoqiang'), dressed, repeat])
+    ship['defaultSkinId'] = 10
+
+    parsed = parse_l2d_su_ship_index(_ship_index_payload([ship]))
+
+    character = parsed.characters[0]
+    assert character.default_skin_id == 10
+    # Shopless skins fall back to their skin type, which is how l2d.su's own skinSeries filter is built.
+    assert character.skin_series == ('Default', 'Swimsuits')
+
+
+def test_apply_l2d_su_ship_classes_attaches_detail_only_class_names() -> None:
+    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(10, '默认', key='biaoqiang')])])
+    catalog = build_azurlane_model_catalog(_source_snapshots(parse_l2d_su_ship_index(payload).characters, {}))
+    assert all(entry.character.class_name == '' for entry in catalog.entries)
+
+    patched = apply_l2d_su_ship_classes(catalog, {1: 'J Class', 999: 'Ignored Class'})
+
+    assert {entry.character.class_name for entry in patched.entries} == {'J Class'}
+    assert apply_l2d_su_ship_classes(catalog, {}) is catalog
+
+
+def test_parse_l2d_su_ship_class_reads_class_name() -> None:
+    detail = json.dumps({'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+
+    assert parse_l2d_su_ship_class(detail) == 'J Class'
+    assert parse_l2d_su_ship_class(json.dumps({'ship': {'shipGroupId': 1}})) == ''
+    with pytest.raises(SourceSchemaError, match='ship object'):
+        parse_l2d_su_ship_class(json.dumps({'version': 1}))
 
 
 def test_parse_l2d_su_ship_voices_reads_words_and_extra_words() -> None:
