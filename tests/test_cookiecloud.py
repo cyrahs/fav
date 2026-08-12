@@ -1,4 +1,4 @@
-# ruff: noqa: S101, PT011
+# ruff: noqa: E402, INP001, PT011, S101
 
 import base64
 import json
@@ -22,6 +22,7 @@ KEY_IV_LENGTH = 48
 KEY_LENGTH = 32
 IV_LENGTH = 16
 SALT_PREFIX = b'Salted__'
+NETSCAPE_HEADER_LINE_COUNT = 3
 
 
 def encrypt_payload(client: CookieCloudClient, plaintext: str, salt: bytes = b'12345678') -> str:
@@ -84,7 +85,8 @@ def test_get_cookies_wraps_request_error() -> None:
 
     class FailingClient:
         def get(self, url: str, headers: dict[str, str] | None = None) -> None:  # noqa: ARG002
-            raise httpx.RequestError('boom', request=request)
+            msg = 'boom'
+            raise httpx.RequestError(msg, request=request)
 
     client.client = FailingClient()  # type: ignore[assignment]
 
@@ -198,5 +200,5 @@ def test_save_to_netscape_format_live_bilibili(tmp_path: Path) -> None:
 
     lines = output_file.read_text().splitlines()
     assert lines[0] == '# Netscape HTTP Cookie File'
-    assert len(lines) > 3
+    assert len(lines) > NETSCAPE_HEADER_LINE_COUNT
     assert any('bilibili.com' in line for line in lines[3:])

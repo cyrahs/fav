@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 import src.api.server as api_server
 import src.api.service as api_service_module
@@ -718,10 +719,10 @@ def test_load_config_from_env_rejects_empty_api_token(monkeypatch) -> None:
 def _settings_service(*, saved: list[tuple[str, dict]]) -> api_server.FavApiService:
     """Service wired to in-memory settings so the enable guard can be exercised."""
 
-    def getter(section: str):
+    def getter(section: str) -> BaseModel:
         return settings.SECTION_MODELS[section]()
 
-    def saver(section: str, payload: dict):
+    def saver(section: str, payload: dict) -> BaseModel:
         saved.append((section, payload))
         return settings.SECTION_MODELS[section].model_validate(payload)
 
@@ -786,7 +787,7 @@ def _cookiecloud_service(*, sections: dict) -> tuple[api_server.FavApiService, l
     """Service whose settings come from `sections`, recording what the probe was handed."""
     probed: list[tuple[str, str, str]] = []
 
-    def getter(section: str):
+    def getter(section: str) -> BaseModel:
         return settings.SECTION_MODELS[section].model_validate(sections.get(section, {}))
 
     service = api_server.FavApiService(
@@ -799,7 +800,7 @@ def _cookiecloud_service(*, sections: dict) -> tuple[api_server.FavApiService, l
 
 
 def _stub_probe(monkeypatch, probed: list[tuple[str, str, str]]) -> None:
-    def _fake_probe(server_url: str, uuid: str, password: str, **_kwargs):
+    def _fake_probe(server_url: str, uuid: str, password: str, **_kwargs: object) -> api_service_module.cookiecloud_tool.CookieCloudProbe:
         probed.append((server_url, uuid, password))
         return api_service_module.cookiecloud_tool.CookieCloudProbe(ok=True, code='ok', message='OK')
 

@@ -1,4 +1,4 @@
-# ruff: noqa: S101
+# ruff: noqa: INP001, S101
 
 import asyncio
 
@@ -192,7 +192,8 @@ def test_download_targets_skips_when_path_missing(tmp_path, monkeypatch) -> None
     assert not ss.path.exists()
 
     async def _boom() -> dict[str, object]:
-        raise AssertionError('build_target_destination_map should not be called when path is missing')
+        msg = 'build_target_destination_map should not be called when path is missing'
+        raise AssertionError(msg)
 
     monkeypatch.setattr(ss, 'build_target_destination_map', _boom)
 
