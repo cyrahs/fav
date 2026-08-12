@@ -131,7 +131,7 @@ def _create_bd2_fixture(root: Path) -> Path:
         'assets/videos/skill.mp4': b'video',
         'assets/audio/voice.mp3': b'voice',
         'assets/live2d/model-a/model.atlas': b'atlas',
-        'assets/live2d/model-a/model.json': b'json',
+        'assets/live2d/model-a/model.json': b'{"skeleton":{"spine":"4.0.64"}}',
         'assets/live2d/model-a/model.png': b'texture',
         'assets/live2d/model-a/background.png': b'background',
     }
@@ -447,6 +447,7 @@ def test_get_bd2_character_returns_costumes_assets_and_live2d_refs(tmp_path: Pat
     assert model['assets']['atlas']['path'] == 'assets/live2d/model-a/model.atlas'
     assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)
     assert model['assets']['json']['path'] == 'assets/live2d/model-a/model.json'
+    assert model['spine_version'] == '4.0.64'
     assert model['assets']['textures'][0]['path'] == 'assets/live2d/model-a/model.png'
     assert model['assets']['background']['path'] == 'assets/live2d/model-a/background.png'
 

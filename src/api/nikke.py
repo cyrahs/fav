@@ -11,6 +11,7 @@ from urllib.parse import quote, unquote
 
 from src.core import logger
 
+from .spine import spine_version_from_file
 from .summary_cache import ManifestEntry, ManifestSignature, SummaryCacheData, manifest_signature, read_summary_cache, write_summary_cache
 
 log = logger.get('fav-api.nikke')
@@ -936,6 +937,12 @@ class NikkeLibrary:
     def _live2d_model_payload(self, record: _NikkeRecord, model: dict[str, Any]) -> dict[str, Any]:
         live2d_key = _clean_text(model.get('live2d_key'))
         textures = self._assets_for_context(record, live2d_key=live2d_key, kind='live2d_texture')
+        assets = {
+            'atlas': self._pick_asset(record, kind='live2d_atlas', live2d_key=live2d_key, live2d_field='atlas'),
+            'skel': self._pick_asset(record, kind='live2d_skel', live2d_key=live2d_key, live2d_field='skel'),
+            'json': self._pick_asset(record, kind='live2d_json', live2d_key=live2d_key, live2d_field='json'),
+            'textures': textures,
+        }
         return {
             'label': _clean_text(model.get('label')),
             'section': _clean_text(model.get('section')),
@@ -964,13 +971,24 @@ class NikkeLibrary:
             'position': model.get('position') if isinstance(model.get('position'), dict) else {},
             'bg_position': model.get('bg_position') if isinstance(model.get('bg_position'), dict) else {},
             'source_urls': model.get('urls') if isinstance(model.get('urls'), dict) else {},
-            'assets': {
-                'atlas': self._pick_asset(record, kind='live2d_atlas', live2d_key=live2d_key, live2d_field='atlas'),
-                'skel': self._pick_asset(record, kind='live2d_skel', live2d_key=live2d_key, live2d_field='skel'),
-                'json': self._pick_asset(record, kind='live2d_json', live2d_key=live2d_key, live2d_field='json'),
-                'textures': textures,
-            },
+            'spine_version': self._spine_version(record, assets),
+            'assets': assets,
         }
+
+    def _spine_version(self, record: _NikkeRecord, assets: dict[str, Any]) -> str | None:
+        # Same priority as the game-view viewer: binary skel first, json export second.
+        for key in ('skel', 'json'):
+            ref = assets.get(key)
+            if not isinstance(ref, dict) or not ref.get('available'):
+                continue
+            try:
+                normalized = self._normalize_asset_path(str(ref.get('path') or ''))
+            except NikkeAssetNotFoundError:
+                continue
+            version = spine_version_from_file(record.root / normalized)
+            if version:
+                return version
+        return None
 
     def _pick_asset(  # noqa: PLR0913
         self,
