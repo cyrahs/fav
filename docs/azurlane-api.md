@@ -215,9 +215,9 @@ returns.
 
 - The index (ships, skins, paintings, icons) refreshes every crawl run.
 - Ship details refresh only when a ship's index fingerprint changes; on a fresh database the
-  backfill of ~880 ships completes across a few runs (origin requests are rate-limited by
-  `web.azurlane.origin_request_interval_seconds`, 3s by default, with a per-run budget).
-  Until a ship's detail arrives, its `ship-detail` endpoint
+  backfill of ~880 ships completes across a few runs, paced by
+  `web.azurlane.origin_request_interval_seconds` and capped per run by
+  `web.azurlane.origin_detail_budget`. Until a ship's detail arrives, its `ship-detail` endpoint
   is 404, its voice assets are absent, and `source_metadata.class_name` is missing; all three
   appear automatically on a later run. Everything else — paintings, faces, icons, models — is
   index-driven and available from the first run.

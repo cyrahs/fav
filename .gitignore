@@ -28,3 +28,4 @@ config.toml
 .dataimpulse-test.env
 .decodo-datacenter.env
 .dataimpulse-global.env
+.decodo-global.env

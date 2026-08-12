@@ -60,8 +60,9 @@ _SECOND_FAILURE_COUNT = 2
 _API_REQUEST_INTERVAL_SECONDS = 0.5
 # The l2d.su origin bans source IPs outright; its CDN (static.l2d.su) does not. Every l2d.su
 # origin request (the mandatory index fetch and the detail backfill alike) is spaced by this
-# interval plus jitter. Overridable from settings.
-_ORIGIN_REQUEST_INTERVAL_SECONDS = 3.0
+# interval plus jitter. Global, not per-IP: connection recycling already gives each request its
+# own exit, so this paces aggregate load. Overridable from settings.
+_ORIGIN_REQUEST_INTERVAL_SECONDS = 1.0
 # Fraction of the origin interval added as uniform random jitter, so requests are not robotically spaced.
 _ORIGIN_JITTER_FRACTION = 0.25
 # Shared per-run budget for origin detail requests (path repair + detail sync); a full backfill
@@ -862,7 +863,7 @@ class AzurLane:
         api_request_interval_seconds: float = _API_REQUEST_INTERVAL_SECONDS,
         cdn_request_interval_seconds: float = _CDN_REQUEST_INTERVAL_SECONDS,
         origin_request_interval_seconds: float | None = None,
-        origin_detail_budget: int = _ORIGIN_DETAIL_BUDGET,
+        origin_detail_budget: int | None = None,
         origin_attempts: int = _ORIGIN_ATTEMPTS,
         asset_process_concurrency: int = _ASSET_PROCESS_CONCURRENCY,
     ) -> None:
@@ -882,7 +883,7 @@ class AzurLane:
         self._cdn_limiter = _RateLimiter(cdn_request_interval_seconds)
         self._origin_limiter = _RateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
         self._origin_source_limiter = _SourceRateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
-        self._origin_detail_budget = origin_detail_budget
+        self._origin_detail_budget = config.origin_detail_budget if origin_detail_budget is None else origin_detail_budget
         self._origin_detail_spent = 0
         self._ship_model_paths: dict[int, dict[int, str]] = {}
         self._ship_detail_payloads: dict[int, str | None] = {}
