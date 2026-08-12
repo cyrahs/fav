@@ -31,7 +31,7 @@ def test_nikke_new_character_notification_includes_character_and_skin_names(tmp_
         {
             'kind': 'content_discovered',
             'source': 'nikke',
-            'title': 'NIKKE new character: Rapi',
+            'title': 'Nikke new character: Rapi',
             'body': 'Character: Rapi\nSkin: Default, Summer Vacation',
             'link_url': 'https://www.gamekee.com/nikke/tj/101.html',
             'payload': {
@@ -69,7 +69,7 @@ def test_nikke_existing_character_only_notifies_for_new_skin(tmp_path, monkeypat
     asyncio.run(crawler._notify_content_discovery(snapshot=previous, character=character))
 
     assert len(notifications) == 1
-    assert notifications[0]['title'] == 'NIKKE new skin: Rapi'
+    assert notifications[0]['title'] == 'Nikke new skin: Rapi'
     assert notifications[0]['body'] == 'Character: Rapi\nSkin: Summer Vacation'
     assert notifications[0]['payload']['skin_names'] == ['Summer Vacation']
 

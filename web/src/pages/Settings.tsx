@@ -4,19 +4,7 @@ import { api, ApiError } from '../api/client';
 import type { Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
 import { TelegramNotificationTest } from '../components/TelegramNotificationTest';
 import { JOBS_PAGE_ONLY_SECTIONS, SECTION_FORMS, validateSection } from '../components/sectionForms';
-
-const SECTION_LABELS: Record<string, string> = {
-  'web.bilibili': 'Bilibili',
-  'web.telegram': 'Telegram',
-  'web.stellasora': 'Stella Sora',
-  'web.nikke': 'NIKKE',
-  'web.bd2': 'BD2',
-  'web.azurlane': '碧蓝航线',
-  'web.hanime1': 'Hanime1',
-  'web.jandan': '煎蛋',
-  'web.kemono': 'Kemono',
-  'notifications.telegram': 'Telegram 通知',
-};
+import { sectionLabel } from '../labels';
 
 /**
  * Each section gets a typed form from SECTION_FORMS; the raw-JSON editor stays
@@ -87,7 +75,7 @@ function SectionEditor({ section }: { section: SettingsSection }) {
   return (
     <details className="section-editor">
       <summary>
-        <span>{SECTION_LABELS[section.section] ?? section.section}</span>
+        <span>{sectionLabel(section.section)}</span>
         <code className="muted">{section.section}</code>
         {dirty && <span className="badge-dirty">未保存</span>}
         {section.missing_fields.length > 0 && <span className="warn">缺少 {section.missing_fields.join(', ')}</span>}

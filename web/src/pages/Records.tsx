@@ -2,6 +2,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ArchiveItem, ArchiveSourceStat, ListResponse, PagedResponse } from '../api/types';
+import { sourceLabel } from '../labels';
 
 const PAGE_SIZE = 50;
 
@@ -52,7 +53,7 @@ export function RecordsPage() {
                 setOffset(0);
               }}
             >
-              {item.name}
+              {sourceLabel(item.source, item.name)}
               <span className="badge">{item.total}</span>
             </button>
           ))}

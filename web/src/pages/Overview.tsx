@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import type { ArchiveSourceStat, Health, Job, JobRequest, ListResponse, Readiness } from '../api/types';
 import { describeCron } from '../components/CronInput';
+import { sectionLabel, sourceLabel } from '../labels';
 
 export function OverviewPage() {
   const health = useQuery({
@@ -62,7 +63,10 @@ export function OverviewPage() {
           ))}
         {incomplete.length > 0 && (
           <p className="warn">
-            配置不完整：{incomplete.map((job) => `${job.name} (${job.missing_fields.join(', ')})`).join('；')}
+            配置不完整：
+            {incomplete
+              .map((job) => `${sectionLabel(job.section, job.name)} (${job.missing_fields.join(', ')})`)
+              .join('；')}
           </p>
         )}
       </section>
@@ -72,7 +76,7 @@ export function OverviewPage() {
         <div className="stat-row">
           {sources.data?.items.map((item) => (
             <div className="stat" key={item.source}>
-              <span className="stat-label">{item.name}</span>
+              <span className="stat-label">{sourceLabel(item.source, item.name)}</span>
               <span className="stat-value">{item.total}</span>
               <span className="muted">{item.latest_at?.slice(0, 16).replace('T', ' ') ?? '—'}</span>
             </div>
@@ -86,7 +90,7 @@ export function OverviewPage() {
         <ul className="plain-list">
           {enabledJobs.map((job) => (
             <li key={job.key}>
-              <strong>{job.name}</strong>
+              <strong>{sectionLabel(job.section, job.name)}</strong>
               <code className="mono">{job.cron}</code>
               <span className="muted">{describeCron(job.cron).text}</span>
             </li>

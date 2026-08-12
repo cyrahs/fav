@@ -1,4 +1,16 @@
 const TOKEN_KEY = 'fav.api.token';
+/**
+ * How long a login survives without re-entering the token. The window slides on
+ * use (see `getToken`), so an active browser stays logged in and one that sat
+ * untouched for the whole window has to authenticate again.
+ */
+export const TOKEN_TTL_DAYS = 30;
+const TOKEN_TTL_MS = TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+interface StoredToken {
+  token: string;
+  expiresAt: number;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -11,15 +23,47 @@ export class ApiError extends Error {
   }
 }
 
+function readStoredToken(): StoredToken | null {
+  const raw = localStorage.getItem(TOKEN_KEY);
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = null;
+  }
+  const candidate = parsed as StoredToken | null;
+  if (!candidate || typeof candidate.token !== 'string' || typeof candidate.expiresAt !== 'number') {
+    // Left over from an older build, or hand-edited; treat it as no token at all.
+    clearToken();
+    return null;
+  }
+  return candidate;
+}
+
 export function getToken(): string {
-  return sessionStorage.getItem(TOKEN_KEY) ?? '';
+  const stored = readStoredToken();
+  if (!stored) return '';
+  if (stored.expiresAt <= Date.now()) {
+    clearToken();
+    return '';
+  }
+  // Slide the window once it is half spent, so regular use never hits the expiry
+  // while an abandoned browser still forgets the token on schedule.
+  if (stored.expiresAt - Date.now() < TOKEN_TTL_MS / 2) {
+    setToken(stored.token);
+  }
+  return stored.token;
 }
 
 export function setToken(token: string): void {
-  sessionStorage.setItem(TOKEN_KEY, token);
+  const stored: StoredToken = { token, expiresAt: Date.now() + TOKEN_TTL_MS };
+  localStorage.setItem(TOKEN_KEY, JSON.stringify(stored));
 }
 
 export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  // Pre-persistence builds kept the token here; drop it so it cannot resurface.
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
