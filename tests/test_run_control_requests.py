@@ -11,7 +11,7 @@ from src.tool.notifications import WEBHOOK_ACTION_UPSERT, NotificationRecord
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 
 
-def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
+def _job(*, key: str, enabled: bool = True, missing_fields: tuple[str, ...] = ()) -> ScheduledJob:
     return ScheduledJob(
         key=key,
         name=key.title(),
@@ -19,6 +19,7 @@ def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
         enabled=enabled,
         required_commands=(),
         factory=object,
+        missing_fields=missing_fields,
     )
 
 
@@ -87,6 +88,96 @@ def test_execute_control_request_rejects_disabled_target(monkeypatch) -> None:
     )
 
     assert updates == [{'request_id': '1', 'status': STATUS_REJECTED, 'result': '', 'error': 'Job is disabled: telegram'}]
+
+
+def test_execute_control_request_names_missing_fields(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    asyncio.run(
+        run_module._execute_control_request(
+            _request(target='azurlane'),
+            all_jobs=[_job(key='azurlane', enabled=False, missing_fields=('origin_proxy',))],
+            runner_by_key={},
+        ),
+    )
+
+    assert updates[0]['status'] == STATUS_REJECTED
+    assert updates[0]['error'] == 'Job is not configured: azurlane (missing origin_proxy)'
+
+
+def test_consume_control_requests_rereads_job_state(monkeypatch) -> None:
+    """A source enabled in the UI is triggerable without restarting the worker."""
+    updates: list[dict[str, str]] = []
+    invoked: list[str] = []
+    provided: list[list[ScheduledJob]] = [
+        [_job(key='azurlane', enabled=True)],
+    ]
+    claimed = [_request(target='azurlane')]
+    handled = asyncio.Event()
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+        handled.set()
+
+    async def _fake_claim() -> ControlRequest | None:
+        return claimed.pop(0) if claimed else None
+
+    async def _fake_ensure_table() -> None:
+        return
+
+    async def _fake_fail_stale() -> int:
+        return 0
+
+    async def _runner() -> run_module.JobRunResult:
+        invoked.append('azurlane')
+        return run_module.JobRunResult(job_key='azurlane', job_name='Azur Lane', success=True)
+
+    async def _jobs_provider() -> list[ScheduledJob]:
+        return provided[0]
+
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+    monkeypatch.setattr(run_module, 'claim_next_control_request', _fake_claim)
+    monkeypatch.setattr(run_module, 'ensure_control_requests_table', _fake_ensure_table)
+    monkeypatch.setattr(run_module, 'fail_stale_running_control_requests', _fake_fail_stale)
+
+    async def _scenario() -> None:
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            run_module._consume_control_requests(
+                # The startup snapshot had azurlane parked; the provider reports it as runnable now.
+                runner_by_key={'azurlane': _runner},
+                stop_event=stop_event,
+                jobs_provider=_jobs_provider,
+            ),
+        )
+        await asyncio.wait_for(handled.wait(), timeout=5)
+        stop_event.set()
+        await asyncio.wait_for(task, timeout=5)
+
+    asyncio.run(_scenario())
+
+    assert invoked == ['azurlane']
+    assert updates == [{'request_id': '1', 'status': STATUS_SUCCEEDED, 'result': 'Completed azurlane.', 'error': ''}]
+
+
+def test_current_jobs_reloads_settings(monkeypatch) -> None:
+    reloads: list[bool] = []
+
+    def _fake_load(*, force: bool = False) -> None:
+        reloads.append(force)
+
+    monkeypatch.setattr(run_module.settings, 'load', _fake_load)
+    monkeypatch.setattr(run_module, 'build_jobs', lambda: [_job(key='azurlane', enabled=True)])
+
+    jobs = asyncio.run(run_module._current_jobs())
+
+    assert reloads == [True]
+    assert [job.key for job in jobs] == ['azurlane']
 
 
 def test_execute_control_request_marks_failed_runner(monkeypatch) -> None:
