@@ -765,9 +765,7 @@ def l2d_su_character_fingerprint(character: L2DSuCharacterSnapshot) -> str:
         key=lambda model: (model.kind, model.costume_id, model.model_key),
     )
     parts = [f'{character.char_id}:{character.char_key}:{character.char_name}']
-    parts.extend(
-        f'{model.kind}:{model.costume_id}:{model.model_key}:{model.costume_name}:{",".join(model.face_ids)}' for model in models
-    )
+    parts.extend(f'{model.kind}:{model.costume_id}:{model.model_key}:{model.costume_name}:{",".join(model.face_ids)}' for model in models)
     return blake2b('|'.join(parts).encode(), digest_size=16).hexdigest()
 
 

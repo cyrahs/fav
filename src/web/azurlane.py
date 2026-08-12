@@ -1546,11 +1546,7 @@ class AzurLane:
         self._character_fingerprints = {
             character.char_id: l2d_su_character_fingerprint(character) for character in snapshots.l2d_su.characters
         }
-        stale = [
-            char_id
-            for char_id, fingerprint in self._character_fingerprints.items()
-            if stored.get(char_id) != fingerprint
-        ]
+        stale = [char_id for char_id, fingerprint in self._character_fingerprints.items() if stored.get(char_id) != fingerprint]
         fetched = 0
         for char_id in stale:
             if self._origin_detail_spent >= self._origin_detail_budget:
