@@ -1,4 +1,6 @@
-import cronstrue from 'cronstrue/i18n';
+import cronstrue from 'cronstrue';
+// Register only the locale we render; 'cronstrue/i18n' would bundle all of them.
+import 'cronstrue/locales/zh_CN';
 import { useMemo } from 'react';
 
 interface CronDescription {
