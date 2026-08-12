@@ -1454,6 +1454,39 @@ def test_source_rate_limiter_spaces_successive_requests() -> None:
     assert time.monotonic() - start >= interval
 
 
+def test_azurlane_update_fails_loudly_when_the_catalog_comes_back_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: an empty catalog used to return early, hiding which source had failed.
+
+    That is the branch this crawler sat in for two weeks -- nagami's hash-versioned bundle URL
+    had died, emptying the catalog, which returned before the l2d.su error was ever logged.
+    """
+    _install_fake_database(monkeypatch)
+    empty_catalog = _ship_index_payload([])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(empty_catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(404)
+        pytest.fail(reason='no asset download should run without a catalog')
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        crawler = AzurLane(
+            path=tmp_path,
+            source_client=source_client,
+            api_request_interval_seconds=0,
+            cdn_request_interval_seconds=0,
+            origin_request_interval_seconds=0,
+            asset_process_concurrency=1,
+        )
+        with pytest.raises(azurlane_module.CrawlRunError, match='no model entries') as failure:
+            asyncio.run(crawler.update())
+
+    assert NAGAMI_MAPPING_URL in str(failure.value)
+
+
 def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1507,8 +1540,13 @@ def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplet
             origin_request_interval_seconds=0,
             asset_process_concurrency=1,
         )
-        asyncio.run(crawler.update())
+        # The catalog is preserved, but the run reports failure: a source that fails quietly
+        # is how this crawler stayed broken for a month with every run recorded as completed.
+        with pytest.raises(azurlane_module.CrawlRunError, match='preserving existing catalog state') as failure:
+            asyncio.run(crawler.update())
 
+    # The message names the source that actually failed, so the log says what to fix.
+    assert NAGAMI_MAPPING_URL in str(failure.value)
     assert source_urls == [_PRIMARY_INDEX_URL, _ENGLISH_INDEX_URL, NAGAMI_MAPPING_URL]
     assert fake_db.schema_created is True
     assert fake_db.characters['javelin']['active'] is True

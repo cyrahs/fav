@@ -603,6 +603,15 @@ def _source_snapshots_complete(snapshots: AzurLaneSourceSnapshots) -> bool:
     return not _source_snapshot_errors(snapshots) and _primary_source_model_count(snapshots) > 0
 
 
+def _source_failure_message(snapshots: AzurLaneSourceSnapshots, catalog: AzurLaneModelCatalog) -> str:
+    """Why a run refused to touch the catalog, always naming the source that failed."""
+    reason = 'source catalog returned no model entries' if not catalog.entries else 'source snapshots incomplete'
+    errors = _source_snapshot_errors(snapshots)
+    detail = '; '.join(f'{error.url} {error.kind}: {error.message}' for error in errors[:3])
+    message = f'Azur Lane {reason}; preserving existing catalog state'
+    return f'{message}: {detail}' if detail else message
+
+
 def _row_text(row: dict[str, Any], key: str) -> str:
     value = row.get(key)
     if value is None:
@@ -1913,17 +1922,11 @@ class AzurLane:
             snapshots = await self._fetch_source_snapshots()
             catalog = build_azurlane_model_catalog(snapshots)
             self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
-            if not catalog.entries:
-                log.warning('Azur Lane source catalog returned no model entries')
-                return
-            if not _source_snapshots_complete(snapshots):
-                errors = _source_snapshot_errors(snapshots)
-                if errors:
-                    examples = '; '.join(f'{error.url} {error.kind}: {error.message}' for error in errors[:3])
-                    log.warning('Azur Lane source snapshots incomplete; preserving existing catalog state: %s', examples)
-                else:
-                    log.warning('Azur Lane primary source returned no model entries; preserving existing catalog state')
-                return
+            if not catalog.entries or not _source_snapshots_complete(snapshots):
+                # The existing catalog is left untouched, but the run must not report success.
+                # A source that fails quietly is how this crawler sat broken for a month while
+                # every run was recorded as completed.
+                raise CrawlRunError(_source_failure_message(snapshots, catalog))
 
             self._origin_detail_spent = 0
             self._ship_model_paths = {}
