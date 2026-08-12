@@ -17,7 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from src.core import logger, settings
 from src.service.jobs import ScheduledJob, build_jobs, resolve_trigger_jobs
-from src.tool import telegram_bot
+from src.tool import database, telegram_bot
 from src.tool.control_queue import (
     STATUS_FAILED,
     STATUS_REJECTED,
@@ -689,6 +689,10 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         await notification_client.aclose()
         if scheduler.running:
             scheduler.shutdown(wait=False)
+        try:
+            await database.close_pool()
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to close database pool: %s', exc)
 
 
 if __name__ == '__main__':

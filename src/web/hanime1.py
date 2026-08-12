@@ -1404,7 +1404,10 @@ class Hanime1:
 
         tmp_video_dir = self.cache_dir / 'videos'
         await asyncio.to_thread(tmp_video_dir.mkdir, parents=True, exist_ok=True)
-        downloaded_path = self.download_stream(
+        # yt-dlp runs for minutes; keep it off the event loop so the worker's
+        # queues and Telegram listeners stay responsive.
+        downloaded_path = await asyncio.to_thread(
+            self.download_stream,
             task=StreamDownloadTask(
                 stream_url=stream_url,
                 video_id=item_id,
@@ -1422,7 +1425,7 @@ class Hanime1:
         output_dir = self._resolve_output_dir(item.keyword)
         await asyncio.to_thread(output_dir.mkdir, parents=True, exist_ok=True)
         final_path = ensure_unique_path(output_dir / filename)
-        shutil.move(downloaded_path, final_path)
+        await asyncio.to_thread(shutil.move, downloaded_path, final_path)
         resolution = self._stream_resolution_label(stream_url)
 
         return DownloadResult(

@@ -1,6 +1,7 @@
-# ruff: noqa: INP001, S101, ANN001, ANN202, ANN204, ANN002, ANN003, ARG001, PLR2004, SLF001
+# ruff: noqa: INP001, S101, ANN001, ANN202, ANN204, ARG001, PLR2004, SLF001
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -475,12 +476,13 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
     async def _fake_query_db(sql: str, params: tuple[object, ...] = ()) -> list[dict[str, object]]:
         return []
 
-    async def _fake_connect(*args, **kwargs):
-        return _FakeAsyncConnection(cursor)
+    @asynccontextmanager
+    async def _fake_connection():
+        yield _FakeAsyncConnection(cursor)
 
     monkeypatch.setattr(notifications_module.database, 'query_db_multi', _fake_query_db_multi)
     monkeypatch.setattr(notifications_module.database, 'query_db', _fake_query_db)
-    monkeypatch.setattr(notifications_module.psycopg.AsyncConnection, 'connect', _fake_connect)
+    monkeypatch.setattr(notifications_module.database, 'connection', _fake_connection)
 
     claimed = asyncio.run(claim_next_pending_notification())
 

@@ -1,8 +1,7 @@
-# ruff: noqa: E402, INP001, PT011, S101
+# ruff: noqa: INP001, S101, PT011
 
 import base64
 import json
-import sys
 from pathlib import Path
 
 import httpx
@@ -10,10 +9,6 @@ import pytest
 from Crypto.Cipher import AES
 from Crypto.Hash import MD5
 from Crypto.Util.Padding import pad
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.core import settings
 from src.tool.cookiecloud import CookieCloudClient

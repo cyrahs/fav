@@ -10,11 +10,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import psycopg
-from psycopg.rows import dict_row
-
-from src.core.env import env
-
 from . import database
 
 STATUS_READ = 'read'
@@ -157,14 +152,6 @@ class NotificationRecord:
             return None
         normalized_path = image_path.strip()
         return Path(normalized_path) if normalized_path else None
-
-
-def _postgres_dsn() -> str:
-    dsn = env.postgres_dsn.strip()
-    if not dsn:
-        msg = 'POSTGRES_DSN is required'
-        raise ValueError(msg)
-    return dsn
 
 
 def format_job_failure_dedupe_key(*, job_key: str, failure_key: str) -> str:
@@ -484,7 +471,7 @@ async def claim_next_pending_notification() -> NotificationRecord | None:
     await reset_stale_sending_notifications()
 
     async with (
-        await psycopg.AsyncConnection.connect(_postgres_dsn(), autocommit=False, row_factory=dict_row) as conn,
+        database.connection() as conn,
         conn.transaction(),
         conn.cursor() as cursor,
     ):
