@@ -391,6 +391,7 @@ class BD2Live2DModel(ApiSchema):
     bg_position: dict[str, Any] = Field(default_factory=dict)
     view_overrides: dict[str, Live2DViewOverrideValue] = Field(default_factory=dict)
     source_urls: dict[str, Any] = Field(default_factory=dict)
+    spine_version: str | None = None
     assets: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -540,6 +541,7 @@ class NikkeLive2DModel(ApiSchema):
     bg_position: dict[str, Any] = Field(default_factory=dict)
     view_overrides: dict[str, Live2DViewOverrideValue] = Field(default_factory=dict)
     source_urls: dict[str, Any] = Field(default_factory=dict)
+    spine_version: str | None = None
     assets: dict[str, Any] = Field(default_factory=dict)
 
 

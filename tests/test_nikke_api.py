@@ -132,7 +132,7 @@ def _create_nikke_fixture(root: Path) -> Path:
         'assets/images/sd.gif': b'sd',
         'assets/images/burst.gif': b'burst',
         'assets/live2d/model-a/model.atlas': b'atlas',
-        'assets/live2d/model-a/model.skel': b'skel',
+        'assets/live2d/model-a/model.skel': b'hash 4.1.24 skel',
         'assets/live2d/model-a/model.png': b'texture',
     }
     for relative_path, body in files.items():
@@ -443,6 +443,7 @@ def test_get_nikke_character_returns_skins_assets_and_live2d_refs(tmp_path: Path
     assert model['assets']['atlas']['url'] == f'{_STATIC_CHARACTER_PREFIX}/assets/live2d/model-a/model.atlas?v=' + ('a' * 64)
     assert model['assets']['skel']['path'] == 'assets/live2d/model-a/model.skel'
     assert model['assets']['textures'][0]['path'] == 'assets/live2d/model-a/model.png'
+    assert model['spine_version'] == '4.1.24'
 
 
 def test_get_nikke_character_exposes_incomplete_layer_metadata_status(tmp_path: Path) -> None:
