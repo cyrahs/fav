@@ -396,8 +396,8 @@ class Bilibili:
         toview = await api.user.get_toview_list(credential=self.credential)
         if not toview['list']:
             return ([], False, True)
-        exists_ids = await database.query_db('SELECT bvid FROM bilibili;')
-        exists_ids = [i['bvid'] for i in exists_ids]
+        exists_rows = await database.query_db('SELECT bvid FROM bilibili;')
+        exists_ids = {row['bvid'] for row in exists_rows}
         result = [api.video.Video(bvid=v['bvid'], credential=self.credential) for v in toview['list']]
         log.info('Find %d toviews in total', len(result))
         recovery_notifications_succeeded = True
@@ -411,8 +411,8 @@ class Bilibili:
 
     async def get_favs(self, fav_id: int) -> tuple[list[api.video.Video], bool]:
         """Get the videos in the favorite list."""
-        exists_ids = await database.query_db('SELECT bvid FROM bilibili;')
-        exists_ids = [i['bvid'] for i in exists_ids]
+        exists_rows = await database.query_db('SELECT bvid FROM bilibili;')
+        exists_ids = {row['bvid'] for row in exists_rows}
         favlist = api.favorite_list.FavoriteList(media_id=fav_id, credential=self.credential)
         page = 1
         has_more = True
@@ -499,6 +499,22 @@ class Bilibili:
 
         _run_once()
 
+    @staticmethod
+    def _move_downloads(*, source_dir: Path, dest_dir: Path, title: str, bvid: str, upper: str) -> list[Path]:
+        """Rename downloaded files and move them into the destination directory."""
+        saved_paths: list[Path] = []
+        for entry in sorted(source_dir.iterdir()):
+            proper_filename = format_video_filename(
+                title=title,
+                video_id=bvid,
+                uploader=upper,
+                ext=entry.suffix,
+            )
+            dst_path = ensure_unique_path(dest_dir / proper_filename)
+            shutil.move(entry, dst_path)
+            saved_paths.append(dst_path)
+        return saved_paths
+
     async def update_fav(self, fav_id: int, path: Path) -> None:
         await asyncio.to_thread(path.mkdir, parents=True, exist_ok=True)
         has_any_toviews = False
@@ -509,7 +525,7 @@ class Bilibili:
         else:
             videos, recovery_notifications_succeeded = await self.get_favs(fav_id)
         if videos:
-            valid = await asyncio.gather(*[self.check_valid(v) for v in videos])
+            valid = await self.limit_gather(*[self.check_valid(v) for v in videos])
             videos = [v for v, vld in zip(videos, valid, strict=True) if vld]
             for video in tqdm(videos[::-1], desc='Scanning bilibili'):
                 bvid = video.get_bvid()
@@ -521,20 +537,17 @@ class Bilibili:
                 video_cache_dir = self.cache_dir / 'videos'
                 await asyncio.to_thread(video_cache_dir.mkdir, exist_ok=True)
                 log.info('Downloading [%s]%s [%s]', upper, title, bvid)
-                self.download(url, bvid, video_cache_dir)
-                saved_paths = []
-                for v in sorted(video_cache_dir.iterdir()):
-                    # Format the proper filename with sanitized title and uploader
-                    proper_filename = format_video_filename(
-                        title=title,
-                        video_id=bvid,
-                        uploader=upper,
-                        ext=v.suffix,
-                    )
-                    dst_path = path / proper_filename
-                    dst_path = ensure_unique_path(dst_path)
-                    shutil.move(v, dst_path)
-                    saved_paths.append(dst_path)
+                # yt-dlp runs for minutes; keep it off the event loop so the
+                # worker's queues and Telegram listeners stay responsive.
+                await asyncio.to_thread(self.download, url, bvid, video_cache_dir)
+                saved_paths = await asyncio.to_thread(
+                    self._move_downloads,
+                    source_dir=video_cache_dir,
+                    dest_dir=path,
+                    title=title,
+                    bvid=bvid,
+                    upper=upper,
+                )
                 resolution = self._extract_resolution_label(detail)
                 file_size_bytes: int | None = None
                 for saved_path in saved_paths:
