@@ -1,23 +1,81 @@
+import asyncio
 import hashlib
 import re
+import weakref
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from src.core import logger
 from src.core.env import env
 
 log = logger.get('database')
 _DEFAULT_DB_MAX_BIND_PARAMS = 65535
+_POOL_MIN_SIZE = 1
+_POOL_MAX_SIZE = 8
+_POOL_TIMEOUT_SECONDS = 15.0
+_SQL_CACHE_SIZE = 1024
 _PRAGMA_TABLE_INFO_RE = re.compile(
     r'^\s*PRAGMA\s+table_info\s*\(\s*(?P<table>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*;?\s*$',
     re.IGNORECASE,
 )
 _PRAGMA_RE = re.compile(r'^\s*PRAGMA\b', re.IGNORECASE)
 _INSERT_OR_IGNORE_RE = re.compile(r'^\s*INSERT\s+OR\s+IGNORE\b', re.IGNORECASE)
+
+
+# Pools are keyed by event loop so callers that each use their own
+# asyncio.run (tests, run.py --trigger) never share connections across loops.
+_pools: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, AsyncConnectionPool] = weakref.WeakKeyDictionary()
+_pool_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
+
+
+async def _get_pool() -> AsyncConnectionPool:
+    loop = asyncio.get_running_loop()
+    pool = _pools.get(loop)
+    if pool is not None:
+        return pool
+    lock = _pool_locks.setdefault(loop, asyncio.Lock())
+    async with lock:
+        pool = _pools.get(loop)
+        if pool is None:
+            pool = AsyncConnectionPool(
+                _postgres_dsn(),
+                min_size=_POOL_MIN_SIZE,
+                max_size=_POOL_MAX_SIZE,
+                timeout=_POOL_TIMEOUT_SECONDS,
+                kwargs={'autocommit': True, 'row_factory': dict_row},
+                check=AsyncConnectionPool.check_connection,
+                open=False,
+                name='fav-db',
+            )
+            await pool.open()
+            _pools[loop] = pool
+    return pool
+
+
+@asynccontextmanager
+async def connection() -> AsyncIterator[psycopg.AsyncConnection[Any]]:
+    """Yield a pooled autocommit connection with dict rows.
+
+    Wrap multi-statement work in ``conn.transaction()`` for atomicity; the
+    pool resets connection state when the block exits.
+    """
+    pool = await _get_pool()
+    async with pool.connection() as conn:
+        yield conn
+
+
+async def close_pool() -> None:
+    """Close the running loop's pool. Call once at process shutdown."""
+    loop = asyncio.get_running_loop()
+    pool = _pools.pop(loop, None)
+    if pool is not None:
+        await pool.close()
 
 
 def advisory_lock_id(name: str) -> int:
@@ -27,6 +85,8 @@ def advisory_lock_id(name: str) -> int:
 
 @asynccontextmanager
 async def advisory_lock(name: str) -> AsyncIterator[bool]:
+    # Advisory locks are session-scoped and held across a whole job run, so
+    # they get a dedicated connection instead of starving the shared pool.
     lock_id = advisory_lock_id(name)
     dsn = _postgres_dsn()
     conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True, row_factory=dict_row)
@@ -57,18 +117,12 @@ def _postgres_dsn() -> str:
 
 @asynccontextmanager
 async def transaction_cursor() -> AsyncIterator[Any]:
-    dsn = _postgres_dsn()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=False, row_factory=dict_row) as conn:
-        try:
-            async with conn.cursor() as cursor:
-                yield cursor
-            await conn.commit()
-        except Exception:
-            await conn.rollback()
-            raise
+    async with connection() as conn, conn.transaction(), conn.cursor() as cursor:
+        yield cursor
 
 
-def _split_sql_statements(query: str) -> list[str]:  # noqa: C901, PLR0912, PLR0915
+@lru_cache(maxsize=_SQL_CACHE_SIZE)
+def _split_sql_statements(query: str) -> tuple[str, ...]:  # noqa: C901, PLR0912, PLR0915
     statements: list[str] = []
     buf: list[str] = []
     in_single = False
@@ -155,7 +209,7 @@ def _split_sql_statements(query: str) -> list[str]:  # noqa: C901, PLR0912, PLR0
     tail = ''.join(buf).strip()
     if tail:
         statements.append(tail)
-    return statements
+    return tuple(statements)
 
 
 def _rewrite_insert_or_ignore(sql: str) -> str:
@@ -259,6 +313,16 @@ def _convert_qmark_placeholders(sql: str) -> tuple[str, int]:  # noqa: C901, PLR
     return ''.join(result), placeholder_count
 
 
+@lru_cache(maxsize=_SQL_CACHE_SIZE)
+def _translate_statement(sql: str) -> tuple[str, int]:
+    """Translate one SQLite-flavoured statement to PostgreSQL, cached.
+
+    The application issues a fixed set of literal SQL strings, so the
+    character-by-character rewrite only needs to run once per statement.
+    """
+    return _convert_qmark_placeholders(_rewrite_insert_or_ignore(sql))
+
+
 def _prepare_statement(
     sql: str,
     params: tuple[Any, ...],
@@ -282,8 +346,7 @@ def _prepare_statement(
         # Ignore SQLite-specific PRAGMA statements in imported SQL dumps.
         return 'SELECT 1 WHERE FALSE', (), 0
 
-    normalized_sql = _rewrite_insert_or_ignore(sql)
-    translated_sql, bind_count = _convert_qmark_placeholders(normalized_sql)
+    translated_sql, bind_count = _translate_statement(sql)
     if allow_partial_params:
         if bind_count > len(params):
             msg = f'Not enough bind params: expected {bind_count}, got {len(params)}'
@@ -299,13 +362,9 @@ def _prepare_statement(
 async def _execute_prepared_statements(
     statements: Sequence[tuple[str, tuple[Any, ...]]],
 ) -> list[list[dict[str, Any]]]:
-    dsn = _postgres_dsn()
     results: list[list[dict[str, Any]]] = []
 
-    async with (
-        await psycopg.AsyncConnection.connect(dsn, autocommit=True, row_factory=dict_row) as conn,
-        conn.cursor() as cursor,
-    ):
+    async with connection() as conn, conn.cursor() as cursor:
         for sql, params in statements:
             await cursor.execute(sql, params)
             rows = await cursor.fetchall() if cursor.description is not None else []
@@ -414,19 +473,12 @@ async def query_db_transaction(statements: Sequence[tuple[str, tuple[Any, ...]]]
     if not prepared:
         return []
 
-    dsn = _postgres_dsn()
     results: list[list[dict[str, Any]]] = []
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=False, row_factory=dict_row) as conn:
-        try:
-            async with conn.cursor() as cursor:
-                for sql, params in prepared:
-                    await cursor.execute(sql, params)
-                    rows = await cursor.fetchall() if cursor.description is not None else []
-                    results.append([dict(row) for row in rows])
-            await conn.commit()
-        except Exception:
-            await conn.rollback()
-            raise
+    async with connection() as conn, conn.transaction(), conn.cursor() as cursor:
+        for sql, params in prepared:
+            await cursor.execute(sql, params)
+            rows = await cursor.fetchall() if cursor.description is not None else []
+            results.append([dict(row) for row in rows])
     return results
 
 

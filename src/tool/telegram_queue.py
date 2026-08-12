@@ -2,10 +2,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-import psycopg
-from psycopg.rows import dict_row
-
-from src.core.env import env
 from src.core.settings import TelegramMediaType
 from src.tool import database
 
@@ -54,14 +50,6 @@ class TelegramMediaJob:
     source: TelegramQueueSource
     priority: int
     attempt_count: int
-
-
-def _postgres_dsn() -> str:
-    dsn = env.postgres_dsn.strip()
-    if not dsn:
-        msg = 'POSTGRES_DSN is required'
-        raise ValueError(msg)
-    return dsn
 
 
 async def ensure_telegram_media_queue_table() -> None:
@@ -148,48 +136,44 @@ async def enqueue_telegram_media_job(  # noqa: PLR0913
 
 
 async def claim_next_telegram_media_job(account_name: str, owner_token: str) -> TelegramMediaJob | None:
-    dsn = _postgres_dsn()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=False, row_factory=dict_row) as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                """
-                SELECT
-                    account_name,
-                    channel_id,
-                    message_id,
-                    grouped_id,
-                    media_type,
-                    title,
-                    source,
-                    priority,
-                    attempt_count
-                FROM telegram_media_queue
-                WHERE account_name = %s
-                  AND status = 'pending'
-                  AND available_at <= CURRENT_TIMESTAMP
-                ORDER BY priority DESC, available_at, created_at, channel_id, message_id
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1;
-                """,
-                (account_name,),
-            )
-            row = await cursor.fetchone()
-            if row is None:
-                await conn.commit()
-                return None
-            await cursor.execute(
-                """
-                UPDATE telegram_media_queue
-                SET
-                    status = 'processing',
-                    owner_token = %s,
-                    attempt_count = attempt_count + 1,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE account_name = %s AND channel_id = %s AND message_id = %s;
-                """,
-                (owner_token, row['account_name'], row['channel_id'], row['message_id']),
-            )
-        await conn.commit()
+    async with database.connection() as conn, conn.transaction(), conn.cursor() as cursor:
+        await cursor.execute(
+            """
+            SELECT
+                account_name,
+                channel_id,
+                message_id,
+                grouped_id,
+                media_type,
+                title,
+                source,
+                priority,
+                attempt_count
+            FROM telegram_media_queue
+            WHERE account_name = %s
+              AND status = 'pending'
+              AND available_at <= CURRENT_TIMESTAMP
+            ORDER BY priority DESC, available_at, created_at, channel_id, message_id
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1;
+            """,
+            (account_name,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        await cursor.execute(
+            """
+            UPDATE telegram_media_queue
+            SET
+                status = 'processing',
+                owner_token = %s,
+                attempt_count = attempt_count + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE account_name = %s AND channel_id = %s AND message_id = %s;
+            """,
+            (owner_token, row['account_name'], row['channel_id'], row['message_id']),
+        )
 
     return TelegramMediaJob(
         account_name=str(row['account_name']),

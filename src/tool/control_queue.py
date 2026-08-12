@@ -171,8 +171,17 @@ def get_control_request_sync(dsn: str, request_id: int) -> ControlRequest | None
     return _from_row(row)
 
 
+_table_ready = False
+
+
 async def ensure_control_requests_table() -> None:
+    # Guarded so the worker's one-second claim poll does not re-issue DDL
+    # on every pass. A concurrent double CREATE IF NOT EXISTS is harmless.
+    global _table_ready
+    if _table_ready:
+        return
     await database.query_db(_CREATE_CONTROL_REQUESTS_TABLE_SQL)
+    _table_ready = True
 
 
 async def claim_next_control_request() -> ControlRequest | None:

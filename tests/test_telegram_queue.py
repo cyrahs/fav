@@ -1,6 +1,8 @@
-# ruff: noqa: INP001, S101, ANN001, ANN002, ANN003, ANN204, PLR2004
+# ruff: noqa: INP001, S101, ANN001, ANN002, ANN204, PLR2004
 
 import asyncio
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 import src.tool.telegram_queue as queue_module
 from src.tool.telegram_queue import (
@@ -104,6 +106,18 @@ class _FakeCursor:
         return row or None
 
 
+class _FakeTransaction:
+    def __init__(self, connection: '_FakeConnection') -> None:
+        self._connection = connection
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, *_args) -> None:
+        if exc_type is None:
+            self._connection.commits += 1
+
+
 class _FakeConnection:
     def __init__(self, row: dict[str, object]) -> None:
         self.cursor_instance = _FakeCursor(row)
@@ -118,8 +132,16 @@ class _FakeConnection:
     def cursor(self) -> _FakeCursor:
         return self.cursor_instance
 
-    async def commit(self) -> None:
-        self.commits += 1
+    def transaction(self) -> _FakeTransaction:
+        return _FakeTransaction(self)
+
+
+def _fake_pooled_connection(connection: _FakeConnection) -> Callable[[], AbstractAsyncContextManager[_FakeConnection]]:
+    @asynccontextmanager
+    async def _connection() -> AsyncIterator[_FakeConnection]:
+        yield connection
+
+    return _connection
 
 
 def test_claim_uses_priority_skip_locked_and_sets_owner_token(monkeypatch) -> None:
@@ -137,11 +159,7 @@ def test_claim_uses_priority_skip_locked_and_sets_owner_token(monkeypatch) -> No
         },
     )
 
-    async def _connect(*_args, **_kwargs) -> _FakeConnection:
-        return connection
-
-    monkeypatch.setattr(queue_module, '_postgres_dsn', lambda: 'postgresql://test')
-    monkeypatch.setattr(queue_module.psycopg.AsyncConnection, 'connect', _connect)
+    monkeypatch.setattr(queue_module.database, 'connection', _fake_pooled_connection(connection))
 
     job = asyncio.run(claim_next_telegram_media_job('default', 'owner-token'))
 
