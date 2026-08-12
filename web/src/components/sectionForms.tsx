@@ -61,6 +61,8 @@ function Hanime1Form(props: SectionFormProps) {
   const ranking = record(props.value, 'ranking');
   const setRanking = (key: string, next: unknown) => set('ranking', { ...ranking, [key]: next });
   const periods = list<string>(ranking, 'periods');
+  const deepScan = record(ranking, 'deep_scan');
+  const setDeepScan = (key: string, next: unknown) => setRanking('deep_scan', { ...deepScan, [key]: next });
 
   return (
     <div className="field-grid">
@@ -95,6 +97,28 @@ function Hanime1Form(props: SectionFormProps) {
             label="每个榜单抓取页数"
             value={num(ranking, 'pages', 1)}
             onChange={(next) => setRanking('pages', next)}
+          />
+        </div>
+      </div>
+
+      <div className="subsection">
+        <h4>深度补扫</h4>
+        <div className="field-grid">
+          <CheckboxField
+            label="新系列不足时向后补扫"
+            checked={bool(deepScan, 'enabled')}
+            onChange={(next) => setDeepScan('enabled', next)}
+          />
+          <NumberField
+            label="每次扫描目标新系列数（可为小数）"
+            value={num(deepScan, 'quota', 0.25)}
+            onChange={(next) => setDeepScan('quota', next)}
+            step={0.25}
+          />
+          <NumberField
+            label="补扫最多额外页数"
+            value={num(deepScan, 'max_extra_pages', 5)}
+            onChange={(next) => setDeepScan('max_extra_pages', next)}
           />
         </div>
       </div>
@@ -345,6 +369,14 @@ export function validateSection(section: string, value: Record<string, unknown>)
     }
     if (num(ranking, 'pages', 1) < 1) {
       issues.push('排行榜页数至少为 1');
+    }
+    const deepScan = record(ranking, 'deep_scan');
+    const quota = num(deepScan, 'quota', 0.25);
+    if (!Number.isFinite(quota) || quota <= 0) {
+      issues.push('深度补扫目标新系列数必须大于 0');
+    }
+    if (num(deepScan, 'max_extra_pages', 5) < 1) {
+      issues.push('深度补扫额外页数至少为 1');
     }
   }
 

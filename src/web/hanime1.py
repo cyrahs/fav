@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import math
 import re
 import shutil
 import subprocess
@@ -95,6 +96,7 @@ _RANKING_SORT_BY_PERIOD = {
     'weekly': '本週排行',
     'monthly': '本月排行',
 }
+_RANKING_DEBT_EPSILON = 1e-9
 _IGNORED_TITLE_MARKERS = (
     '[新番预告]',
     '[中字后补]',
@@ -1013,20 +1015,19 @@ class Hanime1:
         await self._upsert_series_members(canonical_video_id=seed.video_id, member_ids=member_ids)
         return seed, member_ids
 
-    async def discover_ranking_series(self) -> list[RuntimeSeriesSeed]:
-        if not cfg().ranking.enabled:
-            return []
-
-        ranking_video_ids = await self._collect_ranking_video_ids()
-        if not ranking_video_ids:
-            log.info('Hanime1 ranking discovery found no ranking videos')
-            return []
-
-        known_video_ids = await self._get_known_series_video_ids(ranking_video_ids)
+    async def _discover_series_from_ranking_ids(
+        self,
+        video_ids: list[str],
+        known_video_ids: set[str],
+        *,
+        limit: int | None = None,
+    ) -> tuple[list[RuntimeSeriesSeed], int]:
         added_seeds: list[RuntimeSeriesSeed] = []
         skipped_known_count = 0
 
-        for video_id in ranking_video_ids:
+        for video_id in video_ids:
+            if limit is not None and len(added_seeds) >= limit:
+                break
             if video_id.casefold() in known_video_ids:
                 skipped_known_count += 1
                 continue
@@ -1061,12 +1062,108 @@ class Hanime1:
                 seed.title,
             )
 
-        log.info(
-            'Hanime1 ranking discovery added %d new series from %d ranking videos (%d already known)',
-            len(added_seeds),
-            len(ranking_video_ids),
-            skipped_known_count,
+        return added_seeds, skipped_known_count
+
+    async def _load_ranking_scan_debt(self) -> float:
+        rows = await database.query_db('SELECT quota_debt FROM hanime1_ranking_scan_state WHERE id = 1;')
+        if not rows:
+            return 0.0
+        try:
+            debt = float(rows[0].get('quota_debt') or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(debt) or debt < 0:
+            return 0.0
+        return debt
+
+    async def _save_ranking_scan_debt(self, debt: float) -> None:
+        await database.query_db(
+            """
+            INSERT INTO hanime1_ranking_scan_state (id, quota_debt, updated_at)
+            VALUES (1, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (id) DO UPDATE
+            SET quota_debt = EXCLUDED.quota_debt, updated_at = EXCLUDED.updated_at;
+            """,
+            (debt,),
         )
+
+    async def _run_ranking_deep_scan(self, *, base_added_count: int, known_video_ids: set[str]) -> list[RuntimeSeriesSeed]:
+        ranking_cfg = cfg().ranking
+        deep_cfg = ranking_cfg.deep_scan
+        debt_cap = max(1.0, float(math.ceil(deep_cfg.quota)))
+        debt = min(await self._load_ranking_scan_debt() + deep_cfg.quota, debt_cap)
+        debt = max(0.0, debt - base_added_count)
+        needed = math.floor(debt + _RANKING_DEBT_EPSILON)
+        if needed < 1:
+            await self._save_ranking_scan_debt(debt)
+            return []
+
+        log.info('Hanime1 ranking deep scan needs %d new series (debt %.2f)', needed, debt)
+        added_seeds: list[RuntimeSeriesSeed] = []
+        active_periods = list(ranking_cfg.periods)
+        first_extra_page = ranking_cfg.pages + 1
+        for page in range(first_extra_page, first_extra_page + deep_cfg.max_extra_pages):
+            if not active_periods or len(added_seeds) >= needed:
+                break
+            for period in list(active_periods):
+                try:
+                    ranking_ids = await self.fetch_ranking_video_ids(period=period, page=page)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning('Failed to fetch Hanime1 %s ranking page %d during deep scan: %s', period, page, exc)
+                    active_periods.remove(period)
+                    continue
+
+                if not ranking_ids:
+                    log.info('Hanime1 %s ranking page %d is empty, deep scan exhausted this period', period, page)
+                    active_periods.remove(period)
+                    continue
+
+                log.info('Hanime1 deep scan %s ranking page %d returned %d videos', period, page, len(ranking_ids))
+                unknown_ids = [video_id for video_id in ranking_ids if video_id.casefold() not in known_video_ids]
+                known_video_ids.update(await self._get_known_series_video_ids(unknown_ids))
+                page_seeds, _ = await self._discover_series_from_ranking_ids(
+                    ranking_ids,
+                    known_video_ids,
+                    limit=needed - len(added_seeds),
+                )
+                added_seeds.extend(page_seeds)
+                if len(added_seeds) >= needed:
+                    break
+
+        debt = max(0.0, debt - len(added_seeds))
+        await self._save_ranking_scan_debt(debt)
+        log.info(
+            'Hanime1 ranking deep scan added %d of %d required new series (remaining debt %.2f)',
+            len(added_seeds),
+            needed,
+            debt,
+        )
+        return added_seeds
+
+    async def discover_ranking_series(self) -> list[RuntimeSeriesSeed]:
+        ranking_cfg = cfg().ranking
+        if not ranking_cfg.enabled:
+            return []
+
+        ranking_video_ids = await self._collect_ranking_video_ids()
+        known_video_ids: set[str] = set()
+        added_seeds: list[RuntimeSeriesSeed] = []
+        if ranking_video_ids:
+            known_video_ids = await self._get_known_series_video_ids(ranking_video_ids)
+            added_seeds, skipped_known_count = await self._discover_series_from_ranking_ids(ranking_video_ids, known_video_ids)
+            log.info(
+                'Hanime1 ranking discovery added %d new series from %d ranking videos (%d already known)',
+                len(added_seeds),
+                len(ranking_video_ids),
+                skipped_known_count,
+            )
+        else:
+            log.info('Hanime1 ranking discovery found no ranking videos')
+
+        if ranking_cfg.deep_scan.enabled:
+            deep_seeds = await self._run_ranking_deep_scan(base_added_count=len(added_seeds), known_video_ids=known_video_ids)
+            added_seeds = [*added_seeds, *deep_seeds]
+
         return added_seeds
 
     @staticmethod

@@ -327,10 +327,33 @@ class AzurLane(ScheduleJob):
     cron: str = '0 */6 * * *'
 
 
+class Hanime1RankingDeepScan(BaseModel):
+    enabled: bool = False
+    quota: float = 0.25
+    max_extra_pages: int = 5
+
+    @field_validator('quota')
+    @classmethod
+    def validate_quota(cls, value: float) -> float:
+        if not math.isfinite(value) or value <= 0:
+            msg = 'quota must be finite and greater than 0'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('max_extra_pages')
+    @classmethod
+    def validate_max_extra_pages(cls, value: int) -> int:
+        if value < 1:
+            msg = 'max_extra_pages must be greater than or equal to 1'
+            raise ValueError(msg)
+        return value
+
+
 class Hanime1Ranking(BaseModel):
     enabled: bool = False
     periods: list[Literal['weekly', 'monthly']] = Field(default_factory=lambda: ['weekly', 'monthly'])
     pages: int = 1
+    deep_scan: Hanime1RankingDeepScan = Field(default_factory=Hanime1RankingDeepScan)
 
     @field_validator('periods')
     @classmethod
