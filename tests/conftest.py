@@ -1,4 +1,4 @@
-# ruff: noqa: E402, INP001
+# ruff: noqa: INP001
 
 import os
 
