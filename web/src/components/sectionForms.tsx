@@ -10,6 +10,7 @@ import {
   TextField,
   type Option,
 } from './Field';
+import { AzurLaneProxyTest } from './AzurLaneProxyTest';
 import { BilibiliForm, validateBilibili } from './BilibiliForm';
 import { TelegramForm, validateTelegram } from './TelegramForm';
 import {
@@ -169,6 +170,45 @@ interface KemonoCreator {
   name?: string;
 }
 
+function AzurLaneForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const originProxy = str(props.value, 'origin_proxy');
+
+  return (
+    <div className="field-grid">
+      <PathField {...props} />
+
+      <SecretField
+        label="源站代理"
+        value={originProxy}
+        onChange={(next) => set('origin_proxy', next)}
+        invalid={!originProxy}
+        hint={
+          originProxy
+            ? undefined
+            : 'l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。格式：http://用户名:密码@主机:端口'
+        }
+      />
+      <AzurLaneProxyTest originProxy={originProxy} />
+
+      <NumberField
+        label="源站请求间隔（秒）"
+        value={num(props.value, 'origin_request_interval_seconds', 1)}
+        onChange={(next) => set('origin_request_interval_seconds', next)}
+        step={0.5}
+        hint="只限制打到 l2d.su 的总速率；每个请求本来就用独立出口 IP。低于单请求耗时（约 2 秒）就不再有效果。"
+      />
+      <NumberField
+        label="单轮详情请求上限"
+        value={num(props.value, 'origin_detail_budget', 300)}
+        onChange={(next) => set('origin_detail_budget', next)}
+        step={50}
+        hint="含重试。约 880 艘船，想一轮补齐历史数据就填 900；平时维持默认即可。"
+      />
+    </div>
+  );
+}
+
 function KemonoForm(props: SectionFormProps) {
   const set = patcher(props);
   const creators = list<KemonoCreator>(props.value, 'creators');
@@ -302,6 +342,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.bilibili': BilibiliForm,
   'web.telegram': TelegramForm,
   'web.nikke': NikkeForm,
+  'web.azurlane': AzurLaneForm,
   'web.hanime1': Hanime1Form,
   'web.jandan': JandanForm,
   'web.kemono': KemonoForm,
@@ -316,7 +357,6 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
 export const JOBS_PAGE_ONLY_SECTIONS: ReadonlySet<string> = new Set([
   'web.stellasora',
   'web.bd2',
-  'web.azurlane',
 ]);
 
 /* ---------- client-side validation ---------- */

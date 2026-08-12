@@ -28,6 +28,7 @@ from src.tool.azurlane_l2d_sources import (
     SourceSchemaError,
     SpineModelPart,
     apply_l2d_su_model_paths,
+    apply_l2d_su_ship_classes,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     enumerate_azurlane_model_resources,
@@ -38,11 +39,13 @@ from src.tool.azurlane_l2d_sources import (
     l2d_su_character_fingerprint,
     l2d_su_ship_index_url,
     model_probe_urls,
+    parse_l2d_su_ship_class,
     parse_l2d_su_ship_index,
     parse_l2d_su_ship_models,
     parse_l2d_su_ship_voices,
     parse_nagami_mapping,
     parse_spine_parts_manifest,
+    probe_l2d_su_origin,
     spine_parts_manifest_url,
     spine_resource_manifest,
     validate_azurlane_model_catalog_resources,
@@ -422,6 +425,71 @@ def test_apply_l2d_su_model_paths_corrects_l2d_su_entries_only() -> None:
     assert apply_l2d_su_model_paths(catalog, {}) is catalog
 
 
+def test_parse_l2d_su_ship_index_aggregates_skin_series_and_default_skin() -> None:
+    dressed = _skin(11, '泳装', key='biaoqiang_2')
+    dressed['shopTypeName'] = 'Swimsuits'
+    repeat = _skin(12, '另一件泳装', key='biaoqiang_3')
+    repeat['shopTypeName'] = 'Swimsuits'
+    ship = _ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '标枪', key='biaoqiang'), dressed, repeat])
+    ship['defaultSkinId'] = 10
+
+    parsed = parse_l2d_su_ship_index(_ship_index_payload([ship]))
+
+    character = parsed.characters[0]
+    assert character.default_skin_id == 10
+    # Shopless skins fall back to their skin type, which is how l2d.su's own skinSeries filter is built.
+    assert character.skin_series == ('Default', 'Swimsuits')
+
+
+def test_apply_l2d_su_ship_classes_attaches_detail_only_class_names() -> None:
+    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(10, '默认', key='biaoqiang')])])
+    catalog = build_azurlane_model_catalog(_source_snapshots(parse_l2d_su_ship_index(payload).characters, {}))
+    assert all(entry.character.class_name == '' for entry in catalog.entries)
+
+    patched = apply_l2d_su_ship_classes(catalog, {1: 'J Class', 999: 'Ignored Class'})
+
+    assert {entry.character.class_name for entry in patched.entries} == {'J Class'}
+    assert apply_l2d_su_ship_classes(catalog, {}) is catalog
+
+
+def _origin_probe(handler: Any) -> Any:
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        return probe_l2d_su_origin('http://user:pass@proxy.example:8080', client=client)
+
+
+def test_probe_l2d_su_origin_reports_each_failure_mode() -> None:
+    def blocked(request: httpx.Request) -> httpx.Response:
+        message = 'null routed'
+        raise httpx.ConnectError(message, request=request)
+
+    def rejected(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403 if '/data/' in str(request.url) else 200, text='1.2.3.4')
+
+    def reachable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text='203.0.113.7' if 'checkip' in str(request.url) else '')
+
+    # An unconfigured proxy is reported as such rather than attempted.
+    assert probe_l2d_su_origin('  ').code == 'incomplete'
+
+    blocked_result = _origin_probe(blocked)
+    assert (blocked_result.ok, blocked_result.code) == (False, 'unreachable')
+
+    rejected_result = _origin_probe(rejected)
+    assert (rejected_result.ok, rejected_result.code, rejected_result.exit_ip) == (False, 'http_error', '1.2.3.4')
+
+    ok_result = _origin_probe(reachable)
+    assert (ok_result.ok, ok_result.code, ok_result.exit_ip) == (True, 'ok', '203.0.113.7')
+
+
+def test_parse_l2d_su_ship_class_reads_class_name() -> None:
+    detail = json.dumps({'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+
+    assert parse_l2d_su_ship_class(detail) == 'J Class'
+    assert parse_l2d_su_ship_class(json.dumps({'ship': {'shipGroupId': 1}})) == ''
+    with pytest.raises(SourceSchemaError, match='ship object'):
+        parse_l2d_su_ship_class(json.dumps({'version': 1}))
+
+
 def test_parse_l2d_su_ship_voices_reads_words_and_extra_words() -> None:
     payload = json.dumps(
         {
@@ -580,6 +648,25 @@ def test_fetch_l2d_su_snapshot_merges_english_names_and_records_metadata() -> No
     assert snapshot.characters[0].char_name_en == 'Javelin'
     assert snapshot.characters[0].live2d[0].costume_name == '闪耀的白刃'
     assert snapshot.characters[0].live2d[0].costume_name_en == 'Gleaming White Blade'
+
+
+def test_fetch_l2d_su_snapshot_invokes_origin_throttle_before_each_index_request() -> None:
+    primary = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(11, '闪耀的白刃', key='biaoqiang_2')])])
+    english = _ship_index_payload([_ship(1, 'biaoqiang', 'Javelin', skins=[_skin(11, 'Blade', key='biaoqiang_2')])], region='EN')
+    events: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        events.append(f'GET {request.url}')
+        return httpx.Response(200, text=english if str(request.url) == _ENGLISH_INDEX_URL else primary)
+
+    def throttle() -> None:
+        events.append('throttle')
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        fetch_l2d_su_snapshot(client=client, origin_throttle=throttle)
+
+    # Each origin index request is immediately preceded by a throttle acquisition.
+    assert events == ['throttle', f'GET {_PRIMARY_INDEX_URL}', 'throttle', f'GET {_ENGLISH_INDEX_URL}']
 
 
 def test_fetch_l2d_su_snapshot_reports_english_region_failure_without_dropping_models() -> None:

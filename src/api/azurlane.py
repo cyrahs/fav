@@ -513,8 +513,30 @@ class AzurLaneLibrary:
                 'sources': ', '.join(source_names),
             },
             'representative_asset': self._pick_representative_asset(record),
+            'icon': self._pick_icon_asset(record, models),
             'model_count': _to_int(model_counts.get('total')) or len(models),
         }
+
+    def _pick_icon_asset(self, record: _AzurLaneRecord, models: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """Square icon of the default skin, for list and sidebar avatars."""
+        default_skin_id = _to_int(_json_object(record.manifest.get('source_metadata')).get('default_skin_id'))
+        icons: list[tuple[bool, dict[str, Any]]] = []
+        for model in models:
+            if _clean_text(model.get('type')) != 'painting':
+                continue
+            costume_id = _to_int(_json_object(model.get('costume')).get('id'))
+            is_default = costume_id is not None and costume_id == default_skin_id
+            icons.extend((is_default, asset) for asset in _iter_assets(model) if _clean_text(asset.get('kind')) == 'icon.square')
+
+        if not icons:
+            return None
+        # Prefer the default skin's icon, then any downloaded icon, then whatever exists.
+        refs = [(is_default, self._asset_ref(record, asset)) for is_default, asset in icons]
+        for wanted_default in (True, False):
+            for is_default, ref in refs:
+                if is_default is wanted_default and ref['available']:
+                    return ref
+        return refs[0][1]
 
     def _model_payload(self, record: _AzurLaneRecord, model: dict[str, Any]) -> dict[str, Any]:
         assets = [self._asset_ref(record, asset) for asset in sorted(_iter_assets(model), key=_asset_sort_key)]

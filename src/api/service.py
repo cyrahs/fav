@@ -15,6 +15,7 @@ from src.core import logger, settings
 from src.core.settings import SECTION_MODELS, UnknownSectionError
 from src.service.jobs import ScheduledJob, build_jobs
 from src.tool import cookiecloud as cookiecloud_tool
+from src.tool.azurlane_l2d_sources import probe_l2d_su_origin
 from src.tool.control_queue import (
     ControlRequest,
     create_control_request_sync,
@@ -427,6 +428,28 @@ class FavApiService:
             'message_id': result.message_id,
             'warnings': list(result.warnings),
         }
+
+    def _stored_azurlane_proxy(self) -> str:
+        try:
+            stored = json.loads(self._settings_section_getter('web.azurlane').model_dump_json())
+        except UnknownSectionError:
+            raise ApiError(status_code=404, code='unknown_section', message='Unknown settings section: web.azurlane') from None
+        except Exception:
+            log.exception('Failed to load web.azurlane for the proxy test')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return str(stored.get('origin_proxy') or '')
+
+    def test_azurlane_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Check that the l2d.su origin is reachable through a proxy, without saving it.
+
+        The draft from the form wins, except that a masked or omitted value is resolved
+        against what is already stored.
+        """
+        draft = {'origin_proxy': str(payload.get('origin_proxy') or '')}
+        keep_secret(draft, 'origin_proxy', self._stored_azurlane_proxy())
+
+        result = probe_l2d_su_origin(draft['origin_proxy'])
+        return {'ok': result.ok, 'code': result.code, 'message': result.message, 'exit_ip': result.exit_ip}
 
     def _stored_account_password(self, account: str) -> str:
         """The CookieCloud password stored for one bilibili account, matched by name."""

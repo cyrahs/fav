@@ -24,6 +24,8 @@ from .schemas import (
     ArchiveSourceListResponse,
     AzurLaneCharacterDetail,
     AzurLaneCharacterListResponse,
+    AzurLaneProxyTestRequest,
+    AzurLaneProxyTestResult,
     AzurLaneSidebarCharacter,
     AzurLaneSidebarCharacterListResponse,
     BD2CharacterDetail,
@@ -105,6 +107,8 @@ def _azurlane_sidebar_character_payload(character: dict[str, Any]) -> dict[str, 
         'name_zh': character.get('name_zh') or '',
         'name_en': character.get('name_en') or '',
         'representative_asset': character.get('representative_asset') if isinstance(character.get('representative_asset'), dict) else None,
+        'icon': character.get('icon') if isinstance(character.get('icon'), dict) else None,
+        'source_metadata': character.get('source_metadata') if isinstance(character.get('source_metadata'), dict) else {},
         'model_count': character.get('model_count') or 0,
         'model_counts': character.get('model_counts') if isinstance(character.get('model_counts'), dict) else {},
         'source_counts': character.get('source_counts') if isinstance(character.get('source_counts'), dict) else {},
@@ -384,6 +388,17 @@ def update_settings_section(
 async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotificationTestResponse:
     """Send a test message with the stored bot credentials."""
     return service.model_telegram_notification_test(await service.test_telegram_notification())
+
+
+@router.post(
+    '/azurlane/proxy/test',
+    operation_id='testAzurLaneProxy',
+    response_model=AzurLaneProxyTestResult,
+    tags=[TAG_SETTINGS],
+)
+def test_azurlane_proxy(payload: AzurLaneProxyTestRequest, service: ApiServiceDep) -> AzurLaneProxyTestResult:
+    """Check that the l2d.su origin is reachable through a proxy, without saving it."""
+    return AzurLaneProxyTestResult.model_validate(service.test_azurlane_proxy(payload.model_dump()))
 
 
 @router.post(

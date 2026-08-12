@@ -24,7 +24,8 @@ Paged character list. Query params: `query` (matches zh/en names and character k
 ### `GET /api/v2/azurlane/sidebar/characters`
 
 Lightweight list for navigation, sorted by freshness, ETag-cached (send `If-None-Match`,
-handle 304). Same `query` param, no paging.
+handle 304). Same `query` param, no paging. Carries `icon` and `source_metadata` so the sidebar
+can render avatars and filters without fetching the full list.
 
 ### `GET /api/v2/azurlane/characters/{character_key}`
 
@@ -58,11 +59,15 @@ is also written to `detail.json` in the character directory (see Static files).
     "sources": ["l2d.su"],
     "nation": "Royal Navy",
     "ship_type": "Destroyer",
-    "rarity": "SR"
+    "rarity": "SR",
+    "class_name": "J Class",
+    "default_skin_id": 10,
+    "skin_series": ["Default", "Swimsuits"]
   },
   "model_counts": {"live2d": 1, "spine": 0, "painting": 3, "total": 4},
   "asset_counts": {"painting.image": 3, "voice.audio": 42},
   "representative_asset": {},
+  "icon": {},
   "fetched_at": "…", "completed_at": "…"
 }
 ```
@@ -70,6 +75,25 @@ is also written to `detail.json` in the character directory (see Static files).
 `source_metadata.nation` / `ship_type` / `rarity` are the l2d.su localized names from the CN
 index and drive the list filters (the full enumeration tables from the index are stored in
 `_source/l2d-su-snapshot.json` under `filters`).
+
+**Filter dimensions available at list level:**
+
+- `nation`, `ship_type`, `rarity` — straight from the index.
+- `skin_series` — deduplicated list of the ship's skin series labels, preserving skin order.
+  Each label is the skin's `shopTypeName`, falling back to its `skinTypeName` for skins with no
+  shop series; that is exactly how l2d.su builds its own `filters.skinSeries` enumeration, so
+  these values always match entries in that list.
+- `class_name` — **detail-gated**. The ship index does not carry the ship class at all, so this
+  field only appears once that ship's detail payload has been fetched and stored (see Freshness
+  semantics). Treat it as optional and hide the class filter for ships that lack it, rather
+  than assuming an empty value means "no class". The index's `filters.classes` enumeration is a
+  flat list of class names with no ship mapping, so it cannot be used to fill the gap.
+
+`icon` is the square icon of the ship's default skin (`default_skin_id`), shaped like any other
+asset object — use it for list and sidebar avatars. `representative_asset` still exists but
+prefers a full model texture, which makes a poor avatar. If the default skin's icon has not been
+downloaded, `icon` falls back to any available square icon for the ship, and is `null` when the
+ship has none yet.
 
 ### Model entry
 
@@ -191,8 +215,11 @@ returns.
 
 - The index (ships, skins, paintings, icons) refreshes every crawl run.
 - Ship details refresh only when a ship's index fingerprint changes; on a fresh database the
-  backfill of ~880 ships completes across a few runs (origin requests are rate-limited to
-  5/minute with a per-run budget). Until a ship's detail arrives, its `ship-detail` endpoint
-  is 404 and its voice assets are absent; they appear automatically on a later run.
+  backfill of ~880 ships completes across a few runs, paced by
+  `web.azurlane.origin_request_interval_seconds` and capped per run by
+  `web.azurlane.origin_detail_budget`. Until a ship's detail arrives, its `ship-detail` endpoint
+  is 404, its voice assets are absent, and `source_metadata.class_name` is missing; all three
+  appear automatically on a later run. Everything else — paintings, faces, icons, models — is
+  index-driven and available from the first run.
 - A model's assets are immutable once `availability.archive_state` is `complete`; new skins
   arrive as new model entries.

@@ -283,6 +283,82 @@ def _add_minimal_azurlane_character(
     )
 
 
+def _add_painting_azurlane_character(root: Path, *, default_skin_id: int | None) -> None:
+    """Character with two painting skins, each carrying a square icon, for summary icon selection."""
+    character_root = root / 'yuzhang - Yuzhang'
+    models = []
+    for costume_id, costume_key in ((21, 'yuzhang'), (22, 'yuzhang_2')):
+        icon_path = f'assets/painting/{costume_key}/squareicon/{costume_key}.webp'
+        _write_asset(character_root / icon_path, b'icon')
+        model_id = f'azurlane:painting:yuzhang:{costume_key}'
+        models.append(
+            {
+                'model_id': model_id,
+                'type': 'painting',
+                'source': 'l2d.su',
+                'character_key': 'yuzhang',
+                'costume': {'key': costume_key, 'id': costume_id, 'name_zh': '', 'name_en': costume_key},
+                'source_urls': {'primary': '', 'fallback': '', 'display_info': ''},
+                'availability': {'archive_state': 'complete'},
+                'source_metadata': {'id': model_id},
+                'assets': [
+                    _asset(
+                        icon_path,
+                        body=b'icon',
+                        kind='icon.square',
+                        context={'model_id': model_id, 'model_type': 'painting', 'costume_key': costume_key},
+                        sha256=f'{costume_id}' * 32,
+                        content_type='image/webp',
+                    ),
+                ],
+                'asset_counts': {'icon.square': 1},
+            },
+        )
+
+    metadata: dict[str, Any] = {'sources': ['l2d.su'], 'skin_series': ['Default', 'Swimsuits']}
+    if default_skin_id is not None:
+        metadata['default_skin_id'] = default_skin_id
+    _write_json(
+        character_root / 'manifest.json',
+        {
+            'schema_version': 1,
+            'source': 'azurlane',
+            'character_key': 'yuzhang',
+            'source_id': 2,
+            'name_zh': '',
+            'name_en': 'Yuzhang',
+            'source_metadata': metadata,
+            'active': True,
+            'model_counts': {'live2d': 0, 'spine': 0, 'painting': 2, 'total': 2},
+            'asset_counts': {'icon.square': 2},
+            'models': models,
+        },
+    )
+
+
+def test_azurlane_summary_icon_prefers_the_default_skin_square_icon(tmp_path: Path) -> None:
+    _add_painting_azurlane_character(tmp_path, default_skin_id=22)
+    library = AzurLaneLibrary(tmp_path)
+
+    character = next(item for item in library.list_characters() if item['character_key'] == 'yuzhang')
+
+    assert character['icon']['kind'] == 'icon.square'
+    assert character['icon']['available'] is True
+    assert 'yuzhang_2/squareicon/yuzhang_2.webp' in character['icon']['url']
+    assert character['source_metadata']['skin_series'] == ['Default', 'Swimsuits']
+
+
+def test_azurlane_summary_icon_falls_back_when_no_default_skin_is_recorded(tmp_path: Path) -> None:
+    _add_painting_azurlane_character(tmp_path, default_skin_id=None)
+    library = AzurLaneLibrary(tmp_path)
+
+    character = next(item for item in library.list_characters() if item['character_key'] == 'yuzhang')
+
+    # Without a default skin id any downloaded square icon is still a usable avatar.
+    assert character['icon']['kind'] == 'icon.square'
+    assert character['icon']['available'] is True
+
+
 def _build_service(root: Path) -> FavApiService:
     return FavApiService(
         dsn='postgresql://db.local/fav',
@@ -439,6 +515,8 @@ def test_list_azurlane_sidebar_characters_returns_etagged_light_payload(tmp_path
         'name_zh',
         'name_en',
         'representative_asset',
+        'icon',
+        'source_metadata',
         'model_count',
         'model_counts',
         'source_counts',

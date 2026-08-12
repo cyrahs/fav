@@ -4,9 +4,12 @@ import asyncio
 import hashlib
 import json
 import os
+import random
 import secrets
 import shutil
 import tempfile
+import threading
+import time
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -22,6 +25,7 @@ from src.tool import database
 from src.tool.azurlane_l2d_sources import (
     DEFAULT_USER_AGENT,
     L2D_SU_PRIMARY_REGION,
+    L2D_SU_REFERER,
     L2D_SU_STATIC_BASE_URL,
     AzurLaneEnumeratedResource,
     AzurLaneModelCatalog,
@@ -32,6 +36,7 @@ from src.tool.azurlane_l2d_sources import (
     ModelEntry,
     SourceSchemaError,
     apply_l2d_su_model_paths,
+    apply_l2d_su_ship_classes,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     enumerate_azurlane_model_resources,
@@ -53,11 +58,19 @@ log = logger.get('azurlane')
 
 _SECOND_FAILURE_COUNT = 2
 _API_REQUEST_INTERVAL_SECONDS = 0.5
-# The l2d.su origin throttles aggressively and bans source IPs; its CDN (static.l2d.su) does not.
-_ORIGIN_REQUEST_INTERVAL_SECONDS = 12.0
+# The l2d.su origin bans source IPs outright; its CDN (static.l2d.su) does not. Every l2d.su
+# origin request (the mandatory index fetch and the detail backfill alike) is spaced by this
+# interval plus jitter. Global, not per-IP: connection recycling already gives each request its
+# own exit, so this paces aggregate load. Overridable from settings.
+_ORIGIN_REQUEST_INTERVAL_SECONDS = 1.0
+# Fraction of the origin interval added as uniform random jitter, so requests are not robotically spaced.
+_ORIGIN_JITTER_FRACTION = 0.25
 # Shared per-run budget for origin detail requests (path repair + detail sync); a full backfill
 # of ~880 ships completes across a few runs at 5 requests/minute.
 _ORIGIN_DETAIL_BUDGET = 300
+# A rotating residential proxy hands out a fresh exit IP per request, and some of those are
+# already blocked, so a failed origin request is usually worth one more try on another exit.
+_ORIGIN_ATTEMPTS = 3
 _CDN_REQUEST_INTERVAL_SECONDS = 0.2
 _CDN_CONCURRENCY = 3
 _ASSET_PROCESS_CONCURRENCY = 3
@@ -264,8 +277,9 @@ class TempBlob:
 
 
 class _RateLimiter:
-    def __init__(self, min_interval_seconds: float) -> None:
+    def __init__(self, min_interval_seconds: float, *, jitter_seconds: float = 0.0) -> None:
         self._min_interval_seconds = min_interval_seconds
+        self._jitter_seconds = jitter_seconds
         self._lock = asyncio.Lock()
         self._last_start = 0.0
 
@@ -274,11 +288,38 @@ class _RateLimiter:
             return
         async with self._lock:
             loop = asyncio.get_running_loop()
-            now = loop.time()
-            delay = self._min_interval_seconds - (now - self._last_start)
+            target = self._min_interval_seconds + (random.uniform(0, self._jitter_seconds) if self._jitter_seconds > 0 else 0)  # noqa: S311
+            delay = target - (loop.time() - self._last_start)
             if delay > 0:
                 await asyncio.sleep(delay)
             self._last_start = loop.time()
+
+    def note_request(self) -> None:
+        """Record that an origin request just happened elsewhere, so the next wait() spaces from now."""
+        if self._min_interval_seconds <= 0:
+            return
+        with suppress(RuntimeError):
+            self._last_start = asyncio.get_running_loop().time()
+
+
+class _SourceRateLimiter:
+    """Synchronous sibling of _RateLimiter for the index fetch, which runs in a worker thread."""
+
+    def __init__(self, min_interval_seconds: float, *, jitter_seconds: float = 0.0) -> None:
+        self._min_interval_seconds = min_interval_seconds
+        self._jitter_seconds = jitter_seconds
+        self._lock = threading.Lock()
+        self._last_start = 0.0
+
+    def wait(self) -> None:
+        if self._min_interval_seconds <= 0:
+            return
+        with self._lock:
+            target = self._min_interval_seconds + (random.uniform(0, self._jitter_seconds) if self._jitter_seconds > 0 else 0)  # noqa: S311
+            delay = target - (time.monotonic() - self._last_start)
+            if delay > 0:
+                time.sleep(delay)
+            self._last_start = time.monotonic()
 
 
 class _CircuitBreaker:
@@ -535,9 +576,19 @@ def _assets_from_enumeration(enumeration: AzurLaneModelResourceEnumeration) -> d
 
 
 def _merge_character_metadata(metadata: dict[str, Any], character: ModelCharacter) -> None:
-    for key, value in (('nation', character.nation), ('ship_type', character.ship_type), ('rarity', character.rarity)):
+    text_fields = (
+        ('nation', character.nation),
+        ('ship_type', character.ship_type),
+        ('rarity', character.rarity),
+        ('class_name', character.class_name),
+    )
+    for key, value in text_fields:
         if value and not metadata.get(key):
             metadata[key] = value
+    if character.default_skin_id is not None and not metadata.get('default_skin_id'):
+        metadata['default_skin_id'] = character.default_skin_id
+    if character.skin_series and not metadata.get('skin_series'):
+        metadata['skin_series'] = list(character.skin_series)
 
 
 def _primary_source_model_count(snapshots: AzurLaneSourceSnapshots) -> int:
@@ -550,6 +601,15 @@ def _source_snapshot_errors(snapshots: AzurLaneSourceSnapshots) -> tuple[Any, ..
 
 def _source_snapshots_complete(snapshots: AzurLaneSourceSnapshots) -> bool:
     return not _source_snapshot_errors(snapshots) and _primary_source_model_count(snapshots) > 0
+
+
+def _source_failure_message(snapshots: AzurLaneSourceSnapshots, catalog: AzurLaneModelCatalog) -> str:
+    """Why a run refused to touch the catalog, always naming the source that failed."""
+    reason = 'source catalog returned no model entries' if not catalog.entries else 'source snapshots incomplete'
+    errors = _source_snapshot_errors(snapshots)
+    detail = '; '.join(f'{error.url} {error.kind}: {error.message}' for error in errors[:3])
+    message = f'Azur Lane {reason}; preserving existing catalog state'
+    return f'{message}: {detail}' if detail else message
 
 
 def _row_text(row: dict[str, Any], key: str) -> str:
@@ -805,24 +865,40 @@ class AzurLane:
         path: Path | None = None,
         client: httpx.AsyncClient | None = None,
         source_client: httpx.Client | None = None,
+        origin_client: httpx.AsyncClient | None = None,
+        origin_source_client: httpx.Client | None = None,
+        origin_proxy: str | None = None,
         source_timeout: float = 30.0,
         api_request_interval_seconds: float = _API_REQUEST_INTERVAL_SECONDS,
         cdn_request_interval_seconds: float = _CDN_REQUEST_INTERVAL_SECONDS,
-        origin_request_interval_seconds: float = _ORIGIN_REQUEST_INTERVAL_SECONDS,
-        origin_detail_budget: int = _ORIGIN_DETAIL_BUDGET,
+        origin_request_interval_seconds: float | None = None,
+        origin_detail_budget: int | None = None,
+        origin_attempts: int = _ORIGIN_ATTEMPTS,
         asset_process_concurrency: int = _ASSET_PROCESS_CONCURRENCY,
     ) -> None:
-        self.path = Path(path or settings.load().web.azurlane.path)
+        config = settings.load().web.azurlane
+        self.path = Path(path or config.path)
         self._client = client
         self._source_client = source_client
+        self._origin_client = origin_client
+        self._origin_source_client = origin_source_client
+        self._origin_proxy = config.origin_proxy if origin_proxy is None else origin_proxy
+        self._origin_attempts = max(1, origin_attempts)
         self._source_timeout = source_timeout
+        if origin_request_interval_seconds is None:
+            origin_request_interval_seconds = config.origin_request_interval_seconds
+        origin_jitter_seconds = origin_request_interval_seconds * _ORIGIN_JITTER_FRACTION
         self._api_limiter = _RateLimiter(api_request_interval_seconds)
         self._cdn_limiter = _RateLimiter(cdn_request_interval_seconds)
-        self._origin_limiter = _RateLimiter(origin_request_interval_seconds)
-        self._origin_detail_budget = origin_detail_budget
+        self._origin_limiter = _RateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
+        self._origin_source_limiter = _SourceRateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
+        self._origin_detail_budget = config.origin_detail_budget if origin_detail_budget is None else origin_detail_budget
         self._origin_detail_spent = 0
         self._ship_model_paths: dict[int, dict[int, str]] = {}
         self._ship_detail_payloads: dict[int, str | None] = {}
+        # Set for the duration of a run; only origin requests use it, so CDN traffic never
+        # touches the proxy even though both share the same call sites.
+        self._active_origin_client: httpx.AsyncClient | None = None
         self._ship_voices: dict[int, dict[int, tuple[L2DSuVoiceLine, ...]]] = {}
         self._character_fingerprints: dict[int, str] = {}
         self._cdn_semaphore = asyncio.Semaphore(_CDN_CONCURRENCY)
@@ -839,14 +915,72 @@ class AzurLane:
         async with httpx.AsyncClient(follow_redirects=True, headers=_asset_headers(), timeout=timeout) as client:
             yield client
 
+    @asynccontextmanager
+    async def _origin_http_client(self, fallback: httpx.AsyncClient) -> AsyncIterator[httpx.AsyncClient]:
+        """Client for l2d.su origin requests. Only this one carries the proxy; assets keep using
+        the direct client, since routing gigabytes of CDN traffic through a metered proxy is
+        both wasteful and unnecessary.
+
+        Keep-alive is disabled so every request opens a new connection. An HTTPS request through
+        a proxy runs inside a CONNECT tunnel, and a tunnel is pinned to one exit IP for its whole
+        life, so a reused connection would send the entire backfill through a single address --
+        exactly the pattern that gets an address banned -- and would leave retries stuck on the
+        same failing exit.
+        """
+        if self._origin_client is not None:
+            yield self._origin_client
+            return
+        if not self._origin_proxy:
+            yield fallback
+            return
+
+        timeout = httpx.Timeout(60.0, connect=30.0)
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            headers=_asset_headers(),
+            timeout=timeout,
+            proxy=self._origin_proxy,
+            limits=httpx.Limits(max_keepalive_connections=0),
+        ) as client:
+            yield client
+
     async def _ensure_schema(self) -> None:
         await database.query_db_multi(_CREATE_SCHEMA_SQL)
 
+    def _fetch_source_snapshots_sync(self) -> AzurLaneSourceSnapshots:
+        throttle = self._origin_source_limiter.wait
+        if self._origin_source_client is not None or not self._origin_proxy:
+            return fetch_source_snapshots(
+                timeout=self._source_timeout,
+                client=self._source_client,
+                origin_client=self._origin_source_client,
+                origin_throttle=throttle,
+            )
+
+        headers = {'Accept': 'application/json, text/javascript, */*', 'Referer': L2D_SU_REFERER, 'User-Agent': DEFAULT_USER_AGENT}
+        with httpx.Client(
+            follow_redirects=True,
+            timeout=self._source_timeout,
+            headers=headers,
+            proxy=self._origin_proxy,
+            limits=httpx.Limits(max_keepalive_connections=0),
+        ) as owned:
+            return fetch_source_snapshots(
+                timeout=self._source_timeout,
+                client=self._source_client,
+                origin_client=owned,
+                origin_throttle=throttle,
+            )
+
     async def _fetch_source_snapshots(self) -> AzurLaneSourceSnapshots:
         await self._api_limiter.wait()
-        if self._source_client is not None:
-            return fetch_source_snapshots(timeout=self._source_timeout, client=self._source_client)
-        return await asyncio.to_thread(fetch_source_snapshots, timeout=self._source_timeout)
+        try:
+            if self._source_client is not None or self._origin_source_client is not None:
+                return self._fetch_source_snapshots_sync()
+            return await asyncio.to_thread(self._fetch_source_snapshots_sync)
+        finally:
+            # Space the first detail request a full interval after the last index request.
+            self._origin_limiter.note_request()
 
     def _write_source_artifacts(self, *, snapshots: AzurLaneSourceSnapshots, catalog: AzurLaneModelCatalog) -> None:
         health_report = build_azurlane_l2d_health_report(snapshots=snapshots, catalog=catalog)
@@ -1491,23 +1625,36 @@ class AzurLane:
     async def _fetch_ship_detail_from_origin(self, *, client: httpx.AsyncClient, ship_id: int) -> str | None:
         if ship_id in self._ship_detail_payloads:
             return self._ship_detail_payloads[ship_id]
-        if self._origin_detail_spent >= self._origin_detail_budget:
-            return None
 
-        self._origin_detail_spent += 1
-        await self._origin_limiter.wait()
+        origin = self._active_origin_client or client
         url = l2d_su_ship_detail_url(ship_id)
-        payload: str | None
+        payload: str | None = None
+        for attempt in range(1, self._origin_attempts + 1):
+            if self._origin_detail_spent >= self._origin_detail_budget:
+                break
+            self._origin_detail_spent += 1
+            await self._origin_limiter.wait()
+            payload = await self._read_ship_detail(client=origin, url=url, attempt=attempt)
+            if payload is not None:
+                break
+
+        self._ship_detail_payloads[ship_id] = payload
+        if payload is not None:
+            await self._store_ship_detail(ship_id=ship_id, payload=payload)
+        return payload
+
+    async def _read_ship_detail(self, *, client: httpx.AsyncClient, url: str, attempt: int) -> str | None:
+        """One origin attempt. Failures are usually a blocked proxy exit, so the caller retries."""
         try:
             response = await client.get(url, headers=_asset_headers())
             response.raise_for_status()
             payload = response.text
-        except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to fetch Azur Lane ship detail from %s: %s', url, exc)
-            payload = None
-        self._ship_detail_payloads[ship_id] = payload
-        if payload is not None:
-            await self._store_ship_detail(ship_id=ship_id, payload=payload)
+            # Reject anti-bot HTML / rate-limit pages before they poison the jsonb column.
+            if not isinstance(json.loads(payload), dict):
+                _raise_invalid_asset_response('ship detail payload is not a JSON object')
+        except (httpx.HTTPError, json.JSONDecodeError, InvalidAssetResponseError) as exc:
+            log.warning('Failed to fetch Azur Lane ship detail from %s (attempt %d): %s', url, attempt, exc)
+            return None
         return payload
 
     async def _store_ship_detail(self, *, ship_id: int, payload: str) -> None:
@@ -1593,6 +1740,19 @@ class AzurLane:
                 log.warning('Failed to parse Azur Lane model paths for ship %d: %s', ship_id, exc)
         self._ship_model_paths[ship_id] = models
         return models
+
+    async def _stored_ship_classes(self) -> dict[int, str]:
+        """Ship class names extracted server-side from stored details; absent until a ship's detail arrives."""
+        rows = await database.query_db(
+            "SELECT ship_group_id, payload->'ship'->>'className' AS class_name FROM azurlane_ship_details;",
+        )
+        classes: dict[int, str] = {}
+        for row in rows:
+            ship_id = _row_int(row, 'ship_group_id')
+            class_name = _row_text(row, 'class_name')
+            if ship_id is not None and class_name:
+                classes[ship_id] = class_name
+        return classes
 
     async def _resolve_model_paths(self, catalog: AzurLaneModelCatalog, *, client: httpx.AsyncClient) -> AzurLaneModelCatalog:
         known = await self._known_model_paths()
@@ -1762,29 +1922,28 @@ class AzurLane:
             snapshots = await self._fetch_source_snapshots()
             catalog = build_azurlane_model_catalog(snapshots)
             self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
-            if not catalog.entries:
-                log.warning('Azur Lane source catalog returned no model entries')
-                return
-            if not _source_snapshots_complete(snapshots):
-                errors = _source_snapshot_errors(snapshots)
-                if errors:
-                    examples = '; '.join(f'{error.url} {error.kind}: {error.message}' for error in errors[:3])
-                    log.warning('Azur Lane source snapshots incomplete; preserving existing catalog state: %s', examples)
-                else:
-                    log.warning('Azur Lane primary source returned no model entries; preserving existing catalog state')
-                return
+            if not catalog.entries or not _source_snapshots_complete(snapshots):
+                # The existing catalog is left untouched, but the run must not report success.
+                # A source that fails quietly is how this crawler sat broken for a month while
+                # every run was recorded as completed.
+                raise CrawlRunError(_source_failure_message(snapshots, catalog))
 
             self._origin_detail_spent = 0
             self._ship_model_paths = {}
             self._ship_detail_payloads = {}
             self._ship_voices = {}
-            async with self._http_client() as client:
-                await self._sync_ship_details(snapshots, client=client)
-                catalog = await self._resolve_model_paths(catalog, client=client)
-                self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
-                await self._upsert_catalog_state(catalog)
-                log.info('Found %d Azur Lane model entries', len(catalog.entries))
-                failed_model_ids = await self.download_models(catalog.entries, client=client)
+            async with self._http_client() as client, self._origin_http_client(client) as origin_client:
+                self._active_origin_client = origin_client
+                try:
+                    await self._sync_ship_details(snapshots, client=client)
+                    catalog = apply_l2d_su_ship_classes(catalog, await self._stored_ship_classes())
+                    catalog = await self._resolve_model_paths(catalog, client=client)
+                    self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
+                    await self._upsert_catalog_state(catalog)
+                    log.info('Found %d Azur Lane model entries', len(catalog.entries))
+                    failed_model_ids = await self.download_models(catalog.entries, client=client)
+                finally:
+                    self._active_origin_client = None
             await self._write_backend_manifests()
             if failed_model_ids:
                 examples = ', '.join(failed_model_ids[:5])

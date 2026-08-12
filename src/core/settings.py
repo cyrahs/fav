@@ -325,6 +325,42 @@ class BD2(ScheduleJob):
 class AzurLane(ScheduleJob):
     path: Path = Path('./collection/azurlane')
     cron: str = '0 */6 * * *'
+    # The l2d.su origin blocks datacenter IPs outright, so its index and per-ship detail
+    # requests can be routed through a proxy. Assets live on a CDN and never use it.
+    origin_proxy: str = ''
+    # Spacing between l2d.su origin requests. With a rotating proxy every request already gets
+    # its own exit IP, so this paces the aggregate load on the origin rather than protecting any
+    # single address. Below the round-trip time (~2s through a proxy) it stops having an effect.
+    origin_request_interval_seconds: float = 1.0
+    # Origin detail requests allowed per run, retries included. Caps the blast radius of a bad
+    # run; raise it to about 900 to finish the ~880-ship backfill in a single run.
+    origin_detail_budget: int = 300
+
+    @field_validator('origin_proxy')
+    @classmethod
+    def normalize_origin_proxy(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('origin_request_interval_seconds')
+    @classmethod
+    def validate_origin_request_interval(cls, value: float) -> float:
+        if value < 0:
+            msg = 'origin_request_interval_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('origin_detail_budget')
+    @classmethod
+    def validate_origin_detail_budget(cls, value: int) -> int:
+        if value < 0:
+            msg = 'origin_detail_budget cannot be negative'
+            raise ValueError(msg)
+        return value
+
+    def validate_runnable(self) -> list[str]:
+        # The l2d.su origin null-routes datacenter IPs, so without a residential proxy the
+        # crawler cannot read the catalog at all and would silently preserve stale state.
+        return [] if self.origin_proxy else ['origin_proxy']
 
 
 class Hanime1RankingDeepScan(BaseModel):
@@ -492,6 +528,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
+    'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),

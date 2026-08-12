@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -89,6 +90,13 @@ class FakeAzurLaneDatabase:
                 and row.get('model_type') != 'painting'
                 and str(row.get('primary_url', '')).startswith(prefix)
             ]
+        if sql.startswith('SELECT ship_group_id, payload->'):
+            rows: list[dict[str, Any]] = []
+            for ship_id, row in sorted(self.ship_details.items()):
+                ship = row.get('payload', {}).get('ship')
+                class_name = ship.get('className') if isinstance(ship, dict) else None
+                rows.append({'ship_group_id': ship_id, 'class_name': class_name})
+            return rows
         if sql.startswith('SELECT ship_group_id, fingerprint FROM azurlane_ship_details'):
             return [
                 {'ship_group_id': ship_id, 'fingerprint': row.get('fingerprint', '')} for ship_id, row in sorted(self.ship_details.items())
@@ -511,6 +519,23 @@ def test_scheduler_registration_includes_azurlane() -> None:
     assert azurlane_job.factory is jobs_module.AzurLane
 
 
+def test_azurlane_job_stays_parked_until_an_origin_proxy_is_configured() -> None:
+    fake_config = settings.Settings()
+    fake_config.web.azurlane.enabled = True
+
+    parked = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'azurlane')
+
+    # Without a proxy the origin is unreachable, so running would only preserve stale state.
+    assert parked.missing_fields == ('origin_proxy',)
+    assert parked.enabled is False
+
+    fake_config.web.azurlane.origin_proxy = 'http://user:pass@proxy.example:8080'
+    ready = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'azurlane')
+
+    assert ready.missing_fields == ()
+    assert ready.enabled is True
+
+
 def test_api_job_enum_includes_azurlane() -> None:
     assert JobRequestTarget.AZURLANE.value == 'azurlane'
 
@@ -879,6 +904,7 @@ def test_azurlane_update_downloads_multi_part_spine_model(tmp_path: Path, monkey
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             asyncio.run(crawler.update())
@@ -941,6 +967,7 @@ def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, 
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             asyncio.run(crawler.update())
@@ -988,6 +1015,7 @@ def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch:
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             with pytest.raises(azurlane_module.CrawlRunError):
@@ -1144,6 +1172,321 @@ def test_azurlane_update_uses_stored_detail_for_voices_without_origin_requests(
     assert (tmp_path / 'javelin - Javelin/assets/painting/javelin/cue/cv-1/detail.ogg').read_bytes() == b'ogg-bytes'
 
 
+def test_azurlane_update_records_list_level_character_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    swimsuit = _skin(2, '泳装', key='javelin_2')
+    swimsuit['shopTypeName'] = 'Swimsuits'
+    ship = _ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin'), swimsuit])
+    ship['defaultSkinId'] = 1
+    catalog = _ship_index_payload([ship])
+    _seed_ship_detail(fake_db, catalog, payload={'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url.endswith('.model3.json'):
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        return httpx.Response(200, content=b'bytes', headers={'content-type': 'application/octet-stream'})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    metadata = fake_db.characters['javelin']['source_metadata']
+    assert metadata['class_name'] == 'J Class'  # detail-only field, recovered from the stored payload
+    assert metadata['default_skin_id'] == 1
+    assert metadata['skin_series'] == ['Skin', 'Swimsuits']
+
+
+def _origin_split_handlers(
+    catalog: str,
+    *,
+    detail_payload: str,
+    origin_urls: list[str],
+    direct_urls: list[str],
+    origin_failures: int = 0,
+) -> tuple[Any, Any]:
+    state = {'failures': origin_failures}
+
+    def origin_handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        origin_urls.append(url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if '/data/ships/' in url:
+            if state['failures'] > 0:
+                state['failures'] -= 1
+                return httpx.Response(503)
+            return httpx.Response(200, text=detail_payload, headers={'content-type': 'application/json'})
+        return httpx.Response(404)
+
+    def direct_handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        direct_urls.append(url)
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url.endswith('.model3.json'):
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        return httpx.Response(200, content=b'bytes', headers={'content-type': 'application/octet-stream'})
+
+    return origin_handler, direct_handler
+
+
+def _run_with_origin_split(tmp_path: Path, origin_handler: Any, direct_handler: Any, **kwargs: Any) -> None:
+    with (
+        httpx.Client(transport=httpx.MockTransport(direct_handler)) as source_client,
+        httpx.Client(transport=httpx.MockTransport(origin_handler)) as origin_source_client,
+    ):
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(direct_handler))
+        origin_client = httpx.AsyncClient(transport=httpx.MockTransport(origin_handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                origin_client=origin_client,
+                origin_source_client=origin_source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+                **kwargs,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+            asyncio.run(origin_client.aclose())
+
+
+def test_azurlane_sends_only_l2d_su_origin_traffic_through_the_origin_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    detail_payload = json.dumps({'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+    origin_urls: list[str] = []
+    direct_urls: list[str] = []
+    origin_handler, direct_handler = _origin_split_handlers(
+        catalog,
+        detail_payload=detail_payload,
+        origin_urls=origin_urls,
+        direct_urls=direct_urls,
+    )
+
+    _run_with_origin_split(tmp_path, origin_handler, direct_handler)
+
+    # The origin client carries l2d.su and nothing else: routing CDN assets through a metered
+    # proxy would multiply its bandwidth by orders of magnitude.
+    assert origin_urls, 'expected the origin client to be used'
+    assert all(url.startswith('https://l2d.su/') for url in origin_urls)
+    assert not [url for url in direct_urls if url.startswith('https://l2d.su/')]
+    assert _PRIMARY_INDEX_URL in origin_urls
+    assert NAGAMI_MAPPING_URL in direct_urls
+    assert [url for url in direct_urls if url.startswith(L2D_SU_STATIC_BASE_URL)]
+
+
+def test_azurlane_retries_ship_detail_on_another_proxy_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    detail_payload = json.dumps({'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+    origin_urls: list[str] = []
+    direct_urls: list[str] = []
+    origin_handler, direct_handler = _origin_split_handlers(
+        catalog,
+        detail_payload=detail_payload,
+        origin_urls=origin_urls,
+        direct_urls=direct_urls,
+        origin_failures=2,
+    )
+
+    _run_with_origin_split(tmp_path, origin_handler, direct_handler)
+
+    # Two exits refused before a third served the payload; the detail still lands.
+    expected_attempts = 3
+    detail_requests = [url for url in origin_urls if '/data/ships/' in url]
+    assert len(detail_requests) == expected_attempts
+    assert fake_db.ship_details[1]['payload']['ship']['className'] == 'J Class'
+
+
+def test_azurlane_gives_up_on_ship_detail_after_the_attempt_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    origin_urls: list[str] = []
+    direct_urls: list[str] = []
+    origin_handler, direct_handler = _origin_split_handlers(
+        catalog,
+        detail_payload='',
+        origin_urls=origin_urls,
+        direct_urls=direct_urls,
+        origin_failures=99,
+    )
+
+    _run_with_origin_split(tmp_path, origin_handler, direct_handler, origin_attempts=2)
+
+    # A ship whose detail never arrives must not block the rest of the run.
+    configured_attempts = 2
+    assert len([url for url in origin_urls if '/data/ships/' in url]) == configured_attempts
+    assert fake_db.ship_details == {}
+    assert fake_db.models['azurlane:painting:javelin:javelin']['completed'] is True
+
+
+def test_azurlane_origin_client_disables_connection_reuse(tmp_path: Path) -> None:
+    crawler = AzurLane(path=tmp_path, origin_proxy='http://user:pass@proxy.example:8080')
+
+    async def check() -> None:
+        async with crawler._http_client() as direct, crawler._origin_http_client(direct) as origin:
+            assert origin is not direct
+            # Reaching into httpx internals because keep-alive has no public accessor, and the
+            # invariant matters: an HTTPS request through a proxy lives in a CONNECT tunnel that
+            # is pinned to one exit IP, so a reused connection would push the whole backfill
+            # through a single address and leave retries stuck on the same failing exit.
+            assert origin._transport._pool._max_keepalive_connections == 0
+            assert direct._transport._pool._max_keepalive_connections > 0
+
+    asyncio.run(check())
+
+
+def test_azurlane_origin_client_is_the_direct_client_when_no_proxy_is_configured(tmp_path: Path) -> None:
+    crawler = AzurLane(path=tmp_path, origin_proxy='')
+
+    async def check() -> None:
+        async with crawler._http_client() as direct, crawler._origin_http_client(direct) as origin:
+            assert origin is direct
+
+    asyncio.run(check())
+
+
+def test_azurlane_reads_the_origin_request_interval_from_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    configured_interval = 7.5
+    configured_budget = 42
+    config = settings.Settings()
+    config.web.azurlane.origin_request_interval_seconds = configured_interval
+    config.web.azurlane.origin_detail_budget = configured_budget
+    monkeypatch.setattr(azurlane_module.settings, 'load', lambda: config)
+
+    crawler = AzurLane(path=tmp_path)
+
+    # One limiter shared by every origin request: the pacing is global, not per exit IP.
+    assert crawler._origin_limiter._min_interval_seconds == configured_interval
+    assert crawler._origin_source_limiter._min_interval_seconds == configured_interval
+    assert crawler._origin_detail_budget == configured_budget
+
+
+def test_azurlane_index_requests_pass_through_the_origin_throttle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    _seed_ship_detail(fake_db, catalog)
+    throttle_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == _live2d_url('javelin'):
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        return httpx.Response(200, content=b'bytes', headers={'content-type': 'application/octet-stream'})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            original = crawler._origin_source_limiter.wait
+
+            def counting_wait() -> None:
+                nonlocal throttle_calls
+                throttle_calls += 1
+                original()
+
+            crawler._origin_source_limiter.wait = counting_wait  # type: ignore[method-assign]
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    # One throttle acquisition per l2d.su origin index request (CN + EN); nagami (CDN) is not throttled.
+    expected_index_requests = 2
+    assert throttle_calls == expected_index_requests
+
+
+def test_source_rate_limiter_spaces_successive_requests() -> None:
+    interval = 0.05
+    limiter = azurlane_module._SourceRateLimiter(interval, jitter_seconds=0.0)
+    start = time.monotonic()
+    limiter.wait()  # first call returns immediately
+    limiter.wait()  # second call waits one interval
+    assert time.monotonic() - start >= interval
+
+
+def test_azurlane_update_fails_loudly_when_the_catalog_comes_back_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: an empty catalog used to return early, hiding which source had failed.
+
+    That is the branch this crawler sat in for two weeks -- nagami's hash-versioned bundle URL
+    had died, emptying the catalog, which returned before the l2d.su error was ever logged.
+    """
+    _install_fake_database(monkeypatch)
+    empty_catalog = _ship_index_payload([])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(empty_catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(404)
+        pytest.fail(reason='no asset download should run without a catalog')
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        crawler = AzurLane(
+            path=tmp_path,
+            source_client=source_client,
+            api_request_interval_seconds=0,
+            cdn_request_interval_seconds=0,
+            origin_request_interval_seconds=0,
+            asset_process_concurrency=1,
+        )
+        with pytest.raises(azurlane_module.CrawlRunError, match='no model entries') as failure:
+            asyncio.run(crawler.update())
+
+    assert NAGAMI_MAPPING_URL in str(failure.value)
+
+
 def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1194,10 +1537,16 @@ def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplet
             source_client=source_client,
             api_request_interval_seconds=0,
             cdn_request_interval_seconds=0,
+            origin_request_interval_seconds=0,
             asset_process_concurrency=1,
         )
-        asyncio.run(crawler.update())
+        # The catalog is preserved, but the run reports failure: a source that fails quietly
+        # is how this crawler stayed broken for a month with every run recorded as completed.
+        with pytest.raises(azurlane_module.CrawlRunError, match='preserving existing catalog state') as failure:
+            asyncio.run(crawler.update())
 
+    # The message names the source that actually failed, so the log says what to fix.
+    assert NAGAMI_MAPPING_URL in str(failure.value)
     assert source_urls == [_PRIMARY_INDEX_URL, _ENGLISH_INDEX_URL, NAGAMI_MAPPING_URL]
     assert fake_db.schema_created is True
     assert fake_db.characters['javelin']['active'] is True

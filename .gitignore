@@ -22,3 +22,10 @@ web/*.tsbuildinfo
 # No longer read by the app; kept ignored so a leftover copy with real secrets
 # can never be committed while migrating its values into the web UI.
 config.toml
+
+# Local proxy credentials for l2d.su origin testing
+.decodo-test.env
+.dataimpulse-test.env
+.decodo-datacenter.env
+.dataimpulse-global.env
+.decodo-global.env
