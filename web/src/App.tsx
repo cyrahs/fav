@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { clearToken, getToken, onUnauthorized, setToken, verifyToken } from './api/client';
+import { TOKEN_TTL_DAYS, clearToken, getToken, onUnauthorized, setToken, verifyToken } from './api/client';
 import { Logo } from './components/Logo';
 import { JobsPage } from './pages/Jobs';
 import { OverviewPage } from './pages/Overview';
@@ -37,7 +37,9 @@ function LoginScreen({ onAuthenticated }: { onAuthenticated: () => void }) {
           <Logo size={22} />
           fav 管理
         </h1>
-        <p className="muted">输入部署的 API_TOKEN。它只保存在本标签页的 sessionStorage 中。</p>
+        <p className="muted">
+          输入部署的 API_TOKEN。它保存在本浏览器中，{TOKEN_TTL_DAYS} 天内（持续使用则顺延）无需重复输入，点「退出」立即清除。
+        </p>
         <input
           type="password"
           value={token}

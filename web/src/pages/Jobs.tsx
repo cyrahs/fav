@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Job, JobRequest, ListResponse, SettingsSection } from '../api/types';
 import { CronInput, describeCron } from '../components/CronInput';
+import { sectionLabel } from '../labels';
 
 function StatusPill({ status }: { status: JobRequest['status'] }) {
   return <span className={`pill pill-${status}`}>{status}</span>;
@@ -54,7 +55,7 @@ function JobRow({ job }: { job: Job }) {
   return (
     <tr>
       <td>
-        <strong>{job.name}</strong>
+        <strong>{sectionLabel(job.section, job.name)}</strong>
         <div className="muted mono">{job.key}</div>
         {incomplete && (
           <div className="warn">
