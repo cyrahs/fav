@@ -4,9 +4,12 @@ import asyncio
 import hashlib
 import json
 import os
+import random
 import secrets
 import shutil
 import tempfile
+import threading
+import time
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -54,7 +57,11 @@ log = logger.get('azurlane')
 _SECOND_FAILURE_COUNT = 2
 _API_REQUEST_INTERVAL_SECONDS = 0.5
 # The l2d.su origin throttles aggressively and bans source IPs; its CDN (static.l2d.su) does not.
+# Every l2d.su origin request (the mandatory index fetch and the detail backfill alike) is spaced
+# by this interval plus jitter, keeping the whole run at roughly 5 requests/minute.
 _ORIGIN_REQUEST_INTERVAL_SECONDS = 12.0
+# Fraction of the origin interval added as uniform random jitter, so requests are not robotically spaced.
+_ORIGIN_JITTER_FRACTION = 0.25
 # Shared per-run budget for origin detail requests (path repair + detail sync); a full backfill
 # of ~880 ships completes across a few runs at 5 requests/minute.
 _ORIGIN_DETAIL_BUDGET = 300
@@ -264,8 +271,9 @@ class TempBlob:
 
 
 class _RateLimiter:
-    def __init__(self, min_interval_seconds: float) -> None:
+    def __init__(self, min_interval_seconds: float, *, jitter_seconds: float = 0.0) -> None:
         self._min_interval_seconds = min_interval_seconds
+        self._jitter_seconds = jitter_seconds
         self._lock = asyncio.Lock()
         self._last_start = 0.0
 
@@ -274,11 +282,38 @@ class _RateLimiter:
             return
         async with self._lock:
             loop = asyncio.get_running_loop()
-            now = loop.time()
-            delay = self._min_interval_seconds - (now - self._last_start)
+            target = self._min_interval_seconds + (random.uniform(0, self._jitter_seconds) if self._jitter_seconds > 0 else 0)  # noqa: S311
+            delay = target - (loop.time() - self._last_start)
             if delay > 0:
                 await asyncio.sleep(delay)
             self._last_start = loop.time()
+
+    def note_request(self) -> None:
+        """Record that an origin request just happened elsewhere, so the next wait() spaces from now."""
+        if self._min_interval_seconds <= 0:
+            return
+        with suppress(RuntimeError):
+            self._last_start = asyncio.get_running_loop().time()
+
+
+class _SourceRateLimiter:
+    """Synchronous sibling of _RateLimiter for the index fetch, which runs in a worker thread."""
+
+    def __init__(self, min_interval_seconds: float, *, jitter_seconds: float = 0.0) -> None:
+        self._min_interval_seconds = min_interval_seconds
+        self._jitter_seconds = jitter_seconds
+        self._lock = threading.Lock()
+        self._last_start = 0.0
+
+    def wait(self) -> None:
+        if self._min_interval_seconds <= 0:
+            return
+        with self._lock:
+            target = self._min_interval_seconds + (random.uniform(0, self._jitter_seconds) if self._jitter_seconds > 0 else 0)  # noqa: S311
+            delay = target - (time.monotonic() - self._last_start)
+            if delay > 0:
+                time.sleep(delay)
+            self._last_start = time.monotonic()
 
 
 class _CircuitBreaker:
@@ -816,9 +851,11 @@ class AzurLane:
         self._client = client
         self._source_client = source_client
         self._source_timeout = source_timeout
+        origin_jitter_seconds = origin_request_interval_seconds * _ORIGIN_JITTER_FRACTION
         self._api_limiter = _RateLimiter(api_request_interval_seconds)
         self._cdn_limiter = _RateLimiter(cdn_request_interval_seconds)
-        self._origin_limiter = _RateLimiter(origin_request_interval_seconds)
+        self._origin_limiter = _RateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
+        self._origin_source_limiter = _SourceRateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
         self._origin_detail_budget = origin_detail_budget
         self._origin_detail_spent = 0
         self._ship_model_paths: dict[int, dict[int, str]] = {}
@@ -844,9 +881,14 @@ class AzurLane:
 
     async def _fetch_source_snapshots(self) -> AzurLaneSourceSnapshots:
         await self._api_limiter.wait()
-        if self._source_client is not None:
-            return fetch_source_snapshots(timeout=self._source_timeout, client=self._source_client)
-        return await asyncio.to_thread(fetch_source_snapshots, timeout=self._source_timeout)
+        throttle = self._origin_source_limiter.wait
+        try:
+            if self._source_client is not None:
+                return fetch_source_snapshots(timeout=self._source_timeout, client=self._source_client, origin_throttle=throttle)
+            return await asyncio.to_thread(fetch_source_snapshots, timeout=self._source_timeout, origin_throttle=throttle)
+        finally:
+            # Space the first detail request a full interval after the last index request.
+            self._origin_limiter.note_request()
 
     def _write_source_artifacts(self, *, snapshots: AzurLaneSourceSnapshots, catalog: AzurLaneModelCatalog) -> None:
         health_report = build_azurlane_l2d_health_report(snapshots=snapshots, catalog=catalog)
@@ -1502,7 +1544,10 @@ class AzurLane:
             response = await client.get(url, headers=_asset_headers())
             response.raise_for_status()
             payload = response.text
-        except Exception as exc:  # noqa: BLE001
+            # Reject anti-bot HTML / rate-limit pages before they poison the jsonb column.
+            if not isinstance(json.loads(payload), dict):
+                _raise_invalid_asset_response('ship detail payload is not a JSON object')
+        except (httpx.HTTPError, json.JSONDecodeError, InvalidAssetResponseError) as exc:
             log.warning('Failed to fetch Azur Lane ship detail from %s: %s', url, exc)
             payload = None
         self._ship_detail_payloads[ship_id] = payload
