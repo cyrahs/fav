@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import pytest
 
-from src.web.nikke_layer_metadata import live2d_layer_fingerprint
+from src.web.nikke_layer_metadata import RUNTIME_ANIMATION_CAPTURE_SCHEMA, live2d_layer_fingerprint
 
 CONTENT_ID = 711133
 SECOND_CONTENT_ID = 711134
@@ -61,10 +61,31 @@ def _write_character(root: Path, *, content_id: int = CONTENT_ID, models: list[d
     (root / 'character.json').write_text(json.dumps(payload), encoding='utf-8')
 
 
+def _runtime_animations() -> dict[str, Any]:
+    return {
+        'idle': {
+            'animation': 'idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+        },
+        'click': {
+            'animation': 'action',
+            'enabled': True,
+            'loop': False,
+            'match_method': 'gamekee-runtime-player-event',
+            'match_confidence': 'high',
+            'duration_ms': 1200,
+        },
+    }
+
+
 def _success_capture(content_id: int, models: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         'content_id': content_id,
         'status': 'success',
+        'layer_capture_schema': RUNTIME_ANIMATION_CAPTURE_SCHEMA,
         'fingerprint': live2d_layer_fingerprint(content_id, models),
         'layers': [
             {
@@ -75,6 +96,7 @@ def _success_capture(content_id: int, models: list[dict[str, Any]]) -> dict[str,
                 'source_layer_index': 0,
                 'is_primary': True,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations(),
             },
             {
                 'stable_id': 'stable-back',
@@ -84,6 +106,7 @@ def _success_capture(content_id: int, models: list[dict[str, Any]]) -> dict[str,
                 'source_layer_index': 1,
                 'is_primary': False,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations(),
             },
         ],
     }

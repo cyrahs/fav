@@ -248,10 +248,31 @@ def _runtime_reverse_bind() -> dict[str, str]:
     }
 
 
+def _runtime_animations() -> dict[str, object]:
+    return {
+        'idle': {
+            'animation': 'idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+        },
+        'click': {
+            'animation': 'action',
+            'enabled': True,
+            'loop': False,
+            'match_method': 'gamekee-runtime-player-event',
+            'match_confidence': 'high',
+            'duration_ms': 1200,
+        },
+    }
+
+
 def _runtime_capture_payload(content_id: int, models: list[dict[str, object]]) -> dict[str, object]:
     return {
         'content_id': content_id,
         'status': 'success',
+        'layer_capture_schema': layer_metadata_module.RUNTIME_ANIMATION_CAPTURE_SCHEMA,
         'fingerprint': live2d_layer_fingerprint(content_id, models),
         'layers': [
             {
@@ -262,6 +283,7 @@ def _runtime_capture_payload(content_id: int, models: list[dict[str, object]]) -
                 'source_layer_index': 0,
                 'is_primary': True,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations(),
             },
             {
                 'stable_id': 'stable-back',
@@ -271,6 +293,7 @@ def _runtime_capture_payload(content_id: int, models: list[dict[str, object]]) -
                 'source_layer_index': 1,
                 'is_primary': False,
                 'layer_match_confidence': 'high',
+                'runtime_animations': _runtime_animations(),
             },
         ],
     }
