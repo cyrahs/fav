@@ -90,6 +90,13 @@ class FakeAzurLaneDatabase:
                 and row.get('model_type') != 'painting'
                 and str(row.get('primary_url', '')).startswith(prefix)
             ]
+        if sql.startswith('SELECT ship_group_id, payload->'):
+            rows: list[dict[str, Any]] = []
+            for ship_id, row in sorted(self.ship_details.items()):
+                ship = row.get('payload', {}).get('ship')
+                class_name = ship.get('className') if isinstance(ship, dict) else None
+                rows.append({'ship_group_id': ship_id, 'class_name': class_name})
+            return rows
         if sql.startswith('SELECT ship_group_id, fingerprint FROM azurlane_ship_details'):
             return [
                 {'ship_group_id': ship_id, 'fingerprint': row.get('fingerprint', '')} for ship_id, row in sorted(self.ship_details.items())
@@ -1146,6 +1153,51 @@ def test_azurlane_update_uses_stored_detail_for_voices_without_origin_requests(
 
     assert not [entry for entry in requested if '/data/ships/' in entry]
     assert (tmp_path / 'javelin - Javelin/assets/painting/javelin/cue/cv-1/detail.ogg').read_bytes() == b'ogg-bytes'
+
+
+def test_azurlane_update_records_list_level_character_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    swimsuit = _skin(2, '泳装', key='javelin_2')
+    swimsuit['shopTypeName'] = 'Swimsuits'
+    ship = _ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin'), swimsuit])
+    ship['defaultSkinId'] = 1
+    catalog = _ship_index_payload([ship])
+    _seed_ship_detail(fake_db, catalog, payload={'ship': {'shipGroupId': 1, 'className': 'J Class', 'skins': []}})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url.endswith('.model3.json'):
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        return httpx.Response(200, content=b'bytes', headers={'content-type': 'application/octet-stream'})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    metadata = fake_db.characters['javelin']['source_metadata']
+    assert metadata['class_name'] == 'J Class'  # detail-only field, recovered from the stored payload
+    assert metadata['default_skin_id'] == 1
+    assert metadata['skin_series'] == ['Skin', 'Swimsuits']
 
 
 def test_azurlane_index_requests_pass_through_the_origin_throttle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

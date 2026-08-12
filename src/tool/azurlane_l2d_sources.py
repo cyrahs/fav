@@ -146,6 +146,7 @@ class L2DSuModelSnapshot:
     square_icon: str = ''
     shipyard_icon: str = ''
     q_icon: str = ''
+    shop_type: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +158,8 @@ class L2DSuCharacterSnapshot:
     nation: str = ''
     ship_type: str = ''
     rarity: str = ''
+    default_skin_id: int | None = None
+    skin_series: tuple[str, ...] = ()
     live2d: tuple[L2DSuModelSnapshot, ...] = ()
     spine: tuple[L2DSuModelSnapshot, ...] = ()
     paintings: tuple[L2DSuModelSnapshot, ...] = ()
@@ -282,6 +285,9 @@ class ModelCharacter:
     nation: str = ''
     ship_type: str = ''
     rarity: str = ''
+    class_name: str = ''
+    default_skin_id: int | None = None
+    skin_series: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +303,7 @@ class ModelCostume:
     square_icon: str = ''
     shipyard_icon: str = ''
     q_icon: str = ''
+    shop_type: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -775,6 +782,34 @@ def model_probe_urls(entry: ModelEntry) -> tuple[str, ...]:
         return (entry.resources.primary_url,)
     manifest = spine_resource_manifest(entry.resources.primary_url)
     return (manifest.parts[0].skeleton_url, spine_parts_manifest_url(entry.resources.primary_url))
+
+
+def parse_l2d_su_ship_class(source: str) -> str:
+    """Ship class name from a per-ship detail payload; the index does not carry it."""
+    payload = _decode_json_object(source, context='l2d.su ship detail')
+    ship = payload.get('ship')
+    if not isinstance(ship, dict):
+        msg = 'l2d.su ship detail must contain a ship object'
+        raise SourceSchemaError(msg)
+    return _optional_str(ship, 'className')
+
+
+def apply_l2d_su_ship_classes(catalog: AzurLaneModelCatalog, classes: Mapping[int, str]) -> AzurLaneModelCatalog:
+    """Attach ship class names, which are only available from the per-ship detail endpoint."""
+    if not classes:
+        return catalog
+
+    entries = tuple(_entry_with_ship_class(entry, classes) for entry in catalog.entries)
+    return replace(catalog, entries=entries)
+
+
+def _entry_with_ship_class(entry: ModelEntry, classes: Mapping[int, str]) -> ModelEntry:
+    if entry.character.id is None:
+        return entry
+    class_name = classes.get(entry.character.id)
+    if not class_name or class_name == entry.character.class_name:
+        return entry
+    return replace(entry, character=replace(entry.character, class_name=class_name))
 
 
 def apply_l2d_su_model_paths(catalog: AzurLaneModelCatalog, paths: Mapping[int, str]) -> AzurLaneModelCatalog:
@@ -2265,6 +2300,8 @@ def _l2d_su_entry(
                 nation=character.nation,
                 ship_type=character.ship_type,
                 rarity=character.rarity,
+                default_skin_id=character.default_skin_id,
+                skin_series=character.skin_series,
             ),
             costume=ModelCostume(
                 id=model.costume_id,
@@ -2278,6 +2315,7 @@ def _l2d_su_entry(
                 square_icon=model.square_icon,
                 shipyard_icon=model.shipyard_icon,
                 q_icon=model.q_icon,
+                shop_type=model.shop_type,
             ),
             resources=ModelResources(primary_url=model.path, fallback_url=fallback_url),
         ),
@@ -2501,6 +2539,7 @@ def _parse_l2d_su_ship(item: Any, *, index: int) -> L2DSuCharacterSnapshot:
         raise SourceSchemaError(msg)
 
     models = _parse_l2d_su_skins(item, context=context)
+    default_skin_id = item.get('defaultSkinId')
     return L2DSuCharacterSnapshot(
         char_id=_required_int(item, 'shipGroupId', context=context),
         char_key=_required_str(item, 'resourceKey', context=context),
@@ -2509,10 +2548,29 @@ def _parse_l2d_su_ship(item: Any, *, index: int) -> L2DSuCharacterSnapshot:
         nation=_optional_str(item, 'nationName'),
         ship_type=_optional_str(item, 'typeName'),
         rarity=_optional_str(item, 'rarityName'),
+        default_skin_id=default_skin_id if isinstance(default_skin_id, int) and not isinstance(default_skin_id, bool) else None,
+        skin_series=_l2d_su_skin_series(item),
         live2d=tuple(model for model in models if model.kind == 'live2d'),
         spine=tuple(model for model in models if model.kind == 'spine'),
         paintings=tuple(model for model in models if model.kind == 'painting'),
     )
+
+
+def _l2d_su_skin_series(item: dict[str, Any]) -> tuple[str, ...]:
+    """Skin series labels for a ship, matching the values in the index's filters.skinSeries."""
+    skins = item.get('skins')
+    if not isinstance(skins, list):
+        return ()
+
+    series: list[str] = []
+    for skin in skins:
+        if not isinstance(skin, dict):
+            continue
+        # l2d.su labels a skin by its shop series, falling back to the skin type for shopless skins.
+        label = _optional_str(skin, 'shopTypeName') or _optional_str(skin, 'skinTypeName')
+        if label and label not in series:
+            series.append(label)
+    return tuple(series)
 
 
 def _parse_l2d_su_skins(item: dict[str, Any], *, context: str) -> tuple[L2DSuModelSnapshot, ...]:
@@ -2559,6 +2617,7 @@ def _l2d_su_skin_snapshot(skin: dict[str, Any], *, kind: L2DSuModelKind, model_k
         square_icon=_optional_str(icons, 'squareIcon'),
         shipyard_icon=_optional_str(icons, 'shipyardIcon'),
         q_icon=_optional_str(icons, 'qIcon'),
+        shop_type=_optional_str(skin, 'shopTypeName'),
     )
 
 

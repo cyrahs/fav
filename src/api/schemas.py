@@ -228,6 +228,7 @@ class AzurLaneCharacterSummary(ApiSchema):
     source_counts: dict[str, int] = Field(default_factory=dict)
     tags: dict[str, str] = Field(default_factory=dict)
     representative_asset: AzurLaneAsset | None = None
+    icon: AzurLaneAsset | None = None
     model_count: int = 0
 
 
@@ -245,6 +246,8 @@ class AzurLaneSidebarCharacter(ApiSchema):
     name_zh: str = ''
     name_en: str = ''
     representative_asset: AzurLaneAsset | None = None
+    icon: AzurLaneAsset | None = None
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
     model_count: int = 0
     model_counts: dict[str, int] = Field(default_factory=dict)
     source_counts: dict[str, int] = Field(default_factory=dict)

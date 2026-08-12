@@ -35,6 +35,7 @@ from src.tool.azurlane_l2d_sources import (
     ModelEntry,
     SourceSchemaError,
     apply_l2d_su_model_paths,
+    apply_l2d_su_ship_classes,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     enumerate_azurlane_model_resources,
@@ -570,9 +571,19 @@ def _assets_from_enumeration(enumeration: AzurLaneModelResourceEnumeration) -> d
 
 
 def _merge_character_metadata(metadata: dict[str, Any], character: ModelCharacter) -> None:
-    for key, value in (('nation', character.nation), ('ship_type', character.ship_type), ('rarity', character.rarity)):
+    text_fields = (
+        ('nation', character.nation),
+        ('ship_type', character.ship_type),
+        ('rarity', character.rarity),
+        ('class_name', character.class_name),
+    )
+    for key, value in text_fields:
         if value and not metadata.get(key):
             metadata[key] = value
+    if character.default_skin_id is not None and not metadata.get('default_skin_id'):
+        metadata['default_skin_id'] = character.default_skin_id
+    if character.skin_series and not metadata.get('skin_series'):
+        metadata['skin_series'] = list(character.skin_series)
 
 
 def _primary_source_model_count(snapshots: AzurLaneSourceSnapshots) -> int:
@@ -1639,6 +1650,19 @@ class AzurLane:
         self._ship_model_paths[ship_id] = models
         return models
 
+    async def _stored_ship_classes(self) -> dict[int, str]:
+        """Ship class names extracted server-side from stored details; absent until a ship's detail arrives."""
+        rows = await database.query_db(
+            "SELECT ship_group_id, payload->'ship'->>'className' AS class_name FROM azurlane_ship_details;",
+        )
+        classes: dict[int, str] = {}
+        for row in rows:
+            ship_id = _row_int(row, 'ship_group_id')
+            class_name = _row_text(row, 'class_name')
+            if ship_id is not None and class_name:
+                classes[ship_id] = class_name
+        return classes
+
     async def _resolve_model_paths(self, catalog: AzurLaneModelCatalog, *, client: httpx.AsyncClient) -> AzurLaneModelCatalog:
         known = await self._known_model_paths()
         resolved: dict[int, str] = {}
@@ -1825,6 +1849,7 @@ class AzurLane:
             self._ship_voices = {}
             async with self._http_client() as client:
                 await self._sync_ship_details(snapshots, client=client)
+                catalog = apply_l2d_su_ship_classes(catalog, await self._stored_ship_classes())
                 catalog = await self._resolve_model_paths(catalog, client=client)
                 self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
                 await self._upsert_catalog_state(catalog)
