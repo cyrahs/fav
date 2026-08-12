@@ -18,7 +18,15 @@ import src.web.azurlane as azurlane_module
 from src.api.schemas import JobRequestTarget
 from src.core import settings
 from src.core.settings import AzurLane as AzurLaneConfig
-from src.tool.azurlane_l2d_sources import L2D_SU_CATALOG_URL, NAGAMI_MAPPING_BUNDLE_URL
+from src.tool.azurlane_l2d_sources import (
+    L2D_SU_ENGLISH_REGION,
+    L2D_SU_PRIMARY_REGION,
+    L2D_SU_STATIC_BASE_URL,
+    NAGAMI_MAPPING_URL,
+    l2d_su_character_fingerprint,
+    l2d_su_ship_index_url,
+    parse_l2d_su_ship_index,
+)
 from src.web import AzurLane
 
 if TYPE_CHECKING:
@@ -33,6 +41,7 @@ class FakeAzurLaneDatabase:
         self.assets: dict[str, dict[str, Any]] = {}
         self.blobs: dict[tuple[str, int], dict[str, Any]] = {}
         self.model_assets: list[dict[str, Any]] = []
+        self.ship_details: dict[int, dict[str, Any]] = {}
         self.queries: list[str] = []
 
     @asynccontextmanager
@@ -70,6 +79,35 @@ class FakeAzurLaneDatabase:
                 for key, row in sorted(self.characters.items())
                 if row.get('active', True)
             ]
+        if sql.startswith('SELECT costume_id, primary_url'):
+            prefix = str(params[0]).rstrip('%')
+            return [
+                {'costume_id': row.get('costume_id'), 'primary_url': row.get('primary_url', '')}
+                for row in self.models.values()
+                if row.get('costume_id') is not None
+                and row.get('completed')
+                and row.get('model_type') != 'painting'
+                and str(row.get('primary_url', '')).startswith(prefix)
+            ]
+        if sql.startswith('SELECT ship_group_id, fingerprint FROM azurlane_ship_details'):
+            return [
+                {'ship_group_id': ship_id, 'fingerprint': row.get('fingerprint', '')} for ship_id, row in sorted(self.ship_details.items())
+            ]
+        if sql.startswith('SELECT payload FROM azurlane_ship_details'):
+            row = self.ship_details.get(int(params[0]))
+            return [{'payload': row.get('payload', {})}] if row else []
+        if sql.startswith('SELECT payload, fetched_at FROM azurlane_ship_details'):
+            row = self.ship_details.get(int(params[0]))
+            return [{'payload': row.get('payload', {}), 'fetched_at': row.get('fetched_at')}] if row else []
+        if 'INSERT INTO azurlane_ship_details' in sql:
+            ship_id, region, fingerprint, payload = params
+            self.ship_details[int(str(ship_id))] = {
+                'ship_group_id': ship_id,
+                'region': region,
+                'fingerprint': fingerprint,
+                'payload': json.loads(str(payload)),
+            }
+            return []
         if sql.startswith('SELECT model_id, model_type, source, character_key'):
             return [
                 {
@@ -303,26 +341,99 @@ class FakeAzurLaneDatabase:
         raise AssertionError(sql)
 
 
+_PRIMARY_INDEX_URL = l2d_su_ship_index_url(L2D_SU_PRIMARY_REGION)
+_ENGLISH_INDEX_URL = l2d_su_ship_index_url(L2D_SU_ENGLISH_REGION)
+
+
 def _job_cfg(*, enabled: bool = True, cron: str = '0 */6 * * *') -> SimpleNamespace:
     return SimpleNamespace(cron=cron, enabled=enabled)
 
 
-def _catalog_payload(characters: list[dict[str, object]]) -> str:
-    return json.dumps(
-        {
-            'Master': [
-                {
-                    'gameId': 1,
-                    'gameName': 'Azur Lane',
-                    'character': characters,
-                },
-            ],
-        },
-    )
+def _ship_index_payload(ships: list[dict[str, object]], *, region: str = L2D_SU_PRIMARY_REGION) -> str:
+    return json.dumps({'locale': region, 'version': '9.7.295', 'ships': ships})
 
 
-def _nagami_bundle(mapping: dict[str, str] | None = None) -> str:
-    return f'const e=JSON.parse(`{json.dumps(mapping or {})}`);export{{e as default}};'
+def _ship(ship_group_id: int, resource_key: str, name: str, *, skins: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        'shipGroupId': ship_group_id,
+        'name': name,
+        'englishName': name,
+        'nationName': 'Royal Navy',
+        'typeName': 'Destroyer',
+        'rarityName': 'SR',
+        'resourceKey': resource_key,
+        'skins': skins,
+    }
+
+
+def _skin(  # noqa: PLR0913
+    skin_id: int,
+    name: str,
+    *,
+    key: str,
+    kind: str = 'live2d',
+    face_ids: list[str] | None = None,
+    icons: bool = False,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        'id': skin_id,
+        'name': name,
+        'skinTypeName': 'Skin',
+        'featureTags': ['spine' if kind == 'spine' else 'Live2D'],
+        'painting': key,
+        'prefab': key,
+        'dynamicType': kind,
+        'isLive2d': kind == 'live2d',
+        'isLive2dPlus': False,
+        'isDynamic': True,
+        'isSpine': kind == 'spine',
+    }
+    if face_ids is not None:
+        payload['paintingFaceIds'] = face_ids
+    if icons:
+        payload['assetPaths'] = {'squareIcon': f'squareicon/{key}', 'shipyardIcon': f'shipyardicon/{key}', 'qIcon': f'qicon/{key}'}
+    return payload
+
+
+def _nagami_mapping_payload(mapping: dict[str, str] | None = None) -> str:
+    return json.dumps(mapping or {})
+
+
+def _live2d_url(key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/live2d/{key}/{key}.model3.json'
+
+
+def _spine_url(key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/spinepainting/{key}'
+
+
+def _painting_url(key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/painting/{key}.webp'
+
+
+def _painting_response(url: str) -> httpx.Response | None:
+    if url.startswith(f'{L2D_SU_STATIC_BASE_URL}/painting/') and url.endswith('.webp'):
+        return httpx.Response(200, content=b'painting-bytes', headers={'content-type': 'image/webp'})
+    return None
+
+
+def _seed_ship_detail(fake_db: FakeAzurLaneDatabase, index_payload: str, *, payload: dict[str, Any] | None = None) -> None:
+    """Store a ship detail row whose fingerprint matches the index, so update() skips the origin fetch."""
+    for character in parse_l2d_su_ship_index(index_payload).characters:
+        fake_db.ship_details[character.char_id] = {
+            'ship_group_id': character.char_id,
+            'region': L2D_SU_PRIMARY_REGION,
+            'fingerprint': l2d_su_character_fingerprint(character),
+            'payload': payload or {'ship': {'shipGroupId': character.char_id, 'skins': []}},
+        }
+
+
+def _source_index_response(payload: str, *, url: str, headers: dict[str, str] | None = None) -> httpx.Response | None:
+    if url == _PRIMARY_INDEX_URL:
+        return httpx.Response(200, text=payload, headers=headers)
+    if url == _ENGLISH_INDEX_URL:
+        return httpx.Response(200, text=payload, headers=headers)
+    return None
 
 
 def _live2d_model3_payload() -> str:
@@ -406,35 +517,21 @@ def test_api_job_enum_includes_azurlane() -> None:
 
 def test_azurlane_update_downloads_live2d_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_db = _install_fake_database(monkeypatch)
-    model3_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
-    moc_url = 'https://static.example/live2d/azurlane/javelin/javelin.moc3'
-    texture_url = 'https://static.example/live2d/azurlane/javelin/textures/texture_00.webp'
-    catalog = _catalog_payload(
-        [
-            {
-                'charId': 1,
-                'charKey': 'javelin',
-                'charName': 'Javelin',
-                'charNameEn': 'Javelin',
-                'live2d': [
-                    {
-                        'costumeId': 1,
-                        'costumeName': 'Default',
-                        'costumeNameEn': 'Default',
-                        'path': model3_url,
-                    },
-                ],
-                'spine': [],
-            },
-        ],
-    )
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         url = str(request.url)
-        if url == L2D_SU_CATALOG_URL:
-            return httpx.Response(200, text=catalog)
-        if url == NAGAMI_MAPPING_BUNDLE_URL:
-            return httpx.Response(200, text=_nagami_bundle())
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
         if url == model3_url:
             return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
         if url == moc_url:
@@ -453,6 +550,7 @@ def test_azurlane_update_downloads_live2d_assets(tmp_path: Path, monkeypatch: py
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             asyncio.run(crawler.update())
@@ -463,45 +561,159 @@ def test_azurlane_update_downloads_live2d_assets(tmp_path: Path, monkeypatch: py
     assert fake_db.schema_created is True
     assert fake_db.characters['javelin']['active'] is True
     assert fake_db.models['azurlane:live2d:javelin:javelin']['completed'] is True
+    assert fake_db.models['azurlane:painting:javelin:javelin']['completed'] is True
     assert (root / 'assets/live2d/javelin/javelin.model3.json').exists()
     assert (root / 'assets/live2d/javelin/javelin.moc3').read_bytes() == b'moc-bytes'
     assert (root / 'assets/live2d/javelin/textures/texture_00.webp').read_bytes() == b'webp-bytes'
-    assert {row['kind'] for row in fake_db.model_assets} == {'live2d.model3', 'live2d.moc3', 'live2d.texture'}
+    assert (root / 'assets/painting/javelin/javelin.webp').read_bytes() == b'painting-bytes'
+    assert {row['kind'] for row in fake_db.model_assets} == {'live2d.model3', 'live2d.moc3', 'live2d.texture', 'painting.image'}
     assert fake_db.assets[texture_url]['status'] == 'downloaded'
 
 
-def test_azurlane_update_writes_backend_manifests_and_source_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_azurlane_update_resolves_model_path_from_ship_detail_when_derived_path_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    derived_url = _live2d_url('bisimaiz')
+    real_url = _live2d_url('bisimaiZ')
+    detail_url = 'https://l2d.su/data/ships/CN/40505.json'
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/bisimaiZ/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/bisimaiZ/textures/texture_00.webp'
+    catalog = _ship_index_payload([_ship(40505, 'bisimaiz', 'Bismarck Zwei', skins=[_skin(405050, 'Zwei', key='bisimaiz')])])
+    detail_skin = {'id': 405050, 'model': {'type': 'live2d', 'path': 'live2d/bisimaiZ/bisimaiZ.model3.json'}}
+    detail_payload = json.dumps({'ship': {'shipGroupId': 40505, 'skins': [detail_skin]}})
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
+        url = str(request.url)
+        requested.append(f'{request.method} {url}')
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == detail_url:
+            return httpx.Response(200, text=detail_payload, headers={'content-type': 'application/json'})
+        if url == real_url:
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        if url == moc_url:
+            return httpx.Response(200, content=b'moc-bytes', headers={'content-type': 'application/octet-stream'})
+        if url == texture_url:
+            return httpx.Response(200, content=b'webp-bytes', headers={'content-type': 'image/webp'})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    model = fake_db.models['azurlane:live2d:bisimaiz:bisimaiz']
+    assert model['primary_url'] == real_url
+    assert model['completed'] is True
+    assert f'HEAD {derived_url}' in requested
+    assert requested.count(f'GET {detail_url}') == 1
+    assert (tmp_path / 'bisimaiz - Bismarck Zwei/assets/live2d/bisimaiz/javelin.moc3').read_bytes() == b'moc-bytes'
+
+
+def test_azurlane_update_reuses_stored_model_path_without_probing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    real_url = _live2d_url('bisimaiZ')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/bisimaiZ/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/bisimaiZ/textures/texture_00.webp'
+    fake_db.models['azurlane:live2d:bisimaiz:bisimaiz'] = {
+        'model_id': 'azurlane:live2d:bisimaiz:bisimaiz',
+        'costume_id': 405050,
+        'primary_url': real_url,
+        'completed': True,
+        'active': True,
+    }
+    catalog = _ship_index_payload([_ship(40505, 'bisimaiz', 'Bismarck Zwei', skins=[_skin(405050, 'Zwei', key='bisimaiz')])])
+    _seed_ship_detail(fake_db, catalog)
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
+        url = str(request.url)
+        requested.append(f'{request.method} {url}')
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == real_url:
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        if url == moc_url:
+            return httpx.Response(200, content=b'moc-bytes', headers={'content-type': 'application/octet-stream'})
+        if url == texture_url:
+            return httpx.Response(200, content=b'webp-bytes', headers={'content-type': 'image/webp'})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    assert fake_db.models['azurlane:live2d:bisimaiz:bisimaiz']['primary_url'] == real_url
+    assert not [entry for entry in requested if entry.startswith('HEAD ')]
+    assert not [entry for entry in requested if '/data/ships/' in entry]
+
+
+def test_azurlane_update_writes_backend_manifests_and_source_artifacts(  # noqa: PLR0915
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _install_fake_database(monkeypatch)
-    model3_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
-    moc_url = 'https://static.example/live2d/azurlane/javelin/javelin.moc3'
-    texture_url = 'https://static.example/live2d/azurlane/javelin/textures/texture_00.webp'
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
     model3_payload = _live2d_model3_payload()
-    catalog = _catalog_payload(
-        [
-            {
-                'charId': 1,
-                'charKey': 'javelin',
-                'charName': '标枪',
-                'charNameEn': 'Javelin',
-                'live2d': [
-                    {
-                        'costumeId': 1,
-                        'costumeName': '默认',
-                        'costumeNameEn': 'Default',
-                        'path': model3_url,
-                    },
-                ],
-                'spine': [],
-            },
-        ],
+    catalog = _ship_index_payload([_ship(1, 'javelin', '标枪', skins=[_skin(1, '默认', key='javelin')])])
+    english_catalog = _ship_index_payload(
+        [_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])],
+        region=L2D_SU_ENGLISH_REGION,
     )
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         url = str(request.url)
-        if url == L2D_SU_CATALOG_URL:
+        if url == _PRIMARY_INDEX_URL:
             return httpx.Response(200, text=catalog, headers={'etag': '"l2d"'})
-        if url == NAGAMI_MAPPING_BUNDLE_URL:
-            return httpx.Response(200, text=_nagami_bundle({'javelin': 'Javelin'}), headers={'etag': '"nagami"'})
+        if url == _ENGLISH_INDEX_URL:
+            return httpx.Response(200, text=english_catalog)
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload({'javelin': 'Javelin'}), headers={'etag': '"nagami"'})
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
         if url == model3_url:
             return httpx.Response(200, text=model3_payload, headers={'content-type': 'application/json'})
         if url == moc_url:
@@ -520,6 +732,7 @@ def test_azurlane_update_writes_backend_manifests_and_source_artifacts(tmp_path:
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             asyncio.run(crawler.update())
@@ -535,10 +748,10 @@ def test_azurlane_update_writes_backend_manifests_and_source_artifacts(tmp_path:
 
     assert l2d_snapshot['metadata']['etag'] == '"l2d"'
     assert nagami_snapshot['metadata']['etag'] == '"nagami"'
-    assert health_report['catalog_health']['entry_count'] == 1
+    assert health_report['catalog_health']['entry_count'] == 2  # noqa: PLR2004
     assert manifest['schema_version'] == 1
     assert manifest['character_key'] == 'javelin'
-    assert manifest['model_counts'] == {'live2d': 1, 'spine': 0, 'total': 1}
+    assert manifest['model_counts'] == {'live2d': 1, 'spine': 0, 'painting': 1, 'total': 2}
     assert character['models'][0]['model_id'] == 'azurlane:live2d:javelin:javelin'
 
     model = manifest['models'][0]
@@ -565,42 +778,94 @@ def test_azurlane_update_writes_backend_manifests_and_source_artifacts(tmp_path:
 
 def test_azurlane_update_downloads_spine_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_db = _install_fake_database(monkeypatch)
-    spine_url = 'https://static.example/live2d/azurlane/iris_2'
-    skel_url = 'https://static.example/live2d/azurlane/iris_2/iris_2.skel'
-    atlas_url = 'https://static.example/live2d/azurlane/iris_2/iris_2.atlas'
-    texture_url = 'https://static.example/live2d/azurlane/iris_2/iris_2.webp'
+    spine_url = _spine_url('iris_2')
+    skel_url = f'{spine_url}/iris_2.skel'
+    atlas_url = f'{spine_url}/iris_2.atlas'
+    texture_url = f'{spine_url}/iris_2.webp'
     atlas_text = '\niris_2.webp\nsize: 4096,4096\nformat: RGBA8888\n'
-    catalog = _catalog_payload(
-        [
-            {
-                'charId': 2,
-                'charKey': 'iris',
-                'charName': 'Iris',
-                'charNameEn': 'Iris',
-                'live2d': [],
-                'spine': [
-                    {
-                        'costumeId': 2,
-                        'costumeName': 'Afternoon',
-                        'costumeNameEn': 'Afternoon',
-                        'path': spine_url,
-                    },
-                ],
-            },
-        ],
-    )
+    catalog = _ship_index_payload([_ship(2, 'iris', 'Iris', skins=[_skin(2, 'Afternoon', key='iris_2', kind='spine')])])
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         url = str(request.url)
-        if url == L2D_SU_CATALOG_URL:
-            return httpx.Response(200, text=catalog)
-        if url == NAGAMI_MAPPING_BUNDLE_URL:
-            return httpx.Response(200, text=_nagami_bundle())
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
         if url == skel_url:
             return httpx.Response(200, content=b'skel-bytes', headers={'content-type': 'application/octet-stream'})
         if url == atlas_url:
             return httpx.Response(200, text=atlas_text, headers={'content-type': 'text/plain'})
         if url == texture_url:
+            return httpx.Response(200, content=b'texture-bytes', headers={'content-type': 'image/webp'})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    root = tmp_path / 'iris - Iris'
+    assert fake_db.models['azurlane:spine:iris:iris_2']['completed'] is True
+    assert (root / 'assets/spine/iris_2/iris_2.skel').read_bytes() == b'skel-bytes'
+    assert (root / 'assets/spine/iris_2/iris_2.atlas').read_text(encoding='utf-8') == atlas_text
+    assert (root / 'assets/spine/iris_2/iris_2.webp').read_bytes() == b'texture-bytes'
+    assert {row['kind'] for row in fake_db.model_assets} == {'spine.skel', 'spine.atlas', 'spine.texture', 'painting.image'}
+
+
+def test_azurlane_update_downloads_multi_part_spine_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    spine_url = _spine_url('iris_2')
+    parts_url = f'{spine_url}/iris_2.json'
+    parts_payload = json.dumps(
+        {
+            'version': 1,
+            'models': [
+                {'name': 'iris_2B', 'skeleton': 'iris_2B.skel', 'atlases': ['iris_2B.atlas'], 'animation': 'normal', 'loop': True},
+                {'name': 'iris_2T', 'skeleton': 'iris_2T.skel', 'atlases': ['iris_2T.atlas'], 'animation': 'normal', 'loop': True},
+            ],
+        },
+    )
+    atlas_texts = {
+        f'{spine_url}/iris_2B.atlas': '\niris_2B.webp\nsize: 4096,4096\nformat: RGBA8888\n',
+        f'{spine_url}/iris_2T.atlas': '\niris_2T.webp\nsize: 4096,4096\nformat: RGBA8888\n',
+    }
+    skeleton_urls = {f'{spine_url}/iris_2B.skel', f'{spine_url}/iris_2T.skel'}
+    texture_urls = {f'{spine_url}/iris_2B.webp', f'{spine_url}/iris_2T.webp'}
+    catalog = _ship_index_payload([_ship(2, 'iris', 'Iris', skins=[_skin(2, 'Afternoon', key='iris_2', kind='spine')])])
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == parts_url:
+            return httpx.Response(200, text=parts_payload, headers={'content-type': 'application/json'})
+        if url in skeleton_urls:
+            return httpx.Response(200, content=b'skel-bytes', headers={'content-type': 'application/octet-stream'})
+        if url in atlas_texts:
+            return httpx.Response(200, text=atlas_texts[url], headers={'content-type': 'text/plain'})
+        if url in texture_urls:
             return httpx.Response(200, content=b'texture-bytes', headers={'content-type': 'image/webp'})
         return httpx.Response(404)
 
@@ -622,17 +887,19 @@ def test_azurlane_update_downloads_spine_assets(tmp_path: Path, monkeypatch: pyt
 
     root = tmp_path / 'iris - Iris'
     assert fake_db.models['azurlane:spine:iris:iris_2']['completed'] is True
-    assert (root / 'assets/spine/iris_2/iris_2.skel').read_bytes() == b'skel-bytes'
-    assert (root / 'assets/spine/iris_2/iris_2.atlas').read_text(encoding='utf-8') == atlas_text
-    assert (root / 'assets/spine/iris_2/iris_2.webp').read_bytes() == b'texture-bytes'
-    assert {row['kind'] for row in fake_db.model_assets} == {'spine.skel', 'spine.atlas', 'spine.texture'}
+    assert (root / 'assets/spine/iris_2/iris_2.json').read_text(encoding='utf-8') == parts_payload
+    assert (root / 'assets/spine/iris_2/iris_2B.skel').read_bytes() == b'skel-bytes'
+    assert (root / 'assets/spine/iris_2/iris_2T.webp').read_bytes() == b'texture-bytes'
+    assert not (root / 'assets/spine/iris_2/iris_2.skel').exists()
+    assert {row['kind'] for row in fake_db.model_assets} == {'spine.parts', 'spine.skel', 'spine.atlas', 'spine.texture', 'painting.image'}
+    assert [row['kind'] for row in fake_db.model_assets].count('spine.skel') == len(skeleton_urls)
 
 
 def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_db = _install_fake_database(monkeypatch)
-    model3_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
-    moc_url = 'https://static.example/live2d/azurlane/javelin/javelin.moc3'
-    texture_url = 'https://static.example/live2d/azurlane/javelin/textures/texture_00.webp'
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
     reused_texture = b'already-archived-texture'
     _seed_downloaded_blob(
         fake_db=fake_db,
@@ -642,33 +909,19 @@ def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, 
         content=reused_texture,
         content_type='image/webp',
     )
-    catalog = _catalog_payload(
-        [
-            {
-                'charId': 1,
-                'charKey': 'javelin',
-                'charName': 'Javelin',
-                'charNameEn': 'Javelin',
-                'live2d': [
-                    {
-                        'costumeId': 1,
-                        'costumeName': 'Default',
-                        'costumeNameEn': 'Default',
-                        'path': model3_url,
-                    },
-                ],
-                'spine': [],
-            },
-        ],
-    )
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
     seen_asset_urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
-        if url == L2D_SU_CATALOG_URL:
-            return httpx.Response(200, text=catalog)
-        if url == NAGAMI_MAPPING_BUNDLE_URL:
-            return httpx.Response(200, text=_nagami_bundle())
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
         seen_asset_urls.append(url)
         if url == texture_url:
             pytest.fail(reason='texture URL should have been reused from the archived blob')
@@ -702,35 +955,21 @@ def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, 
 
 def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_db = _install_fake_database(monkeypatch)
-    model3_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
-    moc_url = 'https://static.example/live2d/azurlane/javelin/javelin.moc3'
-    texture_url = 'https://static.example/live2d/azurlane/javelin/textures/texture_00.webp'
-    catalog = _catalog_payload(
-        [
-            {
-                'charId': 1,
-                'charKey': 'javelin',
-                'charName': 'Javelin',
-                'charNameEn': 'Javelin',
-                'live2d': [
-                    {
-                        'costumeId': 1,
-                        'costumeName': 'Default',
-                        'costumeNameEn': 'Default',
-                        'path': model3_url,
-                    },
-                ],
-                'spine': [],
-            },
-        ],
-    )
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         url = str(request.url)
-        if url == L2D_SU_CATALOG_URL:
-            return httpx.Response(200, text=catalog)
-        if url == NAGAMI_MAPPING_BUNDLE_URL:
-            return httpx.Response(200, text=_nagami_bundle())
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
         if url == model3_url:
             return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
         if url == moc_url:
@@ -764,13 +1003,154 @@ def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch:
     assert any(row['url'] == texture_url and row['kind'] == 'live2d.texture' for row in fake_db.model_assets)
 
 
+def test_azurlane_update_downloads_painting_faces_icons_and_voices(  # noqa: C901
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    detail_url = 'https://l2d.su/data/ships/CN/1.json'
+    voice_url = f'{L2D_SU_STATIC_BASE_URL}/cue/cv-1/detail.ogg'
+    face_url = f'{L2D_SU_STATIC_BASE_URL}/paintingface/javelin/1.webp'
+    icon_urls = {
+        f'{L2D_SU_STATIC_BASE_URL}/squareicon/javelin.webp',
+        f'{L2D_SU_STATIC_BASE_URL}/shipyardicon/javelin.webp',
+        f'{L2D_SU_STATIC_BASE_URL}/qicon/javelin.webp',
+    }
+    catalog = _ship_index_payload(
+        [_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin', face_ids=['1'], icons=True)])],
+    )
+    detail_payload = json.dumps(
+        {'ship': {'shipGroupId': 1, 'skins': [{'id': 1, 'words': [{'key': 'detail', 'text': '嗯', 'voicePath': 'cue/cv-1/detail'}]}]}},
+        ensure_ascii=False,
+    )
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
+        url = str(request.url)
+        requested.append(f'{request.method} {url}')
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        if url == detail_url:
+            return httpx.Response(200, text=detail_payload, headers={'content-type': 'application/json'})
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == face_url or url in icon_urls:
+            return httpx.Response(200, content=b'webp-bytes', headers={'content-type': 'image/webp'})
+        if url == voice_url:
+            return httpx.Response(200, content=b'ogg-bytes', headers={'content-type': 'audio/ogg'})
+        if url == model3_url:
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        if url == moc_url:
+            return httpx.Response(200, content=b'moc-bytes', headers={'content-type': 'application/octet-stream'})
+        if url == texture_url:
+            return httpx.Response(200, content=b'webp-bytes', headers={'content-type': 'image/webp'})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    root = tmp_path / 'javelin - Javelin'
+    assert requested.count(f'GET {detail_url}') == 1
+    assert fake_db.ship_details[1]['fingerprint']
+    assert fake_db.ship_details[1]['payload']['ship']['shipGroupId'] == 1
+    assert fake_db.models['azurlane:painting:javelin:javelin']['completed'] is True
+    assert (root / 'assets/painting/javelin/javelin.webp').read_bytes() == b'painting-bytes'
+    assert (root / 'assets/painting/javelin/paintingface/javelin/1.webp').read_bytes() == b'webp-bytes'
+    assert (root / 'assets/painting/javelin/squareicon/javelin.webp').read_bytes() == b'webp-bytes'
+    assert (root / 'assets/painting/javelin/cue/cv-1/detail.ogg').read_bytes() == b'ogg-bytes'
+    assert (root / 'detail.json').exists()
+    voice_rows = [row for row in fake_db.model_assets if row['kind'] == 'voice.audio']
+    assert voice_rows[0]['context_json']['text'] == '嗯'
+    assert voice_rows[0]['context_json']['voice_path'] == 'cue/cv-1/detail'
+
+
+def test_azurlane_update_uses_stored_detail_for_voices_without_origin_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    voice_url = f'{L2D_SU_STATIC_BASE_URL}/cue/cv-1/detail.ogg'
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    _seed_ship_detail(
+        fake_db,
+        catalog,
+        payload={'ship': {'shipGroupId': 1, 'skins': [{'id': 1, 'words': [{'key': 'detail', 'voicePath': 'cue/cv-1/detail'}]}]}},
+    )
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
+        url = str(request.url)
+        requested.append(f'{request.method} {url}')
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == voice_url:
+            return httpx.Response(200, content=b'ogg-bytes', headers={'content-type': 'audio/ogg'})
+        if url == model3_url:
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        if url == moc_url:
+            return httpx.Response(200, content=b'moc-bytes', headers={'content-type': 'application/octet-stream'})
+        if url == texture_url:
+            return httpx.Response(200, content=b'webp-bytes', headers={'content-type': 'image/webp'})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    assert not [entry for entry in requested if '/data/ships/' in entry]
+    assert (tmp_path / 'javelin - Javelin/assets/painting/javelin/cue/cv-1/detail.ogg').read_bytes() == b'ogg-bytes'
+
+
 def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_db = _install_fake_database(monkeypatch)
     model_id = 'azurlane:live2d:javelin:javelin'
-    primary_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
+    primary_url = _live2d_url('javelin')
     fallback_url = 'https://cdn.nagami.moe/live2d/javelin/javelin.model3.json'
     source_metadata = {
         'id': model_id,
@@ -794,33 +1174,16 @@ def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplet
         'active': True,
         'completed': True,
     }
-    catalog = _catalog_payload(
-        [
-            {
-                'charId': 1,
-                'charKey': 'javelin',
-                'charName': 'Javelin',
-                'charNameEn': 'Javelin',
-                'live2d': [
-                    {
-                        'costumeId': 1,
-                        'costumeName': 'Default',
-                        'costumeNameEn': 'Default',
-                        'path': primary_url,
-                    },
-                ],
-                'spine': [],
-            },
-        ],
-    )
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
     source_urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         source_urls.append(url)
-        if url == L2D_SU_CATALOG_URL:
-            return httpx.Response(200, text=catalog)
-        if url == NAGAMI_MAPPING_BUNDLE_URL:
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
             message = 'nagami unavailable'
             raise httpx.ConnectError(message, request=request)
         pytest.fail(reason='asset downloads should not run while source snapshots are incomplete')
@@ -835,7 +1198,7 @@ def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplet
         )
         asyncio.run(crawler.update())
 
-    assert source_urls == [L2D_SU_CATALOG_URL, NAGAMI_MAPPING_BUNDLE_URL]
+    assert source_urls == [_PRIMARY_INDEX_URL, _ENGLISH_INDEX_URL, NAGAMI_MAPPING_URL]
     assert fake_db.schema_created is True
     assert fake_db.characters['javelin']['active'] is True
     assert fake_db.models[model_id]['active'] is True
@@ -851,9 +1214,9 @@ def test_azurlane_backend_manifests_are_deterministically_ordered(tmp_path: Path
     manifest_path = tmp_path / 'javelin - Javelin/manifest.json'
     live2d_model_id = 'azurlane:live2d:javelin:javelin'
     spine_model_id = 'azurlane:spine:javelin:javelin_spine'
-    model3_url = 'https://static.example/live2d/azurlane/javelin/javelin.model3.json'
-    moc_url = 'https://static.example/live2d/azurlane/javelin/javelin.moc3'
-    texture_url = 'https://static.example/live2d/azurlane/javelin/textures/texture_00.webp'
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
 
     fake_db.characters['javelin'] = {
         'character_key': 'javelin',
@@ -873,7 +1236,7 @@ def test_azurlane_backend_manifests_are_deterministically_ordered(tmp_path: Path
         'costume_id': 2,
         'costume_name_zh': '动态',
         'costume_name_en': 'Dynamic',
-        'primary_url': 'https://static.example/live2d/azurlane/javelin_spine',
+        'primary_url': _spine_url('javelin_spine'),
         'fallback_url': '',
         'availability_state': 'unchecked',
         'source_metadata': {'id': spine_model_id},

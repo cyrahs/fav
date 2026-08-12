@@ -21,16 +21,28 @@ from src.core import logger, settings
 from src.tool import database
 from src.tool.azurlane_l2d_sources import (
     DEFAULT_USER_AGENT,
+    L2D_SU_PRIMARY_REGION,
+    L2D_SU_STATIC_BASE_URL,
     AzurLaneEnumeratedResource,
     AzurLaneModelCatalog,
     AzurLaneModelResourceEnumeration,
     AzurLaneSourceSnapshots,
+    L2DSuVoiceLine,
+    ModelCharacter,
     ModelEntry,
     SourceSchemaError,
+    apply_l2d_su_model_paths,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     enumerate_azurlane_model_resources,
     fetch_source_snapshots,
+    l2d_su_character_fingerprint,
+    l2d_su_ship_detail_url,
+    model_probe_urls,
+    parse_l2d_su_ship_models,
+    parse_l2d_su_ship_voices,
+    spine_parts_manifest_url,
+    spine_resource_manifest,
 )
 from src.tool.filename import sanitize
 
@@ -41,6 +53,11 @@ log = logger.get('azurlane')
 
 _SECOND_FAILURE_COUNT = 2
 _API_REQUEST_INTERVAL_SECONDS = 0.5
+# The l2d.su origin throttles aggressively and bans source IPs; its CDN (static.l2d.su) does not.
+_ORIGIN_REQUEST_INTERVAL_SECONDS = 12.0
+# Shared per-run budget for origin detail requests (path repair + detail sync); a full backfill
+# of ~880 ships completes across a few runs at 5 requests/minute.
+_ORIGIN_DETAIL_BUDGET = 300
 _CDN_REQUEST_INTERVAL_SECONDS = 0.2
 _CDN_CONCURRENCY = 3
 _ASSET_PROCESS_CONCURRENCY = 3
@@ -60,6 +77,7 @@ _HTTP_NOT_ACCEPTABLE = 406
 _HTTP_REQUEST_TIMEOUT = 408
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVICE_UNAVAILABLE = 503
+_HTTP_METHOD_UNSUPPORTED = {405, 501}
 _ASSET_RETRY_COOLDOWN_DAYS = (1, 3, 7)
 _JSON_ASSET_KINDS = {
     'live2d.model3',
@@ -68,6 +86,7 @@ _JSON_ASSET_KINDS = {
     'live2d.display-info',
     'live2d.expression',
     'live2d.motion',
+    'spine.parts',
 }
 _MANIFEST_SCHEMA_VERSION = 1
 _ASSET_AVAILABLE_STATUS = 'downloaded'
@@ -85,9 +104,16 @@ _ASSET_KIND_ORDER = {
             'live2d.motion',
             'live2d.audio',
             'live2d.text',
+            'spine.parts',
             'spine.skel',
             'spine.atlas',
             'spine.texture',
+            'painting.image',
+            'painting.face',
+            'icon.square',
+            'icon.shipyard',
+            'icon.q',
+            'voice.audio',
         ),
     )
 }
@@ -154,6 +180,14 @@ CREATE TABLE IF NOT EXISTS azurlane_blobs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_verified_at TIMESTAMPTZ,
     PRIMARY KEY (sha256, size)
+);
+
+CREATE TABLE IF NOT EXISTS azurlane_ship_details (
+    ship_group_id BIGINT PRIMARY KEY,
+    region TEXT NOT NULL DEFAULT '',
+    fingerprint TEXT NOT NULL DEFAULT '',
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS azurlane_model_assets (
@@ -447,6 +481,29 @@ def _model3_seed_asset(entry: ModelEntry) -> AzurLaneAsset:
     )
 
 
+def _spine_parts_seed_asset(entry: ModelEntry) -> AzurLaneAsset:
+    url = spine_parts_manifest_url(entry.resources.primary_url)
+    filename = Path(urlsplit(url).path).name
+    model_key = sanitize(entry.costume.key, max_bytes=120) or 'unknown'
+    return AzurLaneAsset(
+        url=url,
+        kind='spine.parts',
+        local_path=(Path('assets/spine') / model_key / filename).as_posix(),
+        original_filename=filename,
+        contexts=[
+            {
+                'model_id': entry.id,
+                'model_type': entry.type,
+                'character_key': entry.character.key,
+                'costume_key': entry.costume.key,
+                'catalog_source': entry.source,
+                'source_model_url': entry.resources.primary_url,
+                'spine_field': 'parts',
+            },
+        ],
+    )
+
+
 def _asset_from_resource(resource: AzurLaneEnumeratedResource) -> AzurLaneAsset:
     return AzurLaneAsset(
         url=resource.source_url,
@@ -475,6 +532,12 @@ def _assets_from_enumeration(enumeration: AzurLaneModelResourceEnumeration) -> d
         if not existing.local_path:
             existing.local_path = asset.local_path
     return assets
+
+
+def _merge_character_metadata(metadata: dict[str, Any], character: ModelCharacter) -> None:
+    for key, value in (('nation', character.nation), ('ship_type', character.ship_type), ('rarity', character.rarity)):
+        if value and not metadata.get(key):
+            metadata[key] = value
 
 
 def _primary_source_model_count(snapshots: AzurLaneSourceSnapshots) -> int:
@@ -675,7 +738,7 @@ def _manifest_asset_counts(models: Iterable[dict[str, Any]]) -> dict[str, int]:
 
 
 def _model_counts(models: Iterable[dict[str, Any]]) -> dict[str, int]:
-    counts = {'live2d': 0, 'spine': 0, 'total': 0}
+    counts = {'live2d': 0, 'spine': 0, 'painting': 0, 'total': 0}
     for model in models:
         model_type = str(model.get('type') or '')
         if model_type in counts:
@@ -745,6 +808,8 @@ class AzurLane:
         source_timeout: float = 30.0,
         api_request_interval_seconds: float = _API_REQUEST_INTERVAL_SECONDS,
         cdn_request_interval_seconds: float = _CDN_REQUEST_INTERVAL_SECONDS,
+        origin_request_interval_seconds: float = _ORIGIN_REQUEST_INTERVAL_SECONDS,
+        origin_detail_budget: int = _ORIGIN_DETAIL_BUDGET,
         asset_process_concurrency: int = _ASSET_PROCESS_CONCURRENCY,
     ) -> None:
         self.path = Path(path or settings.load().web.azurlane.path)
@@ -753,6 +818,13 @@ class AzurLane:
         self._source_timeout = source_timeout
         self._api_limiter = _RateLimiter(api_request_interval_seconds)
         self._cdn_limiter = _RateLimiter(cdn_request_interval_seconds)
+        self._origin_limiter = _RateLimiter(origin_request_interval_seconds)
+        self._origin_detail_budget = origin_detail_budget
+        self._origin_detail_spent = 0
+        self._ship_model_paths: dict[int, dict[int, str]] = {}
+        self._ship_detail_payloads: dict[int, str | None] = {}
+        self._ship_voices: dict[int, dict[int, tuple[L2DSuVoiceLine, ...]]] = {}
+        self._character_fingerprints: dict[int, str] = {}
         self._cdn_semaphore = asyncio.Semaphore(_CDN_CONCURRENCY)
         self._asset_process_concurrency = asset_process_concurrency
         self._circuit_breaker = _CircuitBreaker()
@@ -889,6 +961,21 @@ class AzurLane:
             manifest = _character_payload(row, models, root)
             _write_json(root / 'manifest.json', manifest)
             _write_json(root / 'character.json', _character_summary_payload(manifest))
+            await self._write_character_detail(root, row)
+
+    async def _write_character_detail(self, root: Path, character_row: dict[str, Any]) -> None:
+        source_id = _row_int(character_row, 'source_id')
+        if source_id is None:
+            return
+        rows = await database.query_db(
+            'SELECT payload, fetched_at FROM azurlane_ship_details WHERE ship_group_id = ?;',
+            (source_id,),
+        )
+        if not rows:
+            return
+        payload = _json_object(rows[0].get('payload'))
+        if payload:
+            _write_json(root / 'detail.json', payload)
 
     async def _upsert_catalog_state(self, catalog: AzurLaneModelCatalog) -> None:
         character_metadata: dict[str, dict[str, Any]] = {}
@@ -902,6 +989,7 @@ class AzurLane:
             metadata = character_metadata.setdefault(entry.character.key, {'model_ids': [], 'sources': []})
             metadata['model_ids'].append(entry.id)
             metadata['sources'].append(entry.source)
+            _merge_character_metadata(metadata, entry.character)
             existing = character_rows.get(entry.character.key)
             if existing is None or existing[0] is None:
                 character_rows[entry.character.key] = (
@@ -1370,21 +1458,224 @@ class AzurLane:
             await self._mark_asset_failed(seed_asset, error)
             raise
 
+    async def _asset_url_exists(self, *, client: httpx.AsyncClient, url: str) -> bool:
+        for method in ('HEAD', 'GET'):
+            await self._cdn_limiter.wait()
+            try:
+                response = await client.request(method, url, headers=_asset_headers())
+            except httpx.HTTPError:
+                return False
+            if response.status_code < _HTTP_CLIENT_ERROR_MIN:
+                return True
+            if response.status_code not in _HTTP_METHOD_UNSUPPORTED:
+                return False
+        return False
+
+    async def _known_model_paths(self) -> dict[int, str]:
+        rows = await database.query_db(
+            """
+            SELECT costume_id, primary_url
+            FROM azurlane_models
+            WHERE costume_id IS NOT NULL AND completed_at IS NOT NULL AND model_type <> 'painting' AND primary_url LIKE ?;
+            """,
+            (f'{L2D_SU_STATIC_BASE_URL}/%',),
+        )
+        paths: dict[int, str] = {}
+        for row in rows:
+            costume_id = _row_int(row, 'costume_id')
+            primary_url = _row_text(row, 'primary_url')
+            if costume_id is not None and primary_url:
+                paths[costume_id] = primary_url
+        return paths
+
+    async def _fetch_ship_detail_from_origin(self, *, client: httpx.AsyncClient, ship_id: int) -> str | None:
+        if ship_id in self._ship_detail_payloads:
+            return self._ship_detail_payloads[ship_id]
+        if self._origin_detail_spent >= self._origin_detail_budget:
+            return None
+
+        self._origin_detail_spent += 1
+        await self._origin_limiter.wait()
+        url = l2d_su_ship_detail_url(ship_id)
+        payload: str | None
+        try:
+            response = await client.get(url, headers=_asset_headers())
+            response.raise_for_status()
+            payload = response.text
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to fetch Azur Lane ship detail from %s: %s', url, exc)
+            payload = None
+        self._ship_detail_payloads[ship_id] = payload
+        if payload is not None:
+            await self._store_ship_detail(ship_id=ship_id, payload=payload)
+        return payload
+
+    async def _store_ship_detail(self, *, ship_id: int, payload: str) -> None:
+        await database.query_db(
+            """
+            INSERT INTO azurlane_ship_details (ship_group_id, region, fingerprint, payload, fetched_at)
+            VALUES (?, ?, ?, ?::jsonb, NOW())
+            ON CONFLICT (ship_group_id) DO UPDATE SET
+                region = excluded.region,
+                fingerprint = excluded.fingerprint,
+                payload = excluded.payload,
+                fetched_at = NOW();
+            """,
+            (ship_id, L2D_SU_PRIMARY_REGION, self._character_fingerprints.get(ship_id, ''), payload),
+        )
+
+    async def _ship_detail_source(self, *, client: httpx.AsyncClient, ship_id: int) -> str | None:
+        if ship_id in self._ship_detail_payloads:
+            return self._ship_detail_payloads[ship_id]
+
+        rows = await database.query_db(
+            'SELECT payload FROM azurlane_ship_details WHERE ship_group_id = ?;',
+            (ship_id,),
+        )
+        stored = _json_object(rows[0].get('payload')) if rows else {}
+        if stored:
+            payload = _json_dumps(stored)
+            self._ship_detail_payloads[ship_id] = payload
+            return payload
+        return await self._fetch_ship_detail_from_origin(client=client, ship_id=ship_id)
+
+    async def _sync_ship_details(self, snapshots: AzurLaneSourceSnapshots, *, client: httpx.AsyncClient) -> None:
+        rows = await database.query_db('SELECT ship_group_id, fingerprint FROM azurlane_ship_details;')
+        stored = {_row_int(row, 'ship_group_id'): _row_text(row, 'fingerprint') for row in rows}
+
+        self._character_fingerprints = {
+            character.char_id: l2d_su_character_fingerprint(character) for character in snapshots.l2d_su.characters
+        }
+        stale = [
+            char_id
+            for char_id, fingerprint in self._character_fingerprints.items()
+            if stored.get(char_id) != fingerprint
+        ]
+        fetched = 0
+        for char_id in stale:
+            if self._origin_detail_spent >= self._origin_detail_budget:
+                break
+            if await self._fetch_ship_detail_from_origin(client=client, ship_id=char_id) is not None:
+                fetched += 1
+        log.info(
+            'Azur Lane ship details: %d stored, %d stale, %d fetched, %d origin requests spent',
+            len(stored),
+            len(stale),
+            fetched,
+            self._origin_detail_spent,
+        )
+
+    async def _voice_lines_for(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> tuple[L2DSuVoiceLine, ...]:
+        ship_id = entry.character.id
+        costume_id = entry.costume.id
+        if ship_id is None or costume_id is None:
+            return ()
+
+        voices = self._ship_voices.get(ship_id)
+        if voices is None:
+            payload = await self._ship_detail_source(client=client, ship_id=ship_id)
+            voices = {}
+            if payload is not None:
+                try:
+                    voices = parse_l2d_su_ship_voices(payload)
+                except (SourceSchemaError, ValueError) as exc:
+                    log.warning('Failed to parse Azur Lane voices for ship %d: %s', ship_id, exc)
+            self._ship_voices[ship_id] = voices
+        return voices.get(costume_id, ())
+
+    async def _ship_detail_model_paths(self, *, client: httpx.AsyncClient, ship_id: int) -> dict[int, str]:
+        cached = self._ship_model_paths.get(ship_id)
+        if cached is not None:
+            return cached
+
+        payload = await self._ship_detail_source(client=client, ship_id=ship_id)
+        models: dict[int, str] = {}
+        if payload is not None:
+            try:
+                models = parse_l2d_su_ship_models(payload)
+            except (SourceSchemaError, ValueError) as exc:
+                log.warning('Failed to parse Azur Lane model paths for ship %d: %s', ship_id, exc)
+        self._ship_model_paths[ship_id] = models
+        return models
+
+    async def _resolve_model_paths(self, catalog: AzurLaneModelCatalog, *, client: httpx.AsyncClient) -> AzurLaneModelCatalog:
+        known = await self._known_model_paths()
+        resolved: dict[int, str] = {}
+        probed = 0
+
+        for entry in catalog.entries:
+            costume_id = entry.costume.id
+            if entry.type == 'painting' or entry.source == 'nagami' or costume_id is None or entry.character.id is None:
+                continue
+            stored = known.get(costume_id)
+            if stored:
+                resolved[costume_id] = stored
+                continue
+
+            probed += 1
+            if await self._model_assets_exist(client=client, entry=entry):
+                continue
+
+            models = await self._ship_detail_model_paths(client=client, ship_id=entry.character.id)
+            authoritative = models.get(costume_id)
+            if authoritative and authoritative != entry.resources.primary_url:
+                log.info('Resolved Azur Lane model %s to %s', entry.id, authoritative)
+                resolved[costume_id] = authoritative
+
+        corrections = sum(1 for costume_id, url in resolved.items() if known.get(costume_id) != url)
+        log.info(
+            'Azur Lane model paths: %d reused, %d probed, %d corrected, %d origin detail requests',
+            len(known),
+            probed,
+            corrections,
+            self._origin_detail_spent,
+        )
+        return apply_l2d_su_model_paths(catalog, resolved)
+
+    async def _model_assets_exist(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> bool:
+        for url in model_probe_urls(entry):
+            if await self._asset_url_exists(client=client, url=url):
+                return True
+        return False
+
+    async def _spine_parts_source(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> str | None:
+        manifest = spine_resource_manifest(entry.resources.primary_url)
+        if await self._asset_url_exists(client=client, url=manifest.parts[0].skeleton_url):
+            return None
+
+        seed_asset = _spine_parts_seed_asset(entry)
+        try:
+            return await self._seed_asset_text(client=client, asset=seed_asset)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc) or exc.__class__.__name__
+            seed_asset.status = 'failed'
+            seed_asset.error = error
+            await self._mark_asset_failed(seed_asset, error)
+            return None
+
     async def _spine_enumeration(self, *, client: httpx.AsyncClient, root: Path, entry: ModelEntry) -> AzurLaneModelResourceEnumeration:
-        seed_enumeration = enumerate_azurlane_model_resources(entry)
+        parts_source = await self._spine_parts_source(client=client, entry=entry)
+        seed_enumeration = enumerate_azurlane_model_resources(entry, spine_parts_source=parts_source)
         seed_assets = _assets_from_enumeration(seed_enumeration)
-        atlas_asset = next((asset for asset in seed_assets.values() if asset.kind == 'spine.atlas'), None)
-        if atlas_asset is None:
+        atlas_assets = [asset for asset in seed_assets.values() if asset.kind == 'spine.atlas']
+        if not atlas_assets:
             msg = f'Spine entry {entry.id} did not enumerate an atlas asset'
             raise SourceSchemaError(msg)
-        if not await self._process_asset(client=client, root=root, asset=atlas_asset):
+
+        atlas_sources: dict[str, str] = {}
+        for asset in atlas_assets:
+            if await self._process_asset(client=client, root=root, asset=asset):
+                atlas_sources[asset.url] = (root / asset.local_path).read_text(encoding='utf-8', errors='ignore')
+        if not atlas_sources:
             return seed_enumeration
-        atlas_source = (root / atlas_asset.local_path).read_text(encoding='utf-8', errors='ignore')
-        return enumerate_azurlane_model_resources(entry, atlas_source=atlas_source)
+        return enumerate_azurlane_model_resources(entry, spine_parts_source=parts_source, atlas_sources=atlas_sources)
 
     async def _model_enumeration(self, *, client: httpx.AsyncClient, root: Path, entry: ModelEntry) -> AzurLaneModelResourceEnumeration:
         if entry.type == 'live2d':
             return await self._live2d_enumeration(client=client, entry=entry)
+        if entry.type == 'painting':
+            voice_lines = await self._voice_lines_for(client=client, entry=entry)
+            return enumerate_azurlane_model_resources(entry, voice_lines=voice_lines)
         return await self._spine_enumeration(client=client, root=root, entry=entry)
 
     async def _replace_model_assets(
@@ -1487,9 +1778,16 @@ class AzurLane:
                     log.warning('Azur Lane primary source returned no model entries; preserving existing catalog state')
                 return
 
-            await self._upsert_catalog_state(catalog)
-            log.info('Found %d Azur Lane model entries', len(catalog.entries))
+            self._origin_detail_spent = 0
+            self._ship_model_paths = {}
+            self._ship_detail_payloads = {}
+            self._ship_voices = {}
             async with self._http_client() as client:
+                await self._sync_ship_details(snapshots, client=client)
+                catalog = await self._resolve_model_paths(catalog, client=client)
+                self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
+                await self._upsert_catalog_state(catalog)
+                log.info('Found %d Azur Lane model entries', len(catalog.entries))
                 failed_model_ids = await self.download_models(catalog.entries, client=client)
             await self._write_backend_manifests()
             if failed_model_ids:

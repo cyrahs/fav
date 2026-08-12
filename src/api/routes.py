@@ -540,6 +540,18 @@ def get_azurlane_character(
 
 
 @router.get(
+    '/azurlane/characters/{character_key}/ship-detail',
+    operation_id='getAzurLaneShipDetail',
+    tags=[TAG_AZURLANE],
+)
+def get_azurlane_ship_detail(
+    character_key: AzurLaneCharacterKeyPath,
+    service: ApiServiceDep,
+) -> dict[str, object]:
+    return service.get_azurlane_ship_detail(character_key)
+
+
+@router.get(
     '/bd2/characters',
     operation_id='listBD2Characters',
     response_model=BD2CharacterListResponse,

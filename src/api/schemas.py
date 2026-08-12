@@ -285,6 +285,7 @@ class AzurLaneCharacterDetail(AzurLaneCharacterSummary):
     models: list[AzurLaneModel] = Field(default_factory=list)
     live2d_models: list[AzurLaneModel] = Field(default_factory=list)
     spine_models: list[AzurLaneModel] = Field(default_factory=list)
+    painting_models: list[AzurLaneModel] = Field(default_factory=list)
     assets: list[AzurLaneAsset] = Field(default_factory=list)
 
 

@@ -17,7 +17,7 @@ log = logger.get('fav-api.azurlane')
 _LONG_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 _SHORT_CACHE_CONTROL = 'public, max-age=3600'
 _AZURLANE_STATIC_PREFIX = '/static/azurlane'
-_REPRESENTATIVE_ASSET_KINDS = {'live2d.texture', 'spine.texture'}
+_REPRESENTATIVE_ASSET_KINDS = {'live2d.texture', 'spine.texture', 'painting.image'}
 _ASSET_KIND_ORDER = {
     kind: index
     for index, kind in enumerate(
@@ -32,9 +32,16 @@ _ASSET_KIND_ORDER = {
             'live2d.motion',
             'live2d.audio',
             'live2d.text',
+            'spine.parts',
             'spine.skel',
             'spine.atlas',
             'spine.texture',
+            'painting.image',
+            'painting.face',
+            'icon.square',
+            'icon.shipyard',
+            'icon.q',
+            'voice.audio',
         ),
     )
 }
@@ -195,7 +202,7 @@ def _status_counts(items: list[str]) -> dict[str, int]:
 
 
 def _model_counts(models: list[dict[str, Any]]) -> dict[str, int]:
-    counts = {'live2d': 0, 'spine': 0, 'total': 0}
+    counts = {'live2d': 0, 'spine': 0, 'painting': 0, 'total': 0}
     for model in models:
         model_type = _clean_text(model.get('type'))
         if model_type in counts:
@@ -243,6 +250,7 @@ class AzurLaneLibrary:
                 'models': models,
                 'live2d_models': [model for model in models if model['type'] == 'live2d'],
                 'spine_models': [model for model in models if model['type'] == 'spine'],
+                'painting_models': [model for model in models if model['type'] == 'painting'],
                 'assets': [asset for model in models for asset in model['assets']],
             },
         )
@@ -269,6 +277,18 @@ class AzurLaneLibrary:
         if sha256:
             headers['ETag'] = f'"{sha256}"'
         return AzurLaneAssetFile(path=target, content_type=_clean_text(asset.get('content_type')), headers=headers)
+
+    def get_ship_detail(self, character_key: str) -> dict[str, Any]:
+        record = self._get_record(character_key)
+        detail_path = record.manifest_path.parent / 'detail.json'
+        if not detail_path.is_file():
+            msg = f'Azur Lane ship detail not found: {record.character_key}'
+            raise AzurLaneAssetNotFoundError(msg)
+        try:
+            return _read_json_object(detail_path)
+        except (OSError, TypeError, ValueError) as exc:
+            msg = f'Azur Lane ship detail not readable: {record.character_key}'
+            raise AzurLaneAssetNotFoundError(msg) from exc
 
     def _manifest_entries(self) -> list[ManifestEntry]:
         if not self._root.is_dir():
@@ -541,9 +561,21 @@ class AzurLaneLibrary:
             }
         if model_type == 'spine':
             return {
+                'parts': self._first_asset(assets, 'spine.parts'),
                 'skel': self._first_asset(assets, 'spine.skel'),
+                'skeletons': self._assets_by_kind(assets, 'spine.skel'),
                 'atlas': self._first_asset(assets, 'spine.atlas'),
+                'atlases': self._assets_by_kind(assets, 'spine.atlas'),
                 'textures': self._assets_by_kind(assets, 'spine.texture'),
+            }
+        if model_type == 'painting':
+            return {
+                'image': self._first_asset(assets, 'painting.image'),
+                'faces': self._assets_by_kind(assets, 'painting.face'),
+                'square_icon': self._first_asset(assets, 'icon.square'),
+                'shipyard_icon': self._first_asset(assets, 'icon.shipyard'),
+                'q_icon': self._first_asset(assets, 'icon.q'),
+                'voices': self._assets_by_kind(assets, 'voice.audio'),
             }
         return {}
 
@@ -612,7 +644,11 @@ class AzurLaneLibrary:
             'model_type': _context_value(primary_context, 'model_type'),
             'character_key': _context_value(primary_context, 'character_key'),
             'costume_key': _context_value(primary_context, 'costume_key'),
-            'field': _context_value(primary_context, 'live2d_field') or _context_value(primary_context, 'spine_field'),
+            'field': (
+                _context_value(primary_context, 'live2d_field')
+                or _context_value(primary_context, 'spine_field')
+                or _context_value(primary_context, 'painting_field')
+            ),
             'catalog_source': _context_value(primary_context, 'catalog_source'),
             'context_hashes': _string_list(asset.get('context_hashes')),
             'contexts': contexts,
