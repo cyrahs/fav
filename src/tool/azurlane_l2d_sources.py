@@ -15,7 +15,7 @@ import httpx
 from src.tool.filename import sanitize
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
 L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://l2d.su/data/ships-{region}.json'
 L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://l2d.su/data/ships/{region}/{ship_id}.json'
@@ -846,13 +846,19 @@ def fetch_l2d_su_snapshot(
     english_region: str = L2D_SU_ENGLISH_REGION,
     timeout: float = 30.0,
     client: httpx.Client | None = None,
+    origin_throttle: Callable[[], None] | None = None,
 ) -> L2DSuSourceSnapshot:
-    parsed, metadata, errors = _fetch_l2d_su_index(region=region, timeout=timeout, client=client)
+    parsed, metadata, errors = _fetch_l2d_su_index(region=region, timeout=timeout, client=client, origin_throttle=origin_throttle)
     if parsed is None:
         return L2DSuSourceSnapshot(metadata=metadata, region=region, errors=errors)
 
     if english_region and english_region != region:
-        english, _english_metadata, english_errors = _fetch_l2d_su_index(region=english_region, timeout=timeout, client=client)
+        english, _english_metadata, english_errors = _fetch_l2d_su_index(
+            region=english_region,
+            timeout=timeout,
+            client=client,
+            origin_throttle=origin_throttle,
+        )
         errors = (*errors, *english_errors)
         if english is not None:
             parsed = merge_l2d_su_english_names(parsed, english)
@@ -897,16 +903,17 @@ def fetch_source_snapshots(
     *,
     timeout: float = 30.0,
     client: httpx.Client | None = None,
+    origin_throttle: Callable[[], None] | None = None,
 ) -> AzurLaneSourceSnapshots:
     if client is not None:
         return AzurLaneSourceSnapshots(
-            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=client),
+            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=client, origin_throttle=origin_throttle),
             nagami=fetch_nagami_snapshot(timeout=timeout, client=client),
         )
 
     with httpx.Client(follow_redirects=True, timeout=timeout, headers=_request_headers()) as owned_client:
         return AzurLaneSourceSnapshots(
-            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=owned_client),
+            l2d_su=fetch_l2d_su_snapshot(timeout=timeout, client=owned_client, origin_throttle=origin_throttle),
             nagami=fetch_nagami_snapshot(timeout=timeout, client=owned_client),
         )
 
@@ -2629,8 +2636,11 @@ def _fetch_l2d_su_index(
     region: str,
     timeout: float,
     client: httpx.Client | None,
+    origin_throttle: Callable[[], None] | None = None,
 ) -> tuple[L2DSuIndexData | None, SourceFetchMetadata, tuple[SourceSnapshotError, ...]]:
     url = l2d_su_ship_index_url(region)
+    if origin_throttle is not None:
+        origin_throttle()
     response, metadata, error = _fetch_source(url=url, timeout=timeout, client=client)
     if error is not None:
         return None, metadata, (error,)

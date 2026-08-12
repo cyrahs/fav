@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -879,6 +880,7 @@ def test_azurlane_update_downloads_multi_part_spine_model(tmp_path: Path, monkey
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             asyncio.run(crawler.update())
@@ -941,6 +943,7 @@ def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, 
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             asyncio.run(crawler.update())
@@ -988,6 +991,7 @@ def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch:
                 source_client=source_client,
                 api_request_interval_seconds=0,
                 cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
                 asset_process_concurrency=1,
             )
             with pytest.raises(azurlane_module.CrawlRunError):
@@ -1144,6 +1148,64 @@ def test_azurlane_update_uses_stored_detail_for_voices_without_origin_requests(
     assert (tmp_path / 'javelin - Javelin/assets/painting/javelin/cue/cv-1/detail.ogg').read_bytes() == b'ogg-bytes'
 
 
+def test_azurlane_index_requests_pass_through_the_origin_throttle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    _seed_ship_detail(fake_db, catalog)
+    throttle_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == _live2d_url('javelin'):
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        return httpx.Response(200, content=b'bytes', headers={'content-type': 'application/octet-stream'})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            original = crawler._origin_source_limiter.wait
+
+            def counting_wait() -> None:
+                nonlocal throttle_calls
+                throttle_calls += 1
+                original()
+
+            crawler._origin_source_limiter.wait = counting_wait  # type: ignore[method-assign]
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    # One throttle acquisition per l2d.su origin index request (CN + EN); nagami (CDN) is not throttled.
+    expected_index_requests = 2
+    assert throttle_calls == expected_index_requests
+
+
+def test_source_rate_limiter_spaces_successive_requests() -> None:
+    interval = 0.05
+    limiter = azurlane_module._SourceRateLimiter(interval, jitter_seconds=0.0)
+    start = time.monotonic()
+    limiter.wait()  # first call returns immediately
+    limiter.wait()  # second call waits one interval
+    assert time.monotonic() - start >= interval
+
+
 def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1194,6 +1256,7 @@ def test_azurlane_update_preserves_catalog_state_when_source_snapshots_incomplet
             source_client=source_client,
             api_request_interval_seconds=0,
             cdn_request_interval_seconds=0,
+            origin_request_interval_seconds=0,
             asset_process_concurrency=1,
         )
         asyncio.run(crawler.update())

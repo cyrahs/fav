@@ -582,6 +582,25 @@ def test_fetch_l2d_su_snapshot_merges_english_names_and_records_metadata() -> No
     assert snapshot.characters[0].live2d[0].costume_name_en == 'Gleaming White Blade'
 
 
+def test_fetch_l2d_su_snapshot_invokes_origin_throttle_before_each_index_request() -> None:
+    primary = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(11, '闪耀的白刃', key='biaoqiang_2')])])
+    english = _ship_index_payload([_ship(1, 'biaoqiang', 'Javelin', skins=[_skin(11, 'Blade', key='biaoqiang_2')])], region='EN')
+    events: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        events.append(f'GET {request.url}')
+        return httpx.Response(200, text=english if str(request.url) == _ENGLISH_INDEX_URL else primary)
+
+    def throttle() -> None:
+        events.append('throttle')
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        fetch_l2d_su_snapshot(client=client, origin_throttle=throttle)
+
+    # Each origin index request is immediately preceded by a throttle acquisition.
+    assert events == ['throttle', f'GET {_PRIMARY_INDEX_URL}', 'throttle', f'GET {_ENGLISH_INDEX_URL}']
+
+
 def test_fetch_l2d_su_snapshot_reports_english_region_failure_without_dropping_models() -> None:
     primary = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(11, '闪耀的白刃', key='biaoqiang_2')])])
 
