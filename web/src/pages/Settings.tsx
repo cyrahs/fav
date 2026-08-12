@@ -8,7 +8,7 @@ import { JOBS_PAGE_ONLY_SECTIONS, SECTION_FORMS, validateSection } from '../comp
 const SECTION_LABELS: Record<string, string> = {
   'web.bilibili': 'Bilibili',
   'web.telegram': 'Telegram',
-  'web.stellasora': 'StellaSora',
+  'web.stellasora': 'Stella Sora',
   'web.nikke': 'NIKKE',
   'web.bd2': 'BD2',
   'web.azurlane': '碧蓝航线',

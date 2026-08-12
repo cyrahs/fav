@@ -571,7 +571,7 @@ class StellaSora:
             await enqueue_notification(
                 kind='download_completed',
                 source='stellasora',
-                title=f'StellaSora: {title.removeprefix("File:")}',
+                title=f'Stella Sora: {title.removeprefix("File:")}',
                 body=relpath,
                 link_url=link_url,
                 image_url=image_url,
