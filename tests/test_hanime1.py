@@ -715,6 +715,225 @@ def test_update_runs_ranking_discovery_before_get_items(monkeypatch, tmp_path) -
     assert events == ['ensure', 'discover', 'get_items']
 
 
+class _DeepScanEnv:
+    def __init__(self) -> None:
+        self.fetch_calls: list[tuple[str, int]] = []
+        self.resolve_calls: list[str] = []
+        self.saved_debts: list[float] = []
+        self.queries: list[str] = []
+
+
+def _install_deep_scan_env(  # noqa: PLR0913
+    h: Hanime1,
+    monkeypatch,
+    *,
+    quota: float,
+    initial_debt: float | None = None,
+    max_extra_pages: int = 5,
+    base_ids: list[str] | None = None,
+    ranking_pages: dict[tuple[str, int], list[str] | Exception] | None = None,
+    series_by_video: dict[str, WatchSeries] | None = None,
+    known_video_ids: set[str] | None = None,
+) -> _DeepScanEnv:
+    ranking_cfg = hanime1_module.cfg().ranking
+    monkeypatch.setattr(ranking_cfg, 'enabled', True)
+    monkeypatch.setattr(ranking_cfg, 'periods', ['weekly', 'monthly'])
+    monkeypatch.setattr(ranking_cfg, 'pages', 1)
+    monkeypatch.setattr(ranking_cfg.deep_scan, 'enabled', True)
+    monkeypatch.setattr(ranking_cfg.deep_scan, 'quota', quota)
+    monkeypatch.setattr(ranking_cfg.deep_scan, 'max_extra_pages', max_extra_pages)
+
+    env = _DeepScanEnv()
+    known = known_video_ids if known_video_ids is not None else set()
+
+    async def _fake_collect_ranking_video_ids() -> list[str]:
+        return list(base_ids or [])
+
+    async def _fake_fetch_ranking_video_ids(*, period: str, page: int) -> list[str]:
+        env.fetch_calls.append((period, page))
+        result = (ranking_pages or {}).get((period, page), [])
+        if isinstance(result, Exception):
+            raise result
+        return list(result)
+
+    async def _fake_resolve_series(item: HanimeRecord) -> WatchSeries | None:
+        env.resolve_calls.append(item.id)
+        return (series_by_video or {}).get(item.id)
+
+    async def _fake_query_db(sql: str, params: tuple = ()) -> list[dict[str, object]]:
+        env.queries.append(sql)
+        if 'SELECT quota_debt FROM hanime1_ranking_scan_state' in sql:
+            return [] if initial_debt is None else [{'quota_debt': initial_debt}]
+        if 'INSERT INTO hanime1_ranking_scan_state' in sql:
+            env.saved_debts.append(params[0])
+            return []
+        if 'SELECT video_id' in sql:
+            requested_ids = {str(video_id).casefold() for video_id in params[0]}
+            return [{'video_id': video_id} for video_id in sorted(known) if video_id.casefold() in requested_ids]
+        if 'INSERT INTO hanime1_series_video' in sql:
+            known.add(str(params[0]))
+        return []
+
+    monkeypatch.setattr(h, '_collect_ranking_video_ids', _fake_collect_ranking_video_ids)
+    monkeypatch.setattr(h, 'fetch_ranking_video_ids', _fake_fetch_ranking_video_ids)
+    monkeypatch.setattr(h, 'resolve_series_from_watch_page', _fake_resolve_series)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+    return env
+
+
+def test_discover_ranking_series_skips_deep_scan_when_disabled(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(h, monkeypatch, quota=1.0)
+    monkeypatch.setattr(hanime1_module.cfg().ranking.deep_scan, 'enabled', False)
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == []
+    assert env.fetch_calls == []
+    assert env.saved_debts == []
+    assert not any('hanime1_ranking_scan_state' in sql for sql in env.queries)
+
+
+def test_deep_scan_accumulates_fractional_debt_without_fetching(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(h, monkeypatch, quota=0.25, initial_debt=0.5)
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == []
+    assert env.fetch_calls == []
+    assert env.saved_debts == [0.75]
+
+
+def test_deep_scan_triggers_at_full_debt_and_stops_at_quota(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(
+        h,
+        monkeypatch,
+        quota=0.25,
+        initial_debt=0.75,
+        ranking_pages={('weekly', 2): ['400', '500']},
+        series_by_video={
+            '400': WatchSeries(name='新系列400', video_ids=('400', '401')),
+            '500': WatchSeries(name='新系列500', video_ids=('500',)),
+        },
+    )
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == [RuntimeSeriesSeed(video_id='400', title='新系列400')]
+    assert env.fetch_calls == [('weekly', 2)]
+    # The second unknown video on the page is not resolved once the quota is met.
+    assert env.resolve_calls == ['400']
+    assert env.saved_debts == [0.0]
+
+
+def test_deep_scan_walks_extra_pages_page_major(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(
+        h,
+        monkeypatch,
+        quota=1.0,
+        known_video_ids={'900', '901'},
+        ranking_pages={
+            ('weekly', 2): ['900'],
+            ('monthly', 2): ['901'],
+            ('weekly', 3): ['400'],
+        },
+        series_by_video={'400': WatchSeries(name='新系列400', video_ids=('400',))},
+    )
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == [RuntimeSeriesSeed(video_id='400', title='新系列400')]
+    assert env.fetch_calls == [('weekly', 2), ('monthly', 2), ('weekly', 3)]
+    assert env.saved_debts == [0.0]
+
+
+def test_deep_scan_skips_when_base_pages_cover_quota(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(
+        h,
+        monkeypatch,
+        quota=1.0,
+        base_ids=['100'],
+        series_by_video={'100': WatchSeries(name='新系列100', video_ids=('100',))},
+    )
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == [RuntimeSeriesSeed(video_id='100', title='新系列100')]
+    assert env.fetch_calls == []
+    assert env.saved_debts == [0.0]
+
+
+def test_deep_scan_caps_accumulated_debt(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(
+        h,
+        monkeypatch,
+        quota=0.25,
+        initial_debt=100.0,
+        ranking_pages={('weekly', 2): ['400', '500']},
+        series_by_video={
+            '400': WatchSeries(name='新系列400', video_ids=('400',)),
+            '500': WatchSeries(name='新系列500', video_ids=('500',)),
+        },
+    )
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    # Debt is capped at max(1, ceil(quota)), so one new series settles it.
+    assert added == [RuntimeSeriesSeed(video_id='400', title='新系列400')]
+    assert env.fetch_calls == [('weekly', 2)]
+    assert env.saved_debts == [0.0]
+
+
+def test_deep_scan_keeps_debt_when_periods_exhausted(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(
+        h,
+        monkeypatch,
+        quota=0.5,
+        initial_debt=0.5,
+        ranking_pages={
+            ('weekly', 2): [],
+            ('monthly', 2): RuntimeError('boom'),
+        },
+    )
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == []
+    assert env.fetch_calls == [('weekly', 2), ('monthly', 2)]
+    assert env.saved_debts == [1.0]
+
+
+def test_deep_scan_respects_max_extra_pages(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    env = _install_deep_scan_env(
+        h,
+        monkeypatch,
+        quota=1.0,
+        max_extra_pages=2,
+        known_video_ids={'900'},
+        ranking_pages={
+            ('weekly', 2): ['900'],
+            ('monthly', 2): ['900'],
+            ('weekly', 3): ['900'],
+            ('monthly', 3): ['900'],
+            ('weekly', 4): ['400'],
+        },
+        series_by_video={'400': WatchSeries(name='新系列400', video_ids=('400',))},
+    )
+
+    added = asyncio.run(h.discover_ranking_series())
+
+    assert added == []
+    assert env.fetch_calls == [('weekly', 2), ('monthly', 2), ('weekly', 3), ('monthly', 3)]
+    assert env.saved_debts == [1.0]
+
+
 def test_extract_watch_metadata_parses_title_release_date_and_plot() -> None:
     page_html = """
     <html>

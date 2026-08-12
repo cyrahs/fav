@@ -46,6 +46,14 @@ CREATE_HANIME1_SERIES_TABLES_SQL = """
 
     CREATE INDEX IF NOT EXISTS idx_hanime1_series_video_series
         ON hanime1_series_video (canonical_video_id);
+
+    CREATE TABLE IF NOT EXISTS hanime1_ranking_scan_state (
+        id SMALLINT PRIMARY KEY DEFAULT 1,
+        quota_debt DOUBLE PRECISION NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        CHECK (id = 1)
+    );
 """
 
 

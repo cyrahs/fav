@@ -310,7 +310,23 @@ This is disabled by default and starts with the first ranking page.
 enabled = true
 periods = ["weekly", "monthly"]
 pages = 1
+
+[web.hanime1.ranking.deep_scan]
+enabled = false
+quota = 0.25
+max_extra_pages = 5
 ```
+
+### Deep scan (forced new-series quota)
+
+When the ranking head is dominated by already-known series, the regular pages may stop producing new series for a long time.
+Deep scan (disabled by default) guarantees a minimum intake rate of `quota` new series per run:
+
+- `quota` accepts fractions and accumulates as debt across runs: `0.25` means one forced new series every 4 runs.
+- New series found on the regular pages count against the quota first. Surplus does not carry over as credit (debt floors at 0).
+- When accumulated debt reaches 1, extra ranking pages are scanned page-major (weekly page `pages+1`, monthly page `pages+1`, weekly page `pages+2`, ...) and scanning stops as soon as the debt is paid, so at most the required number of new series is added per run.
+- Debt is capped at `max(1, ceil(quota))`, so after outages the scan never floods in a large backlog at once.
+- `max_extra_pages` bounds how many pages beyond `pages` each period may be probed per run.
 
 ### Container startup
 

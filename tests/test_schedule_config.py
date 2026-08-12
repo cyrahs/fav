@@ -5,7 +5,15 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.core.settings import Hanime1Ranking, ScheduleJob, Telegram, TelegramAccount, TelegramChannel, TelegramNotification
+from src.core.settings import (
+    Hanime1Ranking,
+    Hanime1RankingDeepScan,
+    ScheduleJob,
+    Telegram,
+    TelegramAccount,
+    TelegramChannel,
+    TelegramNotification,
+)
 
 _TELEGRAM_DEFAULT_SCAN_LIMIT = 50
 _TELEGRAM_DEFAULT_DOWNLOAD_LIMIT_PER_CHANNEL = 2
@@ -13,6 +21,9 @@ _TELEGRAM_DEFAULT_DOWNLOAD_DELAY_SECONDS = 60.0
 _TELEGRAM_DEFAULT_CHANNEL_COOLDOWN_SECONDS = 1800.0
 _TELEGRAM_DEFAULT_HISTORY_WAIT_SECONDS = 1.0
 _TELEGRAM_DEFAULT_FLOOD_SLEEP_THRESHOLD_SECONDS = 300
+_DEEP_SCAN_DEFAULT_QUOTA = 0.25
+_DEEP_SCAN_DEFAULT_MAX_EXTRA_PAGES = 5
+_DEEP_SCAN_FRACTIONAL_QUOTA = 0.5
 
 
 def test_schedule_job_accepts_five_field_cron() -> None:
@@ -61,6 +72,31 @@ def test_hanime1_ranking_rejects_empty_periods() -> None:
 def test_hanime1_ranking_rejects_non_positive_pages() -> None:
     with pytest.raises(ValidationError):
         Hanime1Ranking(pages=0)
+
+
+def test_hanime1_ranking_deep_scan_defaults_off() -> None:
+    ranking = Hanime1Ranking()
+
+    assert ranking.deep_scan.enabled is False
+    assert ranking.deep_scan.quota == _DEEP_SCAN_DEFAULT_QUOTA
+    assert ranking.deep_scan.max_extra_pages == _DEEP_SCAN_DEFAULT_MAX_EXTRA_PAGES
+
+
+def test_hanime1_ranking_deep_scan_accepts_fractional_quota() -> None:
+    deep_scan = Hanime1RankingDeepScan(enabled=True, quota=_DEEP_SCAN_FRACTIONAL_QUOTA, max_extra_pages=3)
+
+    assert deep_scan.quota == _DEEP_SCAN_FRACTIONAL_QUOTA
+
+
+@pytest.mark.parametrize('quota', [0.0, -1.0, float('inf'), float('nan')])
+def test_hanime1_ranking_deep_scan_rejects_invalid_quota(quota: float) -> None:
+    with pytest.raises(ValidationError):
+        Hanime1RankingDeepScan(quota=quota)
+
+
+def test_hanime1_ranking_deep_scan_rejects_non_positive_max_extra_pages() -> None:
+    with pytest.raises(ValidationError):
+        Hanime1RankingDeepScan(max_extra_pages=0)
 
 
 def test_telegram_reports_empty_accounts_as_not_runnable() -> None:
