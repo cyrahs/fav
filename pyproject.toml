@@ -30,6 +30,8 @@ line-length = 140
 select = ['ALL']
 ignore = [
   'Q000',    # Double quotes
+  'Q003',    # Incompatible with single-quote formatter
+  'COM812',  # Trailing comma; conflicts with the formatter
   'PLC0414', # Import alias
   'D407', # Lines for docstrings
   'ANN401', # Any type
