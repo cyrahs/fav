@@ -1,20 +1,21 @@
-# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, EM101, EM102, INP001, PLR2004, S101, S105, S106, SLF001, TRY003
+# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, ARG002, EM101, EM102, INP001, PLR2004, S101, S105, S106, SLF001, TRY003
 
 import asyncio
+import base64
+import tomllib
 from pathlib import Path
 
 import httpx
 import pytest
-from xhshow import Xhshow
 
 import src.service.jobs as jobs_module
 import src.web.xiaohongshu as xiaohongshu_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
-from src.tool.cookiecloud import PROFILES
 from src.web.xiaohongshu import (
     MediaUnavailableError,
+    MediaUrlStaleError,
     NoteRef,
     VideoDownloadError,
     XhsMedia,
@@ -23,16 +24,30 @@ from src.web.xiaohongshu import (
     build_media_filename,
     build_note_url,
     build_ytdlp_command,
+    decide_login_state,
     extract_like_page,
     extract_note_media,
     infer_image_extension,
     is_note_gone,
+    normalize_media_url,
+    parse_api_envelope,
+    user_id_from_probe,
+)
+from src.web.xiaohongshu_browser import (
+    browser_cookies_to_netscape,
+    build_launch_options,
+    build_proxy_settings,
+    clear_stale_profile_locks,
+    cursor_of,
+    decode_qr_data_url,
 )
 
 # 2025-08-12 11:34:56 in the timezone the app displays.
 NOTE_TIME_MS = 1754969696000
 NOTE_ID = '64f1a2b3000000001e02c0de'
 OTHER_NOTE_ID = '64f1a2b3000000001e02beef'
+# A one-pixel PNG, so the QR helper is exercised on real bytes.
+QR_PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
 
 
 def _configure(**updates: object) -> settings.Xiaohongshu:
@@ -44,34 +59,67 @@ def _configure(**updates: object) -> settings.Xiaohongshu:
 
 
 def _runnable_cfg(**updates: object) -> settings.Xiaohongshu:
-    cookiecloud = settings.CookieCloud(server_url='https://cc.example', uuid='u', password='pw')
     updates.setdefault('sleep_request_seconds', 0.0)
-    return _configure(cookiecloud=cookiecloud, **updates)
+    updates.setdefault('proxy', 'http://home.example:3128')
+    return _configure(**updates)
 
 
 async def _no_requests(request: httpx.Request) -> httpx.Response:
     raise AssertionError(f'unexpected request to {request.url}')
 
 
-def _job(handler=_no_requests, **updates) -> Xiaohongshu:
-    """A source wired to a mock transport, with a session already loaded."""
-    _runnable_cfg(**updates)
-    job = Xiaohongshu.__new__(Xiaohongshu)
-    job.cfg = settings.load().web.xiaohongshu
-    job.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    job.signer = Xhshow()
-    job.sign_formats = {}
-    # A real a1: the signature is derived from it, and xhshow rejects a missing one.
-    job.cookies = {'a1': Xhshow.generate_a1(), 'web_session': 'session-value'}
-    job.user_id = '5ff0000000000000000abcde'
-    return job
+class _FakeBrowser:
+    """The NoteBrowser protocol, scripted. No Playwright, no network."""
 
+    def __init__(
+        self,
+        *,
+        probes: list[dict] | None = None,
+        pages: list[dict] | None = None,
+        notes: dict[str, dict] | None = None,
+        user_agent: str = 'Mozilla/5.0 (Test) Chrome/149.0.0.0',
+    ) -> None:
+        self.probes = probes or [{'has_login_modal': False, 'user_id': 'me'}]
+        self.pages = list(pages or [])
+        self.notes = notes or {}
+        self._user_agent = user_agent
+        self.cookies = {'web_session': 'session-value'}
+        self.started = False
+        self.closed = False
+        self.opened_likes: list[str] = []
+        self.reloads = 0
+        self.note_urls: list[str] = []
 
-def _run(job: Xiaohongshu, coro):
-    try:
-        return asyncio.run(coro)
-    finally:
-        asyncio.run(job.client.aclose())
+    async def start(self) -> None:
+        self.started = True
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+    async def probe_login(self) -> dict:
+        return self.probes[0] if len(self.probes) == 1 else self.probes.pop(0)
+
+    async def cookie_dict(self) -> dict[str, str]:
+        return dict(self.cookies)
+
+    async def netscape_cookies(self) -> str:
+        return '# Netscape HTTP Cookie File'
+
+    async def user_agent(self) -> str:
+        return self._user_agent
+
+    async def reload_login(self) -> None:
+        self.reloads += 1
+
+    async def open_likes(self, *, user_id: str) -> None:
+        self.opened_likes.append(user_id)
+
+    async def next_like_page(self, *, timeout_seconds: float) -> dict | None:
+        return self.pages.pop(0) if self.pages else None
+
+    async def note_state(self, *, note_url: str, note_id: str) -> dict:
+        self.note_urls.append(note_url)
+        return self.notes.get(note_id, _image_note_card())
 
 
 class _FakeDatabase:
@@ -87,6 +135,7 @@ class _FakeDatabase:
         self.known_note_ids = set(known_note_ids)
         self.pending_rows = list(pending_rows)
         self.backfill_complete = backfill_complete
+        self.state: dict[str, str] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.inserted: list[tuple[str, tuple[str, ...], list[tuple[str, ...]], str | None]] = []
 
@@ -98,16 +147,47 @@ class _FakeDatabase:
         if normalized.startswith('SELECT note_id, media_index'):
             return list(self.pending_rows)
         if normalized.startswith('SELECT value FROM xiaohongshu_state'):
-            return [{'value': '1'}] if self.backfill_complete else []
+            key = params[0]
+            if key == 'backfill_complete':
+                return [{'value': '1'}] if self.backfill_complete else []
+            return [{'value': self.state[key]}] if key in self.state else []
+        if normalized.startswith('INSERT INTO xiaohongshu_state'):
+            self.state[params[0]] = params[1]
         return []
 
     async def insert_db_batch(self, *, table: str, columns: tuple[str, ...], rows, on_conflict: str | None = None) -> None:
         self.inserted.append((table, columns, list(rows), on_conflict))
-        # Enough of an upsert for a run to read back what it just wrote.
         self.pending_rows.extend(dict(zip(columns, row, strict=True)) for row in rows)
+
+    def advisory_lock(self, name: str):
+        from contextlib import asynccontextmanager  # noqa: PLC0415
+
+        @asynccontextmanager
+        async def _lock():
+            yield True
+
+        return _lock()
 
     def updates(self) -> list[str]:
         return [' '.join(query.split()) for query, _ in self.calls if query.strip().upper().startswith('UPDATE')]
+
+
+def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -> Xiaohongshu:
+    _runnable_cfg(**updates)
+    job = Xiaohongshu.__new__(Xiaohongshu)
+    job.cfg = settings.load().web.xiaohongshu
+    job.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    job.user_id = 'me'
+    job.user_agent = 'Mozilla/5.0 (Test) Chrome/149.0.0.0'
+    job._browser_factory = lambda: browser or _FakeBrowser()
+    return job
+
+
+def _run(job: Xiaohongshu, coro):
+    try:
+        return asyncio.run(coro)
+    finally:
+        asyncio.run(job.client.aclose())
 
 
 def _image_note_card(**updates) -> dict:
@@ -122,6 +202,29 @@ def _image_note_card(**updates) -> dict:
                     {'image_scene': 'WB_PRV', 'url': 'https://sns-webpic.xhscdn.com/1!nd_prv_wlteh_webp_3'},
                     {'image_scene': 'WB_DFT', 'url': 'https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3'},
                 ],
+            },
+        ],
+    }
+    payload.update(updates)
+    return payload
+
+
+def _page_note_card(**updates) -> dict:
+    """The same note as __INITIAL_STATE__ spells it: camelCase, http URLs."""
+    payload = {
+        'type': 'normal',
+        'title': 'a caption',
+        'time': NOTE_TIME_MS,
+        'user': {'nickname': 'artist', 'userId': '5ff0000000000000000fffff'},
+        'imageList': [
+            {
+                'infoList': [
+                    {'imageScene': 'WB_PRV', 'url': 'http://sns-webpic.xhscdn.com/1!nd_prv_wlteh_webp_3'},
+                    {'imageScene': 'WB_DFT', 'url': 'http://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3'},
+                ],
+                'urlDefault': 'http://sns-webpic.xhscdn.com/1!nd_dft_fallback',
+                'livePhoto': False,
+                'stream': {},
             },
         ],
     }
@@ -167,22 +270,24 @@ def _media(**updates) -> XhsMedia:
     return XhsMedia(**fields)
 
 
-def _api_response(data: dict, *, code: int = 0) -> httpx.Response:
-    return httpx.Response(200, json={'code': code, 'success': code == 0, 'msg': 'ok', 'data': data})
+def _envelope(data: dict, *, code: int = 0) -> dict:
+    return {'code': code, 'success': code == 0, 'msg': 'ok', 'data': data}
+
+
+def _like_page(notes: list[dict], *, cursor: str = '', has_more: bool = True, status: int = 200) -> dict:
+    url = f'https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?user_id=me&num=30&cursor={cursor}'
+    return {'url': url, 'status': status, 'body': _envelope({'notes': notes, 'cursor': cursor, 'has_more': has_more})}
 
 
 # ---------- configuration ----------
 
 
-def test_missing_cookiecloud_fields_are_named_individually() -> None:
-    cfg = _configure(cookiecloud=settings.CookieCloud(server_url='https://cc.example'))
-
-    assert cfg.validate_runnable() == ['cookiecloud.uuid', 'cookiecloud.password']
-
-
-def test_a_source_with_a_vault_is_runnable_without_a_user_id() -> None:
-    # The profile id is resolved from the session, so it is not a required field.
-    assert _runnable_cfg().validate_runnable() == []
+def test_a_datacenter_run_has_to_be_asked_for() -> None:
+    # The previous revision defaulted to going out over the pod's own address and it
+    # cost the account its sessions, so this is now a decision rather than a default.
+    assert _configure(proxy='', allow_direct_connection=False).validate_runnable() == ['proxy']
+    assert _configure(proxy='', allow_direct_connection=True).validate_runnable() == []
+    assert _configure(proxy='http://home.example:3128', allow_direct_connection=False).validate_runnable() == []
 
 
 def test_an_empty_video_path_is_not_read_as_the_working_directory() -> None:
@@ -196,17 +301,213 @@ def test_the_request_interval_cannot_be_negative() -> None:
         settings.Xiaohongshu(sleep_request_seconds=-1)
 
 
-def test_abort_after_must_leave_room_for_at_least_one_page() -> None:
+def test_the_page_limits_must_leave_room_for_one_page() -> None:
     with pytest.raises(ValueError, match='abort_after'):
         settings.Xiaohongshu(abort_after=0)
+    with pytest.raises(ValueError, match='max_pages_per_run'):
+        settings.Xiaohongshu(max_pages_per_run=0)
 
 
-def test_the_cookie_profile_names_what_signing_and_the_session_need() -> None:
-    profile = PROFILES['xiaohongshu']
+def test_the_profile_defaults_onto_the_persistent_directory() -> None:
+    # ./data is the repository's convention for state that has to survive a restart;
+    # a profile anywhere else means a QR scan after every deploy.
+    assert settings.Xiaohongshu().profile_path == Path('./data/xiaohongshu-profile')
 
-    # a1 is what requests are signed with; web_session is what makes them the user's.
-    assert profile.required_cookies == ('a1', 'web_session')
-    assert 'xiaohongshu.com' in profile.domains
+
+def test_xhshow_is_gone_and_should_stay_gone() -> None:
+    """The signing library is what this rewrite exists to remove.
+
+    Reaching for it again would mean issuing requests from outside the browser, which
+    is the shape that got the account flagged in the first place.
+    """
+    with (Path(__file__).resolve().parents[1] / 'pyproject.toml').open('rb') as handle:
+        dependencies = tomllib.load(handle)['project']['dependencies']
+
+    assert not [name for name in dependencies if 'xhshow' in name]
+
+
+# ---------- launching the browser ----------
+
+
+def test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell() -> None:
+    options = build_launch_options(user_data_dir=Path('/data/profile'), proxy='', headless=True)
+
+    # A bare headless=True prefers chromium-headless-shell, the most identifiable
+    # build in the stack.
+    assert options['channel'] == 'chromium'
+    assert options['user_data_dir'] == '/data/profile'
+    assert options['locale'] == 'zh-CN'
+    assert options['timezone_id'] == 'Asia/Shanghai'
+    # /dev/shm is 64 MB in a container, and Chromium answers that with renderer
+    # crashes that read like site failures.
+    assert '--disable-dev-shm-usage' in options['args']
+    assert options['ignore_default_args'] == ['--enable-automation']
+
+
+def test_the_launch_options_leave_the_user_agent_alone() -> None:
+    # Playwright does not regenerate Sec-CH-UA for an overridden UA, so pinning one
+    # creates a UA/client-hint mismatch that is louder than the default ever was.
+    assert 'user_agent' not in build_launch_options(user_data_dir=Path('/p'), proxy='', headless=True)
+
+
+def test_proxy_credentials_are_split_out_of_the_url() -> None:
+    # Chromium ignores userinfo in --proxy-server.
+    assert build_proxy_settings('http://user:pw@home.example:3128') == {
+        'server': 'http://home.example:3128',
+        'username': 'user',
+        'password': 'pw',
+    }
+    assert build_proxy_settings('home.example:3128') == {'server': 'http://home.example:3128'}
+    assert build_proxy_settings('  ') is None
+
+
+def test_an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous() -> None:
+    with pytest.raises(ValueError, match='SOCKS'):
+        build_proxy_settings('socks5://user:pw@home.example:1080')
+
+    # Without credentials SOCKS is fine.
+    assert build_proxy_settings('socks5://home.example:1080') == {'server': 'socks5://home.example:1080'}
+
+
+def test_a_killed_chromium_does_not_lock_the_profile_forever(tmp_path) -> None:
+    # The lock encodes hostname-pid, and in k8s both change with every pod, so a
+    # leftover reads as "held by another machine" and the next run cannot start.
+    (tmp_path / 'SingletonLock').symlink_to('some-host-1234')
+    (tmp_path / 'SingletonCookie').write_text('x')
+
+    cleared = clear_stale_profile_locks(tmp_path)
+
+    assert sorted(cleared) == ['SingletonCookie', 'SingletonLock']
+    assert not (tmp_path / 'SingletonLock').is_symlink()
+    assert clear_stale_profile_locks(tmp_path) == []
+
+
+def test_browser_cookies_become_a_jar_yt_dlp_can_read() -> None:
+    text = browser_cookies_to_netscape(
+        [
+            {'name': 'web_session', 'value': 'v', 'domain': '.xiaohongshu.com', 'path': '/', 'secure': True, 'expires': 1893456000},
+            {'name': 'session_only', 'value': 's', 'domain': 'www.xiaohongshu.com', 'path': '/', 'secure': False, 'expires': -1},
+        ],
+    )
+
+    lines = text.splitlines()
+    assert lines[0] == '# Netscape HTTP Cookie File'
+    assert lines[3].split('\t') == ['.xiaohongshu.com', 'TRUE', '/', 'TRUE', '1893456000', 'web_session', 'v']
+    # A session cookie comes back as -1; the file format spells that 0.
+    assert lines[4].split('\t')[4] == '0'
+
+
+def test_the_login_qr_is_decoded_straight_out_of_the_dom() -> None:
+    src = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+
+    assert decode_qr_data_url(src) == QR_PNG
+
+    with pytest.raises(ValueError, match='base64 QR'):
+        decode_qr_data_url('https://example.com/qr.png')
+
+
+def test_a_page_is_identified_by_the_cursor_it_was_fetched_with() -> None:
+    assert cursor_of('https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30&cursor=C1') == 'C1'
+    assert cursor_of('https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30') == ''
+
+
+# ---------- login ----------
+
+
+def test_the_login_modal_outranks_a_stale_cookie() -> None:
+    # web_session survives the account revoking the session elsewhere, so trusting it
+    # alone would walk a run confidently into a login screen.
+    assert decide_login_state({'has_login_modal': True}, {'web_session': 'still-here'}) == 'logged_out'
+    assert decide_login_state({'has_login_modal': False, 'user_id': 'me'}, {}) == 'logged_out'
+    assert decide_login_state({'has_login_modal': False, 'user_id': 'me'}, {'web_session': 'v'}) == 'logged_in'
+
+
+def test_a_page_that_has_not_hydrated_yet_is_not_called_signed_out() -> None:
+    assert decide_login_state({'has_login_modal': False}, {'web_session': 'v'}) == 'unknown'
+
+
+def test_the_profile_id_comes_from_the_page_or_its_own_profile_link() -> None:
+    assert user_id_from_probe({'user_id': '5ff'}) == '5ff'
+    assert user_id_from_probe({'profile_href': '/user/profile/5ff?tab=liked'}) == '5ff'
+    assert user_id_from_probe({}) == ''
+
+
+def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeypatch) -> None:
+    sent: list[bytes] = []
+    qr_a = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    qr_b = 'data:image/png;base64,' + base64.b64encode(QR_PNG + b'\x00').decode()
+
+    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+        sent.append(photo[1])
+        return 1
+
+    async def _send_text(*, text, require_enabled=True) -> int:
+        return 2
+
+    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_text_now', _send_text)
+    monkeypatch.setattr(xiaohongshu_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    browser = _FakeBrowser(
+        probes=[
+            {'has_login_modal': True, 'qr_src': qr_a},
+            # The same code again: re-sending it would be noise.
+            {'has_login_modal': True, 'qr_src': qr_a},
+            # Xiaohongshu minted a new one, so the src changed.
+            {'has_login_modal': True, 'qr_src': qr_b},
+            {'has_login_modal': False, 'user_id': 'me'},
+        ],
+    )
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    assert len(sent) == 2
+    assert job.user_id == 'me'
+
+
+def test_a_login_that_is_never_scanned_ends_the_run_with_one_deduped_failure(monkeypatch) -> None:
+    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+        return 1
+
+    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(xiaohongshu_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
+    job = _job(browser=browser, login_wait_seconds=1)
+
+    with pytest.raises(XiaohongshuError) as excinfo:
+        _run(job, job._await_login(browser))
+
+    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:login'
+
+
+def test_a_second_run_inside_the_cooldown_does_not_send_another_qr(monkeypatch) -> None:
+    # A QR is dead within minutes, so a 04:00 cron sending one is pure noise.
+    sent: list[bytes] = []
+
+    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+        sent.append(photo[1])
+        return 1
+
+    fake_db = _FakeDatabase()
+    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(xiaohongshu_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    job = _job(login_wait_seconds=1, login_prompt_cooldown_seconds=3600)
+
+    for _ in range(2):
+        browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
+        with pytest.raises(XiaohongshuError):
+            asyncio.run(job._await_login(browser))
+    asyncio.run(job.client.aclose())
+
+    assert len(sent) == 1
 
 
 # ---------- reading the likes list ----------
@@ -238,6 +539,21 @@ def test_an_entry_without_an_id_is_skipped_rather_than_crashing_the_page() -> No
     assert has_more is False
 
 
+def test_a_signed_out_response_is_reported_as_a_login_failure() -> None:
+    with pytest.raises(XiaohongshuError) as excinfo:
+        parse_api_envelope(_envelope({}, code=-101))
+
+    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:login'
+
+
+def test_any_other_error_code_is_an_ordinary_failure() -> None:
+    assert parse_api_envelope(_envelope({'notes': []})) == {'notes': []}
+    with pytest.raises(ValueError, match='-510001'):
+        parse_api_envelope(_envelope({}, code=-510001))
+    with pytest.raises(TypeError):
+        parse_api_envelope('not an object')
+
+
 # ---------- reading one note ----------
 
 
@@ -253,12 +569,28 @@ def test_an_image_note_prefers_the_full_size_variant() -> None:
     assert media[0].xsec_token == 'TOKEN'
 
 
-def test_an_image_without_the_preferred_variant_still_yields_a_file() -> None:
-    card = _image_note_card(image_list=[{'info_list': [{'image_scene': 'WB_PRV', 'url': 'https://cdn/only-preview'}]}])
+def test_the_page_state_parses_to_exactly_what_the_api_did() -> None:
+    """__INITIAL_STATE__ is camelCase where the API was snake_case.
 
-    media = extract_note_media(card, note_id=NOTE_ID, xsec_token='T')
+    Same note, same rows: this is the cheap proof that moving to the browser did not
+    shift ``media_index``, which is what ``_refresh_stale_media`` looks rows up by.
+    """
+    from_api = extract_note_media(_image_note_card(), note_id=NOTE_ID, xsec_token='T')
+    from_page = extract_note_media(_page_note_card(), note_id=NOTE_ID, xsec_token='T')
 
-    assert [item.media_url for item in media] == ['https://cdn/only-preview']
+    assert from_page == from_api
+
+
+def test_the_page_state_url_is_upgraded_to_https() -> None:
+    # __INITIAL_STATE__ hands out http:// CDN links.
+    assert normalize_media_url('http://sns-webpic.xhscdn.com/x') == 'https://sns-webpic.xhscdn.com/x'
+    assert extract_note_media(_page_note_card(), note_id=NOTE_ID, xsec_token='T')[0].media_url.startswith('https://')
+
+
+def test_an_image_with_only_a_default_url_still_yields_a_file() -> None:
+    card = _page_note_card(imageList=[{'urlDefault': 'http://cdn/only-default'}])
+
+    assert [item.media_url for item in extract_note_media(card, note_id=NOTE_ID, xsec_token='T')] == ['https://cdn/only-default']
 
 
 def test_a_live_photo_is_kept_as_both_the_still_and_the_clip() -> None:
@@ -275,8 +607,7 @@ def test_a_live_photo_is_kept_as_both_the_still_and_the_clip() -> None:
 
     media = extract_note_media(card, note_id=NOTE_ID, xsec_token='T')
 
-    # Indices are handed out in file order, the clip counting as its own file: the
-    # refresh path looks a row back up by this number.
+    # Indices are handed out in file order, the clip counting as its own file.
     assert [(item.media_index, item.media_type) for item in media] == [
         (1, 'image'),
         (2, 'image'),
@@ -294,25 +625,21 @@ def test_a_video_note_is_one_file_and_its_cover_is_not_archived() -> None:
 
 
 def test_a_video_note_falls_back_to_the_next_codec() -> None:
-    card = _video_note_card(video={'media': {'stream': {'h265': [{'master_url': 'https://cdn/h265.mp4'}]}}})
+    card = _video_note_card(video={'media': {'stream': {'h265': [{'masterUrl': 'https://cdn/h265.mp4'}]}}})
 
-    media = extract_note_media(card, note_id=NOTE_ID, xsec_token='T')
-
-    assert media[0].media_url == 'https://cdn/h265.mp4'
+    assert extract_note_media(card, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/h265.mp4'
 
 
 def test_a_video_note_yields_a_row_even_with_no_readable_stream() -> None:
-    # yt-dlp downloads it from the note page, so an unreadable stream block is not
-    # a reason to drop the note on the floor.
+    # yt-dlp downloads it from the note page, so an unreadable stream block is not a
+    # reason to drop the note on the floor.
     media = extract_note_media(_video_note_card(video={}), note_id=NOTE_ID, xsec_token='T')
 
     assert [(item.media_index, item.media_type, item.media_url) for item in media] == [(1, 'video', '')]
 
 
 def test_a_note_without_a_time_still_produces_rows() -> None:
-    media = extract_note_media(_image_note_card(time=None), note_id=NOTE_ID, xsec_token='T')
-
-    assert media[0].published_at == ''
+    assert extract_note_media(_image_note_card(time=None), note_id=NOTE_ID, xsec_token='T')[0].published_at == ''
 
 
 # ---------- naming and links ----------
@@ -331,7 +658,7 @@ def test_a_filename_carries_the_date_the_note_was_posted() -> None:
 
 
 def test_videos_and_live_clips_are_named_as_mp4() -> None:
-    assert build_media_filename(_media(media_type='video', media_index=1, media_url='')).endswith('.mp4')
+    assert build_media_filename(_media(media_type='video', media_url='')).endswith('.mp4')
     assert build_media_filename(_media(media_type='live', media_index=3, media_url='https://cdn/x')).endswith('.mp4')
 
 
@@ -343,21 +670,30 @@ def test_a_note_link_carries_the_token_that_makes_it_readable() -> None:
 # ---------- yt-dlp invocation ----------
 
 
-def test_the_video_command_hands_yt_dlp_the_session_and_the_note_page() -> None:
+def test_the_video_command_leaves_through_the_same_proxy_as_the_browser() -> None:
+    # yt-dlp re-fetches the note page carrying the account's cookies, so skipping the
+    # proxy here would put the session straight back on the pod's own address.
     command = build_ytdlp_command(
         note_url=build_note_url(NOTE_ID, 'TOKEN'),
         cookie_path=Path('/run/cookies/c.txt'),
         output_template=Path('/cache') / f'{NOTE_ID}.%(ext)s',
+        proxy='http://home.example:3128',
+        user_agent='Mozilla/5.0 (Test) Chrome/149.0.0.0',
     )
 
-    assert command[0] == 'yt-dlp'
+    assert command[command.index('--proxy') + 1] == 'http://home.example:3128'
     assert command[command.index('--cookies') + 1] == '/run/cookies/c.txt'
     assert command[command.index('-o') + 1] == f'/cache/{NOTE_ID}.%(ext)s'
-    assert command[command.index('--referer') + 1] == 'https://www.xiaohongshu.com/'
-    # The same User-Agent the API requests are signed as.
-    assert command[command.index('--add-header') + 1] == f'User-Agent:{xiaohongshu_module._USER_AGENT}'
-    # Without the token yt-dlp gets a page that only opens for the note's author.
+    # Read off the live browser rather than pinned, so the two provably agree.
+    assert command[command.index('--add-header') + 1] == 'User-Agent:Mozilla/5.0 (Test) Chrome/149.0.0.0'
     assert command[-1].endswith('?xsec_token=TOKEN&xsec_source=pc_user')
+
+
+def test_the_video_command_omits_what_it_was_not_given() -> None:
+    command = build_ytdlp_command(note_url='https://x', cookie_path=Path('/c'), output_template=Path('/o.%(ext)s'))
+
+    assert '--proxy' not in command
+    assert '--add-header' not in command
 
 
 def test_the_installed_yt_dlp_still_claims_xiaohongshu_note_pages() -> None:
@@ -380,153 +716,7 @@ def test_a_deleted_note_is_told_apart_from_a_bad_night() -> None:
     assert is_note_gone('ERROR: unable to download webpage: timed out') is False
 
 
-# ---------- signed requests ----------
-
-
-def test_a_request_is_signed_and_carries_the_session() -> None:
-    seen: list[httpx.Request] = []
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return _api_response({'notes': [], 'cursor': '', 'has_more': False})
-
-    job = _job(_handler)
-
-    _run(job, job._fetch_like_page(cursor='CURSOR-1'))
-
-    request = seen[0]
-    assert request.url.path == '/api/sns/web/v1/note/like/page'
-    assert dict(request.url.params) == {'user_id': job.user_id, 'num': '30', 'cursor': 'CURSOR-1'}
-    assert request.headers['x-s']
-    assert request.headers['x-s-common']
-    assert request.headers['x-t']
-    assert 'web_session=session-value' in request.headers['cookie']
-
-
-def test_the_feed_request_asks_for_the_note_the_way_the_web_client_does() -> None:
-    import json  # noqa: PLC0415
-
-    seen: list[httpx.Request] = []
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return _api_response({'items': [{'note_card': _image_note_card()}]})
-
-    job = _job(_handler)
-
-    note_card = _run(job, job._fetch_note_card(note_id=NOTE_ID, xsec_token='TOKEN'))
-
-    body = json.loads(seen[0].content)
-    assert body['source_note_id'] == NOTE_ID
-    assert body['xsec_token'] == 'TOKEN'
-    assert body['image_formats'] == ['jpg', 'webp', 'avif']
-    # The feed endpoint is one of the risk-controlled ones.
-    assert seen[0].headers['x-rap-param']
-    assert note_card['title'] == 'a caption'
-
-
-def test_a_rejected_signature_is_retried_in_the_other_envelope() -> None:
-    attempts = 0
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            return httpx.Response(406)
-        return _api_response({'notes': [], 'cursor': '', 'has_more': False})
-
-    job = _job(_handler)
-    started_as = job._sign_format_for(xiaohongshu_module._LIKE_PAGE_URI)
-
-    _run(job, job._fetch_like_page(cursor=''))
-
-    assert attempts == 2
-    # Remembered per endpoint: the feed does not have to agree with the likes list,
-    # and one shared setting would flip-flop and pay a rejection every request.
-    assert job._sign_format_for(xiaohongshu_module._LIKE_PAGE_URI) != started_as
-    assert job._sign_format_for(xiaohongshu_module._FEED_URI) == started_as
-
-
-def test_the_captcha_wall_ends_the_run_instead_of_being_hammered() -> None:
-    attempts = 0
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        nonlocal attempts
-        attempts += 1
-        return httpx.Response(461)
-
-    job = _job(_handler)
-
-    with pytest.raises(XiaohongshuError) as excinfo:
-        _run(job, job._fetch_like_page(cursor=''))
-
-    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:risk'
-    assert attempts == 1
-
-
-def test_a_signed_out_session_is_reported_as_an_auth_failure() -> None:
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        return _api_response({}, code=-101)
-
-    job = _job(_handler)
-
-    with pytest.raises(XiaohongshuError) as excinfo:
-        _run(job, job._fetch_like_page(cursor=''))
-
-    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:auth'
-
-
-def test_throttling_is_retried_with_a_growing_delay(monkeypatch) -> None:
-    sleeps: list[float] = []
-    attempts = 0
-
-    async def _fake_sleep(delay: float) -> None:
-        sleeps.append(delay)
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            return httpx.Response(429)
-        return _api_response({'notes': [], 'cursor': '', 'has_more': False})
-
-    monkeypatch.setattr(xiaohongshu_module.asyncio, 'sleep', _fake_sleep)
-    job = _job(_handler)
-
-    _run(job, job._fetch_like_page(cursor=''))
-
-    assert attempts == 2
-    assert sleeps == [2.0]
-
-
-def test_the_profile_id_is_resolved_from_the_session_when_it_is_not_configured() -> None:
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/sns/web/v2/user/me'
-        return _api_response({'user_id': 'resolved-id', 'nickname': 'me'})
-
-    job = _job(_handler)
-
-    assert _run(job, job._resolve_user_id()) == 'resolved-id'
-
-
-def test_a_configured_profile_id_skips_the_lookup() -> None:
-    job = _job(user_id='configured-id')
-
-    assert _run(job, job._resolve_user_id()) == 'configured-id'
-
-
 # ---------- walking the likes list ----------
-
-
-def _like_page_handler(pages: dict[str, dict]):
-    """Serves the likes list, plus a one-image note for whatever the walk resolves."""
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == xiaohongshu_module._FEED_URI:
-            return _api_response({'items': [{'note_card': _image_note_card()}]})
-        return _api_response(pages[request.url.params.get('cursor', '')])
-
-    return _handler
 
 
 def _resolved_note_ids(fake_db: _FakeDatabase) -> list[str]:
@@ -534,33 +724,58 @@ def _resolved_note_ids(fake_db: _FakeDatabase) -> list[str]:
 
 
 def test_the_crawl_stops_once_it_has_caught_up(monkeypatch) -> None:
-    pages = {
-        '': {'notes': [{'note_id': 'new-1', 'xsec_token': 'T1'}], 'cursor': 'C1', 'has_more': True},
-        'C1': {'notes': [{'note_id': 'old-1', 'xsec_token': 'T2'}], 'cursor': 'C2', 'has_more': True},
-        'C2': {'notes': [{'note_id': 'old-2', 'xsec_token': 'T3'}], 'cursor': 'C3', 'has_more': True},
-        # Reaching this page would mean the stop rule never fired.
-        'C3': {'notes': [{'note_id': 'new-2', 'xsec_token': 'T4'}], 'cursor': 'C4', 'has_more': True},
-    }
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2'))
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    job = _job(_like_page_handler(pages), abort_after=2)
+    browser = _FakeBrowser(
+        pages=[
+            _like_page([{'note_id': 'new-1', 'xsec_token': 'T'}], cursor=''),
+            _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor='C1'),
+            _like_page([{'note_id': 'old-2', 'xsec_token': 'T'}], cursor='C2'),
+            # Reaching this page would mean the stop rule never fired.
+            _like_page([{'note_id': 'new-2', 'xsec_token': 'T'}], cursor='C3'),
+        ],
+    )
+    job = _job(browser=browser, abort_after=2)
 
-    assert _run(job, job._crawl()) == 1
+    assert _run(job, job._crawl(browser)) == 1
     assert _resolved_note_ids(fake_db) == ['new-1']
 
 
 def test_a_page_with_anything_new_resets_the_stop_counter(monkeypatch) -> None:
-    pages = {
-        '': {'notes': [{'note_id': 'old-1', 'xsec_token': 'T'}], 'cursor': 'C1', 'has_more': True},
-        'C1': {'notes': [{'note_id': 'new-1', 'xsec_token': 'T'}], 'cursor': 'C2', 'has_more': True},
-        'C2': {'notes': [{'note_id': 'old-2', 'xsec_token': 'T'}], 'cursor': 'C3', 'has_more': True},
-        'C3': {'notes': [{'note_id': 'old-3', 'xsec_token': 'T'}], 'cursor': 'C4', 'has_more': False},
-    }
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2', 'old-3'))
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    job = _job(_like_page_handler(pages), abort_after=2)
+    browser = _FakeBrowser(
+        pages=[
+            _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor=''),
+            _like_page([{'note_id': 'new-1', 'xsec_token': 'T'}], cursor='C1'),
+            _like_page([{'note_id': 'old-2', 'xsec_token': 'T'}], cursor='C2'),
+            _like_page([{'note_id': 'old-3', 'xsec_token': 'T'}], cursor='C3', has_more=False),
+        ],
+    )
+    job = _job(browser=browser, abort_after=2)
 
-    _run(job, job._crawl())
+    _run(job, job._crawl(browser))
+
+    assert _resolved_note_ids(fake_db) == ['new-1']
+
+
+def test_the_page_the_site_fetched_twice_is_only_counted_once(monkeypatch) -> None:
+    # The site's own client sometimes fires the same request twice per scroll. Left
+    # counted, the repeat would satisfy the stop rule a page early and the run would
+    # never reach what is below it.
+    fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2'))
+    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    browser = _FakeBrowser(
+        pages=[
+            _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor='C1'),
+            _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor='C1'),
+            _like_page([{'note_id': 'old-2', 'xsec_token': 'T'}], cursor='C2'),
+            _like_page([{'note_id': 'new-1', 'xsec_token': 'T'}], cursor='C3', has_more=False),
+        ],
+    )
+    job = _job(browser=browser, abort_after=3)
+
+    _run(job, job._crawl(browser))
 
     assert _resolved_note_ids(fake_db) == ['new-1']
 
@@ -568,84 +783,90 @@ def test_a_page_with_anything_new_resets_the_stop_counter(monkeypatch) -> None:
 def test_the_first_run_walks_past_notes_it_has_already_stored(monkeypatch) -> None:
     # A backfill that died part-way leaves an archived prefix. Stopping on it would
     # put everything below wherever that run got to out of reach for good.
-    pages = {
-        '': {'notes': [{'note_id': 'old-1', 'xsec_token': 'T'}], 'cursor': 'C1', 'has_more': True},
-        'C1': {'notes': [{'note_id': 'old-2', 'xsec_token': 'T'}], 'cursor': 'C2', 'has_more': True},
-        'C2': {'notes': [{'note_id': 'old-3', 'xsec_token': 'T'}], 'cursor': 'C3', 'has_more': True},
-        'C3': {'notes': [{'note_id': 'new-1', 'xsec_token': 'T'}], 'cursor': 'C4', 'has_more': False},
-    }
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2', 'old-3'), backfill_complete=False)
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    job = _job(_like_page_handler(pages), abort_after=2)
+    browser = _FakeBrowser(
+        pages=[
+            _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor=''),
+            _like_page([{'note_id': 'old-2', 'xsec_token': 'T'}], cursor='C1'),
+            _like_page([{'note_id': 'old-3', 'xsec_token': 'T'}], cursor='C2'),
+            _like_page([{'note_id': 'new-1', 'xsec_token': 'T'}], cursor='C3', has_more=False),
+        ],
+    )
+    job = _job(browser=browser, abort_after=2)
 
-    _run(job, job._crawl())
+    _run(job, job._crawl(browser))
 
     assert _resolved_note_ids(fake_db) == ['new-1']
-    # Reaching the end of the list is what lets later runs stop early.
     assert any('INSERT OR IGNORE INTO xiaohongshu_state' in query for query, _ in fake_db.calls)
 
 
 def test_a_walk_that_stopped_early_does_not_claim_the_backfill_finished(monkeypatch) -> None:
-    pages = {
-        '': {'notes': [{'note_id': 'old-1', 'xsec_token': 'T'}], 'cursor': 'C1', 'has_more': True},
-        'C1': {'notes': [{'note_id': 'old-2', 'xsec_token': 'T'}], 'cursor': '', 'has_more': True},
-    }
-    fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2'), backfill_complete=False)
+    fake_db = _FakeDatabase(known_note_ids=('old-1',), backfill_complete=False)
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    job = _job(_like_page_handler(pages), abort_after=2)
+    # Scrolling stopped producing, which is not the same as reaching the end.
+    browser = _FakeBrowser(pages=[_like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor='')])
+    job = _job(browser=browser, abort_after=2)
 
-    # The cursor guard ends this walk, which is not the same as reaching the end.
-    _run(job, job._crawl())
+    _run(job, job._crawl(browser))
 
     assert not any('INSERT OR IGNORE INTO xiaohongshu_state' in query for query, _ in fake_db.calls)
 
 
-def test_the_crawl_stops_when_the_cursor_repeats_itself(monkeypatch) -> None:
-    pages = {'': {'notes': [{'note_id': 'new-1', 'xsec_token': 'T'}], 'cursor': '', 'has_more': True}}
-    fake_db = _FakeDatabase()
+def test_the_page_cap_leaves_the_backfill_open_for_the_next_run(monkeypatch) -> None:
+    fake_db = _FakeDatabase(backfill_complete=False)
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    job = _job(_like_page_handler(pages), abort_after=5)
+    browser = _FakeBrowser(pages=[_like_page([{'note_id': f'n-{index}', 'xsec_token': 'T'}], cursor=f'C{index}') for index in range(5)])
+    job = _job(browser=browser, abort_after=2, max_pages_per_run=2)
 
-    _run(job, job._crawl())
+    _run(job, job._crawl(browser))
 
-    assert _resolved_note_ids(fake_db) == ['new-1']
+    assert _resolved_note_ids(fake_db) == ['n-0', 'n-1']
+    assert not any('INSERT OR IGNORE INTO xiaohongshu_state' in query for query, _ in fake_db.calls)
+
+
+def test_the_captcha_wall_ends_the_run_instead_of_being_scrolled_past(monkeypatch) -> None:
+    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
+    browser = _FakeBrowser(pages=[_like_page([], status=461)])
+    job = _job(browser=browser)
+
+    with pytest.raises(XiaohongshuError) as excinfo:
+        _run(job, job._crawl(browser))
+
+    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:risk'
 
 
 def test_resolving_a_note_writes_one_row_per_file(monkeypatch) -> None:
     fake_db = _FakeDatabase()
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    browser = _FakeBrowser(notes={NOTE_ID: _page_note_card()})
+    job = _job(browser=browser)
 
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        return _api_response({'items': [{'note_card': _image_note_card()}]})
-
-    job = _job(_handler)
-
-    assert _run(job, job._resolve_notes([NoteRef(note_id=NOTE_ID, xsec_token='TOKEN')])) == 1
+    assert _run(job, job._resolve_notes([NoteRef(note_id=NOTE_ID, xsec_token='TOKEN')], browser)) == 1
 
     table, _columns, rows, on_conflict = fake_db.inserted[0]
     assert table == 'xiaohongshu'
     assert rows[0][:3] == (NOTE_ID, '1', 'image')
-    # A rotated URL or token refreshes without resetting what has been downloaded.
+    # The note is opened with its token, or the page only loads for its author.
+    assert browser.note_urls == [f'https://www.xiaohongshu.com/explore/{NOTE_ID}?xsec_token=TOKEN&xsec_source=pc_user']
     assert 'DO UPDATE SET media_url = excluded.media_url' in (on_conflict or '')
     assert 'downloaded' not in (on_conflict or '')
 
 
 def test_a_note_that_cannot_be_read_does_not_end_the_run(monkeypatch) -> None:
-    fake_db = _FakeDatabase()
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
 
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        import json  # noqa: PLC0415
+    class _PartlyBrokenBrowser(_FakeBrowser):
+        async def note_state(self, *, note_url, note_id):
+            if note_id == NOTE_ID:
+                raise RuntimeError('navigation failed')
+            return _page_note_card()
 
-        note_id = json.loads(request.content)['source_note_id']
-        if note_id == NOTE_ID:
-            return _api_response({}, code=-510001)
-        return _api_response({'items': [{'note_card': _image_note_card()}]})
-
-    job = _job(_handler)
+    browser = _PartlyBrokenBrowser()
+    job = _job(browser=browser)
     notes = [NoteRef(note_id=NOTE_ID, xsec_token='T'), NoteRef(note_id=OTHER_NOTE_ID, xsec_token='T')]
 
-    assert _run(job, job._resolve_notes(notes)) == 1
+    assert _run(job, job._resolve_notes(notes, browser)) == 1
 
 
 # ---------- where files land ----------
@@ -695,74 +916,25 @@ def test_a_file_already_on_disk_is_not_fetched_again(tmp_path) -> None:
     assert _run(job, job._download_file(_media())) == dst_path
 
 
-def test_a_rotated_url_is_refreshed_from_the_note_and_retried(monkeypatch, tmp_path) -> None:
-    fake_db = _FakeDatabase()
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    fresh_url = 'https://sns-webpic.xhscdn.com/fresh!nd_dft_wlteh_webp_3'
-
+def test_an_expired_url_is_recorded_rather_than_guessed_at(tmp_path) -> None:
+    # The browser is closed by now, and a 404 on a CDN URL says as much about
+    # rotation as about deletion, so the row waits for a fresh look at the note.
     async def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == 'edith.xiaohongshu.com':
-            card = _image_note_card(image_list=[{'info_list': [{'image_scene': 'WB_DFT', 'url': fresh_url}]}])
-            return _api_response({'items': [{'note_card': card}]})
-        if str(request.url) == fresh_url:
-            return httpx.Response(200, content=b'fresh-bytes')
-        return httpx.Response(403)
-
-    job = _job(_handler, path=tmp_path)
-
-    dst_path = _run(job, job._download_file(_media()))
-
-    assert dst_path.read_bytes() == b'fresh-bytes'
-    # The new URL is stored, so the next run does not pay for the round trip again.
-    assert any('UPDATE xiaohongshu SET media_url' in update for update in fake_db.updates())
-
-
-def test_a_file_the_note_no_longer_offers_is_marked_unavailable(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == 'edith.xiaohongshu.com':
-            return _api_response({'items': []})
         return httpx.Response(404)
 
     job = _job(_handler, path=tmp_path)
 
-    with pytest.raises(MediaUnavailableError):
+    with pytest.raises(MediaUrlStaleError, match='stale-url'):
         _run(job, job._download_file(_media()))
 
 
-def test_a_forbidden_file_the_note_still_offers_stays_retryable(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
-
-    async def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == 'edith.xiaohongshu.com':
-            # Same URL as the row already has: nothing to refresh.
-            return _api_response(
-                {
-                    'items': [
-                        {'note_card': _image_note_card(image_list=[{'info_list': [{'image_scene': 'WB_DFT', 'url': _media().media_url}]}])}
-                    ]
-                }
-            )
-        return httpx.Response(403)
-
-    job = _job(_handler, path=tmp_path)
-
-    with pytest.raises(httpx.HTTPStatusError):
-        _run(job, job._download_file(_media()))
-
-
-def test_downloading_marks_each_row_and_keeps_going_past_a_dead_file(monkeypatch, tmp_path) -> None:
+def test_downloading_marks_each_row_and_keeps_going_past_a_dead_url(monkeypatch, tmp_path) -> None:
     fake_db = _FakeDatabase()
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
     dead_url = 'https://sns-webpic.xhscdn.com/dead!nd_dft_wlteh_webp_3'
 
     async def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == 'edith.xiaohongshu.com':
-            return _api_response({'items': []})
-        if str(request.url) == dead_url:
-            return httpx.Response(404)
-        return httpx.Response(200, content=b'bytes')
+        return httpx.Response(403) if str(request.url) == dead_url else httpx.Response(200, content=b'bytes')
 
     job = _job(_handler, path=tmp_path)
     pending = [_media(media_index=1, media_url=dead_url), _media(media_index=2)]
@@ -771,11 +943,11 @@ def test_downloading_marks_each_row_and_keeps_going_past_a_dead_file(monkeypatch
 
     assert downloaded == 1
     updates = fake_db.updates()
-    assert any(update.startswith('UPDATE xiaohongshu SET unavailable = 1') for update in updates)
+    assert any(update.startswith('UPDATE xiaohongshu SET failed_count') for update in updates)
     assert any(update.startswith('UPDATE xiaohongshu SET downloaded = 1') for update in updates)
 
 
-def test_the_cdn_is_not_paced_like_the_api(monkeypatch, tmp_path) -> None:
+def test_the_cdn_is_not_paced_like_the_site(monkeypatch, tmp_path) -> None:
     # The request interval exists for Xiaohongshu's risk control; charging it per
     # image would add hours of pure waiting to a first backfill.
     sleeps: list[float] = []
@@ -793,6 +965,56 @@ def test_the_cdn_is_not_paced_like_the_api(monkeypatch, tmp_path) -> None:
 
     assert _run(job, job._download_pending(pending, cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache')) == 2
     assert sleeps == []
+
+
+def test_an_expired_url_is_refreshed_on_the_next_run_with_the_browser_open(monkeypatch, tmp_path) -> None:
+    fresh_url = 'https://sns-webpic.xhscdn.com/fresh!nd_dft_wlteh_webp_3'
+    row = {
+        'note_id': NOTE_ID,
+        'media_index': '1',
+        'media_type': 'image',
+        'media_url': 'https://sns-webpic.xhscdn.com/expired!nd_dft_wlteh_webp_3',
+        'title': 'a caption',
+        'author': 'artist',
+        'author_id': 'a',
+        'note_type': 'normal',
+        'published_at': '2025-08-12 11:34:56',
+        'xsec_token': 'TOKEN',
+        'last_error': 'stale-url http 403',
+    }
+    fake_db = _FakeDatabase(pending_rows=(row,))
+    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    card = _page_note_card(imageList=[{'infoList': [{'imageScene': 'WB_DFT', 'url': fresh_url}]}])
+    browser = _FakeBrowser(notes={NOTE_ID: card})
+    job = _job(browser=browser)
+
+    assert _run(job, job._refresh_stale_media(browser)) == 1
+    assert any('UPDATE xiaohongshu SET media_url' in update for update in fake_db.updates())
+
+
+def test_a_file_the_note_no_longer_offers_is_retired(monkeypatch) -> None:
+    row = {
+        'note_id': NOTE_ID,
+        'media_index': '4',
+        'media_type': 'image',
+        'media_url': 'https://cdn/gone',
+        'title': '',
+        'author': 'artist',
+        'author_id': '',
+        'note_type': 'normal',
+        'published_at': '',
+        'xsec_token': 'T',
+        'last_error': 'stale-url http 404',
+    }
+    fake_db = _FakeDatabase(pending_rows=(row,))
+    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    # The note now has one image, so index 4 is gone for good.
+    browser = _FakeBrowser(notes={NOTE_ID: _page_note_card()})
+    job = _job(browser=browser)
+
+    _run(job, job._refresh_stale_media(browser))
+
+    assert any(update.startswith('UPDATE xiaohongshu SET unavailable = 1') for update in fake_db.updates())
 
 
 # ---------- video notes ----------
@@ -823,13 +1045,14 @@ def test_a_video_note_is_downloaded_by_yt_dlp_and_renamed(monkeypatch, tmp_path)
     run_command, calls = _fake_ytdlp()
     monkeypatch.setattr(xiaohongshu_module.subprocess, 'run', run_command)
     job = _job(path=tmp_path / 'images', video_path=tmp_path / 'videos')
-    media = _media(media_type='video', media_url='')
 
-    dst_path = _run(job, job._download_video(media, cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'))
+    dst_path = _run(
+        job,
+        job._download_video(_media(media_type='video', media_url=''), cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'),
+    )
 
     assert dst_path == tmp_path / 'videos' / 'artist' / f'[artist]2025-08-12 [{NOTE_ID}_1].mp4'
     assert dst_path.read_bytes() == b'video-bytes'
-    # The cache directory is left clean for the next note.
     assert list((tmp_path / 'cache').iterdir()) == []
     assert calls[0][-1].startswith(f'https://www.xiaohongshu.com/explore/{NOTE_ID}?xsec_token=')
 
@@ -870,7 +1093,7 @@ def test_a_video_that_merely_failed_is_reported_as_retryable(monkeypatch, tmp_pa
 # ---------- run ----------
 
 
-def test_a_run_walks_the_list_resolves_the_note_and_saves_its_files(monkeypatch, tmp_path) -> None:
+def test_a_run_signs_in_walks_the_list_and_saves_the_files(monkeypatch, tmp_path) -> None:
     fake_db = _FakeDatabase()
     notifications: list[dict] = []
 
@@ -878,33 +1101,51 @@ def test_a_run_walks_the_list_resolves_the_note_and_saves_its_files(monkeypatch,
         notifications.append(payload)
 
     async def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == '/api/sns/web/v2/user/me':
-            return _api_response({'user_id': 'me'})
-        if request.url.path == '/api/sns/web/v1/note/like/page':
-            return _api_response({'notes': [{'note_id': NOTE_ID, 'xsec_token': 'TOKEN'}], 'cursor': 'C1', 'has_more': False})
-        if request.url.path == '/api/sns/web/v1/feed':
-            return _api_response({'items': [{'note_card': _image_note_card()}]})
         return httpx.Response(200, content=b'image-bytes')
 
     monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
     monkeypatch.setattr(xiaohongshu_module, 'enqueue_notification', _notify)
-    job = _job(_handler, path=tmp_path)
-    job.user_id = ''
-    # The vault is the one thing a test cannot stand in for over HTTP.
-    job._load_session = lambda cookie_path: job.cookies  # noqa: ARG005
+
+    browser = _FakeBrowser(
+        pages=[_like_page([{'note_id': NOTE_ID, 'xsec_token': 'TOKEN'}], cursor='', has_more=False)],
+        notes={NOTE_ID: _page_note_card()},
+    )
+    job = _job(_handler, browser=browser, path=tmp_path, profile_path=tmp_path / 'profile')
 
     _run(job, job.update())
 
+    assert browser.started
+    assert browser.closed
     assert (tmp_path / 'artist' / f'[artist]2025-08-12 [{NOTE_ID}_1].webp').read_bytes() == b'image-bytes'
     assert any(update.startswith('UPDATE xiaohongshu SET downloaded = 1') for update in fake_db.updates())
     assert notifications[0]['source'] == 'xiaohongshu'
+    # Resolved once and remembered, so later runs skip the lookup.
+    assert fake_db.state.get('user_id') == 'me'
 
 
-def test_an_unconfigured_source_does_nothing_rather_than_calling_the_api(monkeypatch) -> None:
-    _configure(cookiecloud=settings.CookieCloud())
+def test_the_browser_is_closed_even_when_the_walk_fails(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
+
+    class _ExplodingBrowser(_FakeBrowser):
+        async def open_likes(self, *, user_id):
+            raise RuntimeError('navigation failed')
+
+    browser = _ExplodingBrowser()
+    job = _job(browser=browser, path=tmp_path, profile_path=tmp_path / 'profile')
+
+    with pytest.raises(RuntimeError, match='navigation failed'):
+        _run(job, job.update())
+
+    # Chromium costs hundreds of megabytes; leaking one per failed run would take the
+    # whole worker down with it.
+    assert browser.closed
+
+
+def test_an_unconfigured_source_does_nothing_rather_than_opening_a_browser(monkeypatch) -> None:
+    _configure(proxy='', allow_direct_connection=False)
 
     def _explode(*_args, **_kwargs):
-        raise AssertionError('should not touch the database or the network')
+        raise AssertionError('should not touch the database or the browser')
 
     monkeypatch.setattr(xiaohongshu_module, 'database', _explode)
     job = Xiaohongshu.__new__(Xiaohongshu)
@@ -925,9 +1166,8 @@ def test_the_job_is_registered_and_parked_until_configured() -> None:
     assert job.section == 'web.xiaohongshu'
     assert job.required_commands == ('yt-dlp',)
     assert job.factory is jobs_module.Xiaohongshu
-    # Enabled in the UI but with no credentials, so it stays out of the scheduler.
     assert job.enabled is False
-    assert 'cookiecloud.server_url' in job.missing_fields
+    assert 'proxy' in job.missing_fields
 
 
 def test_api_job_enum_includes_xiaohongshu() -> None:

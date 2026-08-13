@@ -135,16 +135,17 @@ def test_saving_twitter_with_a_masked_password_keeps_the_stored_one() -> None:
     assert merged['username'] == 'someone-else'
 
 
-def test_xiaohongshu_cookiecloud_password_survives_a_round_trip() -> None:
-    stored = {'user_id': '', 'cookiecloud': {'uuid': 'u', 'password': 'pw-REAL'}}
+def test_the_xiaohongshu_proxy_survives_a_round_trip() -> None:
+    # It points at the user's own line and may carry credentials.
+    stored = {'user_id': '', 'proxy': 'http://user:pw@home.example:3128'}
     edited = mask_section('web.xiaohongshu', stored)
     edited['user_id'] = '5ff'
 
-    assert edited['cookiecloud']['password'] == f'pw-R{MASK_SUFFIX}'
+    assert edited['proxy'] == f'http{MASK_SUFFIX}'
 
     merged = unmask_section('web.xiaohongshu', edited, stored)
 
-    assert merged['cookiecloud']['password'] == 'pw-REAL'
+    assert merged['proxy'] == 'http://user:pw@home.example:3128'
     assert merged['user_id'] == '5ff'
 
 
