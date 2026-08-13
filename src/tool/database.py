@@ -17,7 +17,11 @@ from src.core.env import env
 log = logger.get('database')
 _DEFAULT_DB_MAX_BIND_PARAMS = 65535
 _POOL_MIN_SIZE = 1
-_POOL_MAX_SIZE = 8
+# Headroom for the archival crawlers, which issue several short statements per asset from many
+# coroutines at once; at 8 the pool, not the network, was what their concurrency queued behind.
+# Kept just above the widest asset concurrency: the server allows 100 connections and this pool
+# exists once per process, so growing it further would eat into what other apps can open.
+_POOL_MAX_SIZE = 16
 _POOL_TIMEOUT_SECONDS = 15.0
 _SQL_CACHE_SIZE = 1024
 _PRAGMA_TABLE_INFO_RE = re.compile(
