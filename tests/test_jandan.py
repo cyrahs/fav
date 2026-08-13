@@ -10,8 +10,11 @@ import src.web.jandan as jandan_module
 from src.core import settings
 from src.web.jandan import (
     Jandan,
+    JandanImage,
     build_fav_request,
     build_image_download_candidates,
+    build_image_request_headers,
+    build_sinaimg_shard_candidates,
     decrypt_data_field,
     detect_deleted_placeholder,
     encrypt_data_field,
@@ -266,6 +269,155 @@ def test_build_image_download_candidates_keeps_single_for_unknown_host() -> None
     candidates = build_image_download_candidates('https://cdn.example.com/mw600/abc.jpg')
 
     assert candidates == ['https://cdn.example.com/mw600/abc.jpg']
+
+
+def test_build_image_request_headers_adds_referer_for_wangmoyu() -> None:
+    headers = build_image_request_headers('https://img.wangmoyu.com/mw1024/abc.jpg')
+
+    assert headers['Referer'] == 'https://jandan.net/'
+
+
+def test_build_image_request_headers_omits_referer_for_other_hosts() -> None:
+    assert 'Referer' not in build_image_request_headers('http://wx4.sinaimg.cn/large/abc.jpg')
+    assert 'Referer' not in build_image_request_headers('https://cdn.example.com/large/abc.jpg')
+
+
+def test_build_sinaimg_shard_candidates_rotates_siblings() -> None:
+    candidates = build_sinaimg_shard_candidates('http://wx4.sinaimg.cn/large/abc.jpg?x=1')
+
+    assert candidates == [
+        'http://wx1.sinaimg.cn/large/abc.jpg?x=1',
+        'http://wx2.sinaimg.cn/large/abc.jpg?x=1',
+        'http://wx3.sinaimg.cn/large/abc.jpg?x=1',
+    ]
+
+
+def test_build_sinaimg_shard_candidates_keeps_multi_letter_prefix() -> None:
+    candidates = build_sinaimg_shard_candidates('https://tvax3.sinaimg.cn/large/abc.jpg')
+
+    assert candidates == [
+        'https://tvax1.sinaimg.cn/large/abc.jpg',
+        'https://tvax2.sinaimg.cn/large/abc.jpg',
+        'https://tvax4.sinaimg.cn/large/abc.jpg',
+    ]
+
+
+def test_build_sinaimg_shard_candidates_ignores_other_hosts() -> None:
+    assert build_sinaimg_shard_candidates('https://img.wangmoyu.com/large/abc.jpg') == []
+    assert build_sinaimg_shard_candidates('https://sinaimg.cn/large/abc.jpg') == []
+
+
+def _sinaimg_image() -> JandanImage:
+    return JandanImage(
+        fav_type=1,
+        pic_id=1,
+        content_index=1,
+        content_url='http://wx4.sinaimg.cn/large/abc.jpg',
+        content_md5=None,
+        author='tester',
+        post_date=None,
+        image_type='jpg',
+    )
+
+
+def _jandan_job(handler) -> Jandan:
+    job = Jandan.__new__(Jandan)
+    job.cfg = settings.load().web.jandan
+    job.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return job
+
+
+def test_download_image_recovers_forbidden_sinaimg_from_sibling_shard(tmp_path) -> None:
+    requested: list[str] = []
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        if request.url.host == 'wx2.sinaimg.cn':
+            return httpx.Response(200, content=b'image-bytes')
+        return httpx.Response(403)
+
+    _configure_jandan(path=tmp_path)
+    job = _jandan_job(_handler)
+
+    try:
+        dst_path = asyncio.run(job._download_image(_sinaimg_image()))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert requested == [
+        'http://wx4.sinaimg.cn/large/abc.jpg',
+        'http://wx1.sinaimg.cn/large/abc.jpg',
+        'http://wx2.sinaimg.cn/large/abc.jpg',
+    ]
+    assert dst_path.read_bytes() == b'image-bytes'
+
+
+def test_download_image_reraises_when_every_sinaimg_shard_is_forbidden(tmp_path) -> None:
+    requested: list[str] = []
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(403)
+
+    _configure_jandan(path=tmp_path)
+    job = _jandan_job(_handler)
+
+    try:
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            asyncio.run(job._download_image(_sinaimg_image()))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert len(requested) == 4
+    assert excinfo.value.response.status_code == 403
+    assert should_mark_unavailable_http(status_code=403, url_host='wx4.sinaimg.cn') is True
+
+
+def test_download_image_skips_shard_fallback_for_404(tmp_path) -> None:
+    requested: list[str] = []
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(404)
+
+    _configure_jandan(path=tmp_path)
+    job = _jandan_job(_handler)
+
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(job._download_image(_sinaimg_image()))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert requested == ['http://wx4.sinaimg.cn/large/abc.jpg']
+
+
+def test_download_image_sends_referer_to_wangmoyu(tmp_path) -> None:
+    referers: list[str | None] = []
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        referers.append(request.headers.get('referer'))
+        return httpx.Response(200, content=b'image-bytes')
+
+    _configure_jandan(path=tmp_path)
+    job = _jandan_job(_handler)
+    image = JandanImage(
+        fav_type=1,
+        pic_id=2,
+        content_index=1,
+        content_url='https://img.wangmoyu.com/large/abc.jpg',
+        content_md5=None,
+        author='tester',
+        post_date=None,
+        image_type='jpg',
+    )
+
+    try:
+        asyncio.run(job._download_image(image))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert referers == ['https://jandan.net/']
 
 
 def test_fetch_fav_page_retries_connect_timeout(monkeypatch) -> None:

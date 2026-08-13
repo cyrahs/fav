@@ -34,6 +34,8 @@ _FAV_TYPE_DIR = {
     6: 'girls',
 }
 _IMAGE_ACCEPT = 'image/*,*/*;q=0.8'
+_IMAGE_REFERER = 'https://jandan.net/'
+_REFERER_HOST_SUFFIXES = ('wangmoyu.com',)
 _EXT_ALIASES = {
     'jpeg': 'jpg',
     'jpg': 'jpg',
@@ -47,6 +49,10 @@ _UNAVAILABLE_STATUS_CODES = {404, 410}
 _SINAIMG_FORBIDDEN_STATUS = 403
 _LARGE_VARIANT_HOST_SUFFIXES = ('sinaimg.cn', 'wangmoyu.com')
 _MW_VARIANT_SEGMENT_RE = re.compile(r'/mw\d+/')
+# Sina serves one object from interchangeable numbered shards (wx1..wx4, ww1..ww4, tva1..tva4).
+# A 403 is often shard-local, so the same path is worth retrying on its siblings.
+_SINAIMG_SHARD_HOST_RE = re.compile(r'^(?P<prefix>[a-z]+)(?P<shard>[1-4])\.sinaimg\.cn$')
+_SINAIMG_SHARDS = ('1', '2', '3', '4')
 _FULL_HIT_STOP_PAGES = 2
 _API_RETRY_DELAYS_SECONDS = (2.0, 5.0, 15.0, 30.0)
 _API_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
@@ -282,6 +288,33 @@ def build_image_download_candidates(content_url: str) -> list[str]:
     if large_url == base_url:
         return [base_url]
     return [large_url, base_url]
+
+
+def build_image_request_headers(url: str) -> dict[str, str]:
+    headers = {
+        'Accept': _IMAGE_ACCEPT,
+        'Connection': 'keep-alive',
+    }
+    host = (urlsplit(url).hostname or '').lower()
+    if any(host.endswith(suffix) for suffix in _REFERER_HOST_SUFFIXES):
+        headers['Referer'] = _IMAGE_REFERER
+    return headers
+
+
+def build_sinaimg_shard_candidates(url: str) -> list[str]:
+    parsed = urlsplit(url)
+    host = (parsed.hostname or '').lower()
+    match = _SINAIMG_SHARD_HOST_RE.fullmatch(host)
+    if match is None:
+        return []
+
+    prefix = match.group('prefix')
+    current_shard = match.group('shard')
+    return [
+        urlunsplit((parsed.scheme, f'{prefix}{shard}.sinaimg.cn', parsed.path, parsed.query, parsed.fragment))
+        for shard in _SINAIMG_SHARDS
+        if shard != current_shard
+    ]
 
 
 def should_retry_jandan_api_status(status_code: int) -> bool:
@@ -650,6 +683,32 @@ class Jandan:
         msg = 'Jandan API request failed without response'
         raise RuntimeError(msg)
 
+    async def _fetch_image(self, url: str) -> httpx.Response:
+        response = await self.client.get(url, headers=build_image_request_headers(url))
+        response.raise_for_status()
+        return response
+
+    async def _fetch_from_sinaimg_shards(self, url: str) -> httpx.Response | None:
+        for shard_url in build_sinaimg_shard_candidates(url):
+            try:
+                response = await self._fetch_image(shard_url)
+            except (httpx.HTTPStatusError, httpx.TransportError):
+                continue
+            log.info('Recovered forbidden Jandan image from shard: %s', shard_url)
+            return response
+        return None
+
+    async def _fetch_candidate(self, url: str) -> httpx.Response:
+        try:
+            return await self._fetch_image(url)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != _SINAIMG_FORBIDDEN_STATUS:
+                raise
+            shard_response = await self._fetch_from_sinaimg_shards(url)
+            if shard_response is None:
+                raise
+            return shard_response
+
     async def _download_image(self, image: JandanImage) -> Path:
         dst_path = self._build_output_path(image)
         await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
@@ -663,14 +722,7 @@ class Jandan:
         for idx, candidate_url in enumerate(candidates):
             is_last_candidate = idx == len(candidates) - 1
             try:
-                response = await self.client.get(
-                    candidate_url,
-                    headers={
-                        'Accept': _IMAGE_ACCEPT,
-                        'Connection': 'keep-alive',
-                    },
-                )
-                response.raise_for_status()
+                response = await self._fetch_candidate(candidate_url)
             except httpx.HTTPStatusError as exc:
                 last_status_error = exc
                 if not is_last_candidate:
