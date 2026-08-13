@@ -93,8 +93,7 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
             keep_secret(account, 'api_hash', stored_hashes.get(str(account.get('name') or ''), ''))
     elif section == 'web.bilibili':
         stored_passwords = {
-            str(account.get('name') or ''): str((_cookiecloud(account) or {}).get('password') or '')
-            for account in _accounts(stored)
+            str(account.get('name') or ''): str((_cookiecloud(account) or {}).get('password') or '') for account in _accounts(stored)
         }
         merged['accounts'] = [{**account} for account in _accounts(merged)]
         for account in _accounts(merged):
