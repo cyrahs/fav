@@ -18,10 +18,13 @@ list in a document, including this one.
 
 - Python `>=3.12` (see `pyproject.toml`)
 - `uv` (required; the repo has a `uv.lock`)
-- `yt-dlp` on `PATH`, and `ffmpeg` for the streams it has to merge — Bilibili and Hanime1 shell out
-  to it. `gallery-dl`, which X (Twitter) uses, is a Python dependency and lands in `.venv/bin` from
-  `uv sync`. `_validate_commands` in `run.py` checks each enabled job's `required_commands` at
-  startup, so a missing binary is reported rather than hit mid-crawl.
+- `ffmpeg` on `PATH`, for the separate audio and video streams Bilibili serves. It is the only
+  external binary the app needs: both downloaders — `yt-dlp` (Bilibili, Hanime1) and `gallery-dl`
+  (X) — are uv dependencies whose console scripts land in `.venv/bin` from `uv sync`, so they are
+  version-locked and upgraded through `uv.lock` rather than installed separately.
+- Jobs declare what they shell out to in `required_commands`, resolved with `shutil.which`. `--trigger`
+  checks it up front via `_validate_commands`; the scheduler path reports it per job as
+  `missing_commands` instead of refusing to start.
 
 ```bash
 uv sync
@@ -175,9 +178,9 @@ worker.
 
 ## Docker
 
-`Dockerfile` builds the front end in a Node stage, then a runtime image carrying `ffmpeg`, a `yt-dlp`
-binary, and a Playwright-managed Chromium (used by `src/web/nikke_runtime.py`). Configuration comes
-from environment variables.
+`Dockerfile` builds the front end in a Node stage, then a runtime image carrying `ffmpeg` and a
+Playwright-managed Chromium (used by `src/web/nikke_runtime.py`). The downloaders arrive with the
+virtualenv, whose `bin` is on `PATH`. Configuration comes from environment variables.
 
 ```bash
 docker run --rm \

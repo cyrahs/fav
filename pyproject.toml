@@ -22,6 +22,11 @@ dependencies = [
     "tenacity>=8.5.0",
     "tqdm>=4.67.1",
     "uvicorn>=0.35.0",
+    # The [default] extra is required, not cosmetic: plain `yt-dlp` declares no
+    # dependencies at all, leaving out pycryptodomex (encrypted HLS), websockets,
+    # certifi, requests/urllib3 and yt-dlp-ejs. The standalone binary this replaced
+    # bundled all of them, and Hanime1 downloads HLS. See tests/test_dependencies.py.
+    "yt-dlp[default]>=2026.7.4",
 ]
 
 [tool.ruff]
