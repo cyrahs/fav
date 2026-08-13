@@ -65,9 +65,6 @@ _API_REQUEST_INTERVAL_SECONDS = 0.5
 _ORIGIN_REQUEST_INTERVAL_SECONDS = 1.0
 # Fraction of the origin interval added as uniform random jitter, so requests are not robotically spaced.
 _ORIGIN_JITTER_FRACTION = 0.25
-# Shared per-run budget for origin detail requests (path repair + detail sync); a full backfill
-# of ~880 ships completes across a few runs at 5 requests/minute.
-_ORIGIN_DETAIL_BUDGET = 300
 # A rotating residential proxy hands out a fresh exit IP per request, and some of those are
 # already blocked, so a failed origin request is usually worth one more try on another exit.
 _ORIGIN_ATTEMPTS = 3
@@ -116,7 +113,6 @@ _ASSET_KIND_ORDER = {
             'live2d.expression',
             'live2d.motion',
             'live2d.audio',
-            'live2d.text',
             'spine.parts',
             'spine.skel',
             'spine.atlas',
@@ -872,7 +868,6 @@ class AzurLane:
         api_request_interval_seconds: float = _API_REQUEST_INTERVAL_SECONDS,
         cdn_request_interval_seconds: float = _CDN_REQUEST_INTERVAL_SECONDS,
         origin_request_interval_seconds: float | None = None,
-        origin_detail_budget: int | None = None,
         origin_attempts: int = _ORIGIN_ATTEMPTS,
         asset_process_concurrency: int = _ASSET_PROCESS_CONCURRENCY,
     ) -> None:
@@ -892,7 +887,6 @@ class AzurLane:
         self._cdn_limiter = _RateLimiter(cdn_request_interval_seconds)
         self._origin_limiter = _RateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
         self._origin_source_limiter = _SourceRateLimiter(origin_request_interval_seconds, jitter_seconds=origin_jitter_seconds)
-        self._origin_detail_budget = config.origin_detail_budget if origin_detail_budget is None else origin_detail_budget
         self._origin_detail_spent = 0
         self._ship_model_paths: dict[int, dict[int, str]] = {}
         self._ship_detail_payloads: dict[int, str | None] = {}
@@ -1630,8 +1624,6 @@ class AzurLane:
         url = l2d_su_ship_detail_url(ship_id)
         payload: str | None = None
         for attempt in range(1, self._origin_attempts + 1):
-            if self._origin_detail_spent >= self._origin_detail_budget:
-                break
             self._origin_detail_spent += 1
             await self._origin_limiter.wait()
             payload = await self._read_ship_detail(client=origin, url=url, attempt=attempt)
@@ -1696,8 +1688,6 @@ class AzurLane:
         stale = [char_id for char_id, fingerprint in self._character_fingerprints.items() if stored.get(char_id) != fingerprint]
         fetched = 0
         for char_id in stale:
-            if self._origin_detail_spent >= self._origin_detail_budget:
-                break
             if await self._fetch_ship_detail_from_origin(client=client, ship_id=char_id) is not None:
                 fetched += 1
         log.info(

@@ -31,7 +31,6 @@ _ASSET_KIND_ORDER = {
             'live2d.expression',
             'live2d.motion',
             'live2d.audio',
-            'live2d.text',
             'spine.parts',
             'spine.skel',
             'spine.atlas',
@@ -579,7 +578,6 @@ class AzurLaneLibrary:
                 'expressions': self._assets_by_kind(assets, 'live2d.expression'),
                 'motions': self._assets_by_kind(assets, 'live2d.motion'),
                 'audio': self._assets_by_kind(assets, 'live2d.audio'),
-                'text': self._assets_by_kind(assets, 'live2d.text'),
             }
         if model_type == 'spine':
             return {

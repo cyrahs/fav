@@ -130,8 +130,8 @@ def _create_azurlane_fixture(root: Path) -> Path:
         _asset(
             'assets/live2d/javelin/escape.txt',
             body=b'outside',
-            kind='live2d.text',
-            context=_model_context(model_id=live2d_model_id, model_type='live2d', costume_key='javelin', field='text'),
+            kind='live2d.audio',
+            context=_model_context(model_id=live2d_model_id, model_type='live2d', costume_key='javelin', field='audio'),
             content_type='text/plain',
         ),
     ]
@@ -179,7 +179,7 @@ def _create_azurlane_fixture(root: Path) -> Path:
         'fetched_at': '2026-05-19T00:00:00+00:00',
         'completed_at': '2026-05-19T00:00:00+00:00',
         'assets': live2d_assets,
-        'asset_counts': {'live2d.model3': 1, 'live2d.moc3': 1, 'live2d.texture': 1, 'live2d.text': 1},
+        'asset_counts': {'live2d.model3': 1, 'live2d.moc3': 1, 'live2d.texture': 1, 'live2d.audio': 1},
     }
     spine_model = {
         'model_id': spine_model_id,
@@ -224,7 +224,7 @@ def _create_azurlane_fixture(root: Path) -> Path:
             'live2d.model3': 1,
             'live2d.moc3': 1,
             'live2d.texture': 1,
-            'live2d.text': 1,
+            'live2d.audio': 1,
             'spine.skel': 1,
             'spine.atlas': 1,
             'spine.texture': 1,
@@ -430,7 +430,7 @@ def test_get_azurlane_character_shapes_models_and_asset_urls(tmp_path: Path) -> 
     assert live2d['files']['textures'][0]['content_type'] == 'image/webp'
     assert live2d['files']['textures'][0]['available'] is True
     assert live2d['files']['textures'][0]['field'] == 'texture'
-    assert live2d['files']['text'][0]['path'] == 'assets/live2d/javelin/escape.txt'
+    assert live2d['files']['audio'][0]['path'] == 'assets/live2d/javelin/escape.txt'
     assert payload['spine_models'][0]['files']['atlas']['path'] == 'assets/spine/javelin_spine/javelin_spine.atlas'
     assert len(payload['assets']) == 7
 
