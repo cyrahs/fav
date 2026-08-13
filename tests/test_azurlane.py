@@ -1424,6 +1424,10 @@ def test_azurlane_asset_client_fails_fast_on_a_stalled_connection(tmp_path: Path
         async with crawler._http_client() as client:
             assert client.timeout.read == azurlane_module._ASSET_READ_TIMEOUT_SECONDS
             assert client.timeout.read < 60  # noqa: PLR2004
+            # A handshake that never completes is the other half of the same stall, and it
+            # outlived the read timeout because only the read side had been bounded.
+            assert client.timeout.connect == azurlane_module._ASSET_CONNECT_TIMEOUT_SECONDS
+            assert client.timeout.connect < 20  # noqa: PLR2004
 
     asyncio.run(check())
 
