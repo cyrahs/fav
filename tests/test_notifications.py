@@ -121,7 +121,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
                 'payload': '{"message_id":456}',
                 'dedupe_key': '',
                 'status': 'unread',
-                'markdown': '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
+                'markdown': '[*Episode \\[1\\]\\!*](https://example.com/watch?v=1)\nPath\\_\\(draft\\)',
                 'disable_web_page_preview': False,
                 'disable_notification': False,
                 'pin': True,
@@ -158,7 +158,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
     assert 'ON CONFLICT (dedupe_key) WHERE dedupe_key <> ' in captured['sql']
     assert 'event_version = notifications.event_version + 1' in captured['sql']
     assert 'notifications.next_attempt_at > CURRENT_TIMESTAMP' in captured['sql']
-    assert created.markdown == '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1'
+    assert created.markdown == '[*Episode \\[1\\]\\!*](https://example.com/watch?v=1)\nPath\\_\\(draft\\)'
     assert created.disable_web_page_preview is False
     assert created.disable_notification is False
     assert created.pin is True
@@ -172,7 +172,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
         '{"message_id":456}',
         '',
         'unread',
-        '*Episode \\[1\\]\\!*\nPath\\_\\(draft\\)\nhttps://example\\.com/watch?v\\=1',
+        '[*Episode \\[1\\]\\!*](https://example.com/watch?v=1)\nPath\\_\\(draft\\)',
         False,
         False,
         True,
@@ -321,6 +321,54 @@ def test_image_url_is_not_rendered_as_redundant_caption_link() -> None:
     assert pin is False
 
 
+def test_link_url_is_rendered_as_the_title_hyperlink() -> None:
+    markdown, disable_web_page_preview, disable_notification, pin = notifications_module._notification_delivery_fields(
+        kind='download_completed',
+        title='Bilibili (fav): Video [01]',
+        body='Uploader | 1080P | 12.3 MiB | 2026-03-01',
+        link_url='https://www.bilibili.com/video/BV1TEST',
+        image_url='',
+        webhook_action=WEBHOOK_ACTION_SEND,
+        occurrence_count=1,
+    )
+
+    assert markdown == (
+        '[*Bilibili \\(fav\\): Video \\[01\\]*](https://www.bilibili.com/video/BV1TEST)\n'
+        'Uploader \\| 1080P \\| 12\\.3 MiB \\| 2026\\-03\\-01'
+    )
+    assert disable_web_page_preview is False
+    assert disable_notification is True
+    assert pin is False
+
+
+def test_link_url_escapes_only_the_characters_telegram_forbids_in_a_url() -> None:
+    markdown, _, _, _ = notifications_module._notification_delivery_fields(
+        kind='download_completed',
+        title='Title',
+        body='',
+        link_url='https://example.com/a_(b)?q=1.2',
+        image_url='',
+        webhook_action=WEBHOOK_ACTION_SEND,
+        occurrence_count=1,
+    )
+
+    assert markdown == '[*Title*](https://example.com/a_(b\\)?q=1.2)'
+
+
+def test_titleless_notification_keeps_the_link_on_its_own_line() -> None:
+    markdown, _, _, _ = notifications_module._notification_delivery_fields(
+        kind='download_completed',
+        title='',
+        body='Body',
+        link_url='https://example.com/video',
+        image_url='',
+        webhook_action=WEBHOOK_ACTION_SEND,
+        occurrence_count=1,
+    )
+
+    assert markdown == 'Body\nhttps://example\\.com/video'
+
+
 def test_resolve_notification_updates_existing_dedupe_key(monkeypatch) -> None:
     captured: dict[str, object] = {}
     _reset_schema_state()
@@ -344,7 +392,7 @@ def test_resolve_notification_updates_existing_dedupe_key(monkeypatch) -> None:
                 'dedupe_key': 'job_failed:bilibili:bilibili:download:BV1TEST',
                 'status': 'unread',
                 'markdown': (
-                    '*Job recovered: Bilibili*\nDownload succeeded: Title \\[BV1TEST\\]\nhttps://www\\.bilibili\\.com/video/BV1TEST'
+                    '[*Job recovered: Bilibili*](https://www.bilibili.com/video/BV1TEST)\nDownload succeeded: Title \\[BV1TEST\\]'
                 ),
                 'disable_web_page_preview': False,
                 'disable_notification': True,
@@ -454,7 +502,7 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
                 'status': 'unread',
                 'created_at': _NOW,
                 'read_at': None,
-                'markdown': '*Video \\[01\\]*\nUploader\\_\\(name\\)\nOccurrences: 3\nhttps://example\\.com/video',
+                'markdown': '[*Video \\[01\\]*](https://example.com/video)\nUploader\\_\\(name\\)\nOccurrences: 3',
                 'disable_web_page_preview': False,
                 'disable_notification': False,
                 'pin': True,
@@ -490,12 +538,12 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
     assert claimed.notification_id == 10
     assert claimed.event_version == 5
     assert claimed.delivery_status == DELIVERY_SENDING
-    assert claimed.markdown == '*Video \\[01\\]*\nUploader\\_\\(name\\)\nOccurrences: 3\nhttps://example\\.com/video'
+    assert claimed.markdown == '[*Video \\[01\\]*](https://example.com/video)\nUploader\\_\\(name\\)\nOccurrences: 3'
     assert 'FOR UPDATE SKIP LOCKED' in cursor.executed[0][0]
     assert 'event_version = event_version + 1' in cursor.executed[1][0]
     assert cursor.executed[1][1] == (
         DELIVERY_SENDING,
-        '*Video \\[01\\]*\nUploader\\_\\(name\\)\nOccurrences: 3\nhttps://example\\.com/video',
+        '[*Video \\[01\\]*](https://example.com/video)\nUploader\\_\\(name\\)\nOccurrences: 3',
         False,
         False,
         True,
