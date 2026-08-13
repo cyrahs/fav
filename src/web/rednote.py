@@ -371,22 +371,32 @@ def parse_api_envelope(payload: Any) -> dict[str, Any]:
 def decide_login_state(probe: Mapping[str, Any], cookies: Mapping[str, str]) -> str:
     """Whether the profile is signed in, from what the page and the jar both say.
 
-    The modal wins over the cookie because ``web_session`` lags: it survives the
-    account revoking the session elsewhere, so trusting it alone would have a run
-    walk confidently into a login screen. ``UNKNOWN`` means the page has not
-    hydrated yet, which is a reason to look again rather than to give up.
+    The page's own store is the authority when it has an answer: it distinguishes a
+    signed-in account from the guest identity a signed-out visitor is also issued.
+    Everything below it is a fallback. The modal wins over the cookie because
+    ``web_session`` lags -- it survives the account revoking the session elsewhere, so
+    trusting it alone would have a run walk confidently into a login screen.
+    ``UNKNOWN`` means the page has not hydrated yet, which is a reason to look again
+    rather than to give up.
     """
-    if probe.get('has_login_modal'):
+    if probe.get('logged_in'):
+        return _LOGGED_IN
+    if probe.get('has_login_modal') or probe.get('qr_src'):
         return _LOGGED_OUT
     if not str(cookies.get('web_session') or '').strip():
         return _LOGGED_OUT
-    if probe.get('user_id') or probe.get('profile_href'):
-        return _LOGGED_IN
     return _LOGIN_UNKNOWN
 
 
 def user_id_from_probe(probe: Mapping[str, Any]) -> str:
-    """The signed-in account's own profile id, which the likes URL is built from."""
+    """The signed-in account's own profile id, which the likes URL is built from.
+
+    Gated on being signed in, because a signed-out page offers a guest id in the same
+    place and the same shape. Walking a guest's profile would find no likes and report
+    it as an empty run -- a wrong answer that looks exactly like a right one.
+    """
+    if not probe.get('logged_in'):
+        return ''
     user_id = str(probe.get('user_id') or '').strip()
     if user_id:
         return user_id
@@ -689,12 +699,11 @@ class RedNote:
                 await self._send_login_qr(decode_qr_data_url(qr_src), attempt=len(sent))
             elif state == _LOGGED_OUT and not qr_src:
                 if not logged_modal:
-                    # The expiry markup is the one part of this flow that was never
-                    # observed signed in, so the first miss dumps it rather than
-                    # leaving a future reader to guess at selectors.
-                    log.debug('RedNote login modal without a QR: %s', str(probe.get('modal_html') or '')[:1000])
+                    # At info, not debug: the app pins its logger to INFO, so a debug
+                    # dump of the one thing worth seeing here would go nowhere.
+                    log.info('RedNote is signed out but showed no QR: %s', str(probe.get('modal_html') or '')[:800] or '(no modal)')
                     logged_modal = True
-                await browser.reload_login()
+                await self._reload_login(browser)
 
             await asyncio.sleep(_LOGIN_POLL_INTERVAL_SECONDS)
 
@@ -704,6 +713,18 @@ class RedNote:
             else 'RedNote is signed out and no login QR could be sent. Check the Telegram notification settings.'
         )
         raise RedNoteError(msg, notification_dedupe_key='rednote:login')
+
+    async def _reload_login(self, browser: NoteBrowser) -> None:
+        """A navigation that gets interrupted here is not the run's problem.
+
+        The site navigates itself the moment a QR is scanned, and that aborts whatever
+        this had in flight -- ending the run at the exact moment it succeeded. Every
+        other cause is answered by the next poll anyway, and the wait is bounded.
+        """
+        try:
+            await browser.reload_login()
+        except Exception as exc:  # noqa: BLE001
+            log.info('RedNote login page reload was interrupted: %s', exc)
 
     async def _login_prompt_allowed(self) -> bool:
         """A QR dies within minutes, so a 04:00 cron sending one is pure noise."""
