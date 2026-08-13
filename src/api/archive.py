@@ -85,7 +85,7 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
         ),
         ArchiveSource(
             key='twitter',
-            name='X (Twitter)',
+            name='X',
             table='twitter',
             id_columns=('tweet_id', 'num'),
             title_column='content',

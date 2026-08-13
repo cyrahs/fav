@@ -402,7 +402,7 @@ def test_the_job_is_registered_and_parked_until_configured() -> None:
 
     job = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'twitter')
 
-    assert job.name == 'X (Twitter)'
+    assert job.name == 'X'
     assert job.section == 'web.twitter'
     assert job.required_commands == ('gallery-dl',)
     assert job.factory is jobs_module.Twitter

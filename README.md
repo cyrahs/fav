@@ -23,7 +23,7 @@ the `app_settings` table and is edited from the web UI.
 instance world-writable. See `.env.example`.
 
 There is no global proxy setting. `httpx`, `yt-dlp` and `gallery-dl` all honour `HTTP_PROXY` /
-`HTTPS_PROXY`, so set those in the environment if you need one. Azur Lane and X (Twitter) each have
+`HTTPS_PROXY`, so set those in the environment if you need one. Azur Lane and X each have
 their own per-source proxy field for the cases where only that one origin needs routing.
 
 ### Database-backed settings
@@ -78,7 +78,7 @@ or password), no `bilibili.com` cookies, or a vault missing some of `sessdata` /
 `buvid3` / `dedeuserid`. A masked password in the request resolves to the one stored under that
 account name, so what is checked is what the crawler would actually use.
 
-#### X (Twitter) liked tweets
+#### X liked tweets
 
 `web.twitter` archives the images and videos from your own liked tweets. X sells no affordable read
 access to a likes timeline, so the crawl shells out to [gallery-dl](https://github.com/mikf/gallery-dl)

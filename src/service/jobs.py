@@ -51,7 +51,7 @@ JOB_SPECS: tuple[JobSpec, ...] = (
     JobSpec(key='azurlane', name='Azur Lane', attr='azurlane', required_commands=(), factory=AzurLane),
     JobSpec(key='telegram', name='Telegram', attr='telegram', required_commands=(), factory=Telegram),
     JobSpec(key='stellasora', name='Stella Sora', attr='stellasora', required_commands=(), factory=StellaSora),
-    JobSpec(key='twitter', name='X (Twitter)', attr='twitter', required_commands=('gallery-dl',), factory=Twitter),
+    JobSpec(key='twitter', name='X', attr='twitter', required_commands=('gallery-dl',), factory=Twitter),
 )
 
 JOB_KEYS: tuple[str, ...] = tuple(spec.key for spec in JOB_SPECS)
