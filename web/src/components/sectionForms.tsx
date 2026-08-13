@@ -399,6 +399,85 @@ function TwitterForm(props: SectionFormProps) {
   );
 }
 
+function XiaohongshuForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const cookiecloud = record(props.value, 'cookiecloud') as CookieCloudCredentials;
+  const setCookieCloud = (patch: Partial<CookieCloudCredentials>) =>
+    set('cookiecloud', { ...cookiecloud, ...patch });
+
+  return (
+    <div className="field-grid">
+      <PathField {...props} />
+      <TextField
+        label="视频保存路径"
+        value={str(props.value, 'video_path')}
+        onChange={(next) => set('video_path', next)}
+        mono
+        placeholder="留空则和图片放在一起"
+        hint="视频笔记和实况图片的视频部分单独存放的位置。留空则跟随上面的保存路径。"
+      />
+      <TextField
+        label="自己的用户 ID"
+        value={str(props.value, 'user_id')}
+        onChange={(next) => set('user_id', next)}
+        mono
+        placeholder="留空自动获取"
+        hint="点赞列表只有本人能看。留空则每轮从登录态里查一次，填上可以省掉这次请求。"
+      />
+
+      <div className="subsection">
+        <h4>CookieCloud 凭据</h4>
+        <div className="field-grid">
+          <TextField
+            label="服务地址"
+            value={cookiecloud.server_url ?? ''}
+            onChange={(next) => setCookieCloud({ server_url: next })}
+            mono
+            placeholder="https://cookiecloud.example.com/"
+          />
+          <TextField
+            label="UUID"
+            value={cookiecloud.uuid ?? ''}
+            onChange={(next) => setCookieCloud({ uuid: next })}
+            mono
+          />
+          <SecretField
+            label="密码"
+            value={cookiecloud.password ?? ''}
+            onChange={(next) => setCookieCloud({ password: next })}
+            hint="浏览器插件需要同步 xiaohongshu.com 的 a1 和 web_session"
+          />
+          <CookieCloudTest
+            source="xiaohongshu"
+            serverUrl={cookiecloud.server_url ?? ''}
+            uuid={cookiecloud.uuid ?? ''}
+            password={cookiecloud.password ?? ''}
+          />
+        </div>
+      </div>
+
+      <div className="subsection">
+        <h4>抓取节奏</h4>
+        <div className="field-grid">
+          <NumberField
+            label="请求间隔（秒）"
+            value={num(props.value, 'sleep_request_seconds', 3)}
+            onChange={(next) => set('sleep_request_seconds', next)}
+            step={0.5}
+            hint="小红书风控严格，调低会更快撞上验证码；撞上后需要在浏览器里手动过一次。"
+          />
+          <NumberField
+            label="连续多少页全是旧内容后停止"
+            value={num(props.value, 'abort_after', 2)}
+            onChange={(next) => set('abort_after', next)}
+            hint="点赞列表按时间倒序，连续几页都已入库就说明这一轮追上了。首次运行会走完整个列表。"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TelegramNotificationForm(props: SectionFormProps) {
   const set = patcher(props);
   const threadId = props.value.message_thread_id;
@@ -454,6 +533,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.jandan': JandanForm,
   'web.kemono': KemonoForm,
   'web.twitter': TwitterForm,
+  'web.xiaohongshu': XiaohongshuForm,
   'notifications.telegram': TelegramNotificationForm,
 };
 

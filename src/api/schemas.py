@@ -51,6 +51,7 @@ class JobRequestTarget(StrEnum):
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
     TWITTER = 'twitter'
+    XIAOHONGSHU = 'xiaohongshu'
 
 
 class JobRequestStatus(StrEnum):
