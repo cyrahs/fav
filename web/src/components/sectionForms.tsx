@@ -401,9 +401,7 @@ function TwitterForm(props: SectionFormProps) {
 
 function XiaohongshuForm(props: SectionFormProps) {
   const set = patcher(props);
-  const cookiecloud = record(props.value, 'cookiecloud') as CookieCloudCredentials;
-  const setCookieCloud = (patch: Partial<CookieCloudCredentials>) =>
-    set('cookiecloud', { ...cookiecloud, ...patch });
+  const allowDirect = bool(props.value, 'allow_direct_connection');
 
   return (
     <div className="field-grid">
@@ -416,42 +414,43 @@ function XiaohongshuForm(props: SectionFormProps) {
         placeholder="留空则和图片放在一起"
         hint="视频笔记和实况图片的视频部分单独存放的位置。留空则跟随上面的保存路径。"
       />
-      <TextField
-        label="自己的用户 ID"
-        value={str(props.value, 'user_id')}
-        onChange={(next) => set('user_id', next)}
-        mono
-        placeholder="留空自动获取"
-        hint="点赞列表只有本人能看。留空则每轮从登录态里查一次，填上可以省掉这次请求。"
-      />
 
       <div className="subsection">
-        <h4>CookieCloud 凭据</h4>
+        <h4>出口与登录</h4>
         <div className="field-grid">
-          <TextField
-            label="服务地址"
-            value={cookiecloud.server_url ?? ''}
-            onChange={(next) => setCookieCloud({ server_url: next })}
-            mono
-            placeholder="https://cookiecloud.example.com/"
-          />
-          <TextField
-            label="UUID"
-            value={cookiecloud.uuid ?? ''}
-            onChange={(next) => setCookieCloud({ uuid: next })}
-            mono
-          />
           <SecretField
-            label="密码"
-            value={cookiecloud.password ?? ''}
-            onChange={(next) => setCookieCloud({ password: next })}
-            hint="浏览器插件需要同步 xiaohongshu.com 的 a1 和 web_session"
+            label="代理"
+            value={str(props.value, 'proxy')}
+            onChange={(next) => set('proxy', next)}
+            hint="小红书屏蔽了大部分机房 IP 段。带账号密码时必须用 http(s)：Chromium 不支持 SOCKS 认证。"
           />
-          <CookieCloudTest
-            source="xiaohongshu"
-            serverUrl={cookiecloud.server_url ?? ''}
-            uuid={cookiecloud.uuid ?? ''}
-            password={cookiecloud.password ?? ''}
+          <CheckboxField
+            label="允许不走代理直连"
+            checked={allowDirect}
+            onChange={(next) => set('allow_direct_connection', next)}
+            hint="只有当这台机器本身就在住宅网络时才勾。从机房直连曾导致账号全端掉登录。"
+          />
+          <TextField
+            label="浏览器 profile 路径"
+            value={str(props.value, 'profile_path')}
+            onChange={(next) => set('profile_path', next)}
+            mono
+            placeholder="./data/xiaohongshu-profile"
+            hint="登录态存在这里，必须放在持久卷上，否则每次重启都要重新扫码。"
+          />
+          <TextField
+            label="自己的用户 ID"
+            value={str(props.value, 'user_id')}
+            onChange={(next) => set('user_id', next)}
+            mono
+            placeholder="留空自动获取"
+            hint="点赞列表在 /user/profile/<id>。留空则登录后从页面读一次并记住。"
+          />
+          <NumberField
+            label="等待扫码（秒）"
+            value={num(props.value, 'login_wait_seconds', 240)}
+            onChange={(next) => set('login_wait_seconds', next)}
+            hint="未登录时会把二维码发到 Telegram 并等这么久。等待期间其他手动触发会排队。"
           />
         </div>
       </div>
@@ -464,13 +463,25 @@ function XiaohongshuForm(props: SectionFormProps) {
             value={num(props.value, 'sleep_request_seconds', 3)}
             onChange={(next) => set('sleep_request_seconds', next)}
             step={0.5}
-            hint="小红书风控严格，调低会更快撞上验证码；撞上后需要在浏览器里手动过一次。"
+            hint="小红书风控读请求节奏，这个值更值得调高而不是调低。"
           />
           <NumberField
             label="连续多少页全是旧内容后停止"
             value={num(props.value, 'abort_after', 2)}
             onChange={(next) => set('abort_after', next)}
             hint="点赞列表按时间倒序，连续几页都已入库就说明这一轮追上了。首次运行会走完整个列表。"
+          />
+          <NumberField
+            label="每轮最多翻多少页"
+            value={num(props.value, 'max_pages_per_run', 40)}
+            onChange={(next) => set('max_pages_per_run', next)}
+            hint="内存阀：点赞页只增不减地往下长。触顶后下一轮从这里继续。"
+          />
+          <CheckboxField
+            label="媒体下载也走代理"
+            checked={bool(props.value, 'proxy_media')}
+            onChange={(next) => set('proxy_media', next)}
+            hint="图片来自无需登录的 CDN，默认直连；只有 CDN 也拦机房 IP 时才需要打开。"
           />
         </div>
       </div>

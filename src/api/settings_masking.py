@@ -71,11 +71,15 @@ def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
             if nested is not None:
                 account['cookiecloud'] = {**nested}
                 _mask_scalar(account['cookiecloud'], 'password')
-    elif section in ('web.twitter', 'web.xiaohongshu'):
+    elif section == 'web.twitter':
         nested = _cookiecloud(masked)
         if nested is not None:
             masked['cookiecloud'] = {**nested}
             _mask_scalar(masked['cookiecloud'], 'password')
+    elif section == 'web.xiaohongshu':
+        # The proxy URL is the secret here: it points at the user's own line and may
+        # carry credentials.
+        _mask_scalar(masked, 'proxy')
     return masked
 
 
@@ -102,9 +106,11 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
                 continue
             account['cookiecloud'] = {**nested}
             keep_secret(account['cookiecloud'], 'password', stored_passwords.get(str(account.get('name') or ''), ''))
-    elif section in ('web.twitter', 'web.xiaohongshu'):
+    elif section == 'web.twitter':
         nested = _cookiecloud(merged)
         if nested is not None:
             merged['cookiecloud'] = {**nested}
             keep_secret(merged['cookiecloud'], 'password', str((_cookiecloud(stored) or {}).get('password') or ''))
+    elif section == 'web.xiaohongshu':
+        keep_secret(merged, 'proxy', str(stored.get('proxy') or ''))
     return merged
