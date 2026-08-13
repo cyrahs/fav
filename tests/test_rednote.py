@@ -10,6 +10,7 @@ import pytest
 
 import src.service.jobs as jobs_module
 import src.web.rednote as rednote_module
+import src.web.rednote_browser as rednote_browser_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
@@ -35,6 +36,7 @@ from src.web.rednote import (
     user_id_from_probe,
 )
 from src.web.rednote_browser import (
+    PlaywrightNoteBrowser,
     ProxyProbe,
     browser_cookies_to_netscape,
     build_launch_options,
@@ -82,7 +84,7 @@ class _FakeBrowser:
         notes: dict[str, dict] | None = None,
         user_agent: str = 'Mozilla/5.0 (Test) Chrome/149.0.0.0',
     ) -> None:
-        self.probes = probes or [{'has_login_modal': False, 'user_id': 'me'}]
+        self.probes = probes or [{'logged_in': True, 'user_id': 'me'}]
         self.pages = list(pages or [])
         self.notes = notes or {}
         self._user_agent = user_agent
@@ -537,18 +539,124 @@ def test_the_login_modal_outranks_a_stale_cookie() -> None:
     # web_session survives the account revoking the session elsewhere, so trusting it
     # alone would walk a run confidently into a login screen.
     assert decide_login_state({'has_login_modal': True}, {'web_session': 'still-here'}) == 'logged_out'
-    assert decide_login_state({'has_login_modal': False, 'user_id': 'me'}, {}) == 'logged_out'
-    assert decide_login_state({'has_login_modal': False, 'user_id': 'me'}, {'web_session': 'v'}) == 'logged_in'
+    assert decide_login_state({'logged_in': True}, {'web_session': 'v'}) == 'logged_in'
+    # The page's own answer outranks even a missing cookie, which is only ever a proxy for it.
+    assert decide_login_state({'logged_in': True}, {}) == 'logged_in'
+    assert decide_login_state({'logged_in': False}, {}) == 'logged_out'
 
 
 def test_a_page_that_has_not_hydrated_yet_is_not_called_signed_out() -> None:
-    assert decide_login_state({'has_login_modal': False}, {'web_session': 'v'}) == 'unknown'
+    assert decide_login_state({}, {'web_session': 'v'}) == 'unknown'
 
 
-def test_the_profile_id_comes_from_the_page_or_its_own_profile_link() -> None:
-    assert user_id_from_probe({'user_id': '5ff'}) == '5ff'
-    assert user_id_from_probe({'profile_href': '/user/profile/5ff?tab=liked'}) == '5ff'
+def test_the_profile_id_is_never_taken_from_a_signed_out_page() -> None:
+    """A signed-out visitor is issued a guest id of exactly the same shape.
+
+    Crawling it would find no likes and finish clean, so the wrong answer here is
+    indistinguishable from the right one at every later step.
+    """
+    assert user_id_from_probe({'logged_in': True, 'user_id': '5ff'}) == '5ff'
+    assert user_id_from_probe({'logged_in': True, 'profile_href': '/user/profile/5ff?tab=liked'}) == '5ff'
+    # The guest identity, as the live signed-out page actually reports it.
+    assert user_id_from_probe({'logged_in': False, 'guest': True, 'user_id': '6a7d8554000000001400c801'}) == ''
     assert user_id_from_probe({}) == ''
+
+
+class _FakePage:
+    """Just enough page to drive probe_login: a script of successive DOM samples."""
+
+    url = 'https://www.xiaohongshu.com/explore'
+
+    def __init__(self, samples: list[dict]) -> None:
+        self.samples = samples
+        self.calls = 0
+
+    async def evaluate(self, script: str) -> dict:
+        self.calls += 1
+        return self.samples[min(self.calls, len(self.samples)) - 1]
+
+
+def _probe_login(samples: list[dict], monkeypatch) -> tuple[dict, _FakePage]:
+    monkeypatch.setattr(rednote_browser_module, '_LOGIN_RENDER_POLL_SECONDS', 0)
+    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
+    page = _FakePage(samples)
+    browser._page = page
+    return asyncio.run(browser.probe_login()), page
+
+
+def test_the_login_probe_waits_for_the_page_to_mount_before_believing_it(monkeypatch) -> None:
+    """This is the bug that took the first cluster run down.
+
+    `domcontentloaded` resolves more than a second before this SPA renders anything,
+    so the first sample shows no modal and no session. Read as "signed out, no QR",
+    that used to trigger an immediate re-navigation, which both threw away the modal
+    about to appear and aborted the in-flight load -- net::ERR_ABORTED, run over.
+    """
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    samples = [
+        {},  # hydrating: __INITIAL_STATE__ not wired up yet
+        {'has_login_modal': True, 'qr_src': ''},  # modal mounting, QR not drawn
+        {'has_login_modal': True, 'qr_src': qr},
+    ]
+
+    probe, page = _probe_login(samples, monkeypatch)
+
+    assert probe['qr_src'] == qr
+    assert page.calls == 3
+
+
+def test_the_login_probe_stops_waiting_once_the_page_says_it_is_signed_in(monkeypatch) -> None:
+    probe, page = _probe_login([{'logged_in': True, 'user_id': '5ff'}], monkeypatch)
+
+    assert (probe['logged_in'], page.calls) == (True, 1)
+
+
+def test_the_login_probe_gives_up_rather_than_waiting_out_the_whole_run(monkeypatch) -> None:
+    # A page that never offers either answer still has to return, so the caller's own
+    # bounded wait -- not this one -- is what decides how long a signed-out run takes.
+    monkeypatch.setattr(rednote_browser_module, '_LOGIN_RENDER_TIMEOUT_SECONDS', 0)
+
+    probe, page = _probe_login([{'has_login_modal': False, 'qr_src': ''}], monkeypatch)
+
+    assert (probe, page.calls) == ({'has_login_modal': False, 'qr_src': ''}, 1)
+
+
+def test_a_navigation_the_scan_interrupts_does_not_end_the_run(monkeypatch) -> None:
+    """Scanning the QR makes the site navigate itself, aborting whatever we had in flight.
+
+    Treating that as fatal would fail the run at the exact moment it succeeded.
+    """
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+
+    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+        return 1
+
+    async def _send_text(*, text, require_enabled=True) -> int:
+        return 2
+
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    class _AbortingBrowser(_FakeBrowser):
+        async def reload_login(self) -> None:
+            self.reloads += 1
+            raise RuntimeError('Page.goto: net::ERR_ABORTED at https://www.xiaohongshu.com/')
+
+    browser = _AbortingBrowser(
+        probes=[
+            {'has_login_modal': True, 'qr_src': ''},
+            {'has_login_modal': True, 'qr_src': qr},
+            {'logged_in': True, 'user_id': 'me'},
+        ],
+    )
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    assert browser.reloads == 1
+    assert job.user_id == 'me'
 
 
 def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeypatch) -> None:
@@ -575,7 +683,7 @@ def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeyp
             {'has_login_modal': True, 'qr_src': qr_a},
             # RedNote minted a new one, so the src changed.
             {'has_login_modal': True, 'qr_src': qr_b},
-            {'has_login_modal': False, 'user_id': 'me'},
+            {'logged_in': True, 'user_id': 'me'},
         ],
     )
     job = _job(browser=browser)

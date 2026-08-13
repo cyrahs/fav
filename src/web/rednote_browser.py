@@ -50,6 +50,11 @@ RISK_CONTROL_STATUS_CODES = frozenset({461, 471})
 PROFILE_SINGLETON_FILES = ('SingletonLock', 'SingletonCookie', 'SingletonSocket')
 
 _QR_DATA_URL_MARKER = ';base64,'
+# How long a freshly loaded page is given to mount and say whether it is signed in.
+# Measured against the live site: DOMContentLoaded lands around 1.5s, and the login
+# modal follows it.
+_LOGIN_RENDER_TIMEOUT_SECONDS = 20.0
+_LOGIN_RENDER_POLL_SECONDS = 0.5
 # The settings form's proxy test. Short, because an operator is watching it spin.
 _PROBE_TIMEOUT_SECONDS = 30.0
 _EXIT_IP_TIMEOUT_SECONDS = 15.0
@@ -67,16 +72,32 @@ _GRID_POINTER = (640, 500)
 # Read once when the page is asked about its login state. One round trip, and the
 # decision itself is made in Python where it can be tested.
 _LOGIN_PROBE_SCRIPT = """() => {
+    // __INITIAL_STATE__ is Vue's store, so most leaves are refs and the value is
+    // behind _value. Reading them raw yields undefined, which used to make every
+    // signed-in check fall through to the DOM.
+    const unwrap = (value) => (value && typeof value === 'object' && '_value' in value) ? value._value : value;
+    const state = window.__INITIAL_STATE__ || {};
+    const user = state.user || {};
+    const info = unwrap(user.userInfo) || {};
+    // A signed-out visitor is still issued a userInfo, carrying a guest id shaped
+    // exactly like a real profile id -- 24 hex characters. `guest` is what tells the
+    // two apart, and crawling the wrong one would look exactly like success.
+    // Only an explicit true disqualifies: `loggedIn` is the signal, and a signed-in
+    // payload that simply omits `guest` must not be read as signed out.
+    const guest = info.guest === true;
+    const loggedIn = unwrap(user.loggedIn) === true && !guest;
     const modal = document.querySelector('.login-modal');
     const qr = document.querySelector('.login-modal img.qrcode-img');
-    const state = window.__INITIAL_STATE__ || {};
-    const user = (state.user && (state.user.userInfo || state.user.loggedUser)) || {};
-    const profile = document.querySelector('a[href^="/user/profile/"]');
+    // Scoped to the sidebar deliberately: an unscoped a[href^="/user/profile/"] matches
+    // every note author in the feed -- about thirty of them, none of them this account.
+    const own = document.querySelector('.side-bar a[href^="/user/profile/"]');
     return {
+        logged_in: loggedIn,
+        guest: guest,
         has_login_modal: Boolean(modal),
         qr_src: (qr && qr.getAttribute('src')) || '',
-        user_id: String(user.userId || user.user_id || ''),
-        profile_href: (profile && profile.getAttribute('href')) || '',
+        user_id: loggedIn ? String(info.userId || '') : '',
+        profile_href: (own && own.getAttribute('href')) || '',
         modal_html: modal ? modal.outerHTML.slice(0, 4000) : '',
     };
 }"""
@@ -407,10 +428,26 @@ class PlaywrightNoteBrowser:
     # ---------- NoteBrowser ----------
 
     async def probe_login(self) -> dict[str, Any]:
+        """Sample the page once it has actually decided what it is showing.
+
+        ``domcontentloaded`` resolves a second or more before this SPA mounts anything:
+        the login modal is rendered after hydration, behind a fade transition. Sampling
+        the DOM the instant navigation returns reliably sees no modal and no session,
+        which reads as "signed out, no QR" -- and the answer to that used to be an
+        immediate re-navigation, throwing away the modal that was about to appear.
+        """
         if self._page.url in ('', 'about:blank'):
             await self._page.goto(WEB_ORIGIN, wait_until='domcontentloaded')
-        result = await self._page.evaluate(_LOGIN_PROBE_SCRIPT)
-        return result if isinstance(result, dict) else {}
+
+        deadline = time.monotonic() + _LOGIN_RENDER_TIMEOUT_SECONDS
+        probe: dict[str, Any] = {}
+        while True:
+            result = await self._page.evaluate(_LOGIN_PROBE_SCRIPT)
+            probe = result if isinstance(result, dict) else {}
+            # Either answer is the page having spoken; anything else is it still loading.
+            if probe.get('logged_in') or probe.get('qr_src') or time.monotonic() >= deadline:
+                return probe
+            await asyncio.sleep(_LOGIN_RENDER_POLL_SECONDS)
 
     async def cookie_dict(self) -> dict[str, str]:
         cookies = await self._context.cookies()
@@ -423,7 +460,13 @@ class PlaywrightNoteBrowser:
         return str(await self._page.evaluate('() => navigator.userAgent'))
 
     async def reload_login(self) -> None:
-        await self._page.goto(WEB_ORIGIN, wait_until='domcontentloaded')
+        # A reload, not a fresh goto: navigating to the URL the page is already on while
+        # the SPA is still bootstrapping is answered with net::ERR_ABORTED, which used
+        # to end the run on the second poll of every signed-out wait.
+        if self._page.url in ('', 'about:blank'):
+            await self._page.goto(WEB_ORIGIN, wait_until='domcontentloaded')
+            return
+        await self._page.reload(wait_until='domcontentloaded')
 
     async def open_likes(self, *, user_id: str) -> None:
         await self._page.goto(f'{WEB_ORIGIN}/user/profile/{user_id}', wait_until='domcontentloaded')
