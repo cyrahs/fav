@@ -1,15 +1,19 @@
-"""Liked notes on Xiaohongshu (RED), images and videos.
+"""Liked notes on RedNote (小红书, xiaohongshu.com), images and videos.
+
+``rednote`` is the name this repository uses -- for the module, the job key, the
+tables and the settings section. The site's own domain is still xiaohongshu.com, so
+that string survives in URLs and nowhere else.
 
 There is no public read access to a likes list, and the list is only readable by the
 account that owns it, so this source drives the user's own account and account
 safety is the constraint everything else bends around. An earlier revision replayed
-the session as signed HTTP from the cluster; Xiaohongshu answered with HTTP 461 and
+the session as signed HTTP from the cluster; RedNote answered with HTTP 461 and
 invalidated the account's sessions everywhere, the user's phone included.
 
-So the reading happens in a browser. ``src/web/xiaohongshu_browser.py`` keeps a
+So the reading happens in a browser. ``src/web/rednote_browser.py`` keeps a
 Chromium profile signed in on a volume, its traffic leaves through a residential
 proxy, and the crawl harvests the site's *own* XHR responses as it scrolls. That
-covers all three things Xiaohongshu's risk control looks at -- address, device
+covers all three things RedNote's risk control looks at -- address, device
 fingerprint, behaviour -- and it means the crawl never computes a request
 signature, so there is nothing here to break when the site rotates one.
 
@@ -21,7 +25,7 @@ Two pieces of state make a run incremental:
 
 * a note that already has rows is skipped, so the walk costs one place in a list
   page rather than a page load of its own;
-* ``xiaohongshu_state`` records whether the first full walk ever finished. Until it
+* ``rednote_state`` records whether the first full walk ever finished. Until it
   has, runs walk to the end of the list so the history fills in; after that they
   stop once ``abort_after`` pages of nothing but archived notes come up in a row.
 
@@ -51,22 +55,22 @@ from src.core import logger, settings
 from src.tool import database, ensure_unique_path, format_media_filename, sanitize
 from src.tool import telegram_bot as telegram_bot_tool
 from src.tool.notifications import enqueue_notification
-from src.web.xiaohongshu_browser import PlaywrightNoteBrowser, ProxyConfigurationError, cursor_of, decode_qr_data_url
+from src.web.rednote_browser import PlaywrightNoteBrowser, ProxyConfigurationError, cursor_of, decode_qr_data_url
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from tenacity import RetryCallState
 
-    from src.web.xiaohongshu_browser import NoteBrowser
+    from src.web.rednote_browser import NoteBrowser
 
-log = logger.get('xiaohongshu')
+log = logger.get('rednote')
 
 _WEB_ORIGIN = 'https://www.xiaohongshu.com'
 # Where a note reached from a likes list is declared to have come from. It travels
 # with the token in the archive's outgoing links and in what yt-dlp is handed.
 _XSEC_SOURCE = 'pc_user'
-_COOKIE_FILENAME = 'xiaohongshu-cookies.txt'
+_COOKIE_FILENAME = 'rednote-cookies.txt'
 _VIDEO_CACHE_DIRNAME = 'videos'
 _BACKFILL_STATE_KEY = 'backfill_complete'
 _LOGIN_PROMPT_STATE_KEY = 'login_prompt_at'
@@ -76,7 +80,7 @@ _LOGGED_IN = 'logged_in'
 _LOGGED_OUT = 'logged_out'
 _LOGIN_UNKNOWN = 'unknown'
 _LOGIN_POLL_INTERVAL_SECONDS = 3.0
-# One photo per QR that Xiaohongshu actually mints. Past three the user is not
+# One photo per QR that RedNote actually mints. Past three the user is not
 # coming, and a fourth is just noise in their chat.
 _MAX_QR_MESSAGES = 3
 # How long to wait for the site to produce the next page of the likes list while
@@ -113,7 +117,7 @@ _IMAGE_EXT_ALIASES = {
     'avif': 'avif',
     'heic': 'heic',
 }
-# Xiaohongshu states the format in a suffix on the last path segment rather than in
+# RedNote states the format in a suffix on the last path segment rather than in
 # a file extension: `.../1040g0083!nd_dft_wlteh_webp_3`.
 _IMAGE_EXT_TOKENS = (('webp', 'webp'), ('avif', 'avif'), ('heic', 'heic'), ('png', 'png'), ('jpeg', 'jpg'), ('jpg', 'jpg'), ('gif', 'gif'))
 _VIDEO_EXT = 'mp4'
@@ -128,8 +132,8 @@ _YTDLP_BASE_DELAY_SECONDS = 5
 _NOTE_GONE_MARKERS = ('当前笔记暂时无法浏览', '笔记不存在', '内容不存在', '已被删除')
 
 
-class XiaohongshuError(RuntimeError):
-    """A run-ending failure: the session, or Xiaohongshu refusing the whole crawl."""
+class RedNoteError(RuntimeError):
+    """A run-ending failure: the session, or RedNote refusing the whole crawl."""
 
     def __init__(self, message: str, *, notification_dedupe_key: str = '') -> None:
         super().__init__(message)
@@ -157,7 +161,7 @@ class NoteRef:
 
 
 @dataclass(frozen=True, slots=True)
-class XhsMedia:
+class RedNoteMedia:
     """One file of one note, and the row that tracks it."""
 
     note_id: str
@@ -269,7 +273,7 @@ def build_note_url(note_id: str, xsec_token: str = '') -> str:
     return f'{url}?xsec_token={xsec_token}&xsec_source={_XSEC_SOURCE}'
 
 
-def build_media_filename(media: XhsMedia, *, ext: str = '') -> str:
+def build_media_filename(media: RedNoteMedia, *, ext: str = '') -> str:
     """``[nickname]2026-08-12 [<note id>_<n>].webp``, the repository's shape.
 
     The note title is deliberately absent from the name: it is multi-line, mutable,
@@ -336,24 +340,24 @@ def build_ytdlp_command(
 
 
 def parse_api_envelope(payload: Any) -> dict[str, Any]:
-    """Unwrap the ``{code, data}`` envelope every Xiaohongshu response carries.
+    """Unwrap the ``{code, data}`` envelope every RedNote response carries.
 
     The only surviving piece of the HTTP layer this module used to have, kept
     because the codes inside it are how a signed-out session announces itself even
     when the page still looks logged in.
     """
     if not isinstance(payload, dict):
-        msg = 'Xiaohongshu returned a body that is not an object'
+        msg = 'RedNote returned a body that is not an object'
         raise TypeError(msg)
 
     code = _to_int(payload.get('code'))
     message = str(payload.get('msg') or payload.get('message') or '').strip()
     if code in _SESSION_EXPIRED_CODES:
-        msg = f'The Xiaohongshu session is signed out ({code} {message}). Scan the login QR to sign in again.'
-        raise XiaohongshuError(msg, notification_dedupe_key='xiaohongshu:login')
+        msg = f'The RedNote session is signed out ({code} {message}). Scan the login QR to sign in again.'
+        raise RedNoteError(msg, notification_dedupe_key='rednote:login')
     if code not in {None, 0}:
         detail = f' ({message})' if message else ''
-        msg = f'Xiaohongshu returned error code: {code}{detail}'
+        msg = f'RedNote returned error code: {code}{detail}'
         raise ValueError(msg)
 
     data = payload.get('data')
@@ -399,7 +403,7 @@ def extract_like_page(data: dict[str, Any]) -> tuple[list[NoteRef], str, bool]:
     return notes, str(data.get('cursor') or '').strip(), bool(data.get('has_more'))
 
 
-def extract_note_media(note_card: dict[str, Any], *, note_id: str, xsec_token: str) -> list[XhsMedia]:
+def extract_note_media(note_card: dict[str, Any], *, note_id: str, xsec_token: str) -> list[RedNoteMedia]:
     """One row per file in a note.
 
     Indices are handed out in the order the note lists its files, an image and the
@@ -425,21 +429,21 @@ def extract_note_media(note_card: dict[str, Any], *, note_id: str, xsec_token: s
     if note_type == _VIDEO_NOTE_TYPE:
         media_block = _field(note_card.get('video'), 'media')
         stream = _field(media_block, 'stream')
-        return [XhsMedia(media_index=1, media_type=_VIDEO_MEDIA_TYPE, media_url=pick_video_url(stream), **shared)]
+        return [RedNoteMedia(media_index=1, media_type=_VIDEO_MEDIA_TYPE, media_url=pick_video_url(stream), **shared)]
 
     image_list = _field(note_card, 'imageList', 'image_list')
-    media: list[XhsMedia] = []
+    media: list[RedNoteMedia] = []
     for entry in image_list if isinstance(image_list, list) else []:
         if not isinstance(entry, dict):
             continue
         image_url = pick_image_url(entry)
         if image_url:
-            media.append(XhsMedia(media_index=len(media) + 1, media_type=_IMAGE_MEDIA_TYPE, media_url=image_url, **shared))
+            media.append(RedNoteMedia(media_index=len(media) + 1, media_type=_IMAGE_MEDIA_TYPE, media_url=image_url, **shared))
         # An image with a stream attached is a live photo: the still and the clip
         # are both kept, as two files.
         live_url = pick_video_url(entry.get('stream'))
         if live_url:
-            media.append(XhsMedia(media_index=len(media) + 1, media_type=_LIVE_MEDIA_TYPE, media_url=live_url, **shared))
+            media.append(RedNoteMedia(media_index=len(media) + 1, media_type=_LIVE_MEDIA_TYPE, media_url=live_url, **shared))
     return media
 
 
@@ -447,9 +451,9 @@ def is_note_gone(message: str) -> bool:
     return any(marker in message for marker in _NOTE_GONE_MARKERS)
 
 
-class Xiaohongshu:
+class RedNote:
     def __init__(self) -> None:
-        self.cfg = settings.load().web.xiaohongshu
+        self.cfg = settings.load().web.rednote
         # Only ever talks to the CDN; everything that needs the account goes through
         # the browser. Proxying it is optional because these are unauthenticated
         # image fetches and a home line is not a CDN.
@@ -478,7 +482,7 @@ class Xiaohongshu:
 
     async def _ensure_table(self) -> None:
         await database.query_db("""
-            CREATE TABLE IF NOT EXISTS xiaohongshu (
+            CREATE TABLE IF NOT EXISTS rednote (
                 note_id TEXT NOT NULL,
                 media_index INTEGER NOT NULL,
                 media_type TEXT NOT NULL DEFAULT '',
@@ -499,29 +503,29 @@ class Xiaohongshu:
             );
         """)
         await database.query_db("""
-            CREATE TABLE IF NOT EXISTS xiaohongshu_state (
+            CREATE TABLE IF NOT EXISTS rednote_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
         """)
 
     async def _backfill_complete(self) -> bool:
-        rows = await database.query_db('SELECT value FROM xiaohongshu_state WHERE key = ?;', (_BACKFILL_STATE_KEY,))
+        rows = await database.query_db('SELECT value FROM rednote_state WHERE key = ?;', (_BACKFILL_STATE_KEY,))
         return bool(rows) and str(rows[0].get('value')) == '1'
 
     async def _mark_backfill_complete(self) -> None:
         await database.query_db(
-            'INSERT OR IGNORE INTO xiaohongshu_state (key, value) VALUES (?, ?);',
+            'INSERT OR IGNORE INTO rednote_state (key, value) VALUES (?, ?);',
             (_BACKFILL_STATE_KEY, '1'),
         )
 
     async def _read_state(self, key: str) -> str:
-        rows = await database.query_db('SELECT value FROM xiaohongshu_state WHERE key = ?;', (key,))
+        rows = await database.query_db('SELECT value FROM rednote_state WHERE key = ?;', (key,))
         return str(rows[0].get('value') or '') if rows else ''
 
     async def _write_state(self, key: str, value: str) -> None:
         await database.query_db(
-            'INSERT INTO xiaohongshu_state (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value;',
+            'INSERT INTO rednote_state (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value;',
             (key, value),
         )
 
@@ -537,12 +541,12 @@ class Xiaohongshu:
             return set()
         placeholders = ', '.join(['?'] * len(unique))
         rows = await database.query_db(
-            f'SELECT DISTINCT note_id FROM xiaohongshu WHERE note_id IN ({placeholders});',  # noqa: S608 - placeholders only
+            f'SELECT DISTINCT note_id FROM rednote WHERE note_id IN ({placeholders});',  # noqa: S608 - placeholders only
             tuple(unique),
         )
         return {str(row.get('note_id') or '') for row in rows}
 
-    async def _upsert_media(self, items: Sequence[XhsMedia]) -> None:
+    async def _upsert_media(self, items: Sequence[RedNoteMedia]) -> None:
         rows = [
             (
                 media.note_id,
@@ -559,7 +563,7 @@ class Xiaohongshu:
             for media in items
         ]
         await database.insert_db_batch(
-            table='xiaohongshu',
+            table='rednote',
             columns=(
                 'note_id',
                 'media_index',
@@ -573,7 +577,7 @@ class Xiaohongshu:
                 'xsec_token',
             ),
             rows=rows,
-            # Refreshes what Xiaohongshu rotates without touching download state.
+            # Refreshes what RedNote rotates without touching download state.
             on_conflict=(
                 '(note_id, media_index) DO UPDATE SET '
                 'media_url = excluded.media_url, '
@@ -584,21 +588,21 @@ class Xiaohongshu:
             ),
         )
 
-    async def _pending_media(self) -> list[XhsMedia]:
+    async def _pending_media(self) -> list[RedNoteMedia]:
         rows = await database.query_db("""
             SELECT note_id, media_index, media_type, media_url, title, author, author_id, note_type, published_at, xsec_token, last_error
-            FROM xiaohongshu
+            FROM rednote
             WHERE downloaded = 0 AND unavailable = 0
             ORDER BY created_at ASC;
         """)
-        pending: list[XhsMedia] = []
+        pending: list[RedNoteMedia] = []
         for row in rows:
             note_id = str(row.get('note_id') or '').strip()
             media_index = _to_int(row.get('media_index'))
             if not note_id or media_index is None:
                 continue
             pending.append(
-                XhsMedia(
+                RedNoteMedia(
                     note_id=note_id,
                     media_index=media_index,
                     media_type=str(row.get('media_type') or ''),
@@ -614,30 +618,30 @@ class Xiaohongshu:
             )
         return pending
 
-    async def _mark_downloaded(self, media: XhsMedia, dst_path: Path) -> None:
+    async def _mark_downloaded(self, media: RedNoteMedia, dst_path: Path) -> None:
         await database.query_db(
             """
-            UPDATE xiaohongshu
+            UPDATE rednote
             SET downloaded = 1, local_path = ?, unavailable = 0, failed_count = 0, last_error = ''
             WHERE note_id = ? AND media_index = ?;
             """,
             (str(dst_path), media.note_id, str(media.media_index)),
         )
 
-    async def _mark_unavailable(self, media: XhsMedia, reason: str) -> None:
+    async def _mark_unavailable(self, media: RedNoteMedia, reason: str) -> None:
         await database.query_db(
             """
-            UPDATE xiaohongshu
+            UPDATE rednote
             SET unavailable = 1, failed_count = failed_count + 1, last_error = ?
             WHERE note_id = ? AND media_index = ?;
             """,
             (reason[:500], media.note_id, str(media.media_index)),
         )
 
-    async def _mark_failed(self, media: XhsMedia, reason: str) -> None:
+    async def _mark_failed(self, media: RedNoteMedia, reason: str) -> None:
         await database.query_db(
             """
-            UPDATE xiaohongshu
+            UPDATE rednote
             SET failed_count = failed_count + 1, last_error = ?
             WHERE note_id = ? AND media_index = ?;
             """,
@@ -655,7 +659,7 @@ class Xiaohongshu:
         deadline = time.monotonic() + self.cfg.login_wait_seconds
         sent: set[str] = set()
         logged_modal = False
-        # Checked once for the whole wait, not per code: Xiaohongshu mints a new QR
+        # Checked once for the whole wait, not per code: RedNote mints a new QR
         # every couple of minutes, and re-checking would let the cooldown block the
         # replacement for a code the user is still looking at.
         may_prompt: bool | None = None
@@ -684,18 +688,18 @@ class Xiaohongshu:
                     # The expiry markup is the one part of this flow that was never
                     # observed signed in, so the first miss dumps it rather than
                     # leaving a future reader to guess at selectors.
-                    log.debug('Xiaohongshu login modal without a QR: %s', str(probe.get('modal_html') or '')[:1000])
+                    log.debug('RedNote login modal without a QR: %s', str(probe.get('modal_html') or '')[:1000])
                     logged_modal = True
                 await browser.reload_login()
 
             await asyncio.sleep(_LOGIN_POLL_INTERVAL_SECONDS)
 
         msg = (
-            'Xiaohongshu is signed out. A login QR was sent to Telegram; scan it with the app and run this source again.'
+            'RedNote is signed out. A login QR was sent to Telegram; scan it with the app and run this source again.'
             if sent
-            else 'Xiaohongshu is signed out and no login QR could be sent. Check the Telegram notification settings.'
+            else 'RedNote is signed out and no login QR could be sent. Check the Telegram notification settings.'
         )
-        raise XiaohongshuError(msg, notification_dedupe_key='xiaohongshu:login')
+        raise RedNoteError(msg, notification_dedupe_key='rednote:login')
 
     async def _login_prompt_allowed(self) -> bool:
         """A QR dies within minutes, so a 04:00 cron sending one is pure noise."""
@@ -704,7 +708,7 @@ class Xiaohongshu:
         last = _to_int(await self._read_state(_LOGIN_PROMPT_STATE_KEY)) or 0
         now = int(datetime.now(tz=_DISPLAY_TIMEZONE).timestamp())
         if now - last < self.cfg.login_prompt_cooldown_seconds:
-            log.info('Xiaohongshu is signed out, but a login QR was already sent %ss ago', now - last)
+            log.info('RedNote is signed out, but a login QR was already sent %ss ago', now - last)
             return False
         await self._write_state(_LOGIN_PROMPT_STATE_KEY, str(now))
         return True
@@ -717,11 +721,11 @@ class Xiaohongshu:
         """
         caption = f'小红书需要登录（第 {attempt} 个二维码）：用手机小红书扫码。'  # noqa: RUF001 - Chinese punctuation
         try:
-            await telegram_bot_tool.send_photo_now(photo=('xiaohongshu-login.png', png, 'image/png'), caption=caption)
+            await telegram_bot_tool.send_photo_now(photo=('rednote-login.png', png, 'image/png'), caption=caption)
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to send the Xiaohongshu login QR: %s', exc)
+            log.warning('Failed to send the RedNote login QR: %s', exc)
             return
-        log.notice('Sent a Xiaohongshu login QR to Telegram (attempt %s)', attempt)
+        log.notice('Sent a RedNote login QR to Telegram (attempt %s)', attempt)
 
     async def _notify_login_complete(self) -> None:
         with contextlib.suppress(Exception):
@@ -734,7 +738,7 @@ class Xiaohongshu:
             self.user_id = self.cfg.user_id or await self._read_state(_USER_ID_STATE_KEY)
         if not self.user_id:
             msg = 'Signed in, but the profile id could not be read off the page; set user_id in the settings.'
-            raise XiaohongshuError(msg, notification_dedupe_key='xiaohongshu:login')
+            raise RedNoteError(msg, notification_dedupe_key='rednote:login')
         if not self.cfg.user_id:
             await self._write_state(_USER_ID_STATE_KEY, self.user_id)
         self.user_agent = await browser.user_agent()
@@ -753,8 +757,8 @@ class Xiaohongshu:
 
         status = _to_int(captured.get('status')) or 0
         if status in _RISK_CONTROL_STATUS_CODES:
-            msg = f'Xiaohongshu answered the likes list with HTTP {status}: the account is behind a captcha. Clear it in the browser.'
-            raise XiaohongshuError(msg, notification_dedupe_key='xiaohongshu:risk')
+            msg = f'RedNote answered the likes list with HTTP {status}: the account is behind a captcha. Clear it in the browser.'
+            raise RedNoteError(msg, notification_dedupe_key='rednote:risk')
 
         notes, _cursor, has_more = extract_like_page(parse_api_envelope(captured.get('body')))
         # The cursor the page was *fetched* with identifies it, which also absorbs
@@ -771,11 +775,11 @@ class Xiaohongshu:
             return self.cfg.video_path
         return self.cfg.path
 
-    def _build_output_path(self, media: XhsMedia, *, ext: str = '') -> Path:
+    def _build_output_path(self, media: RedNoteMedia, *, ext: str = '') -> Path:
         author_dir = sanitize(media.author) or 'unknown'
         return self._destination_root(media.media_type) / author_dir / build_media_filename(media, ext=ext)
 
-    async def _stale_media(self) -> list[XhsMedia]:
+    async def _stale_media(self) -> list[RedNoteMedia]:
         """Pending rows whose CDN URL the download phase found expired."""
         return [media for media in await self._pending_media() if media.last_error.startswith(_STALE_URL_MARKER)]
 
@@ -791,13 +795,13 @@ class Xiaohongshu:
         if not stale:
             return 0
 
-        log.info('Xiaohongshu re-resolving %d file(s) whose URL expired', len(stale))
+        log.info('RedNote re-resolving %d file(s) whose URL expired', len(stale))
         refreshed = 0
         for media in stale:
             await self._sleep_between_requests()
             try:
                 note_card = await self._fetch_note_card(note_id=media.note_id, xsec_token=media.xsec_token, browser=browser)
-            except XiaohongshuError:
+            except RedNoteError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 log.warning('Could not re-resolve note %s: %s', media.note_id, exc)
@@ -812,7 +816,7 @@ class Xiaohongshu:
                 continue
 
             await database.query_db(
-                "UPDATE xiaohongshu SET media_url = ?, last_error = '' WHERE note_id = ? AND media_index = ?;",
+                "UPDATE rednote SET media_url = ?, last_error = '' WHERE note_id = ? AND media_index = ?;",
                 (match.media_url, media.note_id, str(media.media_index)),
             )
             refreshed += 1
@@ -823,7 +827,7 @@ class Xiaohongshu:
         response.raise_for_status()
         return response
 
-    async def _download_file(self, media: XhsMedia) -> Path:
+    async def _download_file(self, media: RedNoteMedia) -> Path:
         """An image or a live photo's clip, straight from the CDN."""
         dst_path = self._build_output_path(media)
         await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
@@ -895,7 +899,7 @@ class Xiaohongshu:
 
         _run_once()
 
-    def _move_download(self, *, cache_dir: Path, media: XhsMedia) -> Path:
+    def _move_download(self, *, cache_dir: Path, media: RedNoteMedia) -> Path:
         """Rename what yt-dlp produced into the repository's filename shape."""
         entries = [entry for entry in sorted(cache_dir.iterdir()) if entry.is_file()] if cache_dir.exists() else []
         if not entries:
@@ -912,7 +916,7 @@ class Xiaohongshu:
         self._cleanup_dir(cache_dir)
         return dst_path
 
-    async def _download_video(self, media: XhsMedia, *, cookie_path: Path, cache_dir: Path) -> Path:
+    async def _download_video(self, media: RedNoteMedia, *, cookie_path: Path, cache_dir: Path) -> Path:
         dst_path = self._build_output_path(media)
         await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
         if await asyncio.to_thread(dst_path.exists):
@@ -930,7 +934,7 @@ class Xiaohongshu:
         )
         return await asyncio.to_thread(self._move_download, cache_dir=cache_dir, media=media)
 
-    async def _download_one(self, media: XhsMedia, *, cookie_path: Path, cache_dir: Path) -> Path:
+    async def _download_one(self, media: RedNoteMedia, *, cookie_path: Path, cache_dir: Path) -> Path:
         if media.media_type == _VIDEO_MEDIA_TYPE:
             # yt-dlp reads the note page off xiaohongshu.com itself, so it is paced
             # like an API request. The CDN the other files come from is not metered
@@ -939,12 +943,12 @@ class Xiaohongshu:
             return await self._download_video(media, cookie_path=cookie_path, cache_dir=cache_dir)
         return await self._download_file(media)
 
-    async def _download_pending(self, items: Sequence[XhsMedia], *, cookie_path: Path, cache_dir: Path) -> int:
+    async def _download_pending(self, items: Sequence[RedNoteMedia], *, cookie_path: Path, cache_dir: Path) -> int:
         downloaded = 0
         total = len(items)
         for position, media in enumerate(items, start=1):
             log.info(
-                'Xiaohongshu downloading progress=%s/%s note=%s index=%s type=%s',
+                'RedNote downloading progress=%s/%s note=%s index=%s type=%s',
                 position,
                 total,
                 media.note_id,
@@ -962,13 +966,13 @@ class Xiaohongshu:
                 # Recorded rather than resolved: the next run re-reads the note with
                 # the browser open and either refreshes the URL or retires the row.
                 await self._mark_failed(media, str(exc))
-                log.info('Xiaohongshu URL expired note=%s index=%s: %s', media.note_id, media.media_index, exc)
+                log.info('RedNote URL expired note=%s index=%s: %s', media.note_id, media.media_index, exc)
                 continue
             except httpx.HTTPStatusError as exc:
                 await self._mark_failed(media, f'http {exc.response.status_code}')
                 log.warning('Failed note=%s index=%s: http %s', media.note_id, media.media_index, exc.response.status_code)
                 continue
-            except XiaohongshuError:
+            except RedNoteError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 await self._mark_failed(media, f'{type(exc).__name__}: {exc}')
@@ -977,7 +981,7 @@ class Xiaohongshu:
 
             await self._mark_downloaded(media, dst_path)
             downloaded += 1
-            log.notice('Xiaohongshu downloaded progress=%s/%s file=%s', position, total, dst_path.name)
+            log.notice('RedNote downloaded progress=%s/%s file=%s', position, total, dst_path.name)
         return downloaded
 
     # ---------- phases ----------
@@ -994,7 +998,7 @@ class Xiaohongshu:
         costs one place in a list page instead of a page load of its own.
 
         The early stop only applies once a full walk has finished, recorded in
-        ``xiaohongshu_state``. Stopping at the top of the list before that would leave
+        ``rednote_state``. Stopping at the top of the list before that would leave
         everything below wherever the first run got to permanently unreachable.
         """
         backfill_complete = await self._backfill_complete()
@@ -1005,7 +1009,7 @@ class Xiaohongshu:
         resolved = 0
         reached_end = False
 
-        log.info('Xiaohongshu walking the likes list (backfill_complete=%s)', backfill_complete)
+        log.info('RedNote walking the likes list (backfill_complete=%s)', backfill_complete)
         await browser.open_likes(user_id=self.user_id)
 
         while page_index < self.cfg.max_pages_per_run:
@@ -1014,16 +1018,16 @@ class Xiaohongshu:
             if page is None:
                 # Scrolling stopped producing. Not the same as reaching the end, so
                 # the backfill stays unfinished and the next run walks again.
-                log.info('Xiaohongshu likes list stopped producing at page=%s', page_index)
+                log.info('RedNote likes list stopped producing at page=%s', page_index)
                 break
 
             notes, cursor, has_more = page
             if not notes:
-                log.info('Xiaohongshu likes list ended at page=%s', page_index)
+                log.info('RedNote likes list ended at page=%s', page_index)
                 reached_end = True
                 break
             if cursor and cursor in seen_cursors:
-                log.debug('Xiaohongshu repeated the page at cursor %r, skipping it', cursor)
+                log.debug('RedNote repeated the page at cursor %r, skipping it', cursor)
                 page_index -= 1
                 continue
             seen_cursors.add(cursor)
@@ -1031,7 +1035,7 @@ class Xiaohongshu:
             known = await self._known_note_ids([note.note_id for note in notes])
             unknown = [note for note in notes if note.note_id not in known and note.note_id not in seen_note_ids]
             seen_note_ids.update(note.note_id for note in notes)
-            log.info('Xiaohongshu likes page=%s notes=%s new=%s', page_index, len(notes), len(unknown))
+            log.info('RedNote likes page=%s notes=%s new=%s', page_index, len(notes), len(unknown))
 
             if unknown:
                 full_hit_pages = 0
@@ -1041,21 +1045,21 @@ class Xiaohongshu:
                 await browser.open_likes(user_id=self.user_id)
             else:
                 full_hit_pages += 1
-                log.info('Xiaohongshu page=%s is entirely archived, consecutive=%s/%s', page_index, full_hit_pages, self.cfg.abort_after)
+                log.info('RedNote page=%s is entirely archived, consecutive=%s/%s', page_index, full_hit_pages, self.cfg.abort_after)
                 if backfill_complete and full_hit_pages >= self.cfg.abort_after:
-                    log.info('Xiaohongshu reached the incremental stop condition')
+                    log.info('RedNote reached the incremental stop condition')
                     break
 
             if not has_more:
-                log.info('Xiaohongshu likes list reported no further pages')
+                log.info('RedNote likes list reported no further pages')
                 reached_end = True
                 break
         else:
-            log.info('Xiaohongshu stopped at the %d page cap; the next run continues from here', self.cfg.max_pages_per_run)
+            log.info('RedNote stopped at the %d page cap; the next run continues from here', self.cfg.max_pages_per_run)
 
         if reached_end and not backfill_complete:
             await self._mark_backfill_complete()
-            log.info('Xiaohongshu backfill finished; later runs stop after %d archived pages', self.cfg.abort_after)
+            log.info('RedNote backfill finished; later runs stop after %d archived pages', self.cfg.abort_after)
         return resolved
 
     async def _resolve_notes(self, notes: Sequence[NoteRef], browser: NoteBrowser) -> int:
@@ -1066,7 +1070,7 @@ class Xiaohongshu:
             await self._sleep_between_requests()
             try:
                 note_card = await self._fetch_note_card(note_id=note.note_id, xsec_token=note.xsec_token, browser=browser)
-            except XiaohongshuError:
+            except RedNoteError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 log.warning('Failed to read note %s (%s/%s): %s', note.note_id, position, total, exc)
@@ -1084,13 +1088,13 @@ class Xiaohongshu:
         try:
             await enqueue_notification(
                 kind='summary',
-                source='xiaohongshu',
-                title='Xiaohongshu update completed',
+                source='rednote',
+                title='RedNote update completed',
                 body=f'Downloaded {downloaded} files, {resolved} of them newly liked.',
                 payload={'downloaded': downloaded, 'resolved': resolved, 'pending': pending},
             )
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to enqueue xiaohongshu summary notification: %s', exc)
+            log.warning('Failed to enqueue rednote summary notification: %s', exc)
 
     async def _read_account(self, cookie_path: Path) -> int:
         """Everything that needs the browser, in one session.
@@ -1102,7 +1106,7 @@ class Xiaohongshu:
         try:
             browser = self._browser_factory()
         except ProxyConfigurationError as exc:
-            raise XiaohongshuError(str(exc), notification_dedupe_key='xiaohongshu:proxy') from exc
+            raise RedNoteError(str(exc), notification_dedupe_key='rednote:proxy') from exc
 
         try:
             await browser.start()
@@ -1117,7 +1121,7 @@ class Xiaohongshu:
     async def update(self) -> None:
         missing = self.cfg.validate_runnable()
         if missing:
-            log.warning('Xiaohongshu is not configured (missing %s), skip update', ', '.join(missing))
+            log.warning('RedNote is not configured (missing %s), skip update', ', '.join(missing))
             return
 
         await self._ensure_table()
@@ -1131,16 +1135,16 @@ class Xiaohongshu:
             cache_dir = Path(tmp_dir) / _VIDEO_CACHE_DIRNAME
             # One writer per profile: a Chromium user-data-dir is single-owner, and
             # the worker, the API and a --trigger run are three plausible claimants.
-            lock_name = f'xiaohongshu-profile:{self.cfg.profile_path.expanduser().resolve()}'
+            lock_name = f'rednote-profile:{self.cfg.profile_path.expanduser().resolve()}'
             async with database.advisory_lock(lock_name) as acquired:
                 if not acquired:
-                    log.warning('The Xiaohongshu browser profile is in use by another run; skip this one')
+                    log.warning('The RedNote browser profile is in use by another run; skip this one')
                     return
                 resolved = await self._read_account(cookie_path)
 
             pending = await self._pending_media()
             downloaded = await self._download_pending(pending, cookie_path=cookie_path, cache_dir=cache_dir)
 
-        log.info('Xiaohongshu resolved %d new files and downloaded %d of %d pending', resolved, downloaded, len(pending))
+        log.info('RedNote resolved %d new files and downloaded %d of %d pending', resolved, downloaded, len(pending))
         if downloaded:
             await self._notify_summary(downloaded=downloaded, resolved=resolved, pending=len(pending))

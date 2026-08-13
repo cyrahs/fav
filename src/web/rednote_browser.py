@@ -1,10 +1,10 @@
-"""The signed-in Chromium profile behind the Xiaohongshu source.
+"""The signed-in Chromium profile behind the RedNote source.
 
-Everything that touches Playwright lives here, so ``src/web/xiaohongshu.py`` can be
+Everything that touches Playwright lives here, so ``src/web/rednote.py`` can be
 tested without a browser: it talks to the ``NoteBrowser`` protocol below and never
 imports Playwright itself.
 
-The browser is the point rather than an implementation detail. Xiaohongshu reads IP,
+The browser is the point rather than an implementation detail. RedNote reads IP,
 device fingerprint and behaviour together, and a plain HTTP client replaying a
 session presents badly on all three at once. A profile that stays on a volume,
 accumulates history, and issues the site's own XHRs is the same account seen from
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-log = logger.get('xiaohongshu')
+log = logger.get('rednote')
 
 WEB_ORIGIN = 'https://www.xiaohongshu.com'
 LIKE_PAGE_PATH = '/api/sns/web/v1/note/like/page'
@@ -215,7 +215,7 @@ def browser_cookies_to_netscape(cookies: Sequence[Mapping[str, Any]]) -> str:
     lines = [
         '# Netscape HTTP Cookie File',
         '# https://curl.se/docs/http-cookies.html',
-        '# This file was generated from the Xiaohongshu browser profile',
+        '# This file was generated from the RedNote browser profile',
     ]
     for cookie in cookies:
         name = str(cookie.get('name') or '')
@@ -248,7 +248,7 @@ class PlaywrightNoteBrowser:
         try:
             from playwright.async_api import async_playwright  # noqa: PLC0415
         except ImportError as exc:
-            msg = 'Install Playwright and its Chromium build before running the Xiaohongshu source.'
+            msg = 'Install Playwright and its Chromium build before running the RedNote source.'
             raise BrowserDependencyError(msg) from exc
 
         cleared = await asyncio.to_thread(clear_stale_profile_locks, self._user_data_dir)
@@ -283,7 +283,7 @@ class PlaywrightNoteBrowser:
 
     def _on_response(self, response: Any) -> None:
         if LIKE_PAGE_PATH not in response.url:
-            log.debug('Xiaohongshu XHR: %s %s', response.status, response.url[:160])
+            log.debug('RedNote XHR: %s %s', response.status, response.url[:160])
             return
         # The body has to be read while the response is still live, so this is
         # scheduled rather than awaited by the handler.

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from src.core import settings
-from src.web import BD2, AzurLane, Bilibili, Hanime1, Jandan, Kemono, Nikke, StellaSora, Telegram, Twitter, Xiaohongshu
+from src.web import BD2, AzurLane, Bilibili, Hanime1, Jandan, Kemono, Nikke, RedNote, StellaSora, Telegram, Twitter
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -52,7 +52,7 @@ JOB_SPECS: tuple[JobSpec, ...] = (
     JobSpec(key='telegram', name='Telegram', attr='telegram', required_commands=(), factory=Telegram),
     JobSpec(key='stellasora', name='Stella Sora', attr='stellasora', required_commands=(), factory=StellaSora),
     JobSpec(key='twitter', name='X', attr='twitter', required_commands=('gallery-dl',), factory=Twitter),
-    JobSpec(key='xiaohongshu', name='Xiaohongshu', attr='xiaohongshu', required_commands=('yt-dlp',), factory=Xiaohongshu),
+    JobSpec(key='rednote', name='RedNote', attr='rednote', required_commands=('yt-dlp',), factory=RedNote),
 )
 
 JOB_KEYS: tuple[str, ...] = tuple(spec.key for spec in JOB_SPECS)

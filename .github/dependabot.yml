@@ -8,7 +8,7 @@ updates:
   # starts working again, which is why the interval is daily and there is no cooldown.
   # Everything else is bumped by hand.
   #
-  # Xiaohongshu used to belong here through `xhshow`, which tracked its request
+  # RedNote used to belong here through `xhshow`, which tracked its request
   # signing. It does not any more: that source reads the site through a real browser,
   # so there is no signature to keep up with.
   #

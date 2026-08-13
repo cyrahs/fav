@@ -23,9 +23,9 @@ the `app_settings` table and is edited from the web UI.
 instance world-writable. See `.env.example`.
 
 There is no global proxy setting. `httpx`, `yt-dlp` and `gallery-dl` all honour `HTTP_PROXY` /
-`HTTPS_PROXY`, so set those in the environment if you need one. Azur Lane, X and Xiaohongshu each
+`HTTPS_PROXY`, so set those in the environment if you need one. Azur Lane, X and RedNote each
 have their own per-source proxy field for the cases where only that one origin needs routing --
-Xiaohongshu's is required rather than optional, see below.
+RedNote's is required rather than optional, see below.
 
 ### Database-backed settings
 
@@ -37,7 +37,7 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.xiaohongshu`, `notifications.telegram`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.rednote`, `notifications.telegram`.
 
 #### Bilibili accounts
 
@@ -140,27 +140,27 @@ Caveats worth knowing: this is an unofficial path, so keep `sleep_request_second
 truncates a deep likes timeline server-side, so the backfill reaches only as far back as X is willing
 to serve; and unliking a tweet does not delete what was already downloaded.
 
-#### Xiaohongshu liked notes
+#### RedNote liked notes
 
-`web.xiaohongshu` archives the images and videos from your own liked notes on 小红书. A likes list is
+`web.rednote` archives the images and videos from your own liked notes on 小红书. A likes list is
 only readable by the account that owns it, so this source drives your own account and account safety
 is the constraint the design bends around.
 
-An earlier revision replayed the browser session as signed HTTP from the cluster. Xiaohongshu
-answered with HTTP 461 and invalidated the account's sessions everywhere, phone included. Its risk
-control reads three things together -- address, device fingerprint, and request behaviour -- and a
-plain HTTP client presents badly on all three. So the reading happens in a browser instead: a
-Chromium profile that stays signed in on a volume, leaves through a residential proxy, and is
-scrolled so the site issues its own requests. Nothing here computes a request signature, which also
-means there is nothing to break when Xiaohongshu rotates one.
+An earlier revision replayed the browser session as signed HTTP from the cluster. RedNote answered
+with HTTP 461 and invalidated the account's sessions everywhere, phone included. Its risk control
+reads three things together -- address, device fingerprint, and request behaviour -- and a plain
+HTTP client presents badly on all three. So the reading happens in a browser instead: a Chromium
+profile that stays signed in on a volume, leaves through a residential proxy, and is scrolled so the
+site issues its own requests. Nothing here computes a request signature, which also means there is
+nothing to break when RedNote rotates one.
 
 ```jsonc
 {
   "cron": "0 */6 * * *",
   "enabled": true,
-  "path": "collection/xiaohongshu",
+  "path": "collection/rednote",
   "video_path": null,                       // null keeps videos with the images
-  "profile_path": "./data/xiaohongshu-profile",
+  "profile_path": "./data/rednote-profile",
   "proxy": "http://user:pw@home.example:3128",
   "allow_direct_connection": false,         // true only on a residential host
   "proxy_media": false,                     // the CDN is unauthenticated; direct by default
@@ -190,18 +190,18 @@ Signing in is interactive and happens **during** a run: when the profile is sign
 is read straight out of the page and sent to Telegram, and the run waits up to `login_wait_seconds`
 for it to be scanned. That send bypasses the notification outbox deliberately — queued notifications
 are only flushed after a job returns, which for a run blocked on the scan is long after the code has
-expired. So press 立即运行 with your phone to hand. One photo is sent per QR Xiaohongshu actually
+expired. So press 立即运行 with your phone to hand. One photo is sent per QR RedNote actually
 mints, at most three, and `login_prompt_cooldown_seconds` stops a 04:00 cron from sending a code that
 will be dead before anyone sees it. There is no inbound Telegram path, so the scan is detected by
 polling rather than by replying.
 
 A run walks the likes list newest first, resolving each page's new notes into one row per file in the
-`xiaohongshu` table — keyed `(note_id, media_index)`, written with `downloaded = 0` — and then closes
+`rednote` table — keyed `(note_id, media_index)`, written with `downloaded = 0` — and then closes
 the browser and downloads every row still pending. The browser window is kept short on purpose: a
 persistent Chromium context costs several hundred megabytes and the download phase can run for hours,
 and being OOM-killed there would take the whole worker with it. Two pieces of state make runs
 incremental: a note that already has rows costs one place in a list page instead of a page load of
-its own, and a `xiaohongshu_state` row marks whether the first full walk ever finished. Until it has,
+its own, and a `rednote_state` row marks whether the first full walk ever finished. Until it has,
 every run walks to the end of the list so the history fills in; afterwards runs stop once
 `abort_after` pages of nothing but archived notes come up in a row. A walk that ended early — on the
 stop rule, on `max_pages_per_run`, or because scrolling stopped producing — does not set that mark,
@@ -214,7 +214,7 @@ yt-dlp, which re-resolves the note page itself and can reach the untranscoded or
 the browser is closed by then, and a 404 says as much about a rotated URL as a deleted note, so the
 next run looks at the note again and either refreshes the URL or retires the row.
 
-Caveats worth knowing: automating a signed-in session is against Xiaohongshu's terms and the ban risk
+Caveats worth knowing: automating a signed-in session is against RedNote's terms and the ban risk
 is not zero — everything here lowers the probability, none of it eliminates it, and the account is
 not replaceable. The QR is a live credential for the few minutes it lasts, so send notifications to a
 private chat rather than a shared group. And unliking a note does not delete what was already
@@ -226,7 +226,7 @@ them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete sour
 crashing.
 
 Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.twitter.cookiecloud.password`,
-`web.xiaohongshu.proxy`, `web.telegram.accounts[].api_hash`,
+`web.rednote.proxy`, `web.telegram.accounts[].api_hash`,
 `notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the

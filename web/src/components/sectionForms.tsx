@@ -399,7 +399,7 @@ function TwitterForm(props: SectionFormProps) {
   );
 }
 
-function XiaohongshuForm(props: SectionFormProps) {
+function RedNoteForm(props: SectionFormProps) {
   const set = patcher(props);
   const allowDirect = bool(props.value, 'allow_direct_connection');
 
@@ -435,7 +435,7 @@ function XiaohongshuForm(props: SectionFormProps) {
             value={str(props.value, 'profile_path')}
             onChange={(next) => set('profile_path', next)}
             mono
-            placeholder="./data/xiaohongshu-profile"
+            placeholder="./data/rednote-profile"
             hint="登录态存在这里，必须放在持久卷上，否则每次重启都要重新扫码。"
           />
           <TextField
@@ -544,7 +544,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.jandan': JandanForm,
   'web.kemono': KemonoForm,
   'web.twitter': TwitterForm,
-  'web.xiaohongshu': XiaohongshuForm,
+  'web.rednote': RedNoteForm,
   'notifications.telegram': TelegramNotificationForm,
 };
 

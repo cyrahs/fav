@@ -9,18 +9,18 @@ import httpx
 import pytest
 
 import src.service.jobs as jobs_module
-import src.web.xiaohongshu as xiaohongshu_module
+import src.web.rednote as rednote_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
-from src.web.xiaohongshu import (
+from src.web.rednote import (
     MediaUnavailableError,
     MediaUrlStaleError,
     NoteRef,
+    RedNote,
+    RedNoteError,
+    RedNoteMedia,
     VideoDownloadError,
-    XhsMedia,
-    Xiaohongshu,
-    XiaohongshuError,
     build_media_filename,
     build_note_url,
     build_ytdlp_command,
@@ -33,7 +33,7 @@ from src.web.xiaohongshu import (
     parse_api_envelope,
     user_id_from_probe,
 )
-from src.web.xiaohongshu_browser import (
+from src.web.rednote_browser import (
     browser_cookies_to_netscape,
     build_launch_options,
     build_proxy_settings,
@@ -50,15 +50,15 @@ OTHER_NOTE_ID = '64f1a2b3000000001e02beef'
 QR_PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
 
 
-def _configure(**updates: object) -> settings.Xiaohongshu:
-    """Mutate the pinned settings snapshot that Xiaohongshu() reads in __init__."""
-    cfg = settings.load().web.xiaohongshu
+def _configure(**updates: object) -> settings.RedNote:
+    """Mutate the pinned settings snapshot that RedNote() reads in __init__."""
+    cfg = settings.load().web.rednote
     for key, value in updates.items():
         setattr(cfg, key, value)
     return cfg
 
 
-def _runnable_cfg(**updates: object) -> settings.Xiaohongshu:
+def _runnable_cfg(**updates: object) -> settings.RedNote:
     updates.setdefault('sleep_request_seconds', 0.0)
     updates.setdefault('proxy', 'http://home.example:3128')
     return _configure(**updates)
@@ -146,12 +146,12 @@ class _FakeDatabase:
             return [{'note_id': note_id} for note_id in params if note_id in self.known_note_ids]
         if normalized.startswith('SELECT note_id, media_index'):
             return list(self.pending_rows)
-        if normalized.startswith('SELECT value FROM xiaohongshu_state'):
+        if normalized.startswith('SELECT value FROM rednote_state'):
             key = params[0]
             if key == 'backfill_complete':
                 return [{'value': '1'}] if self.backfill_complete else []
             return [{'value': self.state[key]}] if key in self.state else []
-        if normalized.startswith('INSERT INTO xiaohongshu_state'):
+        if normalized.startswith('INSERT INTO rednote_state'):
             self.state[params[0]] = params[1]
         return []
 
@@ -172,10 +172,10 @@ class _FakeDatabase:
         return [' '.join(query.split()) for query, _ in self.calls if query.strip().upper().startswith('UPDATE')]
 
 
-def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -> Xiaohongshu:
+def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -> RedNote:
     _runnable_cfg(**updates)
-    job = Xiaohongshu.__new__(Xiaohongshu)
-    job.cfg = settings.load().web.xiaohongshu
+    job = RedNote.__new__(RedNote)
+    job.cfg = settings.load().web.rednote
     job.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     job.user_id = 'me'
     job.user_agent = 'Mozilla/5.0 (Test) Chrome/149.0.0.0'
@@ -183,7 +183,7 @@ def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -
     return job
 
 
-def _run(job: Xiaohongshu, coro):
+def _run(job: RedNote, coro):
     try:
         return asyncio.run(coro)
     finally:
@@ -253,7 +253,7 @@ def _video_note_card(**updates) -> dict:
     return payload
 
 
-def _media(**updates) -> XhsMedia:
+def _media(**updates) -> RedNoteMedia:
     fields = {
         'note_id': NOTE_ID,
         'media_index': 1,
@@ -267,7 +267,7 @@ def _media(**updates) -> XhsMedia:
         'xsec_token': 'TOKEN',
     }
     fields.update(updates)
-    return XhsMedia(**fields)
+    return RedNoteMedia(**fields)
 
 
 def _envelope(data: dict, *, code: int = 0) -> dict:
@@ -292,26 +292,26 @@ def test_a_datacenter_run_has_to_be_asked_for() -> None:
 
 def test_an_empty_video_path_is_not_read_as_the_working_directory() -> None:
     # Path('') is Path('.'), which would put every video in the process's cwd.
-    assert settings.Xiaohongshu(video_path='').video_path is None
-    assert settings.Xiaohongshu(video_path='   ').video_path is None
+    assert settings.RedNote(video_path='').video_path is None
+    assert settings.RedNote(video_path='   ').video_path is None
 
 
 def test_the_request_interval_cannot_be_negative() -> None:
     with pytest.raises(ValueError, match='sleep_request_seconds'):
-        settings.Xiaohongshu(sleep_request_seconds=-1)
+        settings.RedNote(sleep_request_seconds=-1)
 
 
 def test_the_page_limits_must_leave_room_for_one_page() -> None:
     with pytest.raises(ValueError, match='abort_after'):
-        settings.Xiaohongshu(abort_after=0)
+        settings.RedNote(abort_after=0)
     with pytest.raises(ValueError, match='max_pages_per_run'):
-        settings.Xiaohongshu(max_pages_per_run=0)
+        settings.RedNote(max_pages_per_run=0)
 
 
 def test_the_profile_defaults_onto_the_persistent_directory() -> None:
     # ./data is the repository's convention for state that has to survive a restart;
     # a profile anywhere else means a QR scan after every deploy.
-    assert settings.Xiaohongshu().profile_path == Path('./data/xiaohongshu-profile')
+    assert settings.RedNote().profile_path == Path('./data/rednote-profile')
 
 
 def test_xhshow_is_gone_and_should_stay_gone() -> None:
@@ -444,17 +444,17 @@ def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeyp
     async def _send_text(*, text, require_enabled=True) -> int:
         return 2
 
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_text_now', _send_text)
-    monkeypatch.setattr(xiaohongshu_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
 
     browser = _FakeBrowser(
         probes=[
             {'has_login_modal': True, 'qr_src': qr_a},
             # The same code again: re-sending it would be noise.
             {'has_login_modal': True, 'qr_src': qr_a},
-            # Xiaohongshu minted a new one, so the src changed.
+            # RedNote minted a new one, so the src changed.
             {'has_login_modal': True, 'qr_src': qr_b},
             {'has_login_modal': False, 'user_id': 'me'},
         ],
@@ -471,18 +471,18 @@ def test_a_login_that_is_never_scanned_ends_the_run_with_one_deduped_failure(mon
     async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
         return 1
 
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(xiaohongshu_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
 
     qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
     browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
     job = _job(browser=browser, login_wait_seconds=1)
 
-    with pytest.raises(XiaohongshuError) as excinfo:
+    with pytest.raises(RedNoteError) as excinfo:
         _run(job, job._await_login(browser))
 
-    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:login'
+    assert excinfo.value.notification_dedupe_key == 'rednote:login'
 
 
 def test_a_second_run_inside_the_cooldown_does_not_send_another_qr(monkeypatch) -> None:
@@ -494,16 +494,16 @@ def test_a_second_run_inside_the_cooldown_does_not_send_another_qr(monkeypatch) 
         return 1
 
     fake_db = _FakeDatabase()
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    monkeypatch.setattr(xiaohongshu_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(xiaohongshu_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
 
     qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
     job = _job(login_wait_seconds=1, login_prompt_cooldown_seconds=3600)
 
     for _ in range(2):
         browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
-        with pytest.raises(XiaohongshuError):
+        with pytest.raises(RedNoteError):
             asyncio.run(job._await_login(browser))
     asyncio.run(job.client.aclose())
 
@@ -540,10 +540,10 @@ def test_an_entry_without_an_id_is_skipped_rather_than_crashing_the_page() -> No
 
 
 def test_a_signed_out_response_is_reported_as_a_login_failure() -> None:
-    with pytest.raises(XiaohongshuError) as excinfo:
+    with pytest.raises(RedNoteError) as excinfo:
         parse_api_envelope(_envelope({}, code=-101))
 
-    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:login'
+    assert excinfo.value.notification_dedupe_key == 'rednote:login'
 
 
 def test_any_other_error_code_is_an_ordinary_failure() -> None:
@@ -696,7 +696,7 @@ def test_the_video_command_omits_what_it_was_not_given() -> None:
     assert '--add-header' not in command
 
 
-def test_the_installed_yt_dlp_still_claims_xiaohongshu_note_pages() -> None:
+def test_the_installed_yt_dlp_still_claims_rednote_note_pages() -> None:
     """Guard the unattended upgrade path.
 
     yt-dlp is bumped and merged by Dependabot without a human looking. Every other
@@ -725,7 +725,7 @@ def _resolved_note_ids(fake_db: _FakeDatabase) -> list[str]:
 
 def test_the_crawl_stops_once_it_has_caught_up(monkeypatch) -> None:
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2'))
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     browser = _FakeBrowser(
         pages=[
             _like_page([{'note_id': 'new-1', 'xsec_token': 'T'}], cursor=''),
@@ -743,7 +743,7 @@ def test_the_crawl_stops_once_it_has_caught_up(monkeypatch) -> None:
 
 def test_a_page_with_anything_new_resets_the_stop_counter(monkeypatch) -> None:
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2', 'old-3'))
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     browser = _FakeBrowser(
         pages=[
             _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor=''),
@@ -764,7 +764,7 @@ def test_the_page_the_site_fetched_twice_is_only_counted_once(monkeypatch) -> No
     # counted, the repeat would satisfy the stop rule a page early and the run would
     # never reach what is below it.
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2'))
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     browser = _FakeBrowser(
         pages=[
             _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor='C1'),
@@ -784,7 +784,7 @@ def test_the_first_run_walks_past_notes_it_has_already_stored(monkeypatch) -> No
     # A backfill that died part-way leaves an archived prefix. Stopping on it would
     # put everything below wherever that run got to out of reach for good.
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2', 'old-3'), backfill_complete=False)
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     browser = _FakeBrowser(
         pages=[
             _like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor=''),
@@ -798,54 +798,54 @@ def test_the_first_run_walks_past_notes_it_has_already_stored(monkeypatch) -> No
     _run(job, job._crawl(browser))
 
     assert _resolved_note_ids(fake_db) == ['new-1']
-    assert any('INSERT OR IGNORE INTO xiaohongshu_state' in query for query, _ in fake_db.calls)
+    assert any('INSERT OR IGNORE INTO rednote_state' in query for query, _ in fake_db.calls)
 
 
 def test_a_walk_that_stopped_early_does_not_claim_the_backfill_finished(monkeypatch) -> None:
     fake_db = _FakeDatabase(known_note_ids=('old-1',), backfill_complete=False)
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     # Scrolling stopped producing, which is not the same as reaching the end.
     browser = _FakeBrowser(pages=[_like_page([{'note_id': 'old-1', 'xsec_token': 'T'}], cursor='')])
     job = _job(browser=browser, abort_after=2)
 
     _run(job, job._crawl(browser))
 
-    assert not any('INSERT OR IGNORE INTO xiaohongshu_state' in query for query, _ in fake_db.calls)
+    assert not any('INSERT OR IGNORE INTO rednote_state' in query for query, _ in fake_db.calls)
 
 
 def test_the_page_cap_leaves_the_backfill_open_for_the_next_run(monkeypatch) -> None:
     fake_db = _FakeDatabase(backfill_complete=False)
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     browser = _FakeBrowser(pages=[_like_page([{'note_id': f'n-{index}', 'xsec_token': 'T'}], cursor=f'C{index}') for index in range(5)])
     job = _job(browser=browser, abort_after=2, max_pages_per_run=2)
 
     _run(job, job._crawl(browser))
 
     assert _resolved_note_ids(fake_db) == ['n-0', 'n-1']
-    assert not any('INSERT OR IGNORE INTO xiaohongshu_state' in query for query, _ in fake_db.calls)
+    assert not any('INSERT OR IGNORE INTO rednote_state' in query for query, _ in fake_db.calls)
 
 
 def test_the_captcha_wall_ends_the_run_instead_of_being_scrolled_past(monkeypatch) -> None:
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
     browser = _FakeBrowser(pages=[_like_page([], status=461)])
     job = _job(browser=browser)
 
-    with pytest.raises(XiaohongshuError) as excinfo:
+    with pytest.raises(RedNoteError) as excinfo:
         _run(job, job._crawl(browser))
 
-    assert excinfo.value.notification_dedupe_key == 'xiaohongshu:risk'
+    assert excinfo.value.notification_dedupe_key == 'rednote:risk'
 
 
 def test_resolving_a_note_writes_one_row_per_file(monkeypatch) -> None:
     fake_db = _FakeDatabase()
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     browser = _FakeBrowser(notes={NOTE_ID: _page_note_card()})
     job = _job(browser=browser)
 
     assert _run(job, job._resolve_notes([NoteRef(note_id=NOTE_ID, xsec_token='TOKEN')], browser)) == 1
 
     table, _columns, rows, on_conflict = fake_db.inserted[0]
-    assert table == 'xiaohongshu'
+    assert table == 'rednote'
     assert rows[0][:3] == (NOTE_ID, '1', 'image')
     # The note is opened with its token, or the page only loads for its author.
     assert browser.note_urls == [f'https://www.xiaohongshu.com/explore/{NOTE_ID}?xsec_token=TOKEN&xsec_source=pc_user']
@@ -854,7 +854,7 @@ def test_resolving_a_note_writes_one_row_per_file(monkeypatch) -> None:
 
 
 def test_a_note_that_cannot_be_read_does_not_end_the_run(monkeypatch) -> None:
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
 
     class _PartlyBrokenBrowser(_FakeBrowser):
         async def note_state(self, *, note_url, note_id):
@@ -873,21 +873,21 @@ def test_a_note_that_cannot_be_read_does_not_end_the_run(monkeypatch) -> None:
 
 
 def test_an_unset_video_path_keeps_everything_in_one_place() -> None:
-    job = _job(path=Path('/data/xhs'), video_path=None)
+    job = _job(path=Path('/data/rednote'), video_path=None)
 
-    assert job._destination_root('video') == Path('/data/xhs')
-    assert job._destination_root('image') == Path('/data/xhs')
+    assert job._destination_root('video') == Path('/data/rednote')
+    assert job._destination_root('image') == Path('/data/rednote')
     asyncio.run(job.client.aclose())
 
 
 def test_videos_and_live_clips_go_to_the_video_path_while_images_stay() -> None:
-    job = _job(path=Path('/data/xhs'), video_path=Path('/media/xhs-videos'))
+    job = _job(path=Path('/data/rednote'), video_path=Path('/media/rednote-videos'))
 
-    assert job._destination_root('video') == Path('/media/xhs-videos')
+    assert job._destination_root('video') == Path('/media/rednote-videos')
     # A live photo's clip is an mp4 like any other.
-    assert job._destination_root('live') == Path('/media/xhs-videos')
-    assert job._destination_root('image') == Path('/data/xhs')
-    assert job._build_output_path(_media()) == Path('/data/xhs/artist') / f'[artist]2025-08-12 [{NOTE_ID}_1].webp'
+    assert job._destination_root('live') == Path('/media/rednote-videos')
+    assert job._destination_root('image') == Path('/data/rednote')
+    assert job._build_output_path(_media()) == Path('/data/rednote/artist') / f'[artist]2025-08-12 [{NOTE_ID}_1].webp'
     asyncio.run(job.client.aclose())
 
 
@@ -930,7 +930,7 @@ def test_an_expired_url_is_recorded_rather_than_guessed_at(tmp_path) -> None:
 
 def test_downloading_marks_each_row_and_keeps_going_past_a_dead_url(monkeypatch, tmp_path) -> None:
     fake_db = _FakeDatabase()
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     dead_url = 'https://sns-webpic.xhscdn.com/dead!nd_dft_wlteh_webp_3'
 
     async def _handler(request: httpx.Request) -> httpx.Response:
@@ -943,12 +943,12 @@ def test_downloading_marks_each_row_and_keeps_going_past_a_dead_url(monkeypatch,
 
     assert downloaded == 1
     updates = fake_db.updates()
-    assert any(update.startswith('UPDATE xiaohongshu SET failed_count') for update in updates)
-    assert any(update.startswith('UPDATE xiaohongshu SET downloaded = 1') for update in updates)
+    assert any(update.startswith('UPDATE rednote SET failed_count') for update in updates)
+    assert any(update.startswith('UPDATE rednote SET downloaded = 1') for update in updates)
 
 
 def test_the_cdn_is_not_paced_like_the_site(monkeypatch, tmp_path) -> None:
-    # The request interval exists for Xiaohongshu's risk control; charging it per
+    # The request interval exists for RedNote's risk control; charging it per
     # image would add hours of pure waiting to a first backfill.
     sleeps: list[float] = []
 
@@ -958,8 +958,8 @@ def test_the_cdn_is_not_paced_like_the_site(monkeypatch, tmp_path) -> None:
     async def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b'bytes')
 
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(xiaohongshu_module.asyncio, 'sleep', _fake_sleep)
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.asyncio, 'sleep', _fake_sleep)
     job = _job(_handler, path=tmp_path, sleep_request_seconds=3.0)
     pending = [_media(media_index=1), _media(media_index=2)]
 
@@ -983,13 +983,13 @@ def test_an_expired_url_is_refreshed_on_the_next_run_with_the_browser_open(monke
         'last_error': 'stale-url http 403',
     }
     fake_db = _FakeDatabase(pending_rows=(row,))
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     card = _page_note_card(imageList=[{'infoList': [{'imageScene': 'WB_DFT', 'url': fresh_url}]}])
     browser = _FakeBrowser(notes={NOTE_ID: card})
     job = _job(browser=browser)
 
     assert _run(job, job._refresh_stale_media(browser)) == 1
-    assert any('UPDATE xiaohongshu SET media_url' in update for update in fake_db.updates())
+    assert any('UPDATE rednote SET media_url' in update for update in fake_db.updates())
 
 
 def test_a_file_the_note_no_longer_offers_is_retired(monkeypatch) -> None:
@@ -1007,14 +1007,14 @@ def test_a_file_the_note_no_longer_offers_is_retired(monkeypatch) -> None:
         'last_error': 'stale-url http 404',
     }
     fake_db = _FakeDatabase(pending_rows=(row,))
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
     # The note now has one image, so index 4 is gone for good.
     browser = _FakeBrowser(notes={NOTE_ID: _page_note_card()})
     job = _job(browser=browser)
 
     _run(job, job._refresh_stale_media(browser))
 
-    assert any(update.startswith('UPDATE xiaohongshu SET unavailable = 1') for update in fake_db.updates())
+    assert any(update.startswith('UPDATE rednote SET unavailable = 1') for update in fake_db.updates())
 
 
 # ---------- video notes ----------
@@ -1043,7 +1043,7 @@ def _fake_ytdlp(*, exit_code: int = 0, stderr: str = '', suffix: str = '.mp4'):
 
 def test_a_video_note_is_downloaded_by_yt_dlp_and_renamed(monkeypatch, tmp_path) -> None:
     run_command, calls = _fake_ytdlp()
-    monkeypatch.setattr(xiaohongshu_module.subprocess, 'run', run_command)
+    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
     job = _job(path=tmp_path / 'images', video_path=tmp_path / 'videos')
 
     dst_path = _run(
@@ -1059,7 +1059,7 @@ def test_a_video_note_is_downloaded_by_yt_dlp_and_renamed(monkeypatch, tmp_path)
 
 def test_a_video_yt_dlp_saved_as_something_else_keeps_that_extension(monkeypatch, tmp_path) -> None:
     run_command, _ = _fake_ytdlp(suffix='.mkv')
-    monkeypatch.setattr(xiaohongshu_module.subprocess, 'run', run_command)
+    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
     job = _job(path=tmp_path)
 
     dst_path = _run(job, job._download_video(_media(media_type='video'), cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'))
@@ -1069,7 +1069,7 @@ def test_a_video_yt_dlp_saved_as_something_else_keeps_that_extension(monkeypatch
 
 def test_a_deleted_video_note_is_not_retried(monkeypatch, tmp_path) -> None:
     run_command, calls = _fake_ytdlp(exit_code=1, stderr='ERROR: [XiaoHongShu] 当前笔记暂时无法浏览')
-    monkeypatch.setattr(xiaohongshu_module.subprocess, 'run', run_command)
+    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
     job = _job(path=tmp_path)
 
     with pytest.raises(MediaUnavailableError):
@@ -1079,9 +1079,9 @@ def test_a_deleted_video_note_is_not_retried(monkeypatch, tmp_path) -> None:
 
 
 def test_a_video_that_merely_failed_is_reported_as_retryable(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(xiaohongshu_module, '_YTDLP_MAX_ATTEMPTS', 1)
+    monkeypatch.setattr(rednote_module, '_YTDLP_MAX_ATTEMPTS', 1)
     run_command, calls = _fake_ytdlp(exit_code=1, stderr='ERROR: unable to download webpage: timed out')
-    monkeypatch.setattr(xiaohongshu_module.subprocess, 'run', run_command)
+    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
     job = _job(path=tmp_path)
 
     with pytest.raises(VideoDownloadError):
@@ -1103,8 +1103,8 @@ def test_a_run_signs_in_walks_the_list_and_saves_the_files(monkeypatch, tmp_path
     async def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b'image-bytes')
 
-    monkeypatch.setattr(xiaohongshu_module, 'database', fake_db)
-    monkeypatch.setattr(xiaohongshu_module, 'enqueue_notification', _notify)
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module, 'enqueue_notification', _notify)
 
     browser = _FakeBrowser(
         pages=[_like_page([{'note_id': NOTE_ID, 'xsec_token': 'TOKEN'}], cursor='', has_more=False)],
@@ -1117,14 +1117,14 @@ def test_a_run_signs_in_walks_the_list_and_saves_the_files(monkeypatch, tmp_path
     assert browser.started
     assert browser.closed
     assert (tmp_path / 'artist' / f'[artist]2025-08-12 [{NOTE_ID}_1].webp').read_bytes() == b'image-bytes'
-    assert any(update.startswith('UPDATE xiaohongshu SET downloaded = 1') for update in fake_db.updates())
-    assert notifications[0]['source'] == 'xiaohongshu'
+    assert any(update.startswith('UPDATE rednote SET downloaded = 1') for update in fake_db.updates())
+    assert notifications[0]['source'] == 'rednote'
     # Resolved once and remembered, so later runs skip the lookup.
     assert fake_db.state.get('user_id') == 'me'
 
 
 def test_the_browser_is_closed_even_when_the_walk_fails(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(xiaohongshu_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
 
     class _ExplodingBrowser(_FakeBrowser):
         async def open_likes(self, *, user_id):
@@ -1147,9 +1147,9 @@ def test_an_unconfigured_source_does_nothing_rather_than_opening_a_browser(monke
     def _explode(*_args, **_kwargs):
         raise AssertionError('should not touch the database or the browser')
 
-    monkeypatch.setattr(xiaohongshu_module, 'database', _explode)
-    job = Xiaohongshu.__new__(Xiaohongshu)
-    job.cfg = settings.load().web.xiaohongshu
+    monkeypatch.setattr(rednote_module, 'database', _explode)
+    job = RedNote.__new__(RedNote)
+    job.cfg = settings.load().web.rednote
 
     asyncio.run(job.update())
 
@@ -1159,23 +1159,23 @@ def test_an_unconfigured_source_does_nothing_rather_than_opening_a_browser(monke
 
 def test_the_job_is_registered_and_parked_until_configured() -> None:
     fake_config = settings.Settings()
-    fake_config.web.xiaohongshu.enabled = True
+    fake_config.web.rednote.enabled = True
 
-    job = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'xiaohongshu')
+    job = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'rednote')
 
-    assert job.section == 'web.xiaohongshu'
+    assert job.section == 'web.rednote'
     assert job.required_commands == ('yt-dlp',)
-    assert job.factory is jobs_module.Xiaohongshu
+    assert job.factory is jobs_module.RedNote
     assert job.enabled is False
     assert 'proxy' in job.missing_fields
 
 
-def test_api_job_enum_includes_xiaohongshu() -> None:
-    assert JobRequestTarget.XIAOHONGSHU.value == 'xiaohongshu'
+def test_api_job_enum_includes_rednote() -> None:
+    assert JobRequestTarget.REDNOTE.value == 'rednote'
 
 
 def test_the_archive_links_a_row_to_a_note_that_actually_opens() -> None:
-    source = ARCHIVE_SOURCES['xiaohongshu']
+    source = ARCHIVE_SOURCES['rednote']
 
     url = _external_url(source, {'note_id': NOTE_ID, 'media_index': 1, 'xsec_token': 'TOKEN'})
 

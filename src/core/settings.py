@@ -533,27 +533,27 @@ class Twitter(ScheduleJob):
         return missing
 
 
-class Xiaohongshu(ScheduleJob):
-    """Liked notes on Xiaohongshu, read through a signed-in Chromium profile.
+class RedNote(ScheduleJob):
+    """Liked notes on RedNote (小红书), read through a signed-in Chromium profile.
 
     There is no public read access to a likes list, and the list is only readable
     by the account itself, so this source has to drive the user's own account. An
-    earlier revision replayed the session as plain signed HTTP and Xiaohongshu
+    earlier revision replayed the session as plain signed HTTP and RedNote
     answered by invalidating the account everywhere, phone included. Risk control
     reads IP, device fingerprint and behaviour together, so the browser below is
     kept logged in and aged on a volume, its traffic leaves through ``proxy``, and
     the pacing fields are deliberately conservative.
     """
 
-    path: Path = Path('./collection/xiaohongshu')
+    path: Path = Path('./collection/rednote')
     # Where videos land, both whole video notes and the clips inside live photos.
     # Left unset they stay with the images under ``path``.
     video_path: Path | None = None
     cron: str = '0 */6 * * *'
     # The signed-in Chromium profile: cookies, localStorage, history and the device
-    # identity Xiaohongshu hands out all live here. It has to be on a volume, or
+    # identity RedNote hands out all live here. It has to be on a volume, or
     # every run starts from a QR scan.
-    profile_path: Path = Path('./data/xiaohongshu-profile')
+    profile_path: Path = Path('./data/rednote-profile')
     # Egress for xiaohongshu.com. Most datacenter ranges answer HTTP 461, so from a
     # cluster this points at a residential line. Credentials have to be http(s):
     # Chromium cannot authenticate to a SOCKS proxy.
@@ -567,7 +567,7 @@ class Xiaohongshu(ScheduleJob):
     # Own profile id. The likes list lives at /user/profile/<id>; left empty it is
     # read out of the signed-in page once and remembered.
     user_id: str = ''
-    # Spacing between page loads. Xiaohongshu's risk control reads request rhythm,
+    # Spacing between page loads. RedNote's risk control reads request rhythm,
     # and this is the field most likely to be worth raising rather than lowering.
     sleep_request_seconds: float = 3.0
     # Consecutive pages of already-archived notes that end an incremental run. The
@@ -674,7 +674,7 @@ class Web(BaseModel):
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono = Field(default_factory=Kemono)
     twitter: Twitter = Field(default_factory=Twitter)
-    xiaohongshu: Xiaohongshu = Field(default_factory=Xiaohongshu)
+    rednote: RedNote = Field(default_factory=RedNote)
 
 
 class Settings(BaseModel):
@@ -693,7 +693,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.jandan': Jandan,
     'web.kemono': Kemono,
     'web.twitter': Twitter,
-    'web.xiaohongshu': Xiaohongshu,
+    'web.rednote': RedNote,
     'notifications.telegram': TelegramNotification,
 }
 
@@ -703,7 +703,7 @@ SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.twitter': ('cookiecloud.password',),
     # A proxy URL may carry credentials, and this one points at the user's own line.
-    'web.xiaohongshu': ('proxy',),
+    'web.rednote': ('proxy',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
 }

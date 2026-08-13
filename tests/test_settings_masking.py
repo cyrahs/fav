@@ -135,15 +135,15 @@ def test_saving_twitter_with_a_masked_password_keeps_the_stored_one() -> None:
     assert merged['username'] == 'someone-else'
 
 
-def test_the_xiaohongshu_proxy_survives_a_round_trip() -> None:
+def test_the_rednote_proxy_survives_a_round_trip() -> None:
     # It points at the user's own line and may carry credentials.
     stored = {'user_id': '', 'proxy': 'http://user:pw@home.example:3128'}
-    edited = mask_section('web.xiaohongshu', stored)
+    edited = mask_section('web.rednote', stored)
     edited['user_id'] = '5ff'
 
     assert edited['proxy'] == f'http{MASK_SUFFIX}'
 
-    merged = unmask_section('web.xiaohongshu', edited, stored)
+    merged = unmask_section('web.rednote', edited, stored)
 
     assert merged['proxy'] == 'http://user:pw@home.example:3128'
     assert merged['user_id'] == '5ff'
