@@ -5,7 +5,7 @@ import inspect
 import os
 import shutil
 import signal
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
 from time import perf_counter
@@ -341,6 +341,28 @@ async def _run_job(*, job: ScheduledJob, worker: object | None = None, close_wor
             await _safe_close(job.name, selected_worker)
 
 
+def _reload_jobs_sync() -> list[ScheduledJob]:
+    settings.load(force=True)
+    return build_jobs()
+
+
+async def _current_jobs() -> list[ScheduledJob]:
+    """Job state as of right now, not as of worker startup.
+
+    Configuring a source and pressing Run is the normal order, so the trigger
+    path must re-read the settings: a startup snapshot rejects that trigger as
+    disabled until the worker happens to restart.
+    """
+    return await asyncio.to_thread(_reload_jobs_sync)
+
+
+def _disabled_job_reason(job: ScheduledJob) -> str:
+    """Why a trigger was refused, naming the fields the source is still missing."""
+    if job.missing_fields:
+        return f'Job is not configured: {job.key} (missing {", ".join(job.missing_fields)})'
+    return f'Job is disabled: {job.key}'
+
+
 async def _run_control_runner(*, job: ScheduledJob, runner: Callable[[], object]) -> JobRunResult:
     try:
         return await runner()
@@ -409,7 +431,7 @@ async def _execute_control_request(  # noqa: C901, PLR0911
         await update_control_request(
             request.request_id,
             status=STATUS_REJECTED,
-            error=f'Job is disabled: {target}',
+            error=_disabled_job_reason(job),
         )
         return
 
@@ -431,9 +453,9 @@ async def _execute_control_request(  # noqa: C901, PLR0911
 
 async def _consume_control_requests(
     *,
-    all_jobs: list[ScheduledJob],
     runner_by_key: dict[str, Callable[[], object]],
     stop_event: asyncio.Event,
+    jobs_provider: Callable[[], Awaitable[list[ScheduledJob]]] = _current_jobs,
 ) -> None:
     await ensure_control_requests_table()
     stale_count = await fail_stale_running_control_requests()
@@ -447,7 +469,9 @@ async def _consume_control_requests(
             except TimeoutError:
                 continue
             break
-        await _execute_control_request(request, all_jobs=all_jobs, runner_by_key=runner_by_key)
+        # Resolved per request rather than once at startup: the runners are
+        # fixed, but which sources are runnable changes whenever the UI saves.
+        await _execute_control_request(request, all_jobs=await jobs_provider(), runner_by_key=runner_by_key)
 
 
 def _missing_commands(job: ScheduledJob) -> list[str]:
@@ -635,7 +659,7 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
             log.info('Telegram event listeners and queue workers enabled')
 
         control_request_task = asyncio.create_task(
-            _consume_control_requests(all_jobs=all_jobs, runner_by_key=runner_by_key, stop_event=stop_event),
+            _consume_control_requests(runner_by_key=runner_by_key, stop_event=stop_event),
             name='control-request-consumer',
         )
         notification_delivery_task = asyncio.create_task(
