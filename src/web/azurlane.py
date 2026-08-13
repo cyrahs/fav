@@ -68,9 +68,15 @@ _ORIGIN_JITTER_FRACTION = 0.25
 # A rotating residential proxy hands out a fresh exit IP per request, and some of those are
 # already blocked, so a failed origin request is usually worth one more try on another exit.
 _ORIGIN_ATTEMPTS = 3
+# The CDN's request rate is capped by this interval alone: 0.2s spacing is 5 requests/second no
+# matter how many coroutines are in flight. The concurrency below only decides how close the run
+# gets to that ceiling, so raising it adds no load the limiter was not already allowing.
 _CDN_REQUEST_INTERVAL_SECONDS = 0.2
-_CDN_CONCURRENCY = 3
-_ASSET_PROCESS_CONCURRENCY = 3
+# Sized against measured per-asset cost, which is dominated by the blob write and its sha256
+# verification on network storage rather than by the download: at 3 in flight a full-content run
+# managed ~53 assets/minute against a 300/minute ceiling.
+_CDN_CONCURRENCY = 12
+_ASSET_PROCESS_CONCURRENCY = 12
 _MAX_RETRIES = 3
 _LIMITED_RETRY_ATTEMPTS = 2
 _RETRY_BASE_DELAY_SECONDS = 0.75
