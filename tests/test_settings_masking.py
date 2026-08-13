@@ -111,3 +111,32 @@ def test_bilibili_account_without_a_cookiecloud_override_is_left_alone() -> None
 
     assert mask_section('web.bilibili', payload) == payload
     assert unmask_section('web.bilibili', payload, {}) == payload
+
+
+def test_twitter_cookiecloud_password_is_masked() -> None:
+    payload = {'username': 'me', 'cookiecloud': {'uuid': 'u', 'password': 'super-secret'}}
+
+    masked = mask_section('web.twitter', payload)
+
+    assert masked['cookiecloud']['password'] == f'supe{MASK_SUFFIX}'
+    assert masked['cookiecloud']['uuid'] == 'u'
+    assert masked['username'] == 'me'
+    assert payload['cookiecloud']['password'] == 'super-secret'
+
+
+def test_saving_twitter_with_a_masked_password_keeps_the_stored_one() -> None:
+    stored = {'username': 'me', 'cookiecloud': {'uuid': 'u', 'password': 'pw-REAL'}}
+    edited = mask_section('web.twitter', stored)
+    edited['username'] = 'someone-else'
+
+    merged = unmask_section('web.twitter', edited, stored)
+
+    assert merged['cookiecloud']['password'] == 'pw-REAL'
+    assert merged['username'] == 'someone-else'
+
+
+def test_twitter_section_without_a_cookiecloud_block_is_left_alone() -> None:
+    payload = {'username': 'me'}
+
+    assert mask_section('web.twitter', payload) == payload
+    assert unmask_section('web.twitter', payload, {}) == payload

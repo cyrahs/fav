@@ -25,6 +25,7 @@ from src.core.env import env
 
 _CRON_FIELDS = 5
 _ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+_TWITTER_USERNAME_RE = re.compile(r'^[A-Za-z0-9_]+$')
 TelegramMediaType = Literal['video', 'image']
 
 CREATE_APP_SETTINGS_TABLE_SQL = """
@@ -454,6 +455,68 @@ class Kemono(ScheduleJob):
         return [] if self.creators else ['creators']
 
 
+class Twitter(ScheduleJob):
+    """Liked tweets on X, crawled through gallery-dl.
+
+    X has no affordable API for reading likes, so the crawl runs gallery-dl against
+    ``x.com/<username>/likes`` with the browser session this account is logged in
+    with. The session comes from CookieCloud so it tracks the browser instead of
+    going stale in the database.
+    """
+
+    path: Path = Path('./collection/twitter')
+    cron: str = '0 */6 * * *'
+    # Own screen name, without the leading @. The likes timeline is only readable
+    # for the logged-in user, so this has to match the CookieCloud session.
+    username: str = ''
+    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+    # Spacing between X API requests. X throttles hard on the likes timeline; below
+    # about a second a large backfill starts collecting 429s.
+    sleep_request_seconds: float = 2.0
+    # Consecutive already-archived files that end an incremental run. Only applies
+    # once the first full backfill has finished; see src/web/twitter.py.
+    abort_after: int = 20
+    proxy: str = ''
+    # A liked retweet is still a liked post, so retweets are kept by default and
+    # filed under the original author.
+    include_retweets: bool = True
+
+    @field_validator('username')
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        normalized = value.strip().lstrip('@')
+        if normalized and not _TWITTER_USERNAME_RE.fullmatch(normalized):
+            msg = 'username must contain only ASCII letters, digits, or underscores'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('proxy')
+    @classmethod
+    def normalize_proxy(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('sleep_request_seconds')
+    @classmethod
+    def validate_sleep_request_seconds(cls, value: float) -> float:
+        if value < 0:
+            msg = 'sleep_request_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('abort_after')
+    @classmethod
+    def validate_abort_after(cls, value: int) -> int:
+        if value < 1:
+            msg = 'abort_after must be greater than or equal to 1'
+            raise ValueError(msg)
+        return value
+
+    def validate_runnable(self) -> list[str]:
+        missing = [] if self.username else ['username']
+        missing.extend(f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable())
+        return missing
+
+
 class TelegramNotification(BaseModel):
     enabled: bool = False
     bot_token: str = ''
@@ -495,6 +558,7 @@ class Web(BaseModel):
     hanime1: Hanime1 = Field(default_factory=Hanime1)
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono = Field(default_factory=Kemono)
+    twitter: Twitter = Field(default_factory=Twitter)
 
 
 class Settings(BaseModel):
@@ -512,6 +576,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.hanime1': Hanime1,
     'web.jandan': Jandan,
     'web.kemono': Kemono,
+    'web.twitter': Twitter,
     'notifications.telegram': TelegramNotification,
 }
 
@@ -519,6 +584,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
+    'web.twitter': ('cookiecloud.password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
 }

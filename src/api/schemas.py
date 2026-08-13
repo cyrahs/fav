@@ -50,6 +50,7 @@ class JobRequestTarget(StrEnum):
     NIKKE = 'nikke'
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
+    TWITTER = 'twitter'
 
 
 class JobRequestStatus(StrEnum):
@@ -659,7 +660,10 @@ class AzurLaneProxyTestResult(ApiSchema):
 
 
 class CookieCloudTestRequest(ApiSchema):
-    # Names the bilibili account a masked password resolves against.
+    # Which source's cookies to look for; picks the domains and required cookie names.
+    source: str = 'bilibili'
+    # Names the bilibili account a masked password resolves against. Unused by
+    # sources that hold a single vault.
     account: str = ''
     server_url: str = ''
     uuid: str = ''
@@ -672,5 +676,5 @@ class CookieCloudTestResult(ApiSchema):
     code: str
     message: str
     domain_count: int = 0
-    bilibili_cookie_count: int = 0
+    domain_cookie_count: int = 0
     missing_cookies: list[str] = Field(default_factory=list)

@@ -12,6 +12,7 @@ import {
 } from './Field';
 import { AzurLaneProxyTest } from './AzurLaneProxyTest';
 import { BilibiliForm, validateBilibili } from './BilibiliForm';
+import { CookieCloudTest } from './CookieCloudTest';
 import { TelegramForm, validateTelegram } from './TelegramForm';
 import {
   PathField,
@@ -285,6 +286,105 @@ function KemonoForm(props: SectionFormProps) {
   );
 }
 
+interface CookieCloudCredentials {
+  server_url?: string;
+  uuid?: string;
+  password?: string;
+}
+
+const TWITTER_USERNAME_RE = /^[A-Za-z0-9_]+$/;
+
+function TwitterForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const username = str(props.value, 'username');
+  const usernameOk = TWITTER_USERNAME_RE.test(username);
+  const cookiecloud = record(props.value, 'cookiecloud') as CookieCloudCredentials;
+  const setCookieCloud = (patch: Partial<CookieCloudCredentials>) =>
+    set('cookiecloud', { ...cookiecloud, ...patch });
+
+  return (
+    <div className="field-grid">
+      <TextField
+        label="自己的用户名"
+        value={username}
+        onChange={(next) => set('username', next)}
+        mono
+        placeholder="不带 @"
+        invalid={!usernameOk}
+        hint="点赞列表只有本人能看，必须和下面 CookieCloud 里的登录账号是同一个。"
+        error={username && !usernameOk ? '只能包含字母、数字、下划线' : undefined}
+      />
+      <PathField {...props} />
+
+      <div className="subsection">
+        <h4>CookieCloud 凭据</h4>
+        <div className="field-grid">
+          <TextField
+            label="服务地址"
+            value={cookiecloud.server_url ?? ''}
+            onChange={(next) => setCookieCloud({ server_url: next })}
+            mono
+            placeholder="https://cookiecloud.example.com/"
+          />
+          <TextField
+            label="UUID"
+            value={cookiecloud.uuid ?? ''}
+            onChange={(next) => setCookieCloud({ uuid: next })}
+            mono
+          />
+          <SecretField
+            label="密码"
+            value={cookiecloud.password ?? ''}
+            onChange={(next) => setCookieCloud({ password: next })}
+            hint="浏览器插件需要同步 x.com 的 auth_token 和 ct0"
+          />
+          <CookieCloudTest
+            source="twitter"
+            serverUrl={cookiecloud.server_url ?? ''}
+            uuid={cookiecloud.uuid ?? ''}
+            password={cookiecloud.password ?? ''}
+          />
+        </div>
+      </div>
+
+      <div className="subsection">
+        <h4>抓取节奏</h4>
+        <div className="field-grid">
+          <NumberField
+            label="请求间隔（秒）"
+            value={num(props.value, 'sleep_request_seconds', 2)}
+            onChange={(next) => set('sleep_request_seconds', next)}
+            step={0.5}
+            hint="调低会更快撞上 X 的限流；首次全量回填尤其不建议低于 2 秒。"
+          />
+          <NumberField
+            label="连续多少个已存档文件后停止"
+            value={num(props.value, 'abort_after', 20)}
+            onChange={(next) => set('abort_after', next)}
+            hint="只在首次全量回填完成后生效；之前每轮都会走完整个点赞列表。"
+          />
+          <TextField
+            label="代理"
+            value={str(props.value, 'proxy')}
+            onChange={(next) => set('proxy', next)}
+            mono
+            placeholder="http://host:port"
+            hint="留空则直连（或走全局 HTTP_PROXY）"
+          />
+          <div className="field-checks">
+            <CheckboxField
+              label="包含转推"
+              checked={bool(props.value, 'include_retweets', true)}
+              onChange={(next) => set('include_retweets', next)}
+              hint="点赞的转推按原作者归档"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TelegramNotificationForm(props: SectionFormProps) {
   const set = patcher(props);
   const threadId = props.value.message_thread_id;
@@ -339,6 +439,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.hanime1': Hanime1Form,
   'web.jandan': JandanForm,
   'web.kemono': KemonoForm,
+  'web.twitter': TwitterForm,
   'notifications.telegram': TelegramNotificationForm,
 };
 
@@ -424,6 +525,19 @@ export function validateSection(section: string, value: Record<string, unknown>)
     const thread = value.message_thread_id;
     if (thread !== null && thread !== undefined && !(Number.isInteger(thread) && (thread as number) > 0)) {
       issues.push('Message Thread ID 必须是正整数');
+    }
+  }
+
+  if (section === 'web.twitter') {
+    const username = str(value, 'username').trim().replace(/^@/, '');
+    if (username && !TWITTER_USERNAME_RE.test(username)) {
+      issues.push('用户名只能包含字母、数字、下划线');
+    }
+    if (num(value, 'sleep_request_seconds', 2) < 0) {
+      issues.push('请求间隔不能为负数');
+    }
+    if (num(value, 'abort_after', 20) < 1) {
+      issues.push('停止阈值至少为 1');
     }
   }
 

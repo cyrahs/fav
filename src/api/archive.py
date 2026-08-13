@@ -84,6 +84,16 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
             subtitle_columns=('post_date',),
         ),
         ArchiveSource(
+            key='twitter',
+            name='X (Twitter)',
+            table='twitter',
+            id_columns=('tweet_id', 'num'),
+            title_column='content',
+            columns=('author', 'author_nick', 'tweet_date', 'media_type', 'local_path'),
+            search_columns=('author', 'author_nick', 'content'),
+            subtitle_columns=('author', 'tweet_date'),
+        ),
+        ArchiveSource(
             key='kemono',
             name='Kemono',
             table='kemono',
@@ -114,6 +124,9 @@ def _external_url(source: ArchiveSource, row: dict[str, Any]) -> str | None:
     if source.key == 'jandan':
         content_url = row.get('content_url')
         return str(content_url) if content_url else None
+    if source.key == 'twitter':
+        # /i/status resolves without knowing the author's current handle.
+        return f'https://x.com/i/status/{row["tweet_id"]}'
     return None
 
 

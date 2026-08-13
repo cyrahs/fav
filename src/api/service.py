@@ -451,16 +451,18 @@ class FavApiService:
         result = probe_l2d_su_origin(draft['origin_proxy'])
         return {'ok': result.ok, 'code': result.code, 'message': result.message, 'exit_ip': result.exit_ip}
 
-    def _stored_account_password(self, account: str) -> str:
-        """The CookieCloud password stored for one bilibili account, matched by name."""
+    def _stored_section(self, section: str) -> dict[str, Any]:
         try:
-            stored = json.loads(self._settings_section_getter('web.bilibili').model_dump_json())
+            return json.loads(self._settings_section_getter(section).model_dump_json())
         except UnknownSectionError:
-            raise ApiError(status_code=404, code='unknown_section', message='Unknown settings section: web.bilibili') from None
+            raise ApiError(status_code=404, code='unknown_section', message=f'Unknown settings section: {section}') from None
         except Exception:
-            log.exception('Failed to load web.bilibili for cookiecloud test')
+            log.exception('Failed to load %s for cookiecloud test', section)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
+    def _stored_account_password(self, account: str) -> str:
+        """The CookieCloud password stored for one bilibili account, matched by name."""
+        stored = self._stored_section('web.bilibili')
         accounts = stored.get('accounts')
         for candidate in accounts if isinstance(accounts, list) else []:
             if isinstance(candidate, dict) and str(candidate.get('name') or '') == account:
@@ -469,26 +471,44 @@ class FavApiService:
                 return str(nested.get('password') or '')
         return ''
 
+    def _stored_section_password(self, section: str) -> str:
+        """The CookieCloud password of a source that holds a single vault."""
+        nested = self._stored_section(section).get('cookiecloud')
+        return str((nested if isinstance(nested, dict) else {}).get('password') or '')
+
+    def _stored_cookiecloud_password(self, *, source: str, account: str) -> str:
+        """Resolve a masked password against whatever the source stores it under.
+
+        Bilibili keys its vaults by account name; every other source has exactly one,
+        so it is read straight from that source's section.
+        """
+        if source == 'bilibili':
+            if not account:
+                raise ApiError(status_code=422, code='invalid_settings', message='account is required.')
+            return self._stored_account_password(account)
+        return self._stored_section_password(f'web.{source}')
+
     def test_cookiecloud(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Check one bilibili account's CookieCloud credentials without saving them.
+        """Check a source's CookieCloud credentials without saving them.
 
         The draft from the form wins, except that a masked or omitted password is
-        resolved against what is stored for that account.
+        resolved against what is already stored for that source.
         """
-        account = str(payload.get('account') or '')
-        if not account:
-            raise ApiError(status_code=422, code='invalid_settings', message='account is required.')
+        source = str(payload.get('source') or 'bilibili')
+        profile = cookiecloud_tool.PROFILES.get(source)
+        if profile is None:
+            raise ApiError(status_code=422, code='invalid_settings', message=f'Unknown cookiecloud source: {source}')
 
         draft = {key: str(payload.get(key) or '') for key in ('server_url', 'uuid', 'password')}
-        keep_secret(draft, 'password', self._stored_account_password(account))
+        keep_secret(draft, 'password', self._stored_cookiecloud_password(source=source, account=str(payload.get('account') or '')))
 
-        result = cookiecloud_tool.probe(draft['server_url'], draft['uuid'], draft['password'])
+        result = cookiecloud_tool.probe(draft['server_url'], draft['uuid'], draft['password'], profile=profile)
         return {
             'ok': result.ok,
             'code': result.code,
             'message': result.message,
             'domain_count': result.domain_count,
-            'bilibili_cookie_count': result.bilibili_cookie_count,
+            'domain_cookie_count': result.domain_cookie_count,
             'missing_cookies': list(result.missing_cookies),
         }
 

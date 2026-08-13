@@ -79,7 +79,7 @@ export interface CookieCloudTestResult {
   code: string;
   message: string;
   domain_count: number;
-  bilibili_cookie_count: number;
+  domain_cookie_count: number;
   missing_cookies: string[];
 }
 

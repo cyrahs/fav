@@ -3,8 +3,10 @@ import { api } from '../api/client';
 import type { CookieCloudTestResult } from '../api/types';
 
 interface CookieCloudTestProps {
-  /** Names the account a masked password resolves against. */
-  account: string;
+  /** Picks the domains and cookie names to check for. Defaults to bilibili. */
+  source?: string;
+  /** Names the account a masked password resolves against; bilibili only. */
+  account?: string;
   serverUrl: string;
   uuid: string;
   password: string;
@@ -15,19 +17,20 @@ const CODE_LABELS: Record<string, string> = {
   unreachable: '连不上服务器',
   http_error: '服务器返回错误',
   decrypt_failed: 'UUID 或密码不对',
-  no_domain_cookies: '缺少 bilibili.com 的 cookie',
+  no_domain_cookies: '缺少该站点的 cookie',
   missing_cookies: 'cookie 不齐全',
   error: '出错了',
 };
 
 /**
  * Tests the credentials as currently typed, without saving them. The draft is sent
- * as-is; the backend swaps a masked password for the one stored under this account.
+ * as-is; the backend swaps a masked password for the one it has stored.
  */
-export function CookieCloudTest({ account, serverUrl, uuid, password }: CookieCloudTestProps) {
+export function CookieCloudTest({ source = 'bilibili', account = '', serverUrl, uuid, password }: CookieCloudTestProps) {
   const test = useMutation({
     mutationFn: () =>
       api.post<CookieCloudTestResult>('/api/v2/cookiecloud/test', {
+        source,
         account,
         server_url: serverUrl,
         uuid,
