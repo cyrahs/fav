@@ -55,7 +55,13 @@ from src.core import logger, settings
 from src.tool import database, ensure_unique_path, format_media_filename, sanitize
 from src.tool import telegram_bot as telegram_bot_tool
 from src.tool.notifications import enqueue_notification
-from src.web.rednote_browser import PlaywrightNoteBrowser, ProxyConfigurationError, cursor_of, decode_qr_data_url
+from src.web.rednote_browser import (
+    RISK_CONTROL_STATUS_CODES,
+    PlaywrightNoteBrowser,
+    ProxyConfigurationError,
+    cursor_of,
+    decode_qr_data_url,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -87,8 +93,6 @@ _MAX_QR_MESSAGES = 3
 # scrolling, before deciding it has stopped producing.
 _LIKE_PAGE_TIMEOUT_SECONDS = 25.0
 
-# The captcha wall. Retrying it is how a session gets locked, so it ends the run.
-_RISK_CONTROL_STATUS_CODES = {461, 471}
 _SESSION_EXPIRED_CODES = {-100, -101}
 
 # A CDN URL that has rotated answers 403, and one for a deleted note answers 404 --
@@ -756,7 +760,7 @@ class RedNote:
             return None
 
         status = _to_int(captured.get('status')) or 0
-        if status in _RISK_CONTROL_STATUS_CODES:
+        if status in RISK_CONTROL_STATUS_CODES:
             msg = f'RedNote answered the likes list with HTTP {status}: the account is behind a captcha. Clear it in the browser.'
             raise RedNoteError(msg, notification_dedupe_key='rednote:risk')
 

@@ -660,6 +660,20 @@ class AzurLaneProxyTestResult(ApiSchema):
     exit_ip: str = ''
 
 
+class RedNoteProxyTestRequest(ApiSchema):
+    # A masked value (or an omitted one) means "test what is already stored".
+    proxy: str = ''
+
+
+class RedNoteProxyTestResult(ApiSchema):
+    ok: bool
+    code: str
+    message: str
+    exit_ip: str = ''
+    # The probe went out on the pod's own address because nothing was configured.
+    direct: bool = False
+
+
 class CookieCloudTestRequest(ApiSchema):
     # Which source's cookies to look for; picks the domains and required cookie names.
     source: str = 'bilibili'

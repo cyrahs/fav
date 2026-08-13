@@ -22,8 +22,11 @@ import base64
 import binascii
 import contextlib
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import parse_qs, unquote, urlsplit
+
+import httpx
 
 from src.core import logger
 
@@ -37,12 +40,21 @@ WEB_ORIGIN = 'https://www.xiaohongshu.com'
 LIKE_PAGE_PATH = '/api/sns/web/v1/note/like/page'
 LIKED_TAB_LABEL = '赞过'
 
+# The captcha wall. Whether it is a crawl being refused or this module's probe being
+# turned away, it means the same thing: the address is not one the site will serve.
+RISK_CONTROL_STATUS_CODES = frozenset({461, 471})
+
 # Chromium writes these into the profile and stamps them with `hostname-pid`. Every
 # pod gets a new hostname, so after a SIGKILL the next one reads them as a lock held
 # by another machine and either refuses to start or hangs.
 PROFILE_SINGLETON_FILES = ('SingletonLock', 'SingletonCookie', 'SingletonSocket')
 
 _QR_DATA_URL_MARKER = ';base64,'
+# The settings form's proxy test. Short, because an operator is watching it spin.
+_PROBE_TIMEOUT_SECONDS = 30.0
+_EXIT_IP_TIMEOUT_SECONDS = 15.0
+_EXIT_IP_URL = 'https://checkip.amazonaws.com'
+_HTTP_ERROR_MIN = 400
 _DEFAULT_VIEWPORT = {'width': 1280, 'height': 800}
 _SCROLL_STEPS = 3
 _SCROLL_PIXELS = 900
@@ -145,6 +157,101 @@ def build_proxy_settings(proxy: str) -> dict[str, str] | None:
     if parts.password:
         settings['password'] = unquote(parts.password)
     return settings
+
+
+@dataclass(frozen=True, slots=True)
+class ProxyProbe:
+    ok: bool
+    code: str
+    message: str
+    exit_ip: str = ''
+    # True when nothing was configured and the request left on the pod's own address.
+    # A reachable direct egress is still only usable with `allow_direct_connection`.
+    direct: bool = False
+
+
+def probe_proxy(proxy: str, *, timeout: float = _PROBE_TIMEOUT_SECONDS, client: httpx.Client | None = None) -> ProxyProbe:
+    """Check the egress this source would use, without saving it and without the account.
+
+    The request is anonymous -- no profile, no cookies, nothing a session could be
+    lost over. What it answers is the question the account cannot afford to have
+    answered the expensive way: whether this address is one the site serves or one
+    it walls off, plus the exit address itself, which is how an operator tells a home
+    line from a datacenter range.
+
+    It proves the address, not the browser: Chromium is not launched, so a profile
+    that is signed out or a wrong `user_id` are still only found at run time. The
+    proxy string is nevertheless parsed exactly the way Chromium needs it, which is
+    what turns an authenticated SOCKS proxy into an error here rather than into a
+    silent anonymous connection during a run.
+    """
+    raw = proxy.strip()
+    try:
+        build_proxy_settings(raw)
+    except ProxyConfigurationError as exc:
+        return ProxyProbe(ok=False, code='invalid', message=str(exc))
+
+    if client is not None:
+        return _run_proxy_probe(client, direct=not raw)
+
+    # Chromium infers a scheme where httpx demands one, and `build_proxy_settings`
+    # above infers the same one -- so filling it in here is what makes the address
+    # this dials the address a run would.
+    dialable = (raw if '://' in raw else f'http://{raw}') if raw else None
+    try:
+        owned_client = httpx.Client(
+            proxy=dialable,
+            follow_redirects=True,
+            timeout=timeout,
+            headers={'Accept-Language': 'zh-CN,zh;q=0.9'},
+            # Chromium does not read HTTP_PROXY/HTTPS_PROXY, so a probe speaking for it
+            # must not either -- otherwise an empty setting would report the environment's
+            # egress while the browser quietly used the pod's own.
+            trust_env=False,
+            limits=httpx.Limits(max_keepalive_connections=0),
+        )
+    except ValueError as exc:
+        # An unusable scheme, say. Chromium would refuse it too, so name it here
+        # rather than letting it surface as a 500 from the settings form.
+        return ProxyProbe(ok=False, code='invalid', message=f'Not a usable proxy URL: {exc}')
+
+    with owned_client:
+        return _run_proxy_probe(owned_client, direct=not raw)
+
+
+def _run_proxy_probe(client: httpx.Client, *, direct: bool) -> ProxyProbe:
+    # Asked first, and not only for the readout: whether this call got through is what
+    # later tells a dead proxy apart from a proxy that works and a site that will not
+    # answer it. The two want completely different things done about them.
+    exit_ip = _probe_exit_ip(client)
+    try:
+        response = client.get(WEB_ORIGIN)
+    except httpx.ProxyError as exc:
+        return ProxyProbe(ok=False, code='proxy_error', message=f'The proxy refused the connection: {exc}', direct=direct)
+    except httpx.HTTPError as exc:
+        if not direct and not exit_ip:
+            # Everything goes through the proxy, and nothing has come back through it.
+            return ProxyProbe(ok=False, code='proxy_error', message=f'Could not reach the proxy: {exc}', direct=direct)
+        return ProxyProbe(ok=False, code='unreachable', message=f'Could not reach {WEB_ORIGIN}: {exc}', exit_ip=exit_ip, direct=direct)
+
+    if response.status_code in RISK_CONTROL_STATUS_CODES:
+        message = f'The site answered HTTP {response.status_code}: this address is behind the captcha wall.'
+        return ProxyProbe(ok=False, code='risk_control', message=message, exit_ip=exit_ip, direct=direct)
+    if response.status_code >= _HTTP_ERROR_MIN:
+        message = f'{WEB_ORIGIN} returned HTTP {response.status_code}.'
+        return ProxyProbe(ok=False, code='http_error', message=message, exit_ip=exit_ip, direct=direct)
+
+    how = 'directly' if direct else 'through the proxy'
+    return ProxyProbe(ok=True, code='ok', message=f'Reached {WEB_ORIGIN} {how}.', exit_ip=exit_ip, direct=direct)
+
+
+def _probe_exit_ip(client: httpx.Client) -> str:
+    """Best-effort exit address, shown so an operator can tell residential from datacenter."""
+    try:
+        response = client.get(_EXIT_IP_URL, timeout=_EXIT_IP_TIMEOUT_SECONDS)
+    except httpx.HTTPError:
+        return ''
+    return response.text.strip() if response.status_code < _HTTP_ERROR_MIN else ''
 
 
 def build_launch_options(*, user_data_dir: Path, proxy: str, headless: bool) -> dict[str, Any]:
