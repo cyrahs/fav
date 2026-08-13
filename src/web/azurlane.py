@@ -72,9 +72,10 @@ _ORIGIN_ATTEMPTS = 3
 # matter how many coroutines are in flight. The concurrency below only decides how close the run
 # gets to that ceiling, so raising it adds no load the limiter was not already allowing.
 _CDN_REQUEST_INTERVAL_SECONDS = 0.2
-# Sized against measured per-asset cost, which is dominated by the blob write and its sha256
-# verification on network storage rather than by the download: at 3 in flight a full-content run
-# managed ~53 assets/minute against a 300/minute ceiling.
+# Raising these from 3 changed nothing on its own: the run was never throughput-bound but
+# stalled on individual requests, and because models are archived one at a time a single stall
+# idles every other slot. They earn their keep only alongside the timeouts below. Storage is not
+# a factor either way -- writing 72KiB to the volume measures 4.2ms against a 715ms fetch.
 _CDN_CONCURRENCY = 12
 _ASSET_PROCESS_CONCURRENCY = 12
 # Read timeout for CDN assets, and the single biggest lever on how long a full run takes. httpx
@@ -84,6 +85,10 @@ _ASSET_PROCESS_CONCURRENCY = 12
 # models are archived one at a time and a single stalled asset idles every other slot. The
 # retry that follows a stall almost always succeeds immediately, so failing fast is nearly free.
 _ASSET_READ_TIMEOUT_SECONDS = 12.0
+# The stall that survived the read timeout: a handshake that never completes. Three attempts at
+# 20s spent a full minute before the retry that worked, and the whole fetch of an asset measures
+# 715ms at the median, handshake included, so waiting seconds for one is already generous.
+_ASSET_CONNECT_TIMEOUT_SECONDS = 5.0
 _MAX_RETRIES = 3
 _LIMITED_RETRY_ATTEMPTS = 2
 _RETRY_BASE_DELAY_SECONDS = 0.75
@@ -932,7 +937,7 @@ class AzurLane:
             yield self._client
             return
 
-        timeout = httpx.Timeout(_ASSET_READ_TIMEOUT_SECONDS, connect=20.0)
+        timeout = httpx.Timeout(_ASSET_READ_TIMEOUT_SECONDS, connect=_ASSET_CONNECT_TIMEOUT_SECONDS)
         async with httpx.AsyncClient(follow_redirects=True, headers=_asset_headers(), timeout=timeout) as client:
             yield client
 
@@ -1513,6 +1518,16 @@ class AzurLane:
                         break
                 except (httpx.RequestError, httpx.TimeoutException, InvalidAssetResponseError) as exc:
                     last_exc = exc
+                    # A transport failure that a later attempt recovers from leaves no trace
+                    # anywhere: the asset ends up downloaded with failed_count 0. That silence
+                    # is why a minute-long stall per asset was only ever visible by diffing
+                    # timestamps in the database.
+                    log.info(
+                        'Retrying Azur Lane asset after %s (attempt %d): %s',
+                        type(exc).__name__,
+                        attempt,
+                        url,
+                    )
 
                 if attempt < _MAX_RETRIES:
                     await asyncio.sleep(_retry_delay_seconds(attempt, response))
