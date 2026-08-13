@@ -38,16 +38,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Runtime dependencies including yt-dlp and ffmpeg (required for audio/video merge)
+# ffmpeg merges the separate audio and video streams Bilibili serves. yt-dlp and
+# gallery-dl are not installed here: both are uv dependencies and arrive with the
+# virtualenv below, which puts their console scripts on PATH.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
-    curl \
     ffmpeg \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
-       -o /usr/local/bin/yt-dlp \
-    && chmod +x /usr/local/bin/yt-dlp
+    && rm -rf /var/lib/apt/lists/*
 
 # Bring in the virtualenv from the builder image
 COPY --from=builder /app/.venv /app/.venv

@@ -31,8 +31,11 @@ jobs:
 
       # Checked here as well as in dependabot.yml so that widening the allow list
       # later is a deliberate second decision rather than a silent side effect.
-      - name: Enable auto-merge for gallery-dl
-        if: steps.metadata.outputs.dependency-names == 'gallery-dl'
+      # `dependency-names` is a comma-separated list, so a grouped pull request would
+      # read "gallery-dl,yt-dlp" and match nothing here -- it stays open for a human,
+      # which is the safe direction to fail in.
+      - name: Enable auto-merge for the downloaders
+        if: contains(fromJSON('["gallery-dl", "yt-dlp"]'), steps.metadata.outputs.dependency-names)
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -41,9 +44,9 @@ jobs:
   rebuild-image:
     # A push made with GITHUB_TOKEN does not start new workflow runs, so the merge
     # commit may never reach the `push` trigger in docker-build.yml. Dispatching the
-    # build explicitly is what actually gets the new gallery-dl into the image; it
-    # mirrors what yt-dlp-update.yml already does. If GitHub does deliver the push
-    # event, the cost is one redundant build rather than a stale image.
+    # build explicitly is what actually gets the new downloader into the image. If
+    # GitHub does deliver the push event, the cost is one redundant build rather than
+    # a stale image.
     if: >-
       github.event.action == 'closed'
       && github.event.pull_request.merged == true
