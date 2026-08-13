@@ -22,8 +22,9 @@ the `app_settings` table and is edited from the web UI.
 `API_TOKEN` is mandatory: an empty token would leave the settings API of a freshly provisioned
 instance world-writable. See `.env.example`.
 
-There is no proxy setting. `httpx` and `yt-dlp` both honour `HTTP_PROXY` / `HTTPS_PROXY`, so set
-those in the environment if you need one.
+There is no global proxy setting. `httpx`, `yt-dlp` and `gallery-dl` all honour `HTTP_PROXY` /
+`HTTPS_PROXY`, so set those in the environment if you need one. Azur Lane and X (Twitter) each have
+their own per-source proxy field for the cases where only that one origin needs routing.
 
 ### Database-backed settings
 
@@ -35,7 +36,7 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `notifications.telegram`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `notifications.telegram`.
 
 #### Bilibili accounts
 
@@ -77,13 +78,54 @@ or password), no `bilibili.com` cookies, or a vault missing some of `sessdata` /
 `buvid3` / `dedeuserid`. A masked password in the request resolves to the one stored under that
 account name, so what is checked is what the crawler would actually use.
 
+#### X (Twitter) liked tweets
+
+`web.twitter` archives the images and videos from your own liked tweets. X sells no affordable read
+access to a likes timeline, so the crawl shells out to [gallery-dl](https://github.com/mikf/gallery-dl)
+(a Python dependency, on `PATH` inside the image) with the browser session the account is signed in
+with. gallery-dl owns the parts that break when X changes — GraphQL endpoints, the transaction-id
+header, 429 back-off — so a break is usually fixed by
+`uv lock --upgrade-package gallery-dl` rather than by editing this repository.
+
+```jsonc
+{
+  "cron": "0 */6 * * *",
+  "enabled": true,
+  "username": "yourhandle",                 // your own screen name, without the @
+  "path": "collection/twitter",
+  "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." },
+  "sleep_request_seconds": 2.0,             // spacing between X requests
+  "abort_after": 20,                        // consecutive known files that end an incremental run
+  "include_retweets": true,                 // liked retweets, filed under the original author
+  "proxy": ""
+}
+```
+
+The session comes from the same CookieCloud vault Bilibili uses, read from `x.com` (or `twitter.com`,
+whichever the browser extension synced), and needs `auth_token` and `ct0`. It is re-fetched at the
+start of every run, so signing in again in the browser is all it takes to recover from an expired
+session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili` or `twitter`) and the
+settings page exposes it as the same 测试连接 button.
+
+Files land in `path/<author>/[<author>] <date> [<tweet_id>_<num>].<ext>`, and each one is recorded in
+the `twitter` table keyed by `(tweet_id, num)`. Two pieces of state make runs incremental:
+gallery-dl's own download archive at `path/.gallery-dl-archive.db`, and a `twitter_state` row marking
+whether the first full walk of the timeline ever finished. Until it has, every run walks to the end of
+the timeline so the history fills in; afterwards runs stop once `abort_after` already-archived files
+come up in a row. A run that exits non-zero does not set that mark, so a failed backfill is retried
+rather than assumed complete.
+
+Caveats worth knowing: this is an unofficial path, so keep `sleep_request_seconds` conservative; X
+truncates a deep likes timeline server-side, so the backfill reaches only as far back as X is willing
+to serve; and unliking a tweet does not delete what was already downloaded.
+
 Every section is constructible from defaults, so an empty database boots with all sources disabled.
 Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports
 them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
 crashing.
 
-Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.telegram.accounts[].api_hash`,
-`notifications.telegram.bot_token`) are stored in
+Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.twitter.cookiecloud.password`,
+`web.telegram.accounts[].api_hash`, `notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
 UI cannot shuffle credentials between them; the same holds for Bilibili's per-account CookieCloud
@@ -108,7 +150,7 @@ answers `422 incomplete_settings` with the missing field names.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels
-and Kemono creators — validated
+and Kemono creators, credential blocks with a live connection test for Bilibili and X — validated
 locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
 do not appear there at all; their `path` keeps its default and can be changed through the API if a
 deployment needs to. Every listed section also has a `JSON 编辑` toggle for raw editing, which is what

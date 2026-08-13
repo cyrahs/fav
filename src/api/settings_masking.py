@@ -6,8 +6,8 @@ secret values with a short masked preview; writes treat a masked (or absent)
 value as "keep what is already stored".
 
 The rules are spelled out per section rather than derived from a path DSL: there
-are only three secrets, and the per-account ones have to be matched by account
-name so that reordering or inserting accounts in the UI cannot shuffle
+are only a handful of secrets, and the per-account ones have to be matched by
+account name so that reordering or inserting accounts in the UI cannot shuffle
 credentials between them.
 """
 
@@ -50,8 +50,9 @@ def _accounts(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [account for account in accounts if isinstance(account, dict)]
 
 
-def _account_cookiecloud(account: dict[str, Any]) -> dict[str, Any] | None:
-    nested = account.get('cookiecloud')
+def _cookiecloud(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """The nested CookieCloud block of an account or of a whole section."""
+    nested = payload.get('cookiecloud')
     return nested if isinstance(nested, dict) else None
 
 
@@ -66,10 +67,15 @@ def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
     elif section == 'web.bilibili':
         masked['accounts'] = [{**account} for account in _accounts(masked)]
         for account in _accounts(masked):
-            nested = _account_cookiecloud(account)
+            nested = _cookiecloud(account)
             if nested is not None:
                 account['cookiecloud'] = {**nested}
                 _mask_scalar(account['cookiecloud'], 'password')
+    elif section == 'web.twitter':
+        nested = _cookiecloud(masked)
+        if nested is not None:
+            masked['cookiecloud'] = {**nested}
+            _mask_scalar(masked['cookiecloud'], 'password')
     return masked
 
 
@@ -87,14 +93,19 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
             keep_secret(account, 'api_hash', stored_hashes.get(str(account.get('name') or ''), ''))
     elif section == 'web.bilibili':
         stored_passwords = {
-            str(account.get('name') or ''): str((_account_cookiecloud(account) or {}).get('password') or '')
+            str(account.get('name') or ''): str((_cookiecloud(account) or {}).get('password') or '')
             for account in _accounts(stored)
         }
         merged['accounts'] = [{**account} for account in _accounts(merged)]
         for account in _accounts(merged):
-            nested = _account_cookiecloud(account)
+            nested = _cookiecloud(account)
             if nested is None:
                 continue
             account['cookiecloud'] = {**nested}
             keep_secret(account['cookiecloud'], 'password', stored_passwords.get(str(account.get('name') or ''), ''))
+    elif section == 'web.twitter':
+        nested = _cookiecloud(merged)
+        if nested is not None:
+            merged['cookiecloud'] = {**nested}
+            keep_secret(merged['cookiecloud'], 'password', str((_cookiecloud(stored) or {}).get('password') or ''))
     return merged

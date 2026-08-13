@@ -159,6 +159,25 @@ def test_save_to_netscape_format_writes_file(tmp_path: Path) -> None:
     ]
 
 
+def test_save_to_netscape_format_merges_the_domains_a_vault_actually_has(tmp_path: Path) -> None:
+    # An X session may be filed under either hostname; take whichever ones are there.
+    client = CookieCloudClient('https://cookiecloud.test', 'uuid123', 'pass123')
+
+    def fake_get_cookies() -> dict[str, list[dict]]:
+        return {
+            'x.com': [{'name': 'ct0', 'value': 'c', 'domain': '.x.com', 'expirationDate': 1_700_000_000}],
+            'twitter.com': [{'name': 'auth_token', 'value': 'a', 'domain': '.twitter.com', 'expirationDate': 1_700_000_000}],
+        }
+
+    client.get_cookies = fake_get_cookies  # type: ignore[method-assign]
+    output_file = tmp_path / 'cookies.txt'
+
+    client.save_to_netscape_format(('x.com', 'twitter.com', 'absent.com'), output_file)
+
+    lines = output_file.read_text().splitlines()[NETSCAPE_HEADER_LINE_COUNT:]
+    assert [line.split('\t')[5] for line in lines] == ['ct0', 'auth_token']
+
+
 def test_save_to_netscape_format_errors_for_missing_domain(tmp_path: Path) -> None:
     client = CookieCloudClient('https://cookiecloud.test', 'uuid123', 'pass123')
 
@@ -168,7 +187,7 @@ def test_save_to_netscape_format_errors_for_missing_domain(tmp_path: Path) -> No
     client.get_cookies = fake_get_cookies  # type: ignore[method-assign]
 
     with pytest.raises(ValueError):
-        client.save_to_netscape_format('missing.com', tmp_path / 'cookies.txt')
+        client.save_to_netscape_format(('missing.com', 'also-missing.com'), tmp_path / 'cookies.txt')
 
 
 def test_save_to_netscape_format_live_bilibili(tmp_path: Path) -> None:

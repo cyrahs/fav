@@ -889,3 +889,40 @@ def test_test_cookiecloud_for_an_unknown_account_has_no_stored_password_to_fall_
     service.test_cookiecloud({'account': 'ghost', 'server_url': 'https://cc.x', 'uuid': 'x', 'password': 'shor••••'})
 
     assert probed == [('https://cc.x', 'x', '')]
+
+
+_TWITTER_WITH_CC = {
+    'username': 'me',
+    'cookiecloud': {'server_url': 'https://cc.x', 'uuid': 'x-uuid', 'password': 'x-pw'},
+}
+
+
+def test_test_cookiecloud_checks_x_cookies_when_the_source_says_twitter(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'web.twitter': _TWITTER_WITH_CC})
+    profiles: list[object] = []
+
+    def _fake_probe(server_url: str, uuid: str, password: str, **kwargs: object) -> api_service_module.cookiecloud_tool.CookieCloudProbe:
+        probed.append((server_url, uuid, password))
+        profiles.append(kwargs.get('profile'))
+        return api_service_module.cookiecloud_tool.CookieCloudProbe(ok=True, code='ok', message='OK')
+
+    monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
+
+    # No account: a twitter deployment holds exactly one vault, in its own section.
+    result = service.test_cookiecloud(
+        {'source': 'twitter', 'server_url': 'https://cc.x', 'uuid': 'x-uuid', 'password': 'x-pw••••'},
+    )
+
+    assert result['ok'] is True
+    assert probed == [('https://cc.x', 'x-uuid', 'x-pw')]
+    assert profiles == [api_service_module.cookiecloud_tool.TWITTER_PROFILE]
+
+
+def test_test_cookiecloud_rejects_a_source_it_has_no_profile_for() -> None:
+    service, _ = _cookiecloud_service(sections={})
+
+    with pytest.raises(api_service_module.ApiError) as excinfo:
+        service.test_cookiecloud({'source': 'myspace', 'server_url': 'https://cc.x', 'uuid': 'u', 'password': 'p'})
+
+    assert excinfo.value.status_code == 422
+    assert 'myspace' in excinfo.value.message
