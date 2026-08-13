@@ -128,7 +128,9 @@ the authoritative place for anything not lifted into a first-class field.
 `files` maps well-known roles to asset objects (`null` / `[]` when absent):
 
 - `live2d`: `model3`, `moc3`, `textures[]`, `physics`, `pose`, `display_info`,
-  `expressions[]`, `motions[]`, `audio[]`, `text[]`
+  `expressions[]`, `motions[]`, `audio[]`. A motion's subtitle line (when the model carries
+  one) is in the motion asset's `contexts[0].motion_text`, mirrored on its audio asset —
+  there is no separate text file.
 - `spine`: `parts`, `skel`, `skeletons[]`, `atlas`, `atlases[]`, `textures[]`
   (multi-part models list every part's skeleton/atlas/textures)
 - `painting`: `image`, `faces[]`, `square_icon`, `shipyard_icon`, `q_icon`, `voices[]`
@@ -155,7 +157,7 @@ has not (yet) fetched.
 
 Asset kinds: `live2d.model3`, `live2d.moc3`, `live2d.texture`, `live2d.physics`,
 `live2d.pose`, `live2d.display-info`, `live2d.expression`, `live2d.motion`, `live2d.audio`,
-`live2d.text`, `spine.parts`, `spine.skel`, `spine.atlas`, `spine.texture`,
+`spine.parts`, `spine.skel`, `spine.atlas`, `spine.texture`,
 `painting.image`, `painting.face`, `icon.square`, `icon.shipyard`, `icon.q`, `voice.audio`.
 
 ### Voice contexts
@@ -215,11 +217,11 @@ returns.
 
 - The index (ships, skins, paintings, icons) refreshes every crawl run.
 - Ship details refresh only when a ship's index fingerprint changes; on a fresh database the
-  backfill of ~880 ships completes across a few runs, paced by
-  `web.azurlane.origin_request_interval_seconds` and capped per run by
-  `web.azurlane.origin_detail_budget`. Until a ship's detail arrives, its `ship-detail` endpoint
-  is 404, its voice assets are absent, and `source_metadata.class_name` is missing; all three
-  appear automatically on a later run. Everything else — paintings, faces, icons, models — is
-  index-driven and available from the first run.
+  backfill of ~880 ships completes in one run, paced by
+  `web.azurlane.origin_request_interval_seconds`. Until a ship's detail arrives, its
+  `ship-detail` endpoint is 404, its voice assets are absent, and
+  `source_metadata.class_name` is missing; all three appear automatically once it does.
+  Everything else — paintings, faces, icons, models — is index-driven and available from the
+  first run.
 - A model's assets are immutable once `availability.archive_state` is `complete`; new skins
   arrive as new model entries.

@@ -198,13 +198,6 @@ function AzurLaneForm(props: SectionFormProps) {
         step={0.5}
         hint="只限制打到 l2d.su 的总速率；每个请求本来就用独立出口 IP。低于单请求耗时（约 2 秒）就不再有效果。"
       />
-      <NumberField
-        label="单轮详情请求上限"
-        value={num(props.value, 'origin_detail_budget', 300)}
-        onChange={(next) => set('origin_detail_budget', next)}
-        step={50}
-        hint="含重试。约 880 艘船，想一轮补齐历史数据就填 900；平时维持默认即可。"
-      />
     </div>
   );
 }

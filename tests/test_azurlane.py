@@ -1382,10 +1382,8 @@ def test_azurlane_origin_client_is_the_direct_client_when_no_proxy_is_configured
 
 def test_azurlane_reads_the_origin_request_interval_from_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     configured_interval = 7.5
-    configured_budget = 42
     config = settings.Settings()
     config.web.azurlane.origin_request_interval_seconds = configured_interval
-    config.web.azurlane.origin_detail_budget = configured_budget
     monkeypatch.setattr(azurlane_module.settings, 'load', lambda: config)
 
     crawler = AzurLane(path=tmp_path)
@@ -1393,7 +1391,6 @@ def test_azurlane_reads_the_origin_request_interval_from_settings(tmp_path: Path
     # One limiter shared by every origin request: the pacing is global, not per exit IP.
     assert crawler._origin_limiter._min_interval_seconds == configured_interval
     assert crawler._origin_source_limiter._min_interval_seconds == configured_interval
-    assert crawler._origin_detail_budget == configured_budget
 
 
 def test_azurlane_index_requests_pass_through_the_origin_throttle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

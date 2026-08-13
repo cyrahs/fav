@@ -981,8 +981,16 @@ def test_enumerate_live2d_model3_resources_with_paths_and_contexts() -> None:
                 'DisplayInfo': 'display.cdi3.json',
                 'Expressions': [{'Name': 'smile', 'File': 'expressions/smile.exp3.json'}],
                 'Motions': {
-                    'Idle': [{'File': 'motions/idle.motion3.json', 'Sound': 'voice/idle.wav', 'Text': 'texts/idle.txt'}],
-                    'TapBody': [{'File': 'motions/tap_body.motion3.json'}],
+                    'Idle': [{'File': 'motions/idle.motion3.json', 'Sound': 'voice/idle.wav'}],
+                    # The older l2d.su layout: an absolute Audio URL plus an inline subtitle line
+                    # in Text (spoken dialogue, not a file path).
+                    'TapBody': [
+                        {
+                            'File': 'motions/tap_body.motion3.json',
+                            'Audio': 'https://patchwiki.example/images/blhx/tap_body.mp3',
+                            'Text': '来跟我赌一把吧。',
+                        },
+                    ],
                 },
             },
         },
@@ -1007,7 +1015,7 @@ def test_enumerate_live2d_model3_resources_with_paths_and_contexts() -> None:
         'live2d.motion',
         'live2d.motion',
         'live2d.audio',
-        'live2d.text',
+        'live2d.audio',
     ]
 
     assets_by_field = {asset.context.get('live2d_field'): asset for asset in enumeration.assets if asset.kind != 'live2d.texture'}
@@ -1015,9 +1023,16 @@ def test_enumerate_live2d_model3_resources_with_paths_and_contexts() -> None:
     assert assets_by_field['physics'].source_url == 'https://static.example/live2d/azurlane/guanghui_7/guanghui_7.physics3.json'
     assert assets_by_field['pose'].local_path == 'assets/live2d/guanghui_7/guanghui_7.pose3.json'
     assert assets_by_field['expression'].context['expression_name'] == 'smile'
-    assert assets_by_field['audio'].fallback_url == 'https://cdn.nagami.moe/live2d/guanghui_7/voice/idle.wav'
-    assert assets_by_field['text'].local_path == 'assets/live2d/guanghui_7/texts/idle.txt'
+    audio_assets = [asset for asset in enumeration.assets if asset.kind == 'live2d.audio']
+    assert audio_assets[0].fallback_url == 'https://cdn.nagami.moe/live2d/guanghui_7/voice/idle.wav'
+    # The absolute Audio URL passes through untouched and lands next to the model's other assets.
+    assert audio_assets[1].source_url == 'https://patchwiki.example/images/blhx/tap_body.mp3'
+    assert audio_assets[1].local_path == 'assets/live2d/guanghui_7/tap_body.mp3'
+    assert audio_assets[1].context['motion_text'] == '来跟我赌一把吧。'
     assert assets_by_field['motion'].context['motion_group'] == 'TapBody'
+    # The subtitle stays metadata on the motion; no asset is enumerated for it.
+    assert assets_by_field['motion'].context['motion_text'] == '来跟我赌一把吧。'
+    assert all(asset.kind != 'live2d.text' for asset in enumeration.assets)
     assert all(asset.context['model_id'] == entry.id for asset in enumeration.assets)
     assert all(asset.context['character_key'] == 'guanghui' for asset in enumeration.assets)
     assert all(asset.context['costume_key'] == 'guanghui_7' for asset in enumeration.assets)

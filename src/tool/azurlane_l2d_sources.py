@@ -47,7 +47,6 @@ ResourceAssetKind = Literal[
     'live2d.expression',
     'live2d.motion',
     'live2d.audio',
-    'live2d.text',
     'spine.parts',
     'spine.skel',
     'spine.atlas',
@@ -74,7 +73,6 @@ _RESOURCE_EXTENSION_BY_KIND: dict[ResourceAssetKind, str] = {
     'live2d.expression': '.exp3.json',
     'live2d.motion': '.motion3.json',
     'live2d.audio': '.wav',
-    'live2d.text': '.txt',
     'spine.parts': '.json',
     'spine.skel': '.skel',
     'spine.atlas': '.atlas',
@@ -613,7 +611,6 @@ class Live2DResourceManifest:
     expression_urls: tuple[str, ...] = ()
     motion_urls: tuple[str, ...] = ()
     audio_urls: tuple[str, ...] = ()
-    text_urls: tuple[str, ...] = ()
     motion_names: tuple[str, ...] = ()
     expression_names: tuple[str, ...] = ()
     has_audio: bool = False
@@ -671,7 +668,7 @@ class _Live2DReferenceSpec:
 class _Live2DMotionReferences:
     motion: ResourceReference | None = None
     audio: ResourceReference | None = None
-    text: ResourceReference | None = None
+    text: str = ''
     name: str = ''
 
 
@@ -2013,7 +2010,7 @@ def _parse_live2d_model3(source: str, *, model3_url: str) -> Live2DResourceManif
         metadata={'live2d_field': 'display_info'},
     )
     expression_references = _parse_live2d_expression_references(file_references.get('Expressions'), base_url=model3_url)
-    motion_references, audio_references, text_references, motion_names, has_audio, has_text = _parse_live2d_motion_references(
+    motion_references, audio_references, motion_names, has_audio, has_text = _parse_live2d_motion_references(
         file_references.get('Motions'),
         base_url=model3_url,
     )
@@ -2027,7 +2024,6 @@ def _parse_live2d_model3(source: str, *, model3_url: str) -> Live2DResourceManif
         expression_urls=tuple(reference.url for reference in expression_references),
         motion_urls=tuple(reference.url for reference in motion_references),
         audio_urls=tuple(reference.url for reference in audio_references),
-        text_urls=tuple(reference.url for reference in text_references),
         motion_names=motion_names,
         expression_names=tuple(_context_text(reference.context, 'expression_name') for reference in expression_references),
         has_audio=has_audio,
@@ -2043,7 +2039,6 @@ def _parse_live2d_model3(source: str, *, model3_url: str) -> Live2DResourceManif
                 *expression_references,
                 *motion_references,
                 *audio_references,
-                *text_references,
             )
             if reference is not None
         ),
@@ -2149,16 +2144,15 @@ def _parse_live2d_motion_references(
     value: Any,
     *,
     base_url: str,
-) -> tuple[tuple[ResourceReference, ...], tuple[ResourceReference, ...], tuple[ResourceReference, ...], tuple[str, ...], bool, bool]:
+) -> tuple[tuple[ResourceReference, ...], tuple[ResourceReference, ...], tuple[str, ...], bool, bool]:
     if not isinstance(value, dict):
-        return (), (), (), (), False, False
+        return (), (), (), False, False
 
     names: list[str] = []
     has_audio = False
     has_text = False
     motion_references: list[ResourceReference] = []
     audio_references: list[ResourceReference] = []
-    text_references: list[ResourceReference] = []
     for group_name, motions in value.items():
         normalized_group = group_name.strip() if isinstance(group_name, str) else ''
         if normalized_group:
@@ -2174,11 +2168,10 @@ def _parse_live2d_motion_references(
             if parsed.audio is not None:
                 has_audio = True
                 audio_references.append(parsed.audio)
-            if parsed.text is not None:
+            if parsed.text:
                 has_text = True
-                text_references.append(parsed.text)
 
-    return tuple(motion_references), tuple(audio_references), tuple(text_references), _unique_non_empty(names), has_audio, has_text
+    return tuple(motion_references), tuple(audio_references), _unique_non_empty(names), has_audio, has_text
 
 
 def _parse_live2d_motion_item(motion: Any, *, base_url: str, group: str, index: int) -> _Live2DMotionReferences:
@@ -2191,8 +2184,13 @@ def _parse_live2d_motion_item(motion: Any, *, base_url: str, group: str, index: 
         'motion_index': index,
     }
     motion_file = _optional_resource_reference_path(motion, 'File')
-    sound_file = _optional_resource_reference_path(motion, 'Sound')
-    text_file = _optional_resource_reference_path(motion, 'Text')
+    # Cubism names the field Sound; l2d.su's older models carry an absolute URL under Audio.
+    sound_file = _optional_resource_reference_path(motion, 'Sound') or _optional_resource_reference_path(motion, 'Audio')
+    # Text is the subtitle line itself (spoken dialogue), not a file path. Treating it as a
+    # path once produced hundreds of 404s ending in full sentences of dialogue.
+    text = _optional_resource_reference_path(motion, 'Text')
+    if text:
+        context['motion_text'] = text
     return _Live2DMotionReferences(
         motion=_optional_motion_reference(kind='live2d.motion', raw_path=motion_file, base_url=base_url, metadata=context),
         audio=_optional_motion_reference(
@@ -2201,12 +2199,7 @@ def _parse_live2d_motion_item(motion: Any, *, base_url: str, group: str, index: 
             base_url=base_url,
             metadata={**context, 'live2d_field': 'audio'},
         ),
-        text=_optional_motion_reference(
-            kind='live2d.text',
-            raw_path=text_file,
-            base_url=base_url,
-            metadata={**context, 'live2d_field': 'text'},
-        ),
+        text=text,
         name=_resource_basename(motion_file),
     )
 

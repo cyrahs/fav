@@ -332,9 +332,6 @@ class AzurLane(ScheduleJob):
     # its own exit IP, so this paces the aggregate load on the origin rather than protecting any
     # single address. Below the round-trip time (~2s through a proxy) it stops having an effect.
     origin_request_interval_seconds: float = 1.0
-    # Origin detail requests allowed per run, retries included. Caps the blast radius of a bad
-    # run; raise it to about 900 to finish the ~880-ship backfill in a single run.
-    origin_detail_budget: int = 300
 
     @field_validator('origin_proxy')
     @classmethod
@@ -346,14 +343,6 @@ class AzurLane(ScheduleJob):
     def validate_origin_request_interval(cls, value: float) -> float:
         if value < 0:
             msg = 'origin_request_interval_seconds cannot be negative'
-            raise ValueError(msg)
-        return value
-
-    @field_validator('origin_detail_budget')
-    @classmethod
-    def validate_origin_detail_budget(cls, value: int) -> int:
-        if value < 0:
-            msg = 'origin_detail_budget cannot be negative'
             raise ValueError(msg)
         return value
 
