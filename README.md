@@ -36,7 +36,7 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `notifications.telegram`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.xiaohongshu`, `notifications.telegram`.
 
 #### Bilibili accounts
 
@@ -115,8 +115,8 @@ uv lock --upgrade-package gallery-dl
 The session comes from the same CookieCloud vault Bilibili uses, read from `x.com` (or `twitter.com`,
 whichever the browser extension synced), and needs `auth_token` and `ct0`. It is re-fetched at the
 start of every run, so signing in again in the browser is all it takes to recover from an expired
-session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili` or `twitter`) and the
-settings page exposes it as the same 测试连接 button.
+session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili`, `twitter` or
+`xiaohongshu`) and the settings page exposes it as the same 测试连接 button.
 
 Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
 covers both. Setting `video_path` keeps videos and GIFs on a different disk from the images; leave it
@@ -139,13 +139,69 @@ Caveats worth knowing: this is an unofficial path, so keep `sleep_request_second
 truncates a deep likes timeline server-side, so the backfill reaches only as far back as X is willing
 to serve; and unliking a tweet does not delete what was already downloaded.
 
+#### Xiaohongshu liked notes
+
+`web.xiaohongshu` archives the images and videos from your own liked notes on 小红书. There is no
+public read access to a likes list, so the crawl calls the same web endpoints the browser client does
+— `note/like/page` to walk the list, `feed` to resolve a note into its files — signed with
+[xhshow](https://github.com/Cloxl/xhshow), a Python dependency. Xiaohongshu rotates that signing
+algorithm; when it does, every request starts failing at once and the fix is a newer xhshow rather
+than an edit here. That upgrade rides the same unattended path as the two downloaders:
+`.github/dependabot.yml` watches xhshow daily and `.github/workflows/dependabot-auto-merge.yml`
+enables auto-merge once the required `test` check passes. To upgrade by hand:
+
+```bash
+uv lock --upgrade-package xhshow
+```
+
+```jsonc
+{
+  "cron": "0 */6 * * *",
+  "enabled": true,
+  "path": "collection/xiaohongshu",
+  "video_path": null,                       // null keeps videos with the images
+  "user_id": "",                            // blank resolves your profile id from the session
+  "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." },
+  "sleep_request_seconds": 3.0,             // spacing between every Xiaohongshu request
+  "abort_after": 2                          // consecutive fully-archived pages that end a run
+}
+```
+
+The session comes from the same CookieCloud vault as the other sources, read from `xiaohongshu.com`,
+and needs `a1` and `web_session` — `a1` is what requests are signed with, `web_session` is what makes
+them read as the logged-in account. `POST /api/v2/cookiecloud/test` accepts `xiaohongshu` as a
+`source`, and the settings page exposes it as the same 测试连接 button.
+
+A run walks the likes list newest first, resolving each page's new notes into one row per file in the
+`xiaohongshu` table — keyed `(note_id, media_index)`, written with `downloaded = 0` — and then
+downloads every row still pending. A run that dies part-way resumes from the rows rather than from
+the API, which matters because every request is metered against risk control. Two pieces of state
+make runs incremental: a note that already has rows costs one place in a list page instead of a
+request of its own, and a `xiaohongshu_state` row marks whether the first full walk ever finished.
+Until it has, every run walks to the end of the list so the history fills in; afterwards runs stop
+once `abort_after` pages of nothing but archived notes come up in a row. A walk that ended early —
+on the stop rule, or on a repeated cursor — does not set that mark, so a failed backfill is retried
+rather than assumed complete.
+
+Images and the video clips inside live photos are fetched straight from the CDN; whole video notes go
+through yt-dlp, which re-resolves the note page itself and can reach the untranscoded original. Files
+land in `<root>/<nickname>/[<nickname>]<date> [<note_id>_<n>].<ext>`, where `<root>` is `path`, or
+`video_path` for mp4s when that is set. A CDN URL that has rotated (403) is refreshed once from the
+note before the row is retried; one the note no longer offers (404) marks the row `unavailable`.
+
+Caveats worth knowing: Xiaohongshu's risk control answers a crawl-shaped request pattern with a
+captcha wall, and a run that hits one (HTTP 461/471) stops immediately and notifies rather than
+hammering it — clear it by opening the site in the browser. Keep `sleep_request_seconds` conservative
+for the same reason. Unliking a note does not delete what was already downloaded.
+
 Every section is constructible from defaults, so an empty database boots with all sources disabled.
 Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports
 them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
 crashing.
 
 Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.twitter.cookiecloud.password`,
-`web.telegram.accounts[].api_hash`, `notifications.telegram.bot_token`) are stored in
+`web.xiaohongshu.cookiecloud.password`, `web.telegram.accounts[].api_hash`,
+`notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
 UI cannot shuffle credentials between them; the same holds for Bilibili's per-account CookieCloud
@@ -170,7 +226,7 @@ answers `422 incomplete_settings` with the missing field names.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels
-and Kemono creators, credential blocks with a live connection test for Bilibili and X — validated
+and Kemono creators, credential blocks with a live connection test for Bilibili, X and Xiaohongshu — validated
 locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
 do not appear there at all; their `path` keeps its default and can be changed through the API if a
 deployment needs to. Every listed section also has a `JSON 编辑` toggle for raw editing, which is what

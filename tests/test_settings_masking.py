@@ -135,6 +135,19 @@ def test_saving_twitter_with_a_masked_password_keeps_the_stored_one() -> None:
     assert merged['username'] == 'someone-else'
 
 
+def test_xiaohongshu_cookiecloud_password_survives_a_round_trip() -> None:
+    stored = {'user_id': '', 'cookiecloud': {'uuid': 'u', 'password': 'pw-REAL'}}
+    edited = mask_section('web.xiaohongshu', stored)
+    edited['user_id'] = '5ff'
+
+    assert edited['cookiecloud']['password'] == f'pw-R{MASK_SUFFIX}'
+
+    merged = unmask_section('web.xiaohongshu', edited, stored)
+
+    assert merged['cookiecloud']['password'] == 'pw-REAL'
+    assert merged['user_id'] == '5ff'
+
+
 def test_twitter_section_without_a_cookiecloud_block_is_left_alone() -> None:
     payload = {'username': 'me'}
 

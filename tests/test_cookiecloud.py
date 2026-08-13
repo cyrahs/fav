@@ -190,6 +190,35 @@ def test_save_to_netscape_format_errors_for_missing_domain(tmp_path: Path) -> No
         client.save_to_netscape_format(('missing.com', 'also-missing.com'), tmp_path / 'cookies.txt')
 
 
+def test_get_cookie_dict_merges_the_domains_a_vault_actually_has() -> None:
+    # For the sources that sign their own requests and need the values in process.
+    client = CookieCloudClient('https://cookiecloud.test', 'uuid123', 'pass123')
+
+    def fake_get_cookies() -> dict[str, list[dict]]:
+        return {
+            'xiaohongshu.com': [{'name': 'a1', 'value': 'a1-value'}],
+            '.xiaohongshu.com': [{'name': 'web_session', 'value': 'session-value'}],
+        }
+
+    client.get_cookies = fake_get_cookies  # type: ignore[method-assign]
+
+    cookies = client.get_cookie_dict(('xiaohongshu.com', '.xiaohongshu.com', 'absent.com'))
+
+    assert cookies == {'a1': 'a1-value', 'web_session': 'session-value'}
+
+
+def test_get_cookie_dict_errors_for_missing_domain() -> None:
+    client = CookieCloudClient('https://cookiecloud.test', 'uuid123', 'pass123')
+
+    def fake_get_cookies() -> dict[str, list[dict]]:
+        return {'example.com': [{'name': 'sid', 'value': 'abc'}]}
+
+    client.get_cookies = fake_get_cookies  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError):
+        client.get_cookie_dict('missing.com')
+
+
 def test_save_to_netscape_format_live_bilibili(tmp_path: Path) -> None:
     # CookieCloud credentials live per bilibili account in the database, so this
     # live check is skipped unless a real deployment is reachable (see

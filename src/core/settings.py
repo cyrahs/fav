@@ -533,6 +533,66 @@ class Twitter(ScheduleJob):
         return missing
 
 
+class Xiaohongshu(ScheduleJob):
+    """Liked notes on Xiaohongshu, crawled through the signed web API.
+
+    There is no public read access to a likes list, so the crawl calls the same
+    endpoints the web client does, signed with the ``xhshow`` library and carrying
+    the browser session from CookieCloud. Xiaohongshu's risk control answers a
+    crawl-shaped request pattern with a captcha wall, so the pacing fields below
+    are the difference between a working source and a locked account.
+    """
+
+    path: Path = Path('./collection/xiaohongshu')
+    # Where videos land, both whole video notes and the clips inside live photos.
+    # Left unset they stay with the images under ``path``.
+    video_path: Path | None = None
+    cron: str = '0 */6 * * *'
+    # Own profile id. Left empty it is resolved from the session on every run,
+    # which is one extra request; set it to skip that.
+    user_id: str = ''
+    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+    # Spacing between every Xiaohongshu request, list pages and note details alike.
+    sleep_request_seconds: float = 3.0
+    # Consecutive pages of already-archived notes that end an incremental run. The
+    # likes list is ordered newest first, so two clean pages mean the run has caught
+    # up with what the database already has.
+    abort_after: int = 2
+
+    @field_validator('video_path', mode='before')
+    @classmethod
+    def normalize_video_path(cls, value: object) -> object:
+        # The form sends '' for "keep them with the images". Path('') is Path('.'),
+        # which would quietly route every video into the working directory.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator('user_id')
+    @classmethod
+    def normalize_user_id(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('sleep_request_seconds')
+    @classmethod
+    def validate_sleep_request_seconds(cls, value: float) -> float:
+        if value < 0:
+            msg = 'sleep_request_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('abort_after')
+    @classmethod
+    def validate_abort_after(cls, value: int) -> int:
+        if value < 1:
+            msg = 'abort_after must be greater than or equal to 1'
+            raise ValueError(msg)
+        return value
+
+    def validate_runnable(self) -> list[str]:
+        return [f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable()]
+
+
 class TelegramNotification(BaseModel):
     enabled: bool = False
     bot_token: str = ''
@@ -575,6 +635,7 @@ class Web(BaseModel):
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono = Field(default_factory=Kemono)
     twitter: Twitter = Field(default_factory=Twitter)
+    xiaohongshu: Xiaohongshu = Field(default_factory=Xiaohongshu)
 
 
 class Settings(BaseModel):
@@ -593,6 +654,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.jandan': Jandan,
     'web.kemono': Kemono,
     'web.twitter': Twitter,
+    'web.xiaohongshu': Xiaohongshu,
     'notifications.telegram': TelegramNotification,
 }
 
@@ -601,6 +663,7 @@ SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.twitter': ('cookiecloud.password',),
+    'web.xiaohongshu': ('cookiecloud.password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
 }

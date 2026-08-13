@@ -7,13 +7,17 @@ whitelist. Client input only ever reaches PostgreSQL as a bound parameter.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
 from src.core import settings
+from src.web.xiaohongshu import build_note_url
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 MAX_LIMIT = 200
 DEFAULT_LIMIT = 50
@@ -94,6 +98,17 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
             subtitle_columns=('author', 'tweet_date'),
         ),
         ArchiveSource(
+            key='xiaohongshu',
+            name='Xiaohongshu',
+            table='xiaohongshu',
+            id_columns=('note_id', 'media_index'),
+            title_column='title',
+            # xsec_token is not decoration: without it the note only opens for its author.
+            columns=('author', 'media_type', 'published_at', 'local_path', 'downloaded', 'unavailable', 'last_error', 'xsec_token'),
+            search_columns=('note_id', 'title', 'author'),
+            subtitle_columns=('author', 'published_at'),
+        ),
+        ArchiveSource(
             key='kemono',
             name='Kemono',
             table='kemono',
@@ -113,21 +128,25 @@ class UnknownArchiveSourceError(ValueError):
         self.source = source
 
 
+def _hanime1_url(row: dict[str, Any]) -> str:
+    host = settings.load().web.hanime1.host.rstrip('/')
+    return f'{host}/watch?v={row["id"]}'
+
+
+_EXTERNAL_URL_BUILDERS: dict[str, Callable[[dict[str, Any]], str | None]] = {
+    'bilibili': lambda row: f'https://www.bilibili.com/video/{row["bvid"]}',
+    'hanime1': _hanime1_url,
+    'kemono': lambda row: f'https://kemono.cr/{row["service"]}/user/{row["user_id"]}/post/{row["id"]}',
+    'jandan': lambda row: str(row['content_url']) if row.get('content_url') else None,
+    # /i/status resolves without knowing the author's current handle.
+    'twitter': lambda row: f'https://x.com/i/status/{row["tweet_id"]}',
+    'xiaohongshu': lambda row: build_note_url(str(row['note_id']), str(row.get('xsec_token') or '')),
+}
+
+
 def _external_url(source: ArchiveSource, row: dict[str, Any]) -> str | None:
-    if source.key == 'bilibili':
-        return f'https://www.bilibili.com/video/{row["bvid"]}'
-    if source.key == 'hanime1':
-        host = settings.load().web.hanime1.host.rstrip('/')
-        return f'{host}/watch?v={row["id"]}'
-    if source.key == 'kemono':
-        return f'https://kemono.cr/{row["service"]}/user/{row["user_id"]}/post/{row["id"]}'
-    if source.key == 'jandan':
-        content_url = row.get('content_url')
-        return str(content_url) if content_url else None
-    if source.key == 'twitter':
-        # /i/status resolves without knowing the author's current handle.
-        return f'https://x.com/i/status/{row["tweet_id"]}'
-    return None
+    builder = _EXTERNAL_URL_BUILDERS.get(source.key)
+    return builder(row) if builder is not None else None
 
 
 def _item_id(source: ArchiveSource, row: dict[str, Any]) -> str:

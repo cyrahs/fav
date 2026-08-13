@@ -1,9 +1,10 @@
 name: Dependabot auto-merge
 
-# Unattended gallery-dl upgrades. Dependabot opens the pull request, main's branch
-# protection holds it until the `test` check passes, and this enables auto-merge so
-# no human has to be awake for it. Nothing here bypasses a check: if `test` fails the
-# pull request simply stays open.
+# Unattended upgrades of the dependencies that track a site rather than this
+# repository. Dependabot opens the pull request, main's branch protection holds it
+# until the `test` check passes, and this enables auto-merge so no human has to be
+# awake for it. Nothing here bypasses a check: if `test` fails the pull request
+# simply stays open.
 
 on:
   pull_request:
@@ -34,8 +35,8 @@ jobs:
       # `dependency-names` is a comma-separated list, so a grouped pull request would
       # read "gallery-dl,yt-dlp" and match nothing here -- it stays open for a human,
       # which is the safe direction to fail in.
-      - name: Enable auto-merge for the downloaders
-        if: contains(fromJSON('["gallery-dl", "yt-dlp"]'), steps.metadata.outputs.dependency-names)
+      - name: Enable auto-merge for the site-tracking dependencies
+        if: contains(fromJSON('["gallery-dl", "yt-dlp", "xhshow"]'), steps.metadata.outputs.dependency-names)
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

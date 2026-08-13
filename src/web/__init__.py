@@ -8,5 +8,6 @@ from .nikke import Nikke
 from .stellasora import StellaSora
 from .telegram import Telegram
 from .twitter import Twitter
+from .xiaohongshu import Xiaohongshu
 
-__all__ = ['BD2', 'AzurLane', 'Bilibili', 'Hanime1', 'Jandan', 'Kemono', 'Nikke', 'StellaSora', 'Telegram', 'Twitter']
+__all__ = ['BD2', 'AzurLane', 'Bilibili', 'Hanime1', 'Jandan', 'Kemono', 'Nikke', 'StellaSora', 'Telegram', 'Twitter', 'Xiaohongshu']

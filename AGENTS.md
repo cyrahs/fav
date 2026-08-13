@@ -163,14 +163,16 @@ across several hand-maintained registries, and missing one fails in a way that i
    Export it from `src/web/__init__.py`.
 3. `src/service/jobs.py`: a `JobSpec`, including `required_commands` for any external binary.
 4. `src/api/schemas.py`: add the key to `JobRequestTarget`, or manual triggers 422.
-5. `src/api/archive.py`: an `ARCHIVE_SOURCES` entry and an `_external_url()` branch, so rows show up
-   on the records page with a working link back to the origin.
+5. `src/api/archive.py`: an `ARCHIVE_SOURCES` entry and an `_EXTERNAL_URL_BUILDERS` entry, so rows
+   show up on the records page with a working link back to the origin.
 6. `src/api/settings_masking.py`: a branch per section that holds a secret.
-7. `web/src/labels.ts`: the display name — this is the single place a source is named for the UI.
+7. `src/tool/cookiecloud.py`: for a cookie-based source, a `CookieProfile` in `PROFILES`. That dict
+   is what backs the settings page's 测试连接 button; without an entry the endpoint rejects the source.
+8. `web/src/labels.ts`: the display name — this is the single place a source is named for the UI.
    Then either a form in `web/src/components/sectionForms.tsx` (registered in `SECTION_FORMS`, with
    any client-side rules in `validateSection`) or an entry in `JOBS_PAGE_ONLY_SECTIONS` if cron and
    enabled are all it has.
-8. `tests/test_<source>.py`, and a mention in `README.md`.
+9. `tests/test_<source>.py`, and a mention in `README.md`.
 
 Store dedupe state in PostgreSQL keyed on whatever the origin considers an item's identity, and let
 an enabled-but-unconfigured source stay parked via `validate_runnable()` rather than crashing the
