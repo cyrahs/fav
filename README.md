@@ -84,8 +84,17 @@ account name, so what is checked is what the crawler would actually use.
 access to a likes timeline, so the crawl shells out to [gallery-dl](https://github.com/mikf/gallery-dl)
 (a Python dependency, on `PATH` inside the image) with the browser session the account is signed in
 with. gallery-dl owns the parts that break when X changes — GraphQL endpoints, the transaction-id
-header, 429 back-off — so a break is usually fixed by
-`uv lock --upgrade-package gallery-dl` rather than by editing this repository.
+header, 429 back-off — so a break is usually fixed by a newer gallery-dl rather than by editing this
+repository.
+
+That upgrade is unattended: `.github/dependabot.yml` watches gallery-dl daily, and
+`.github/workflows/dependabot-auto-merge.yml` enables auto-merge on the pull request so it lands once
+the `test` check that main's branch protection requires has passed, then dispatches an image rebuild.
+Nothing bypasses a check — a failing `test` just leaves the pull request open. To upgrade by hand:
+
+```bash
+uv lock --upgrade-package gallery-dl
+```
 
 ```jsonc
 {

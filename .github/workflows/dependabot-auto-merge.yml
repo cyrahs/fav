@@ -1,0 +1,61 @@
+name: Dependabot auto-merge
+
+# Unattended gallery-dl upgrades. Dependabot opens the pull request, main's branch
+# protection holds it until the `test` check passes, and this enables auto-merge so
+# no human has to be awake for it. Nothing here bypasses a check: if `test` fails the
+# pull request simply stays open.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  auto-merge:
+    # `pull_request.user.login` rather than `github.actor`: on the closed event the
+    # actor is whoever merged, not the author.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Checked here as well as in dependabot.yml so that widening the allow list
+      # later is a deliberate second decision rather than a silent side effect.
+      - name: Enable auto-merge for gallery-dl
+        if: steps.metadata.outputs.dependency-names == 'gallery-dl'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  rebuild-image:
+    # A push made with GITHUB_TOKEN does not start new workflow runs, so the merge
+    # commit may never reach the `push` trigger in docker-build.yml. Dispatching the
+    # build explicitly is what actually gets the new gallery-dl into the image; it
+    # mirrors what yt-dlp-update.yml already does. If GitHub does deliver the push
+    # event, the cost is one redundant build rather than a stale image.
+    if: >-
+      github.event.action == 'closed'
+      && github.event.pull_request.merged == true
+      && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild the image on main
+        run: |
+          gh workflow run docker-build.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f trigger-reason="dependabot: $PR_TITLE"
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

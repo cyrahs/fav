@@ -5,13 +5,15 @@ import json
 from pathlib import Path
 
 import pytest
+from gallery_dl import config as gallery_dl_config
+from gallery_dl import option as gallery_dl_option
 
 import src.service.jobs as jobs_module
 import src.web.twitter as twitter_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
-from src.web.twitter import Twitter, build_command, parse_sidecar
+from src.web.twitter import FILENAME_FORMAT, Twitter, build_command, parse_sidecar
 
 
 def _configure_twitter(**updates: object) -> settings.Twitter:
@@ -153,6 +155,55 @@ def test_the_request_interval_reaches_gallery_dl() -> None:
     command = build_command(cfg, cookie_path=Path('/c'), archive_path=Path('/a'), incremental=False)
 
     assert _option(command, 'extractor.twitter.sleep-request') == '3.5'
+
+
+def _resolve(command: list[str]) -> object:
+    """Apply a command through gallery-dl's own parser and load the result into its config."""
+    # A fresh parser per call: argparse shares one default list object across
+    # parse_args calls, so a reused parser accumulates the previous run's options.
+    parser = gallery_dl_option.build_parser()
+    args = parser.parse_args(command[1:])
+    gallery_dl_config.clear()
+    for path, key, value in args.options:
+        gallery_dl_config.set(path, key, value)
+    return args
+
+
+def test_the_installed_gallery_dl_still_understands_every_option_we_pass() -> None:
+    """Guard the unattended upgrade path.
+
+    gallery-dl is bumped and merged by Dependabot without a human looking, and every
+    other test in this file only checks the strings this module builds -- they would
+    all still pass if an upgrade renamed a flag or changed how `-o` coerces values.
+    This one hands the real command to the installed gallery-dl's parser, so that
+    class of break fails here instead of in a scheduled run.
+    """
+    cfg = _runnable_cfg(path=Path('/data/twitter'), sleep_request_seconds=2.0, abort_after=7)
+
+    args = _resolve(build_command(cfg, cookie_path=Path('/c.txt'), archive_path=Path('/a.db'), incremental=True))
+
+    assert args.urls == ['https://x.com/me/likes']
+    assert gallery_dl_config.get((), 'base-directory') == '/data/twitter'
+    assert gallery_dl_config.get((), 'cookies') == '/c.txt'
+    assert gallery_dl_config.get((), 'archive') == '/a.db'
+    # --write-metadata is what produces the sidecars the ingest step consumes.
+    assert 'metadata' in args.postprocessors
+
+    twitter = ('extractor', 'twitter')
+    # A list, not the raw string: gallery-dl parses -o values as JSON when it can.
+    assert gallery_dl_config.get(twitter, 'directory') == ['{author[name]}']
+    assert gallery_dl_config.get(twitter, 'filename') == FILENAME_FORMAT
+    assert gallery_dl_config.get(twitter, 'sleep-request') == 2.0
+    assert gallery_dl_config.get(twitter, 'retweets') == 'original'
+    assert gallery_dl_config.get(twitter, 'skip') == 'abort:7'
+
+
+def test_a_backfill_command_leaves_gallery_dl_with_no_skip_override() -> None:
+    cfg = _runnable_cfg(abort_after=7)
+
+    _resolve(build_command(cfg, cookie_path=Path('/c.txt'), archive_path=Path('/a.db'), incremental=False))
+
+    assert gallery_dl_config.get(('extractor', 'twitter'), 'skip') is None
 
 
 # ---------- sidecar parsing ----------
