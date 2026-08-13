@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from hashlib import blake2b
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -55,7 +55,6 @@ ResourceAssetKind = Literal[
     'painting.face',
     'icon.square',
     'icon.shipyard',
-    'icon.q',
     'voice.audio',
 ]
 
@@ -81,7 +80,6 @@ _RESOURCE_EXTENSION_BY_KIND: dict[ResourceAssetKind, str] = {
     'painting.face': '.webp',
     'icon.square': '.webp',
     'icon.shipyard': '.webp',
-    'icon.q': '.webp',
     'voice.audio': '.ogg',
 }
 
@@ -1722,31 +1720,35 @@ def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoice
         _ResourceSpec(
             kind='painting.image',
             source_url=entry.resources.primary_url,
-            fallback_url='',
+            fallback_url=_lowercase_filename_url(entry.resources.primary_url),
             base_url=entry.resources.primary_url,
             context=_asset_context(entry, {'painting_field': 'image'}),
         ),
     ]
+    # A face lives under the painting key as a directory, so the lowercase candidate is built
+    # from the key rather than by lowering the filename.
+    lowercase_key = painting_key.lower() if painting_key.lower() != painting_key else ''
     specs.extend(
         _ResourceSpec(
             kind='painting.face',
             source_url=l2d_su_painting_face_url(painting_key, face_id),
-            fallback_url='',
+            fallback_url=l2d_su_painting_face_url(lowercase_key, face_id) if lowercase_key else '',
             base_url=_l2d_su_relative_base_url(),
             context=_asset_context(entry, {'painting_field': 'face', 'face_id': face_id}),
         )
         for face_id in entry.costume.face_ids
     )
+    # q_icon is deliberately absent: the index advertises qicon/<key> for every skin, but the
+    # CDN hosts none of them -- l2d.su's own page renders that slot broken too.
     icon_fields: tuple[tuple[ResourceAssetKind, str], ...] = (
         ('icon.square', entry.costume.square_icon),
         ('icon.shipyard', entry.costume.shipyard_icon),
-        ('icon.q', entry.costume.q_icon),
     )
     specs.extend(
         _ResourceSpec(
             kind=kind,
             source_url=l2d_su_icon_url(icon_path),
-            fallback_url='',
+            fallback_url=_lowercase_filename_url(l2d_su_icon_url(icon_path)),
             base_url=_l2d_su_relative_base_url(),
             context=_asset_context(entry, {'painting_field': 'icon', 'icon_path': icon_path}),
         )
@@ -1768,6 +1770,21 @@ def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoice
 
 def _painting_key_from_url(url: str) -> str:
     return PurePosixPath(urlsplit(url).path).name.removesuffix('.webp')
+
+
+def _lowercase_filename_url(url: str) -> str:
+    """Same URL with only the filename lowercased, or '' when that changes nothing.
+
+    l2d.su's object storage is case-sensitive and its index does not always match: the index
+    offers painting/Z28_3.webp where the stored object is z28_3.webp. Lowercasing everything
+    would break the reverse cases (hamanII.webp is served, hamanii.webp is not), so this is
+    only ever a fallback candidate tried after the index-given URL 404s.
+    """
+    split = urlsplit(url)
+    head, separator, filename = split.path.rpartition('/')
+    if not separator or filename == filename.lower():
+        return ''
+    return urlunsplit(split._replace(path=f'{head}/{filename.lower()}'))
 
 
 def _l2d_su_relative_base_url() -> str:

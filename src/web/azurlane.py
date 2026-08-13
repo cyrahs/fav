@@ -100,6 +100,21 @@ _JSON_ASSET_KINDS = {
 }
 _MANIFEST_SCHEMA_VERSION = 1
 _ASSET_AVAILABLE_STATUS = 'downloaded'
+# Assets without which the model cannot be rendered at all. Everything else -- motions,
+# expressions, faces, icons, voices -- is a companion file: the source advertises plenty it
+# does not actually host, and a missing one must not condemn an otherwise intact model.
+# Mirrors the required set the catalog validator already uses for live2d.
+_REQUIRED_ASSET_KINDS = frozenset(
+    {
+        'live2d.model3',
+        'live2d.moc3',
+        'live2d.texture',
+        'spine.skel',
+        'spine.atlas',
+        'spine.texture',
+        'painting.image',
+    },
+)
 _ASSET_KIND_ORDER = {
     kind: index
     for index, kind in enumerate(
@@ -121,7 +136,6 @@ _ASSET_KIND_ORDER = {
             'painting.face',
             'icon.square',
             'icon.shipyard',
-            'icon.q',
             'voice.audio',
         ),
     )
@@ -1877,10 +1891,20 @@ class AzurLane:
 
         assets = _assets_from_enumeration(enumeration)
         failed_assets = await self._process_assets(client=client, root=root, assets=assets)
-        await self._replace_model_assets(model_id=entry.id, assets=assets, completed=not failed_assets)
-        if failed_assets:
-            examples = ', '.join(asset.url for asset in failed_assets[:3])
-            msg = f'{len(failed_assets)} Azur Lane assets failed'
+        blocking = [asset for asset in failed_assets if asset.kind in _REQUIRED_ASSET_KINDS]
+        await self._replace_model_assets(model_id=entry.id, assets=assets, completed=not blocking)
+        if optional := [asset for asset in failed_assets if asset.kind not in _REQUIRED_ASSET_KINDS]:
+            # The source routinely advertises companion files it does not host. Losing one
+            # costs a subtitle or an icon; the model still renders, so it must not fail the run.
+            log.info(
+                'Azur Lane model %s is missing %d optional asset(s): %s',
+                entry.id,
+                len(optional),
+                ', '.join(f'{asset.kind} {asset.url}' for asset in optional[:3]),
+            )
+        if blocking:
+            examples = ', '.join(asset.url for asset in blocking[:3])
+            msg = f'{len(blocking)} Azur Lane assets failed'
             if examples:
                 msg = f'{msg}: {examples}'
             raise AssetProcessingError(msg)
