@@ -25,6 +25,7 @@ from src.tool.control_queue import (
 from src.tool.hanime1_series import Hanime1SeriesService
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
+from src.web.rednote_browser import probe_proxy as probe_rednote_proxy
 
 from .archive import ARCHIVE_SOURCES, ArchiveLibrary, UnknownArchiveSourceError
 from .azurlane import AzurLaneAssetNotFoundError, AzurLaneCharacterNotFoundError, AzurLaneLibrary
@@ -457,8 +458,27 @@ class FavApiService:
         except UnknownSectionError:
             raise ApiError(status_code=404, code='unknown_section', message=f'Unknown settings section: {section}') from None
         except Exception:
-            log.exception('Failed to load %s for cookiecloud test', section)
+            log.exception('Failed to load %s for a settings test', section)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+    def test_rednote_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Check the egress the RedNote source would use, without saving it.
+
+        The draft from the form wins, except that a masked or omitted value is resolved
+        against what is already stored -- so the button works on a proxy the UI has
+        only ever shown masked.
+        """
+        draft = {'proxy': str(payload.get('proxy') or '')}
+        keep_secret(draft, 'proxy', str(self._stored_section('web.rednote').get('proxy') or ''))
+
+        result = probe_rednote_proxy(draft['proxy'])
+        return {
+            'ok': result.ok,
+            'code': result.code,
+            'message': result.message,
+            'exit_ip': result.exit_ip,
+            'direct': result.direct,
+        }
 
     def _stored_account_password(self, account: str) -> str:
         """The CookieCloud password stored for one bilibili account, matched by name."""

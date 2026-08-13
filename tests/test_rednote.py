@@ -13,6 +13,7 @@ import src.web.rednote as rednote_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
+from src.core.settings import SECTION_MODELS
 from src.web.rednote import (
     MediaUnavailableError,
     MediaUrlStaleError,
@@ -34,12 +35,14 @@ from src.web.rednote import (
     user_id_from_probe,
 )
 from src.web.rednote_browser import (
+    ProxyProbe,
     browser_cookies_to_netscape,
     build_launch_options,
     build_proxy_settings,
     clear_stale_profile_locks,
     cursor_of,
     decode_qr_data_url,
+    probe_proxy,
 )
 
 # 2025-08-12 11:34:56 in the timezone the app displays.
@@ -367,6 +370,122 @@ def test_an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous(
 
     # Without credentials SOCKS is fine.
     assert build_proxy_settings('socks5://home.example:1080') == {'server': 'socks5://home.example:1080'}
+
+
+def _probe(handler, proxy: str = 'http://user:pw@home.example:3128'):
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        return probe_proxy(proxy, client=client)
+
+
+def test_the_proxy_probe_names_each_way_an_egress_can_be_wrong() -> None:
+    def refused(request: httpx.Request) -> httpx.Response:
+        raise httpx.ProxyError('refused', request=request)
+
+    def walled(request: httpx.Request) -> httpx.Response:
+        # The captcha wall, which is the answer this button exists to catch early.
+        return httpx.Response(200, text='198.51.100.9') if 'checkip' in str(request.url) else httpx.Response(461)
+
+    def reachable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text='203.0.113.7' if 'checkip' in str(request.url) else '<html></html>')
+
+    refused_result = _probe(refused)
+    assert (refused_result.ok, refused_result.code) == (False, 'proxy_error')
+
+    walled_result = _probe(walled)
+    assert (walled_result.ok, walled_result.code, walled_result.exit_ip) == (False, 'risk_control', '198.51.100.9')
+
+    ok_result = _probe(reachable)
+    assert (ok_result.ok, ok_result.code, ok_result.exit_ip, ok_result.direct) == (True, 'ok', '203.0.113.7', False)
+
+
+def test_a_dead_proxy_is_told_apart_from_a_site_that_will_not_answer_it() -> None:
+    """The two failures want opposite things done, so the button must not blur them.
+
+    Both surface as a connection error on the same call; what separates them is
+    whether anything at all came back through the proxy beforehand.
+    """
+
+    def nothing_gets_through(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError('no route to proxy', request=request)
+
+    def site_only_is_null_routed(request: httpx.Request) -> httpx.Response:
+        if 'checkip' in str(request.url):
+            return httpx.Response(200, text='198.51.100.9')
+        raise httpx.ConnectTimeout('timed out', request=request)
+
+    dead_proxy = _probe(nothing_gets_through)
+    assert (dead_proxy.ok, dead_proxy.code) == (False, 'proxy_error')
+    assert 'proxy' in dead_proxy.message
+
+    walled_exit = _probe(site_only_is_null_routed)
+    assert (walled_exit.ok, walled_exit.code, walled_exit.exit_ip) == (False, 'unreachable', '198.51.100.9')
+
+
+def test_the_proxy_probe_reports_a_bad_proxy_string_without_dialing_it() -> None:
+    # Chromium would connect as nobody rather than fail, so this has to be caught here.
+    dialled: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        dialled.append(str(request.url))
+        return httpx.Response(200)
+
+    result = _probe(handler, proxy='socks5://user:pw@home.example:1080')
+
+    assert (result.ok, result.code, dialled) == (False, 'invalid', [])
+    assert 'SOCKS' in result.message
+
+
+def test_an_empty_proxy_probes_the_direct_egress_rather_than_refusing() -> None:
+    # `allow_direct_connection` is a supported setup, so the button has to be able to
+    # answer for it -- and the exit address is exactly what decides whether it is sane.
+    def reachable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text='203.0.113.7' if 'checkip' in str(request.url) else '')
+
+    result = _probe(reachable, proxy='   ')
+
+    assert (result.ok, result.direct, result.exit_ip) == (True, True, '203.0.113.7')
+
+
+def test_an_unreachable_exit_ip_service_does_not_fail_the_probe() -> None:
+    def site_only(request: httpx.Request) -> httpx.Response:
+        if 'checkip' in str(request.url):
+            raise httpx.ConnectError('no route', request=request)
+        return httpx.Response(200)
+
+    result = _probe(site_only)
+
+    assert (result.ok, result.exit_ip) == (True, '')
+
+
+def test_the_proxy_test_button_resolves_a_masked_proxy_against_what_is_stored(monkeypatch) -> None:
+    """The form only ever shows the proxy masked, so this is the normal path, not an edge case.
+
+    Getting it wrong would send `••••` to the probe, which parses as a hostname-less
+    proxy -- a green "direct egress works" for a setup that is not direct at all.
+    """
+    from src.api import service as service_module  # noqa: PLC0415
+    from src.api.settings_masking import MASK_SUFFIX  # noqa: PLC0415
+
+    section = SECTION_MODELS['web.rednote'](proxy='http://user:pw@home.example:3128')
+    probed: list[str] = []
+
+    def fake_probe(proxy: str):
+        probed.append(proxy)
+        return ProxyProbe(ok=True, code='ok', message='', exit_ip='203.0.113.7')
+
+    monkeypatch.setattr(service_module, 'probe_rednote_proxy', fake_probe)
+    service = service_module.FavApiService(
+        dsn='postgresql://db.local/fav',
+        token='t' * 32,
+        hanime1_video_fetcher=lambda _dsn: [],
+        job_provider=list,
+        settings_section_getter=lambda _section: section,
+    )
+
+    result = service.test_rednote_proxy({'proxy': f'http{MASK_SUFFIX}'})
+
+    assert probed == ['http://user:pw@home.example:3128']
+    assert result == {'ok': True, 'code': 'ok', 'message': '', 'exit_ip': '203.0.113.7', 'direct': False}
 
 
 def test_a_killed_chromium_does_not_lock_the_profile_forever(tmp_path) -> None:

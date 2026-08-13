@@ -181,6 +181,15 @@ ignores credentials embedded in `--proxy-server`, so they are split out before l
 the same proxy: it re-fetches the note page carrying the account's cookies, and leaving it on the
 pod's own address would undo the rest.
 
+**测试出口** beside the field checks the egress as typed, before saving and without the account: an
+anonymous request to the site, reporting the exit address so a home line can be told from a
+datacenter range, and calling out an HTTP 461 as the captcha wall rather than as a generic failure.
+It tells a dead proxy apart from a proxy that works and a site that will not answer it, and refuses
+an authenticated SOCKS proxy the same way the launcher will. It does not start Chromium, so it
+proves the address rather than the browser — a signed-out profile or a wrong `user_id` still only
+show up on a real run. With the field empty it probes the direct egress instead, which is how to
+decide whether `allow_direct_connection` is defensible here.
+
 **`profile_path` has to be on a volume.** It holds the cookies, localStorage, history and device
 identity; on ephemeral storage every run starts from a QR scan. The documented `docker run` in
 `AGENTS.md` mounts `data/`, and a Chromium profile wants real block storage — its LevelDB and SQLite
