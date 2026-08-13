@@ -39,7 +39,6 @@ _ASSET_KIND_ORDER = {
             'painting.face',
             'icon.square',
             'icon.shipyard',
-            'icon.q',
             'voice.audio',
         ),
     )
@@ -594,7 +593,6 @@ class AzurLaneLibrary:
                 'faces': self._assets_by_kind(assets, 'painting.face'),
                 'square_icon': self._first_asset(assets, 'icon.square'),
                 'shipyard_icon': self._first_asset(assets, 'icon.shipyard'),
-                'q_icon': self._first_asset(assets, 'icon.q'),
                 'voices': self._assets_by_kind(assets, 'voice.audio'),
             }
         return {}

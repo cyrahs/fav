@@ -1031,6 +1031,63 @@ def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch:
     assert any(row['url'] == texture_url and row['kind'] == 'live2d.texture' for row in fake_db.model_assets)
 
 
+def test_azurlane_update_completes_a_model_whose_optional_assets_are_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The source advertises companion files it does not host; losing one must not fail the model."""
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload(
+        [_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin', face_ids=['1'], icons=True)])],
+    )
+    _seed_ship_detail(fake_db, catalog)
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    square_icon_url = f'{L2D_SU_STATIC_BASE_URL}/squareicon/javelin.webp'
+
+    live2d_files = {
+        model3_url: httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'}),
+        moc_url: httpx.Response(200, content=b'moc-bytes', headers={'content-type': 'application/octet-stream'}),
+        texture_url: httpx.Response(200, content=b'texture-bytes', headers={'content-type': 'image/webp'}),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        # Every icon and face 404s, exactly as the live CDN does for these skins.
+        return live2d_files.get(url) or httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=transport)
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    assert fake_db.models['azurlane:painting:javelin:javelin']['completed'] is True
+    assert fake_db.assets[square_icon_url]['status'] == 'failed'
+    # No qicon is ever requested: the index offers one for every skin and the CDN has none.
+    assert not any('/qicon/' in url for url in fake_db.assets)
+
+
 def test_azurlane_update_downloads_painting_faces_icons_and_voices(  # noqa: C901
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

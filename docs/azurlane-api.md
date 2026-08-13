@@ -133,7 +133,9 @@ the authoritative place for anything not lifted into a first-class field.
   there is no separate text file.
 - `spine`: `parts`, `skel`, `skeletons[]`, `atlas`, `atlases[]`, `textures[]`
   (multi-part models list every part's skeleton/atlas/textures)
-- `painting`: `image`, `faces[]`, `square_icon`, `shipyard_icon`, `q_icon`, `voices[]`
+- `painting`: `image`, `faces[]`, `square_icon`, `shipyard_icon`, `voices[]`. There is no
+  q-icon: the index advertises `qicon/<key>` for every skin but the CDN hosts none of them,
+  so `source_metadata.costume.q_icon` is carried through as source data only.
 
 ### Asset object
 
@@ -158,7 +160,7 @@ has not (yet) fetched.
 Asset kinds: `live2d.model3`, `live2d.moc3`, `live2d.texture`, `live2d.physics`,
 `live2d.pose`, `live2d.display-info`, `live2d.expression`, `live2d.motion`, `live2d.audio`,
 `spine.parts`, `spine.skel`, `spine.atlas`, `spine.texture`,
-`painting.image`, `painting.face`, `icon.square`, `icon.shipyard`, `icon.q`, `voice.audio`.
+`painting.image`, `painting.face`, `icon.square`, `icon.shipyard`, `voice.audio`.
 
 ### Voice contexts
 
