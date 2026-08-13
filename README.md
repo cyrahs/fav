@@ -102,10 +102,12 @@ uv lock --upgrade-package gallery-dl
   "enabled": true,
   "username": "yourhandle",                 // your own screen name, without the @
   "path": "collection/twitter",
+  "video_path": null,                       // null keeps videos with the images
   "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." },
   "sleep_request_seconds": 2.0,             // spacing between X requests
   "abort_after": 20,                        // consecutive known files that end an incremental run
   "include_retweets": true,                 // liked retweets, filed under the original author
+  "include_videos": true,                   // photos only when false
   "proxy": ""
 }
 ```
@@ -116,8 +118,17 @@ start of every run, so signing in again in the browser is all it takes to recove
 session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili` or `twitter`) and the
 settings page exposes it as the same 测试连接 button.
 
-Files land in `path/<author>/[<author>] <date> [<tweet_id>_<num>].<ext>`, and each one is recorded in
-the `twitter` table keyed by `(tweet_id, num)`. Two pieces of state make runs incremental:
+Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
+covers both. Setting `video_path` keeps videos and GIFs on a different disk from the images; leave it
+null and everything shares `path`. The split happens after the download rather than in gallery-dl's
+config, because gallery-dl picks a directory once per tweet, before it knows whether the files in
+that tweet are photos or videos. Moving them afterwards is safe: its download archive is keyed on the
+tweet, not the path, so a relocated file is never fetched again.
+
+Files land in `<root>/<author>/[<author>] <date> [<tweet_id>_<num>].<ext>`, where `<root>` is `path`
+or `video_path` depending on the media type, and each one is recorded in the `twitter` table keyed by
+`(tweet_id, num)`. `local_path` is relative to whichever of the two roots the file lives in, which the
+`media_type` column identifies. Two pieces of state make runs incremental:
 gallery-dl's own download archive at `path/.gallery-dl-archive.db`, and a `twitter_state` row marking
 whether the first full walk of the timeline ever finished. Until it has, every run walks to the end of
 the timeline so the history fills in; afterwards runs stop once `abort_after` already-archived files

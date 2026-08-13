@@ -195,6 +195,7 @@ def test_the_installed_gallery_dl_still_understands_every_option_we_pass() -> No
     assert gallery_dl_config.get(twitter, 'filename') == FILENAME_FORMAT
     assert gallery_dl_config.get(twitter, 'sleep-request') == 2.0
     assert gallery_dl_config.get(twitter, 'retweets') == 'original'
+    assert gallery_dl_config.get(twitter, 'videos') is True
     assert gallery_dl_config.get(twitter, 'skip') == 'abort:7'
 
 
@@ -248,6 +249,53 @@ def test_json_that_is_not_a_tweet_is_ignored_rather_than_stored() -> None:
     assert parse_sidecar(_sidecar_payload(num='2'), media_path=Path('/p.jpg'), root=Path('/data')) is None
 
 
+def test_videos_are_requested_by_default_and_can_be_turned_off() -> None:
+    on = build_command(_runnable_cfg(), cookie_path=Path('/c'), archive_path=Path('/a'), incremental=False)
+    assert _option(on, 'extractor.twitter.videos') == 'true'
+
+    cfg = _runnable_cfg(include_videos=False)
+    off = build_command(cfg, cookie_path=Path('/c'), archive_path=Path('/a'), incremental=False)
+    assert _option(off, 'extractor.twitter.videos') == 'false'
+
+
+# ---------- media type split ----------
+
+
+def test_an_unset_video_path_keeps_everything_in_one_place() -> None:
+    cfg = _runnable_cfg(path=Path('/data/twitter'), video_path=None)
+    source = Twitter()
+
+    assert source._destination_root('video') == cfg.path
+    assert source._destination_root('photo') == cfg.path
+
+
+def test_videos_and_gifs_go_to_the_video_path_while_photos_stay() -> None:
+    _runnable_cfg(path=Path('/data/twitter'), video_path=Path('/media/twitter-videos'))
+    source = Twitter()
+
+    # X stores a GIF as a short video, so it follows the videos.
+    assert source._destination_root('video') == Path('/media/twitter-videos')
+    assert source._destination_root('animated_gif') == Path('/media/twitter-videos')
+    assert source._destination_root('photo') == Path('/data/twitter')
+    # An unfamiliar type files with the images rather than vanishing.
+    assert source._destination_root('') == Path('/data/twitter')
+
+
+def test_an_empty_video_path_is_not_read_as_the_working_directory() -> None:
+    # Path('') is Path('.'), which would put every video in the process's cwd.
+    assert settings.Twitter(video_path='').video_path is None
+    assert settings.Twitter(video_path='   ').video_path is None
+
+
+def test_a_relocated_file_keeps_its_place_within_the_collection() -> None:
+    _runnable_cfg(path=Path('/data/twitter'), video_path=Path('/media/vid'))
+    source = Twitter()
+
+    destination = source._destination_path(Path('/data/twitter/artist/clip.mp4'), Path('/media/vid'))
+
+    assert destination == Path('/media/vid/artist/clip.mp4')
+
+
 # ---------- ingest ----------
 
 
@@ -277,6 +325,46 @@ def test_ingest_inserts_one_row_per_sidecar_and_clears_the_queue(monkeypatch, tm
     assert (tmp_path / 'artist' / 'a.jpg').exists()
     paths = {call[1][8] for call in fake_db.calls}
     assert paths == {'artist/a.jpg', 'other/b.mp4'}
+
+
+def test_ingest_moves_videos_to_the_video_path_and_leaves_photos(monkeypatch, tmp_path) -> None:
+    images = tmp_path / 'images'
+    videos = tmp_path / 'videos'
+    _runnable_cfg(path=images, video_path=videos)
+    fake_db = _FakeDatabase()
+    monkeypatch.setattr(twitter_module, 'database', fake_db)
+
+    _write_sidecar(images / 'artist', 'pic.jpg', _sidecar_payload(num=1, type='photo'))
+    _write_sidecar(images / 'artist', 'clip.mp4', _sidecar_payload(tweet_id=999, num=1, type='video'))
+    _write_sidecar(images / 'artist', 'loop.mp4', _sidecar_payload(tweet_id=1000, num=1, type='animated_gif'))
+
+    assert asyncio.run(Twitter()._ingest_sidecars()) == 3
+
+    # The photo stays put; the video and the GIF move, keeping their author folder.
+    assert (images / 'artist' / 'pic.jpg').exists()
+    assert not (images / 'artist' / 'clip.mp4').exists()
+    assert (videos / 'artist' / 'clip.mp4').exists()
+    assert (videos / 'artist' / 'loop.mp4').exists()
+
+    # Each path is recorded relative to the directory the file actually lives in.
+    by_type = {call[1][7]: call[1][8] for call in fake_db.calls}
+    assert by_type == {'photo': 'artist/pic.jpg', 'video': 'artist/clip.mp4', 'animated_gif': 'artist/loop.mp4'}
+
+
+def test_ingest_finishes_a_move_a_previous_run_died_halfway_through(monkeypatch, tmp_path) -> None:
+    images = tmp_path / 'images'
+    videos = tmp_path / 'videos'
+    _runnable_cfg(path=images, video_path=videos)
+    monkeypatch.setattr(twitter_module, 'database', _FakeDatabase())
+
+    # Sidecar still queued, but the file was already moved before the crash.
+    sidecar = _write_sidecar(images / 'artist', 'clip.mp4', _sidecar_payload(type='video'))
+    (videos / 'artist').mkdir(parents=True)
+    (images / 'artist' / 'clip.mp4').rename(videos / 'artist' / 'clip.mp4')
+
+    assert asyncio.run(Twitter()._ingest_sidecars()) == 1
+    assert not sidecar.exists()
+    assert (videos / 'artist' / 'clip.mp4').exists()
 
 
 def test_ingest_leaves_an_unparseable_sidecar_alone_instead_of_losing_it(monkeypatch, tmp_path) -> None:

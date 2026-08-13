@@ -465,6 +465,10 @@ class Twitter(ScheduleJob):
     """
 
     path: Path = Path('./collection/twitter')
+    # Where videos and GIFs land. Left unset they stay with the images under ``path``;
+    # set it to keep them on a different disk. X stores GIFs as videos, so they follow
+    # this too. See src/web/twitter.py for why the split happens after the download.
+    video_path: Path | None = None
     cron: str = '0 */6 * * *'
     # Own screen name, without the leading @. The likes timeline is only readable
     # for the logged-in user, so this has to match the CookieCloud session.
@@ -480,6 +484,18 @@ class Twitter(ScheduleJob):
     # A liked retweet is still a liked post, so retweets are kept by default and
     # filed under the original author.
     include_retweets: bool = True
+    # Videos and GIFs as well as photos. This is gallery-dl's own default, stated
+    # here so that turning it off is a setting rather than a code change.
+    include_videos: bool = True
+
+    @field_validator('video_path', mode='before')
+    @classmethod
+    def normalize_video_path(cls, value: object) -> object:
+        # The form sends '' for "keep them with the images". Path('') is Path('.'),
+        # which would quietly route every video into the working directory.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator('username')
     @classmethod

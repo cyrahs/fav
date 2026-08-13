@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,9 @@ BACKFILL_STATE_KEY = 'backfill_complete'
 # for the archive UI to search.
 FILENAME_FORMAT = '[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}'
 DIRECTORY_FORMAT = ('{author[name]}',)
+
+# gallery-dl's own media types. X stores a GIF as a short video, so it belongs here.
+VIDEO_TYPES = frozenset({'video', 'animated_gif'})
 
 # gallery-dl ORs an exit code per failure class; 16 is authentication/authorization.
 EXIT_AUTH = 16
@@ -90,6 +94,10 @@ def build_command(
         # than the account that boosted it.
         '--option',
         f'extractor.twitter.retweets={"original" if cfg.include_retweets else "false"}',
+        # Stated rather than inherited: this is gallery-dl's own default, and leaving
+        # it implicit would make an upstream change to it silent here.
+        '--option',
+        f'extractor.twitter.videos={"true" if cfg.include_videos else "false"}',
     ]
     if incremental:
         command.extend(['--option', f'extractor.twitter.skip=abort:{cfg.abort_after}'])
@@ -214,6 +222,42 @@ class Twitter:
         await asyncio.gather(drain_stdout(), drain_stderr())
         return await process.wait(), errors
 
+    def _destination_root(self, media_type: str) -> Path:
+        """Which configured directory a file of this type belongs under."""
+        if self.cfg.video_path is not None and media_type in VIDEO_TYPES:
+            return self.cfg.video_path
+        return self.cfg.path
+
+    def _destination_path(self, media_path: Path, root: Path) -> Path:
+        """Where a downloaded file belongs once its media type is known.
+
+        gallery-dl resolves a directory once per tweet, before it knows whether the
+        files in it are photos or videos, so the split cannot be expressed in its
+        config and happens here instead.
+        """
+        if root == self.cfg.path:
+            return media_path
+        try:
+            return root / media_path.relative_to(self.cfg.path)
+        except ValueError:
+            log.warning('Leaving %s where it is: not under the collection directory', media_path)
+            return media_path
+
+    @staticmethod
+    def _relocate(media_path: Path, destination: Path) -> None:
+        """Move a file to its media type's directory, if it is not already there.
+
+        Safe with respect to re-downloading: gallery-dl's archive is keyed on the
+        tweet rather than the path, so a relocated file is never fetched again. A
+        missing source means an earlier run moved it and died before clearing the
+        sidecar, which is why that is not an error.
+        """
+        if destination == media_path or not media_path.exists():
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # shutil.move, not rename: the video directory is usually a different mount.
+        shutil.move(str(media_path), str(destination))
+
     async def _ingest_sidecars(self) -> int:
         """Insert a row per downloaded file, then drop the sidecar that produced it."""
         sidecars = sorted(self.cfg.path.rglob(f'*{SIDECAR_SUFFIX}'))
@@ -225,10 +269,20 @@ class Twitter:
             except (OSError, ValueError) as exc:
                 log.warning('Skipping unreadable sidecar %s: %s', sidecar, exc)
                 continue
-            row = parse_sidecar(payload, media_path=media_path, root=self.cfg.path) if isinstance(payload, dict) else None
+            if not isinstance(payload, dict):
+                log.warning('Skipping sidecar without tweet identifiers: %s', sidecar)
+                continue
+
+            root = self._destination_root(str(payload.get('type') or ''))
+            destination = self._destination_path(media_path, root)
+            # Recorded relative to the directory the file actually lives in, which the
+            # media_type column identifies. Parsed before the move so that a sidecar
+            # that turns out not to describe a tweet leaves the file untouched.
+            row = parse_sidecar(payload, media_path=destination, root=root)
             if row is None:
                 log.warning('Skipping sidecar without tweet identifiers: %s', sidecar)
                 continue
+            await asyncio.to_thread(self._relocate, media_path, destination)
 
             await database.query_db(
                 """
@@ -277,6 +331,8 @@ class Twitter:
 
         await self._ensure_table()
         await asyncio.to_thread(self.cfg.path.mkdir, parents=True, exist_ok=True)
+        if self.cfg.video_path is not None:
+            await asyncio.to_thread(self.cfg.video_path.mkdir, parents=True, exist_ok=True)
 
         backfill_complete = await self._backfill_complete()
         with tempfile.TemporaryDirectory() as tmp_dir:
