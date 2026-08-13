@@ -1411,6 +1411,23 @@ def test_azurlane_gives_up_on_ship_detail_after_the_attempt_budget(tmp_path: Pat
     assert fake_db.models['azurlane:painting:javelin:javelin']['completed'] is True
 
 
+def test_azurlane_asset_client_fails_fast_on_a_stalled_connection(tmp_path: Path) -> None:
+    """A stalled CDN connection must not hold the run hostage.
+
+    Models are archived one at a time, so a single asset waiting out the read timeout idles every
+    other concurrency slot. httpx applies this timeout per chunk, so a large file that is still
+    arriving slowly is never cut off -- only a connection that stopped delivering.
+    """
+    crawler = AzurLane(path=tmp_path)
+
+    async def check() -> None:
+        async with crawler._http_client() as client:
+            assert client.timeout.read == azurlane_module._ASSET_READ_TIMEOUT_SECONDS
+            assert client.timeout.read < 60  # noqa: PLR2004
+
+    asyncio.run(check())
+
+
 def test_azurlane_origin_client_disables_connection_reuse(tmp_path: Path) -> None:
     crawler = AzurLane(path=tmp_path, origin_proxy='http://user:pass@proxy.example:8080')
 

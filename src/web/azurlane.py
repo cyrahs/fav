@@ -77,6 +77,13 @@ _CDN_REQUEST_INTERVAL_SECONDS = 0.2
 # managed ~53 assets/minute against a 300/minute ceiling.
 _CDN_CONCURRENCY = 12
 _ASSET_PROCESS_CONCURRENCY = 12
+# Read timeout for CDN assets, and the single biggest lever on how long a full run takes. httpx
+# applies it per chunk, so a large file downloading slowly but steadily is never cut off; what it
+# bounds is a connection that has stopped delivering. Those stalls are the run's dominant cost --
+# 30% of models hit one, and they accounted for 79% of all wall-clock time at 60s, because
+# models are archived one at a time and a single stalled asset idles every other slot. The
+# retry that follows a stall almost always succeeds immediately, so failing fast is nearly free.
+_ASSET_READ_TIMEOUT_SECONDS = 12.0
 _MAX_RETRIES = 3
 _LIMITED_RETRY_ATTEMPTS = 2
 _RETRY_BASE_DELAY_SECONDS = 0.75
@@ -925,7 +932,7 @@ class AzurLane:
             yield self._client
             return
 
-        timeout = httpx.Timeout(60.0, connect=20.0)
+        timeout = httpx.Timeout(_ASSET_READ_TIMEOUT_SECONDS, connect=20.0)
         async with httpx.AsyncClient(follow_redirects=True, headers=_asset_headers(), timeout=timeout) as client:
             yield client
 
