@@ -48,10 +48,10 @@ class JobRequestTarget(StrEnum):
     JANDAN = 'jandan'
     KEMONO = 'kemono'
     NIKKE = 'nikke'
+    REDNOTE = 'rednote'
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
     TWITTER = 'twitter'
-    XIAOHONGSHU = 'xiaohongshu'
 
 
 class JobRequestStatus(StrEnum):

@@ -20,6 +20,7 @@ API_BASE_URL = 'https://api.telegram.org'
 MAX_IMAGE_BYTES = 9_500_000
 MAX_CAPTION_LENGTH = 1024
 MAX_MESSAGE_LENGTH = 4096
+MARKDOWN_V2_SPECIAL_CHARS = frozenset('\\_*[]()~`>#+-=|{}.!')
 
 CONNECT_TIMEOUT_SECONDS = 5.0
 WRITE_TIMEOUT_SECONDS = 30.0
@@ -27,7 +28,21 @@ READ_TIMEOUT_SECONDS = 90.0
 
 _RETRYABLE_STATUS_CODES = frozenset({408, 409, 425, 429})
 _SERVER_ERROR_MIN = 500
-_MARKDOWN_V2_SPECIAL_CHARS = frozenset('\\_*[]()~`>#+-=|{}.!')
+
+
+def escape_markdown_v2(value: str) -> str:
+    """Escape text for the parse mode every send here uses.
+
+    Lives beside the senders because forgetting it is not a formatting bug: Telegram
+    rejects the whole message with a 400, so a single unescaped '.' loses whatever
+    was being sent.
+    """
+    escaped: list[str] = []
+    for char in value:
+        if char in MARKDOWN_V2_SPECIAL_CHARS:
+            escaped.append('\\')
+        escaped.append(char)
+    return ''.join(escaped)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,7 +177,7 @@ async def _send_message(
         plain_text: list[str] = []
         index = 0
         while index < len(text):
-            if text[index] == '\\' and index + 1 < len(text) and text[index + 1] in _MARKDOWN_V2_SPECIAL_CHARS:
+            if text[index] == '\\' and index + 1 < len(text) and text[index + 1] in MARKDOWN_V2_SPECIAL_CHARS:
                 index += 1
             elif text[index] == '*':
                 index += 1
@@ -296,6 +311,48 @@ async def deliver(
             log.warning('Telegram notification %s was delivered but %s', notification.notification_id, warning)
 
     return TelegramDeliveryResult(message_id=message_id, media_status=media_status, warnings=tuple(warnings))
+
+
+async def send_text_now(*, text: str, require_enabled: bool = True) -> int | None:
+    """Send one message immediately, outside the notification outbox.
+
+    The outbox is the right place for anything that can wait. This is for the one
+    thing that cannot: a login prompt that has to reach the user *during* the run
+    that is blocked on it. Queued notifications are only flushed after ``update()``
+    returns, which for a login wait is far too late to be useful.
+    """
+    config = load_config(require_enabled=require_enabled)
+    if config is None:
+        raise TelegramNotConfiguredError
+    client = build_client()
+    try:
+        return await _send_message(
+            client=client,
+            config=config,
+            markdown=escape_markdown_v2(text),
+            disable_notification=False,
+            disable_web_page_preview=True,
+        )
+    finally:
+        await client.aclose()
+
+
+async def send_photo_now(*, photo: tuple[str, bytes, str], caption: str = '', require_enabled: bool = True) -> int | None:
+    """Send one image immediately, outside the outbox. See ``send_text_now``."""
+    config = load_config(require_enabled=require_enabled)
+    if config is None:
+        raise TelegramNotConfiguredError
+    client = build_client()
+    try:
+        return await _send_photo(
+            client=client,
+            config=config,
+            photo=photo,
+            caption=escape_markdown_v2(caption),
+            disable_notification=False,
+        )
+    finally:
+        await client.aclose()
 
 
 async def send_test_notification() -> TelegramDeliveryResult:

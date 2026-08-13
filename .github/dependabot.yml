@@ -1,13 +1,16 @@
 version: 2
 
 updates:
-  # These three are tracked here because they are the dependencies that break for
-  # reasons outside this repository: gallery-dl follows X's private API, yt-dlp
-  # follows Bilibili's and Hanime1's, xhshow follows Xiaohongshu's request signing,
-  # and in every case a release is usually the fix for the site having changed
-  # something. The sooner it lands the sooner the source starts working again, which
-  # is why the interval is daily and there is no cooldown. Everything else is bumped
-  # by hand.
+  # The two downloaders are tracked here because they are the dependencies that break
+  # for reasons outside this repository: gallery-dl follows X's private API, yt-dlp
+  # follows Bilibili's and Hanime1's, and in both cases a release is usually the fix
+  # for the site having changed something. The sooner it lands the sooner the source
+  # starts working again, which is why the interval is daily and there is no cooldown.
+  # Everything else is bumped by hand.
+  #
+  # RedNote used to belong here through `xhshow`, which tracked its request
+  # signing. It does not any more: that source reads the site through a real browser,
+  # so there is no signature to keep up with.
   #
   # Merging is automated in .github/workflows/dependabot-auto-merge.yml, gated on the
   # `test` check that main's branch protection requires. Widening this allow list does
@@ -19,6 +22,5 @@ updates:
     allow:
       - dependency-name: "gallery-dl"
       - dependency-name: "yt-dlp"
-      - dependency-name: "xhshow"
     commit-message:
       prefix: "deps"

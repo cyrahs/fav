@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import database
+from . import database, telegram_bot
 
 STATUS_READ = 'read'
 STATUS_UNREAD = 'unread'
@@ -25,7 +25,6 @@ WEBHOOK_ACTION_UPSERT = 'upsert'
 WEBHOOK_ACTION_RESOLVE = 'resolve'
 
 _SENDING_LEASE_SECONDS = 600
-_MARKDOWN_V2_SPECIAL_CHARS = frozenset('\\_*[]()~`>#+-=|{}.!')
 # Telegram only wants ')' and '\' escaped inside the (...) part of an inline link.
 _MARKDOWN_V2_URL_SPECIAL_CHARS = frozenset('\\)')
 _SCHEMA_READY = False
@@ -165,12 +164,9 @@ def format_job_failure_dedupe_key(*, job_key: str, failure_key: str) -> str:
 
 
 def _escape_markdown_v2(value: str) -> str:
-    escaped: list[str] = []
-    for char in value:
-        if char in _MARKDOWN_V2_SPECIAL_CHARS:
-            escaped.append('\\')
-        escaped.append(char)
-    return ''.join(escaped)
+    # Kept as a local name so the call sites below stay readable; the escaping
+    # itself belongs next to the senders that need it.
+    return telegram_bot.escape_markdown_v2(value)
 
 
 def _escape_markdown_v2_url(value: str) -> str:

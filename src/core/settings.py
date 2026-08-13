@@ -18,7 +18,7 @@ from typing import Any, Literal, Self
 
 import psycopg
 from psycopg.rows import dict_row
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from src.core import logger
 from src.core.env import env
@@ -533,31 +533,60 @@ class Twitter(ScheduleJob):
         return missing
 
 
-class Xiaohongshu(ScheduleJob):
-    """Liked notes on Xiaohongshu, crawled through the signed web API.
+class RedNote(ScheduleJob):
+    """Liked notes on RedNote (小红书), read through a signed-in Chromium profile.
 
-    There is no public read access to a likes list, so the crawl calls the same
-    endpoints the web client does, signed with the ``xhshow`` library and carrying
-    the browser session from CookieCloud. Xiaohongshu's risk control answers a
-    crawl-shaped request pattern with a captcha wall, so the pacing fields below
-    are the difference between a working source and a locked account.
+    There is no public read access to a likes list, and the list is only readable
+    by the account itself, so this source has to drive the user's own account. An
+    earlier revision replayed the session as plain signed HTTP and RedNote
+    answered by invalidating the account everywhere, phone included. Risk control
+    reads IP, device fingerprint and behaviour together, so the browser below is
+    kept logged in and aged on a volume, its traffic leaves through ``proxy``, and
+    the pacing fields are deliberately conservative.
     """
 
-    path: Path = Path('./collection/xiaohongshu')
+    path: Path = Path('./collection/rednote')
     # Where videos land, both whole video notes and the clips inside live photos.
     # Left unset they stay with the images under ``path``.
     video_path: Path | None = None
     cron: str = '0 */6 * * *'
-    # Own profile id. Left empty it is resolved from the session on every run,
-    # which is one extra request; set it to skip that.
+    # The signed-in Chromium profile: cookies, localStorage, history and the device
+    # identity RedNote hands out all live here. It has to be on a volume, or
+    # every run starts from a QR scan.
+    profile_path: Path = Path('./data/rednote-profile')
+    # Egress for xiaohongshu.com. Most datacenter ranges answer HTTP 461, so from a
+    # cluster this points at a residential line. Credentials have to be http(s):
+    # Chromium cannot authenticate to a SOCKS proxy.
+    proxy: str = ''
+    # Deliberate opt-out, for a deployment whose own egress is already residential.
+    # Running this from a datacenter address should be a decision, not a default.
+    allow_direct_connection: bool = False
+    # Send the media downloads through the proxy too. Off because they are
+    # unauthenticated CDN traffic and a home line is not a CDN.
+    proxy_media: bool = False
+    # Own profile id. The likes list lives at /user/profile/<id>; left empty it is
+    # read out of the signed-in page once and remembered.
     user_id: str = ''
-    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
-    # Spacing between every Xiaohongshu request, list pages and note details alike.
+    # Spacing between page loads. RedNote's risk control reads request rhythm,
+    # and this is the field most likely to be worth raising rather than lowering.
     sleep_request_seconds: float = 3.0
     # Consecutive pages of already-archived notes that end an incremental run. The
     # likes list is ordered newest first, so two clean pages mean the run has caught
     # up with what the database already has.
     abort_after: int = 2
+    # A memory valve for the first backfill: the likes grid only grows as it scrolls,
+    # so a run stops after this many pages and the next one picks up where it left
+    # off. Reaching it leaves the backfill marked unfinished, which is what makes
+    # the next run walk past the part already archived.
+    max_pages_per_run: int = 40
+    # How long a run waits at the login screen before giving up. Bounded because the
+    # control-request consumer runs one request at a time, so a longer wait parks
+    # every queued manual trigger behind it.
+    login_wait_seconds: int = 240
+    # Quiet period between login prompts. A QR is dead within minutes, so a 04:00
+    # cron sending one is pure noise.
+    login_prompt_cooldown_seconds: int = 3600
+    headless: bool = True
 
     @field_validator('video_path', mode='before')
     @classmethod
@@ -568,9 +597,9 @@ class Xiaohongshu(ScheduleJob):
             return None
         return value
 
-    @field_validator('user_id')
+    @field_validator('user_id', 'proxy')
     @classmethod
-    def normalize_user_id(cls, value: str) -> str:
+    def normalize_text(cls, value: str) -> str:
         return value.strip()
 
     @field_validator('sleep_request_seconds')
@@ -581,16 +610,26 @@ class Xiaohongshu(ScheduleJob):
             raise ValueError(msg)
         return value
 
-    @field_validator('abort_after')
+    @field_validator('abort_after', 'max_pages_per_run', 'login_wait_seconds')
     @classmethod
-    def validate_abort_after(cls, value: int) -> int:
+    def validate_positive(cls, value: int, info: ValidationInfo) -> int:
         if value < 1:
-            msg = 'abort_after must be greater than or equal to 1'
+            msg = f'{info.field_name} must be greater than or equal to 1'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('login_prompt_cooldown_seconds')
+    @classmethod
+    def validate_login_prompt_cooldown_seconds(cls, value: int) -> int:
+        if value < 0:
+            msg = 'login_prompt_cooldown_seconds cannot be negative'
             raise ValueError(msg)
         return value
 
     def validate_runnable(self) -> list[str]:
-        return [f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable()]
+        # Not a formality: the previous revision ran from a datacenter address and
+        # cost the account its sessions. Going out that way now has to be asked for.
+        return [] if self.proxy or self.allow_direct_connection else ['proxy']
 
 
 class TelegramNotification(BaseModel):
@@ -635,7 +674,7 @@ class Web(BaseModel):
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono = Field(default_factory=Kemono)
     twitter: Twitter = Field(default_factory=Twitter)
-    xiaohongshu: Xiaohongshu = Field(default_factory=Xiaohongshu)
+    rednote: RedNote = Field(default_factory=RedNote)
 
 
 class Settings(BaseModel):
@@ -654,7 +693,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.jandan': Jandan,
     'web.kemono': Kemono,
     'web.twitter': Twitter,
-    'web.xiaohongshu': Xiaohongshu,
+    'web.rednote': RedNote,
     'notifications.telegram': TelegramNotification,
 }
 
@@ -663,7 +702,8 @@ SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.twitter': ('cookiecloud.password',),
-    'web.xiaohongshu': ('cookiecloud.password',),
+    # A proxy URL may carry credentials, and this one points at the user's own line.
+    'web.rednote': ('proxy',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
 }

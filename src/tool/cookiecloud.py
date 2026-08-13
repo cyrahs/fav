@@ -39,18 +39,9 @@ TWITTER_PROFILE = CookieProfile(
     domains=('x.com', 'twitter.com'),
     required_cookies=('auth_token', 'ct0'),
 )
-# ``a1`` is what src/web/xiaohongshu.py signs requests with; ``web_session`` is what
-# makes them read as the logged-in account. Which of the two vault keys carries them
-# depends on the browser extension's version.
-XIAOHONGSHU_PROFILE = CookieProfile(
-    domains=('xiaohongshu.com', '.xiaohongshu.com'),
-    required_cookies=('a1', 'web_session'),
-)
-
 PROFILES: dict[str, CookieProfile] = {
     'bilibili': BILIBILI_PROFILE,
     'twitter': TWITTER_PROFILE,
-    'xiaohongshu': XIAOHONGSHU_PROFILE,
 }
 
 
@@ -121,32 +112,6 @@ class CookieCloudClient:
             log.exception('Request error')
             msg = f'Failed to connect to CookieCloud server: {e}'
             raise ConnectionError(msg) from e
-
-    def get_cookie_dict(self, domain: str | Sequence[str]) -> dict[str, str]:
-        """Name-to-value cookies for one or more domains, for an in-process HTTP client.
-
-        The Netscape file below is for the tools that take a cookie jar on the command
-        line; this is for the sources that sign their own requests and need the values
-        themselves. Domains the vault does not carry are skipped, and a later domain
-        wins a name collision, matching how the file version merges them.
-
-        Args:
-            domain (str or sequence of str): The domain(s) to extract cookies for.
-
-        """
-        domains = (domain,) if isinstance(domain, str) else tuple(domain)
-        cookies = self.get_cookies()
-        matched = [cookies[name] for name in domains if cookies.get(name)]
-        if not matched:
-            msg = f'No cookies found for domain: {", ".join(domains)}'
-            raise ValueError(msg)
-
-        return {
-            str(cookie['name']): str(cookie.get('value') or '')
-            for domain_cookies in matched
-            for cookie in domain_cookies
-            if isinstance(cookie, dict) and cookie.get('name')
-        }
 
     def save_to_netscape_format(self, domain: str | Sequence[str], output_path: str | Path) -> None:
         """Save cookies for one or more domains to Netscape cookie.txt format.

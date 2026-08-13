@@ -17,7 +17,7 @@ const SECTION_LABELS: Record<string, string> = {
   'web.jandan': '煎蛋',
   'web.kemono': 'Kemono',
   'web.twitter': 'X',
-  'web.xiaohongshu': '小红书',
+  'web.rednote': '小红书',
   'notifications.telegram': 'Telegram 通知',
 };
 

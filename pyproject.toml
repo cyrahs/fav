@@ -22,10 +22,6 @@ dependencies = [
     "tenacity>=8.5.0",
     "tqdm>=4.67.1",
     "uvicorn>=0.35.0",
-    # Signs the Xiaohongshu web API (x-s / x-s-common / x-rap-param). Xiaohongshu
-    # rotates that algorithm, so this is the dependency most likely to need an
-    # upgrade before the source starts working again. See src/web/xiaohongshu.py.
-    "xhshow>=0.2.0",
     # The [default] extra is required, not cosmetic: plain `yt-dlp` declares no
     # dependencies at all, leaving out pycryptodomex (encrypted HLS), websockets,
     # certifi, requests/urllib3 and yt-dlp-ejs. The standalone binary this replaced

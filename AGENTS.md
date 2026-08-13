@@ -47,7 +47,8 @@ world-writable.
   an autouse fixture so the suite never needs PostgreSQL.
 - `httpx`, `yt-dlp` and `gallery-dl` all read `HTTP_PROXY` / `HTTPS_PROXY`, so there is no global
   proxy setting. Sources that need to route only their own origin have a per-source proxy field
-  (`web.azurlane.origin_proxy`, `web.twitter.proxy`).
+  (`web.azurlane.origin_proxy`, `web.twitter.proxy`, `web.rednote.proxy` -- the last one is
+  required rather than optional, because RedNote answers datacenter addresses with HTTP 461).
 
 ### Run
 
@@ -88,6 +89,7 @@ A source is a duck type, not a base class. `JobSpec.factory()` must return an ob
   (read-only archive browsing over whitelisted tables/columns), `settings_masking.py`
 - `src/tool/database.py`: async pooled PostgreSQL helpers
 - `src/tool/cookiecloud.py`: fetch + decrypt CookieCloud cookies (Bilibili and X sessions)
+- `src/web/rednote_browser.py`: the signed-in Chromium profile that source reads through
 - `src/tool/notifications.py`, `control_queue.py`, `telegram_bot.py`: the outbox and trigger queue
 - `src/tool/filename.py`: sanitization and `[uploader]title [id].ext` formatting helpers
 - `web/`: React + Vite front end, built to `web/dist` and served by the API
@@ -181,16 +183,23 @@ worker.
 ## Docker
 
 `Dockerfile` builds the front end in a Node stage, then a runtime image carrying `ffmpeg` and a
-Playwright-managed Chromium (used by `src/web/nikke_runtime.py`). The downloaders arrive with the
-virtualenv, whose `bin` is on `PATH`. Configuration comes from environment variables.
+Playwright-managed Chromium (used by `src/web/nikke_runtime.py` and by the signed-in profile in
+`src/web/rednote_browser.py`). The downloaders arrive with the virtualenv, whose `bin` is on
+`PATH`. Configuration comes from environment variables.
 
 ```bash
 docker run --rm \
   --env-file .env \
   -v "$PWD/collection:/app/collection" \
   -v "$PWD/log:/app/log" \
+  -v "$PWD/data:/app/data" \
   fav
 ```
+
+`data/` carries the state that has to outlive the container: the Telethon session and the
+RedNote browser profile. Without it, Telegram re-authorises and RedNote asks for a QR scan
+after every restart. It wants real block storage — a Chromium profile is LevelDB and SQLite, neither
+of which survives NFS locking.
 
 Do not build or run the image locally to verify a change — CI builds it, and the test job gates the
 build. Verify with `uv run pytest` and the commands above instead.

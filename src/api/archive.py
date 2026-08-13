@@ -14,7 +14,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 from src.core import settings
-from src.web.xiaohongshu import build_note_url
+from src.web.rednote import build_note_url
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -98,9 +98,9 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
             subtitle_columns=('author', 'tweet_date'),
         ),
         ArchiveSource(
-            key='xiaohongshu',
-            name='Xiaohongshu',
-            table='xiaohongshu',
+            key='rednote',
+            name='RedNote',
+            table='rednote',
             id_columns=('note_id', 'media_index'),
             title_column='title',
             # xsec_token is not decoration: without it the note only opens for its author.
@@ -140,7 +140,7 @@ _EXTERNAL_URL_BUILDERS: dict[str, Callable[[dict[str, Any]], str | None]] = {
     'jandan': lambda row: str(row['content_url']) if row.get('content_url') else None,
     # /i/status resolves without knowing the author's current handle.
     'twitter': lambda row: f'https://x.com/i/status/{row["tweet_id"]}',
-    'xiaohongshu': lambda row: build_note_url(str(row['note_id']), str(row.get('xsec_token') or '')),
+    'rednote': lambda row: build_note_url(str(row['note_id']), str(row.get('xsec_token') or '')),
 }
 
 
