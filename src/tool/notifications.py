@@ -25,6 +25,8 @@ WEBHOOK_ACTION_UPSERT = 'upsert'
 WEBHOOK_ACTION_RESOLVE = 'resolve'
 
 _SENDING_LEASE_SECONDS = 600
+# Telegram only wants ')' and '\' escaped inside the (...) part of an inline link.
+_MARKDOWN_V2_URL_SPECIAL_CHARS = frozenset('\\)')
 _SCHEMA_READY = False
 _SCHEMA_LOCK = asyncio.Lock()
 
@@ -167,6 +169,15 @@ def _escape_markdown_v2(value: str) -> str:
     return telegram_bot.escape_markdown_v2(value)
 
 
+def _escape_markdown_v2_url(value: str) -> str:
+    escaped: list[str] = []
+    for char in value:
+        if char in _MARKDOWN_V2_URL_SPECIAL_CHARS:
+            escaped.append('\\')
+        escaped.append(char)
+    return ''.join(escaped)
+
+
 def _notification_delivery_fields(
     *,
     kind: str,
@@ -185,12 +196,16 @@ def _notification_delivery_fields(
     is_active_job_failure = kind == 'job_failed' and webhook_action != WEBHOOK_ACTION_RESOLVE
 
     if normalized_title:
-        parts.append(f'*{_escape_markdown_v2(normalized_title)}*')
+        title_markdown = f'*{_escape_markdown_v2(normalized_title)}*'
+        if normalized_link_url:
+            title_markdown = f'[{title_markdown}]({_escape_markdown_v2_url(normalized_link_url)})'
+        parts.append(title_markdown)
     if normalized_body:
         parts.append(_escape_markdown_v2(normalized_body))
     if is_active_job_failure and occurrence_count > 1:
         parts.append(_escape_markdown_v2(f'Occurrences: {occurrence_count}'))
-    if normalized_link_url:
+    # A titleless notification has nothing to carry the link, so it still gets its own line.
+    if normalized_link_url and not normalized_title:
         parts.append(_escape_markdown_v2(normalized_link_url))
 
     return '\n'.join(parts), not bool(normalized_link_url), not is_active_job_failure, is_active_job_failure
