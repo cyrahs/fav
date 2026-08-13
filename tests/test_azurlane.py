@@ -1031,6 +1031,61 @@ def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch:
     assert any(row['url'] == texture_url and row['kind'] == 'live2d.texture' for row in fake_db.model_assets)
 
 
+def test_azurlane_update_recovers_a_painting_stored_under_a_different_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The index says painting/u47_5.webp; only painting/U47_5.webp exists on the CDN."""
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'u47', 'U-47', skins=[_skin(1, 'Default', key='u47_5')])])
+    _seed_ship_detail(fake_db, catalog)
+    indexed = f'{L2D_SU_STATIC_BASE_URL}/painting/u47_5.webp'
+    stored = f'{L2D_SU_STATIC_BASE_URL}/painting/U47_5.webp'
+    model3_url = _live2d_url('u47_5')
+    served = {
+        stored: httpx.Response(200, content=b'painting-bytes', headers={'content-type': 'image/webp'}),
+        model3_url: httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'}),
+        # Names come from _live2d_model3_payload, which the shared helper writes.
+        f'{L2D_SU_STATIC_BASE_URL}/live2d/u47_5/javelin.moc3': httpx.Response(200, content=b'moc'),
+        f'{L2D_SU_STATIC_BASE_URL}/live2d/u47_5/textures/texture_00.webp': httpx.Response(200, content=b'tex'),
+    }
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        requested.append(url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        return served.get(url) or httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=transport)
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    # The URL the source named is tried first and only then the case variant.
+    assert requested.index(indexed) < requested.index(stored)
+    asset = fake_db.assets[indexed]
+    assert asset['status'] == 'downloaded'
+    assert asset['downloaded_url'] == stored
+    assert fake_db.models['azurlane:painting:u47:u47_5']['completed'] is True
+
+
 def test_azurlane_update_completes_a_model_whose_optional_assets_are_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

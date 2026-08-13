@@ -39,6 +39,7 @@ from src.tool.azurlane_l2d_sources import (
     apply_l2d_su_ship_classes,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
+    case_variant_urls,
     enumerate_azurlane_model_resources,
     fetch_source_snapshots,
     l2d_su_character_fingerprint,
@@ -1504,6 +1505,9 @@ class AzurLane:
         candidates = [asset.url]
         if asset.fallback_url and asset.fallback_url not in candidates:
             candidates.append(asset.fallback_url)
+        # Case variants come last, so a real mirror is always preferred over guessing at the
+        # spelling, and they cost nothing until everything named by the source has failed.
+        candidates.extend(url for url in case_variant_urls(asset.url) if url not in candidates)
 
         last_exc: Exception | None = None
         for url in candidates:
