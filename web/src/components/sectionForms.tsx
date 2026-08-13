@@ -315,6 +315,14 @@ function TwitterForm(props: SectionFormProps) {
         error={username && !usernameOk ? '只能包含字母、数字、下划线' : undefined}
       />
       <PathField {...props} />
+      <TextField
+        label="视频保存路径"
+        value={str(props.value, 'video_path')}
+        onChange={(next) => set('video_path', next)}
+        mono
+        placeholder="留空则和图片放在一起"
+        hint="视频和 GIF 单独存放的位置（X 把 GIF 也存成视频）。留空则跟随上面的保存路径。"
+      />
 
       <div className="subsection">
         <h4>CookieCloud 凭据</h4>
@@ -377,6 +385,12 @@ function TwitterForm(props: SectionFormProps) {
               checked={bool(props.value, 'include_retweets', true)}
               onChange={(next) => set('include_retweets', next)}
               hint="点赞的转推按原作者归档"
+            />
+            <CheckboxField
+              label="包含视频"
+              checked={bool(props.value, 'include_videos', true)}
+              onChange={(next) => set('include_videos', next)}
+              hint="关闭后只抓图片；GIF 算视频"
             />
           </div>
         </div>
