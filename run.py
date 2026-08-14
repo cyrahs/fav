@@ -178,6 +178,12 @@ async def _enqueue_job_failed_notification(
     elapsed_seconds: float,
     exc: BaseException,
 ) -> None:
+    # The outbox gates on the notification's own source, and this one is the worker
+    # rather than the job that failed, so the job's toggle is applied here.
+    if not job.notify:
+        log.debug('Notifications are off for %s; not reporting its failure', job.key)
+        return
+
     error_message = _format_exception(exc)
     dedupe_key = _exception_notification_dedupe_key(job=job, exc=exc)
     try:

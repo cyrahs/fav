@@ -46,6 +46,9 @@ class ScheduleJob(BaseModel):
     # Defaults are off so an unconfigured deployment starts up idle instead of
     # crawling with placeholder credentials.
     enabled: bool = False
+    # Notifications default on: a source that runs is expected to report what it
+    # found, so staying quiet is the deliberate choice rather than the accident.
+    notify: bool = True
 
     @field_validator('cron')
     @classmethod
@@ -812,6 +815,17 @@ def invalidate_cache() -> None:
     global _cache
     with _cache_lock:
         _cache = None
+
+
+def notify_enabled(source: str) -> bool:
+    """Whether ``source``'s notifications should be queued at all.
+
+    ``source`` is a job key from ``JOB_SPECS``, which is also its field name on
+    ``Web``. Anything else -- ``worker``, say -- is not a source toggle and is
+    left alone; those call sites gate themselves where they know the job.
+    """
+    job = getattr(load().web, source.strip().lower(), None)
+    return job.notify if isinstance(job, ScheduleJob) else True
 
 
 def load_section(section: str) -> BaseModel:

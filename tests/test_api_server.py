@@ -85,12 +85,13 @@ class _RuntimeService:
         return None
 
 
-def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
+def _job(*, key: str, enabled: bool = True, notify: bool = True) -> ScheduledJob:
     return ScheduledJob(
         key=key,
         name=key.title(),
         cron='*/30 * * * *',
         enabled=enabled,
+        notify=notify,
         required_commands=(),
         factory=object,
         section=f'web.{key}',
@@ -435,7 +436,7 @@ def test_jobs_endpoint_rejects_invalid_token() -> None:
 def test_jobs_endpoint_returns_registered_jobs() -> None:
     service = _build_service(
         token=_VALID_TOKEN,
-        jobs=[_job(key='bilibili', enabled=True), _job(key='telegram', enabled=False)],
+        jobs=[_job(key='bilibili', enabled=True), _job(key='telegram', enabled=False, notify=False)],
     )
 
     with TestClient(create_app(service=service)) as client:
@@ -448,6 +449,7 @@ def test_jobs_endpoint_returns_registered_jobs() -> None:
                 'key': 'bilibili',
                 'name': 'Bilibili',
                 'enabled': True,
+                'notify': True,
                 'cron': '*/30 * * * *',
                 'section': 'web.bilibili',
                 'missing_fields': [],
@@ -456,6 +458,7 @@ def test_jobs_endpoint_returns_registered_jobs() -> None:
                 'key': 'telegram',
                 'name': 'Telegram',
                 'enabled': False,
+                'notify': False,
                 'cron': '*/30 * * * *',
                 'section': 'web.telegram',
                 'missing_fields': [],

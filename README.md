@@ -30,8 +30,9 @@ RedNote's is required rather than optional, see below.
 
 ### Database-backed settings
 
-Everything else — per-source `enabled`, `cron`, paths, Bilibili and Telegram accounts, Kemono
-creators, Hanime1 ranking, and notification delivery — is stored per section in `app_settings`:
+Everything else — per-source `enabled`, `notify`, `cron`, paths, Bilibili and Telegram accounts,
+Kemono creators, Hanime1 ranking, and notification delivery — is stored per section in
+`app_settings`:
 
 ```sql
 CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
@@ -39,6 +40,11 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
 `web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.rednote`, `notifications.telegram`.
+
+Every `web.*` section carries `cron`, `enabled` and `notify`, all three edited on the jobs page
+rather than the settings page. `notify` defaults to true and covers everything that source sends to
+Telegram — its per-item and per-run reports as well as its job-failure alerts — so a source that
+runs often can be kept running quietly. It is per source, not per notification kind.
 
 #### Bilibili accounts
 
@@ -260,7 +266,8 @@ UI cannot shuffle credentials between them; the same holds for Bilibili's per-ac
 password.
 
 The worker polls `app_settings` every 15 seconds and reschedules APScheduler jobs in place, so
-`enabled` and `cron` changes apply without a restart.
+`enabled` and `cron` changes apply without a restart. `notify` is read when a notification is
+queued, so it applies to the next message either way.
 
 **Known limitation:** the Telegram realtime listener is created at process start. Toggling
 `web.telegram.enabled` at runtime only affects its cron reconciliation job; the listener still needs
@@ -272,9 +279,10 @@ a worker restart.
 exists (API-only otherwise). Pages: overview, archive records, jobs, settings. Cron fields show a
 live natural-language description of the expression.
 
-The jobs page owns `cron` and `enabled` for every source, plus manual 立即运行. Sources with an
+The jobs page owns `cron`, `enabled` and `notify` for every source, plus manual 立即运行. Sources with an
 incomplete configuration cannot be enabled: the toggle is disabled and `PUT /api/v2/settings/{section}`
-answers `422 incomplete_settings` with the missing field names.
+answers `422 incomplete_settings` with the missing field names. 通知 has no such restriction — it is
+saved on an incomplete source like any other field.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels
@@ -405,6 +413,12 @@ switching `enabled` on:
 The test button sends through the **saved** credentials, not the form draft, so save before testing.
 If delivery is disabled or incomplete, notifications stay queued and an unconfigured deployment
 still boots.
+
+`enabled` here is the delivery switch for the whole outbox; `web.<source>.notify` on the jobs page
+is the per-source one. A muted source is dropped when the notification is queued rather than when it
+is delivered — nothing accumulates for it, and turning it back on does not replay what was silenced.
+The one thing that ignores the toggle is RedNote's login QR, which goes straight to Telegram
+(`send_photo_now`) because it is a prompt the source cannot run without, not a report on a run.
 
 
 ### Azur Lane
