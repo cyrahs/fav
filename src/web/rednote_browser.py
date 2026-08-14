@@ -157,6 +157,32 @@ _NOTE_STATE_SCRIPT = """(id) => {
     return (entry && entry.note) || null;
 }"""
 
+# The liked tab arrives with its first screenful already in the page -- server
+# rendered, no request involved. Reading only intercepted XHRs therefore starts at
+# whatever comes *after* them, which is to say it skips the newest likes: exactly the
+# ones an incremental run exists to pick up. The entries are shaped differently from
+# the XHR envelope, so they are renamed here to the field names it uses.
+_INITIAL_LIKES_SCRIPT = """() => {
+    const unwrap = (v) => (v && typeof v === 'object' && '_value' in v) ? v._value : v;
+    const user = (window.__INITIAL_STATE__ || {}).user || {};
+    const buckets = unwrap(user.notes);
+    if (!Array.isArray(buckets)) { return []; }
+    const tab = unwrap(user.activeTab) || {};
+    // The buckets are per tab and mostly empty; prefer the active one and fall back
+    // to whichever has anything, rather than to a hardcoded index.
+    const active = Array.isArray(buckets[tab.index]) && buckets[tab.index].length ? buckets[tab.index] : null;
+    const bucket = active || buckets.find((b) => Array.isArray(b) && b.length) || [];
+    return bucket.map((entry) => {
+        const card = (entry && entry.noteCard) || {};
+        return {
+            note_id: String(card.noteId || (entry && entry.id) || ''),
+            xsec_token: String((entry && entry.xsecToken) || card.xsecToken || ''),
+            display_title: String(card.displayTitle || ''),
+            type: String(card.type || ''),
+        };
+    }).filter((n) => n.note_id);
+}"""
+
 _WEBDRIVER_INIT_SCRIPT = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
 
 _USER_AGENT_HINTS_SCRIPT = """async () => {
@@ -190,6 +216,7 @@ class NoteBrowser(Protocol):
     async def user_agent(self) -> str: ...
     async def reload_login(self) -> None: ...
     async def open_likes(self, *, user_id: str) -> bool: ...
+    async def initial_like_notes(self) -> list[dict[str, Any]]: ...
     async def next_like_page(self, *, timeout_seconds: float) -> dict[str, Any] | None: ...
     async def note_state(self, *, note_url: str, note_id: str) -> dict[str, Any]: ...
 
@@ -691,6 +718,11 @@ class PlaywrightNoteBrowser:
             return True
         log.warning('RedNote could not find the liked tab (tried %s) on the profile page', ', '.join(LIKED_TAB_LABELS))
         return False
+
+    async def initial_like_notes(self) -> list[dict[str, Any]]:
+        """The liked notes the page was served with, before any request was made."""
+        result = await self._page.evaluate(_INITIAL_LIKES_SCRIPT)
+        return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
 
     async def next_like_page(self, *, timeout_seconds: float) -> dict[str, Any] | None:
         deadline = time.monotonic() + timeout_seconds

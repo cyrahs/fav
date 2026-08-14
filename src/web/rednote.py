@@ -839,6 +839,21 @@ class RedNote:
 
     # ---------- reading the account ----------
 
+    async def _initial_like_page(self, browser: NoteBrowser) -> tuple[list[NoteRef], str, bool] | None:
+        """The likes the page was served with, as a page in the same shape as the rest.
+
+        Carries no cursor, because it was never fetched with one -- and it needs none:
+        the cursor is only used to recognise a page the site sent twice, and this one
+        cannot be sent twice.
+        """
+        raw = await browser.initial_like_notes()
+        notes, _cursor, _has_more = extract_like_page({'notes': raw})
+        if not notes:
+            log.debug('RedNote found no pre-rendered likes on the profile page')
+            return None
+        log.info('RedNote read %d likes rendered into the page itself', len(notes))
+        return notes, '', True
+
     async def _next_like_page(self, browser: NoteBrowser) -> tuple[list[NoteRef], str, bool] | None:
         """One page of the likes list, taken from the browser's own XHR."""
         captured = await browser.next_like_page(timeout_seconds=_LIKE_PAGE_TIMEOUT_SECONDS)
@@ -1109,10 +1124,15 @@ class RedNote:
 
         log.info('RedNote walking the likes list (backfill_complete=%s)', backfill_complete)
         await browser.open_likes(user_id=self.user_id)
+        # The page arrives with its first screenful of likes already rendered into it,
+        # so the first request the site makes is for what comes *after* them. Reading
+        # only the requests would skip the newest likes -- the ones an incremental run
+        # exists for -- and then stop on `abort_after` having archived none of them.
+        pending_first = await self._initial_like_page(browser)
 
         while page_index < self.cfg.max_pages_per_run:
             page_index += 1
-            page = await self._next_like_page(browser)
+            page, pending_first = (pending_first, None) if pending_first is not None else (await self._next_like_page(browser), None)
             if page is None:
                 # Scrolling stopped producing. Not the same as reaching the end, so
                 # the backfill stays unfinished and the next run walks again.

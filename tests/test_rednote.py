@@ -84,11 +84,13 @@ class _FakeBrowser:
         *,
         probes: list[dict] | None = None,
         pages: list[dict] | None = None,
+        initial_notes: list[dict] | None = None,
         notes: dict[str, dict] | None = None,
         user_agent: str = 'Mozilla/5.0 (Test) Chrome/149.0.0.0',
     ) -> None:
         self.probes = probes or [{'logged_in': True, 'user_id': 'me'}]
         self.pages = list(pages or [])
+        self.initial_notes = list(initial_notes or [])
         self.notes = notes or {}
         self._user_agent = user_agent
         self.cookies = {'web_session': 'session-value'}
@@ -126,6 +128,9 @@ class _FakeBrowser:
 
     async def open_likes(self, *, user_id: str) -> None:
         self.opened_likes.append(user_id)
+
+    async def initial_like_notes(self) -> list[dict]:
+        return list(self.initial_notes)
 
     async def next_like_page(self, *, timeout_seconds: float) -> dict | None:
         return self.pages.pop(0) if self.pages else None
@@ -1134,6 +1139,33 @@ def test_a_deleted_note_is_told_apart_from_a_bad_night() -> None:
 
 def _resolved_note_ids(fake_db: _FakeDatabase) -> list[str]:
     return [row[0] for _table, _columns, rows, _conflict in fake_db.inserted for row in rows]
+
+
+def test_the_newest_likes_arrive_with_the_page_and_are_not_skipped(monkeypatch) -> None:
+    """The liked tab is served with its first screenful already rendered into it.
+
+    So the first request the site makes is for what comes *after* those, and a crawl
+    reading only requests starts below the newest likes -- the ones an incremental run
+    exists to collect. It would then meet `abort_after` pages of already-archived
+    notes and stop, having picked up none of them, on every run, forever.
+    """
+    database = _FakeDatabase(backfill_complete=True)
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    browser = _FakeBrowser(
+        initial_notes=[{'note_id': 'newest-1', 'xsec_token': 'T1'}, {'note_id': 'newest-2', 'xsec_token': 'T2'}],
+        pages=[_like_page([{'note_id': 'older-1', 'xsec_token': 'T3'}], cursor='c1')],
+        notes={note: _image_note_card() for note in ('newest-1', 'newest-2', 'older-1')},
+    )
+    job = _job(browser=browser)
+
+    _run(job, job._crawl(browser))
+
+    archived = [row[0] for insert in database.inserted for row in insert[2]]
+    assert 'newest-1' in archived
+    assert 'newest-2' in archived
+    # And the requested pages are still walked after them.
+    assert 'older-1' in archived
 
 
 def test_the_crawl_stops_once_it_has_caught_up(monkeypatch) -> None:
