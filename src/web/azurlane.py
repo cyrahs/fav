@@ -269,11 +269,10 @@ CREATE TABLE IF NOT EXISTS azurlane_model_assets (
     PRIMARY KEY (model_id, url, kind, context_hash)
 );
 
-CREATE INDEX IF NOT EXISTS azurlane_models_character_key_idx ON azurlane_models (character_key);
-CREATE INDEX IF NOT EXISTS azurlane_models_retry_idx ON azurlane_models (next_retry_at);
-CREATE INDEX IF NOT EXISTS azurlane_assets_sha256_size_idx ON azurlane_assets (sha256, size);
-CREATE INDEX IF NOT EXISTS azurlane_assets_status_retry_idx ON azurlane_assets (status, next_retry_at);
-CREATE INDEX IF NOT EXISTS azurlane_model_assets_model_id_idx ON azurlane_model_assets (model_id);
+-- Columns first, indexes second. On a database that predates a column, the CREATE TABLE above is a
+-- no-op and the ALTER is the only thing that adds it, so an index naming that column has to wait
+-- until after the whole ALTER block or it fails with UndefinedColumn -- and takes the rest of the
+-- script, including the ALTER that would have fixed it, down with it on every run.
 ALTER TABLE azurlane_models ADD COLUMN IF NOT EXISTS failed_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE azurlane_models ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE azurlane_models ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
@@ -284,6 +283,11 @@ ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 
 ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
 ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 ALTER TABLE azurlane_model_assets ADD COLUMN IF NOT EXISTS fallback_url TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS azurlane_models_character_key_idx ON azurlane_models (character_key);
+CREATE INDEX IF NOT EXISTS azurlane_models_retry_idx ON azurlane_models (next_retry_at);
+CREATE INDEX IF NOT EXISTS azurlane_assets_sha256_size_idx ON azurlane_assets (sha256, size);
+CREATE INDEX IF NOT EXISTS azurlane_assets_status_retry_idx ON azurlane_assets (status, next_retry_at);
+CREATE INDEX IF NOT EXISTS azurlane_model_assets_model_id_idx ON azurlane_model_assets (model_id);
 """
 
 

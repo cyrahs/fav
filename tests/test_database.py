@@ -1,10 +1,27 @@
 # ruff: noqa: INP001, S101
 
 import asyncio
+import re
+from pathlib import Path
 
 import pytest
 
 from src.tool import database
+
+_ADDED_COLUMN = re.compile(r'ALTER TABLE\s+(\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)', re.IGNORECASE)
+_CREATED_INDEX = re.compile(r'CREATE INDEX[^;]*?\bON\s+(\w+)\s*\(([^)]*)\)', re.IGNORECASE | re.DOTALL)
+
+
+def _index_before_column_offenders(source: str) -> list[str]:
+    offenders: list[str] = []
+    for column in _ADDED_COLUMN.finditer(source):
+        table, name = column.group(1), column.group(2)
+        for index in _CREATED_INDEX.finditer(source):
+            columns = index.group(2)
+            if index.group(1) != table or index.start() > column.start() or not re.search(rf'\b{name}\b', columns):
+                continue
+            offenders.append(f'index on {table} ({columns.strip()}) precedes ADD COLUMN {name}')
+    return offenders
 
 
 def test_advisory_lock_id_is_stable_signed_bigint() -> None:
@@ -120,3 +137,18 @@ def test_query_db_batch_propagates_result_count_mismatch(monkeypatch: pytest.Mon
 
     with pytest.raises(ValueError, match='batch result mismatch'):
         asyncio.run(database.query_db_batch(statements, chunk_size=50, max_bind_params=2))
+
+
+def test_schema_scripts_add_columns_before_indexing_them() -> None:
+    """Every source owns its schema as one script, so statement order is the only migration there is.
+
+    A column added later reaches an existing database through its ALTER alone -- the CREATE TABLE is
+    a no-op by then -- so an index naming that column has to come after the ALTER. Placed before it,
+    the index fails with UndefinedColumn and takes the rest of the script down with it, including the
+    ALTER that would have fixed the table, which leaves the source failing on every run forever.
+    """
+    offenders: list[str] = []
+    for path in sorted((Path(__file__).resolve().parent.parent / 'src').rglob('*.py')):
+        offenders.extend(f'{path.name}: {offender}' for offender in _index_before_column_offenders(path.read_text(encoding='utf-8')))
+
+    assert offenders == []
