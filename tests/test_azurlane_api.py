@@ -336,6 +336,80 @@ def _add_painting_azurlane_character(root: Path, *, default_skin_id: int | None)
     )
 
 
+def _add_layered_painting_character(root: Path) -> str:
+    """A painting whose sheet is tight-packed, so it ships with an index, layers and meshes."""
+    character_root = root / 'xiafei - Richelieu'
+    model_id = 'azurlane:painting:xiafei:xiafei_4'
+    files = (
+        ('assets/painting/xiafei_4/xiafei_4.json', 'painting.index', b'{}'),
+        ('assets/painting/xiafei_4/xiafei_4.webp', 'painting.image', b'sheet'),
+        ('assets/painting/xiafei_4/painting/xiafei_4_rw.webp', 'painting.layer', b'layer'),
+        ('assets/painting/xiafei_4/painting/xiafei_4_rw-mesh.obj', 'painting.mesh', b'g mesh\n'),
+    )
+    assets = []
+    for path, kind, body in files:
+        _write_asset(character_root / path, body)
+        assets.append(_asset(path, body=body, kind=kind, context={'model_id': model_id, 'painting_field': kind.split('.')[1]}))
+
+    painting_index = {
+        'painting_key': 'xiafei_4',
+        'index_url': 'https://static.example/painting/xiafei_4.json',
+        'layers': [
+            {'name': 'xiafei_4', 'size': [4574.0, 2866.0], 'rawSize': [2048.0, 1283.0], 'position': [0.0, 0.0], 'raw': True},
+            {'name': 'xiafei_4_rw', 'size': [2000.0, 2048.0], 'rawSize': [2000.0, 2048.0], 'position': [10.0, 272.0], 'raw': False},
+        ],
+        'face': {'name': 'face', 'size': [372.0, 374.0], 'position': [-406.4, 596.8]},
+    }
+    _write_json(
+        character_root / 'manifest.json',
+        {
+            'schema_version': 1,
+            'source': 'azurlane',
+            'character_key': 'xiafei',
+            'name_en': 'Richelieu',
+            'source_metadata': {'sources': ['l2d.su']},
+            'active': True,
+            'model_counts': {'live2d': 0, 'spine': 0, 'painting': 1, 'total': 1},
+            'asset_counts': {kind: 1 for _, kind, _ in files},
+            'models': [
+                {
+                    'model_id': model_id,
+                    'type': 'painting',
+                    'source': 'l2d.su',
+                    'character_key': 'xiafei',
+                    'costume': {'key': 'xiafei_4', 'id': 10, 'name_zh': '', 'name_en': 'Richelieu'},
+                    'source_urls': {'primary': '', 'fallback': '', 'display_info': ''},
+                    'availability': {'archive_state': 'complete'},
+                    'source_metadata': {'id': model_id, 'painting_index': painting_index},
+                    'assets': assets,
+                    'asset_counts': {kind: 1 for _, kind, _ in files},
+                },
+            ],
+        },
+    )
+    return model_id
+
+
+def test_azurlane_painting_files_expose_the_index_layers_and_meshes(tmp_path: Path) -> None:
+    model_id = _add_layered_painting_character(tmp_path)
+    library = AzurLaneLibrary(tmp_path)
+
+    model = next(item for item in library.get_character('xiafei')['models'] if item['model_id'] == model_id)
+
+    files = model['files']
+    assert files['index']['path'] == 'assets/painting/xiafei_4/xiafei_4.json'
+    assert files['image']['path'] == 'assets/painting/xiafei_4/xiafei_4.webp'
+    # Pairing is by basename: layer `x_rw.webp` is unpacked by mesh `x_rw-mesh.obj`.
+    assert [asset['path'] for asset in files['layers']] == ['assets/painting/xiafei_4/painting/xiafei_4_rw.webp']
+    assert [asset['path'] for asset in files['meshes']] == ['assets/painting/xiafei_4/painting/xiafei_4_rw-mesh.obj']
+    assert all(asset['available'] for asset in (files['index'], files['image'], *files['layers'], *files['meshes']))
+
+    layers = model['source_metadata']['painting_index']['layers']
+    assert [layer['name'] for layer in layers] == ['xiafei_4', 'xiafei_4_rw']
+    assert layers[0]['raw'] is True
+    assert model['source_metadata']['painting_index']['face']['size'] == [372.0, 374.0]
+
+
 def test_azurlane_summary_icon_prefers_the_default_skin_square_icon(tmp_path: Path) -> None:
     _add_painting_azurlane_character(tmp_path, default_skin_id=22)
     library = AzurLaneLibrary(tmp_path)

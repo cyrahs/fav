@@ -218,6 +218,12 @@ class FakeAzurLaneDatabase:
                 availability_state,
                 source_metadata,
             ) = params
+            metadata = json.loads(str(source_metadata))
+            # Mirrors the upsert's CASE: geometry merged in during the download phase outlives
+            # the catalog refresh that starts every run.
+            stored_index = self.models.get(str(model_id), {}).get('source_metadata', {}).get('painting_index')
+            if isinstance(stored_index, dict):
+                metadata['painting_index'] = stored_index
             self.models[str(model_id)] = {
                 'model_id': model_id,
                 'model_type': model_type,
@@ -231,13 +237,17 @@ class FakeAzurLaneDatabase:
                 'fallback_url': fallback_url,
                 'display_info_url': display_info_url,
                 'availability_state': availability_state,
-                'source_metadata': json.loads(str(source_metadata)),
+                'source_metadata': metadata,
                 'active': True,
                 'completed': False,
             }
             return []
         if sql.startswith('UPDATE azurlane_models SET fetched_at'):
             self.models[str(params[0])]['completed'] = False
+            return []
+        if sql.startswith('UPDATE azurlane_models SET source_metadata = source_metadata ||'):
+            source_metadata, model_id = params
+            self.models[str(model_id)].setdefault('source_metadata', {}).update(json.loads(str(source_metadata)))
             return []
         if sql.startswith('UPDATE azurlane_characters SET completed_at'):
             self.characters[str(params[0])]['completed'] = True
@@ -419,9 +429,25 @@ def _painting_url(key: str) -> str:
     return f'{L2D_SU_STATIC_BASE_URL}/painting/{key}.webp'
 
 
+def _painting_index_payload(painting_key: str, *, layers: dict[str, dict[str, Any]] | None = None) -> str:
+    payload: dict[str, Any] = layers or {painting_key: {'size': [1020, 992], 'rawSize': [1024, 682], 'position': [0, 0]}}
+    payload['face'] = {'size': [100, 100], 'pivot': [0.5, 0.5], 'position': [0, 0]}
+    return json.dumps(payload)
+
+
 def _painting_response(url: str) -> httpx.Response | None:
-    if url.startswith(f'{L2D_SU_STATIC_BASE_URL}/painting/') and url.endswith('.webp'):
+    """The three files a painting is made of, as the CDN serves them."""
+    prefix = f'{L2D_SU_STATIC_BASE_URL}/painting/'
+    if not url.startswith(prefix):
+        return None
+    name = url.removeprefix(prefix)
+    if name.endswith('-mesh.obj'):
+        return httpx.Response(200, content=b'g mesh\nv 0 0 0\n', headers={'content-type': 'application/x-tgif'})
+    if name.endswith('.webp'):
         return httpx.Response(200, content=b'painting-bytes', headers={'content-type': 'image/webp'})
+    if name.endswith('.json'):
+        payload = _painting_index_payload(name.removesuffix('.json'))
+        return httpx.Response(200, text=payload, headers={'content-type': 'application/json'})
     return None
 
 
@@ -591,7 +617,14 @@ def test_azurlane_update_downloads_live2d_assets(tmp_path: Path, monkeypatch: py
     assert (root / 'assets/live2d/javelin/javelin.moc3').read_bytes() == b'moc-bytes'
     assert (root / 'assets/live2d/javelin/textures/texture_00.webp').read_bytes() == b'webp-bytes'
     assert (root / 'assets/painting/javelin/javelin.webp').read_bytes() == b'painting-bytes'
-    assert {row['kind'] for row in fake_db.model_assets} == {'live2d.model3', 'live2d.moc3', 'live2d.texture', 'painting.image'}
+    assert {row['kind'] for row in fake_db.model_assets} == {
+        'live2d.model3',
+        'live2d.moc3',
+        'live2d.texture',
+        'painting.index',
+        'painting.image',
+        'painting.mesh',
+    }
     assert fake_db.assets[texture_url]['status'] == 'downloaded'
 
 
@@ -850,7 +883,14 @@ def test_azurlane_update_downloads_spine_assets(tmp_path: Path, monkeypatch: pyt
     assert (root / 'assets/spine/iris_2/iris_2.skel').read_bytes() == b'skel-bytes'
     assert (root / 'assets/spine/iris_2/iris_2.atlas').read_text(encoding='utf-8') == atlas_text
     assert (root / 'assets/spine/iris_2/iris_2.webp').read_bytes() == b'texture-bytes'
-    assert {row['kind'] for row in fake_db.model_assets} == {'spine.skel', 'spine.atlas', 'spine.texture', 'painting.image'}
+    assert {row['kind'] for row in fake_db.model_assets} == {
+        'spine.skel',
+        'spine.atlas',
+        'spine.texture',
+        'painting.index',
+        'painting.image',
+        'painting.mesh',
+    }
 
 
 def test_azurlane_update_downloads_multi_part_spine_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -917,7 +957,15 @@ def test_azurlane_update_downloads_multi_part_spine_model(tmp_path: Path, monkey
     assert (root / 'assets/spine/iris_2/iris_2B.skel').read_bytes() == b'skel-bytes'
     assert (root / 'assets/spine/iris_2/iris_2T.webp').read_bytes() == b'texture-bytes'
     assert not (root / 'assets/spine/iris_2/iris_2.skel').exists()
-    assert {row['kind'] for row in fake_db.model_assets} == {'spine.parts', 'spine.skel', 'spine.atlas', 'spine.texture', 'painting.image'}
+    assert {row['kind'] for row in fake_db.model_assets} == {
+        'spine.parts',
+        'spine.skel',
+        'spine.atlas',
+        'spine.texture',
+        'painting.index',
+        'painting.image',
+        'painting.mesh',
+    }
     assert [row['kind'] for row in fake_db.model_assets].count('spine.skel') == len(skeleton_urls)
 
 
@@ -1223,6 +1271,201 @@ def test_azurlane_update_downloads_painting_faces_icons_and_voices(  # noqa: C90
     voice_rows = [row for row in fake_db.model_assets if row['kind'] == 'voice.audio']
     assert voice_rows[0]['context_json']['text'] == '嗯'
     assert voice_rows[0]['context_json']['voice_path'] == 'cue/cv-1/detail'
+
+
+def _live2d_response(url: str) -> httpx.Response | None:
+    """Whatever the live2d skin needs; these tests are about the painting beside it."""
+    if not url.startswith(f'{L2D_SU_STATIC_BASE_URL}/live2d/'):
+        return None
+    if url.endswith('.model3.json'):
+        return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+    return httpx.Response(200, content=b'live2d-bytes', headers={'content-type': 'application/octet-stream'})
+
+
+def _xiafei_layers() -> dict[str, dict[str, Any]]:
+    return {
+        'xiafei_4': {'size': [4574, 2866], 'pivot': [0.49, 0.66], 'position': [0, 0], 'rawSize': [2048, 1283], 'raw': True},
+        'xiafei_4_rw': {'size': [2000, 2048], 'pivot': [0.49, 0.66], 'position': [10, 272], 'rawSize': [2000, 2048]},
+    }
+
+
+def test_azurlane_update_archives_painting_layers_and_meshes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The packed sheet alone is not artwork: the index, the sibling layers and their meshes reassemble it."""
+    fake_db = _install_fake_database(monkeypatch)
+    index_url = f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4.json'
+    catalog = _ship_index_payload([_ship(1, 'xiafei', 'Richelieu', skins=[_skin(1, 'Skin', key='xiafei_4')])])
+    _seed_ship_detail(fake_db, catalog)
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        requested.append(f'{request.method} {url}')
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        if url == index_url:
+            payload = _painting_index_payload('xiafei_4', layers=_xiafei_layers())
+            return httpx.Response(200, text=payload, headers={'content-type': 'application/json'})
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        live2d_response = _live2d_response(url)
+        if live2d_response is not None:
+            return live2d_response
+        return httpx.Response(404)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    root = tmp_path / 'xiafei - Richelieu'
+    model = fake_db.models['azurlane:painting:xiafei:xiafei_4']
+    assert model['completed'] is True
+    assert (root / 'assets/painting/xiafei_4/xiafei_4.json').exists()
+    assert (root / 'assets/painting/xiafei_4/xiafei_4.webp').read_bytes() == b'painting-bytes'
+    assert (root / 'assets/painting/xiafei_4/painting/xiafei_4_rw.webp').read_bytes() == b'painting-bytes'
+    assert (root / 'assets/painting/xiafei_4/painting/xiafei_4_rw-mesh.obj').read_bytes() == b'g mesh\nv 0 0 0\n'
+    # xiafei_4 is `raw: true`, so it is stored unpacked and has no mesh to ask for.
+    assert f'GET {L2D_SU_STATIC_BASE_URL}/painting/xiafei_4-mesh.obj' not in requested
+
+    painting_index = model['source_metadata']['painting_index']
+    assert painting_index['painting_key'] == 'xiafei_4'
+    assert [layer['name'] for layer in painting_index['layers']] == ['xiafei_4', 'xiafei_4_rw']
+    assert painting_index['layers'][0]['raw'] is True
+    assert painting_index['layers'][1]['rawSize'] == [2000.0, 2048.0]
+    assert painting_index['face']['size'] == [100.0, 100.0]
+
+    manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+    painting_model = next(item for item in manifest['models'] if item['type'] == 'painting')
+    assert painting_model['source_metadata']['painting_index']['layers'][1]['position'] == [10.0, 272.0]
+    assert painting_model['asset_counts']['painting.mesh'] == 1
+
+
+def test_azurlane_update_rejects_a_mesh_answered_with_the_site_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mesh the CDN does not host comes back as 200 text/html, which must never be stored as an .obj."""
+    fake_db = _install_fake_database(monkeypatch)
+    mesh_url = f'{L2D_SU_STATIC_BASE_URL}/painting/biaoqiang-mesh.obj'
+    catalog = _ship_index_payload([_ship(1, 'biaoqiang', 'Javelin', skins=[_skin(1, 'Default', key='biaoqiang')])])
+    _seed_ship_detail(fake_db, catalog)
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        requested.append(f'{request.method} {url}')
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        if url.endswith('-mesh.obj'):
+            return httpx.Response(200, text='<!doctype html><html><body>l2d.su</body></html>', headers={'content-type': 'text/html'})
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        live2d_response = _live2d_response(url)
+        if live2d_response is not None:
+            return live2d_response
+        return httpx.Response(404)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    root = tmp_path / 'biaoqiang - Javelin'
+    assert not (root / 'assets/painting/biaoqiang/painting/biaoqiang-mesh.obj').exists()
+    assert fake_db.assets[mesh_url]['status'] == 'failed'
+    assert 'Wavefront OBJ' in fake_db.assets[mesh_url]['last_error']
+    # The answer is definite, so it is not retried -- and it must not read as a CDN block
+    # either, or five missing meshes would pause the whole run.
+    assert requested.count(f'GET {mesh_url}') == 1
+    # A mesh is a companion file: losing it costs the reassembly, not the model.
+    assert fake_db.models['azurlane:painting:biaoqiang:biaoqiang']['completed'] is True
+
+
+def test_azurlane_update_keeps_a_stored_painting_index_when_the_cdn_copy_is_gone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    catalog = _ship_index_payload([_ship(1, 'biaoqiang', 'Javelin', skins=[_skin(1, 'Default', key='biaoqiang')])])
+    _seed_ship_detail(fake_db, catalog)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        live2d_response = _live2d_response(url)
+        if live2d_response is not None:
+            return live2d_response
+        if url.startswith(f'{L2D_SU_STATIC_BASE_URL}/painting/') and url.endswith('.json'):
+            return httpx.Response(404)
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        return httpx.Response(404)
+
+    model_id = 'azurlane:painting:biaoqiang:biaoqiang'
+    fake_db.models[model_id] = {
+        'model_id': model_id,
+        'model_type': 'painting',
+        'character_key': 'biaoqiang',
+        'costume_key': 'biaoqiang',
+        'costume_id': 1,
+        'primary_url': _painting_url('biaoqiang'),
+        'source_metadata': {'painting_index': {'painting_key': 'biaoqiang', 'layers': [{'name': 'biaoqiang'}]}},
+        'active': True,
+        'completed': True,
+    }
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    # The catalog refresh rewrites source_metadata every run; geometry it cannot refetch must survive.
+    stored = fake_db.models[model_id]['source_metadata']
+    assert stored['painting_index']['painting_key'] == 'biaoqiang'
+    assert stored['id'] == model_id  # the rest of source_metadata is the refreshed catalog entry
 
 
 def test_azurlane_update_uses_stored_detail_for_voices_without_origin_requests(

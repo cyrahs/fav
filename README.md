@@ -328,7 +328,9 @@ The API contract is OpenAPI-first. Use `/openapi.json` or `/docs` for the exact 
 Nikke, BD2, and Azur Lane asset URLs in API responses point to `/static/{source}/{directory_name}/assets/...` and are intended to be served by the deployment's static file service, not by FastAPI.
 For Azur Lane specifically, map `/static/azurlane/` to the configured `web.azurlane.path` directory so returned URLs resolve to archived files under each character directory.
 
-Azur Lane support is backend-only in this repository. The crawler archives Live2D and Spine resources, writes deterministic manifests, and the API returns metadata plus static asset URLs. Browser rendering, model display, and any Azur Lane client UI belong in a separate application that consumes the API.
+Azur Lane support is backend-only in this repository. The crawler archives Live2D, Spine and painting resources, writes deterministic manifests, and the API returns metadata plus static asset URLs. Browser rendering, model display, and any Azur Lane client UI belong in a separate application that consumes the API.
+
+A painting webp is a tight-packed sprite sheet, not finished artwork, so the crawler also archives the layer index (`painting/<key>.json`), the sibling layer sheets and the per-layer meshes needed to reassemble it. See [docs/azurlane-api.md](docs/azurlane-api.md#reassembling-a-painting).
 
 ## BD2 L2D Viewer comparison
 

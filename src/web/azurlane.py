@@ -34,6 +34,7 @@ from src.tool.azurlane_l2d_sources import (
     L2DSuVoiceLine,
     ModelCharacter,
     ModelEntry,
+    PaintingIndex,
     SourceSchemaError,
     apply_l2d_su_model_paths,
     apply_l2d_su_ship_classes,
@@ -45,8 +46,10 @@ from src.tool.azurlane_l2d_sources import (
     l2d_su_character_fingerprint,
     l2d_su_ship_detail_url,
     model_probe_urls,
+    painting_index_url,
     parse_l2d_su_ship_models,
     parse_l2d_su_ship_voices,
+    parse_painting_index,
     spine_parts_manifest_url,
     spine_resource_manifest,
 )
@@ -116,7 +119,16 @@ _JSON_ASSET_KINDS = {
     'live2d.expression',
     'live2d.motion',
     'spine.parts',
+    'painting.index',
 }
+# Wavefront OBJ. The l2d.su SPA answers a missing mesh with its own shell page, so a body that
+# does not open on an OBJ statement is the site's HTML, not geometry. Only the first token is
+# checked: faces come as triangles on most meshes and as quads on some, and neither the crawler
+# nor this guard has any business caring which.
+_OBJ_ASSET_KINDS = {'painting.mesh'}
+_OBJ_LINE_PREFIXES = (b'#', b'g ', b'o ', b'v ', b'vt ', b'vn ', b'f ', b's ', b'mtllib ', b'usemtl ')
+_MESH_UNAVAILABLE_REASON = 'response is not a Wavefront OBJ; the CDN hosts no mesh here'
+_CDN_REJECTION_REASON = 'cdn rejection response'
 _MANIFEST_SCHEMA_VERSION = 1
 _ASSET_AVAILABLE_STATUS = 'downloaded'
 # Assets without which the model cannot be rendered at all. Everything else -- motions,
@@ -151,7 +163,10 @@ _ASSET_KIND_ORDER = {
             'spine.skel',
             'spine.atlas',
             'spine.texture',
+            'painting.index',
             'painting.image',
+            'painting.layer',
+            'painting.mesh',
             'painting.face',
             'icon.square',
             'icon.shipyard',
@@ -261,6 +276,10 @@ ALTER TABLE azurlane_model_assets ADD COLUMN IF NOT EXISTS fallback_url TEXT NOT
 
 class InvalidAssetResponseError(RuntimeError):
     pass
+
+
+class UnavailableAssetError(InvalidAssetResponseError):
+    """The origin answered, but with something that is not the asset. Retrying cannot help."""
 
 
 class AssetProcessingError(RuntimeError):
@@ -459,19 +478,30 @@ def _is_cdn_rejection_body(content_type: str, body_prefix: bytes) -> bool:
 def _validate_asset_response(*, kind: str, content_type: str, body_prefix: bytes, size: int) -> str:
     if size <= 0:
         return 'empty response body'
-    if _is_cdn_rejection_body(content_type, body_prefix):
-        return 'cdn rejection response'
 
     stripped = body_prefix.lstrip()
+    if kind in _OBJ_ASSET_KINDS and not stripped.lower().startswith(_OBJ_LINE_PREFIXES):
+        # Sniffed before the rejection check, and deliberately: the SPA answers a mesh it does
+        # not host with its own HTML shell, which reads exactly like a CDN block. Counting that
+        # as one would trip the circuit breaker and pause the run over a missing companion file.
+        return _MESH_UNAVAILABLE_REASON
+    if _is_cdn_rejection_body(content_type, body_prefix):
+        return _CDN_REJECTION_REASON
+
     if kind in _JSON_ASSET_KINDS and stripped and not stripped.startswith(b'{'):
         return 'expected JSON object response'
-    if stripped.startswith(b'{'):
-        try:
-            parsed = json.loads(stripped.decode('utf-8', errors='ignore'))
-        except json.JSONDecodeError:
-            return ''
-        if isinstance(parsed, dict) and ({'code', 'msg', 'message', 'error'} & set(parsed)):
-            return 'json error response'
+    return _json_error_body_reason(stripped)
+
+
+def _json_error_body_reason(stripped: bytes) -> str:
+    if not stripped.startswith(b'{'):
+        return ''
+    try:
+        parsed = json.loads(stripped.decode('utf-8', errors='ignore'))
+    except json.JSONDecodeError:
+        return ''
+    if isinstance(parsed, dict) and ({'code', 'msg', 'message', 'error'} & set(parsed)):
+        return 'json error response'
     return ''
 
 
@@ -481,6 +511,8 @@ def _http_status_error(response: httpx.Response) -> httpx.HTTPStatusError:
 
 
 def _raise_invalid_asset_response(reason: str) -> None:
+    if reason == _MESH_UNAVAILABLE_REASON:
+        raise UnavailableAssetError(reason)
     raise InvalidAssetResponseError(reason)
 
 
@@ -569,6 +601,29 @@ def _spine_parts_seed_asset(entry: ModelEntry) -> AzurLaneAsset:
                 'catalog_source': entry.source,
                 'source_model_url': entry.resources.primary_url,
                 'spine_field': 'parts',
+            },
+        ],
+    )
+
+
+def _painting_index_seed_asset(entry: ModelEntry) -> AzurLaneAsset:
+    url = painting_index_url(entry.resources.primary_url)
+    filename = Path(urlsplit(url).path).name
+    model_key = sanitize(entry.costume.key, max_bytes=120) or 'unknown'
+    return AzurLaneAsset(
+        url=url,
+        kind='painting.index',
+        local_path=(Path('assets/painting') / model_key / filename).as_posix(),
+        original_filename=filename,
+        contexts=[
+            {
+                'model_id': entry.id,
+                'model_type': entry.type,
+                'character_key': entry.character.key,
+                'costume_key': entry.costume.key,
+                'catalog_source': entry.source,
+                'source_model_url': entry.resources.primary_url,
+                'painting_field': 'index',
             },
         ],
     )
@@ -1210,7 +1265,15 @@ class AzurLane:
                         display_info_url = excluded.display_info_url,
                         availability_state = excluded.availability_state,
                         active = TRUE,
-                        source_metadata = excluded.source_metadata,
+                        -- The painting index is merged in later, during the download phase, so
+                        -- it has to survive this refresh: a run that cannot reach the CDN copy
+                        -- must leave the stored geometry alone rather than blank the model.
+                        source_metadata = CASE
+                            WHEN jsonb_typeof(azurlane_models.source_metadata -> 'painting_index') = 'object'
+                                THEN excluded.source_metadata
+                                    || jsonb_build_object('painting_index', azurlane_models.source_metadata -> 'painting_index')
+                            ELSE excluded.source_metadata
+                        END,
                         last_seen_at = NOW(),
                         fetched_at = NOW();
                     """,
@@ -1488,7 +1551,7 @@ class AzurLane:
                         size=size,
                     )
                     if invalid_reason:
-                        if invalid_reason == 'cdn rejection response':
+                        if invalid_reason == _CDN_REJECTION_REASON:
                             await self._circuit_breaker.record_limited_failure()
                         _raise_invalid_asset_response(invalid_reason)
                     if not _verify_file(tmp_path, sha256=sha256, size=size):
@@ -1515,6 +1578,11 @@ class AzurLane:
                 response: httpx.Response | None = None
                 try:
                     return await self._download_candidate_to_temp(client, asset, url=url)
+                except UnavailableAssetError as exc:
+                    # A definite answer, just not the asset. Another attempt would fetch the
+                    # same page again, so move on to the next candidate URL.
+                    last_exc = exc
+                    break
                 except httpx.HTTPStatusError as exc:
                     last_exc = exc
                     response = exc.response
@@ -1862,13 +1930,62 @@ class AzurLane:
             return seed_enumeration
         return enumerate_azurlane_model_resources(entry, spine_parts_source=parts_source, atlas_sources=atlas_sources)
 
-    async def _model_enumeration(self, *, client: httpx.AsyncClient, root: Path, entry: ModelEntry) -> AzurLaneModelResourceEnumeration:
+    async def _painting_index(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> PaintingIndex | None:
+        """The layer index, or None when the CDN has none.
+
+        Losing it costs the reassembled artwork, not the model: the packed sheet is still
+        archived and still renders, so a missing index never fails the run.
+        """
+        seed_asset = _painting_index_seed_asset(entry)
+        try:
+            index_source = await self._seed_asset_text(client=client, asset=seed_asset)
+            return parse_painting_index(index_source, painting_url=entry.resources.primary_url)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc) or exc.__class__.__name__
+            seed_asset.status = 'failed'
+            seed_asset.error = error
+            log.info('No Azur Lane painting index for %s: %s', entry.id, error)
+            await self._mark_asset_failed(seed_asset, error)
+            return None
+
+    async def _painting_enumeration(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        entry: ModelEntry,
+    ) -> tuple[AzurLaneModelResourceEnumeration, PaintingIndex | None]:
+        voice_lines = await self._voice_lines_for(client=client, entry=entry)
+        painting_index = await self._painting_index(client=client, entry=entry)
+        enumeration = enumerate_azurlane_model_resources(entry, voice_lines=voice_lines, painting_index=painting_index)
+        return enumeration, painting_index
+
+    async def _model_enumeration(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        root: Path,
+        entry: ModelEntry,
+    ) -> tuple[AzurLaneModelResourceEnumeration, PaintingIndex | None]:
         if entry.type == 'live2d':
-            return await self._live2d_enumeration(client=client, entry=entry)
+            return await self._live2d_enumeration(client=client, entry=entry), None
         if entry.type == 'painting':
-            voice_lines = await self._voice_lines_for(client=client, entry=entry)
-            return enumerate_azurlane_model_resources(entry, voice_lines=voice_lines)
-        return await self._spine_enumeration(client=client, root=root, entry=entry)
+            return await self._painting_enumeration(client=client, entry=entry)
+        return await self._spine_enumeration(client=client, root=root, entry=entry), None
+
+    async def _store_painting_index(self, *, model_id: str, painting_index: PaintingIndex) -> None:
+        """Publish the layer geometry on the model, where the front end reads it.
+
+        The index arrives while assets are being archived, long after the catalog upsert has
+        written source_metadata, so it is merged in rather than carried by the catalog entry.
+        """
+        await database.query_db(
+            """
+            UPDATE azurlane_models
+            SET source_metadata = source_metadata || ?::jsonb, last_seen_at = NOW()
+            WHERE model_id = ?;
+            """,
+            (_json_dumps({'painting_index': painting_index.to_dict()}), model_id),
+        )
 
     async def _replace_model_assets(
         self,
@@ -1916,11 +2033,13 @@ class AzurLane:
         root = _character_root(self.path, entry)
         await self._mark_model_fetch_started(entry)
         try:
-            enumeration = await self._model_enumeration(client=client, root=root, entry=entry)
+            enumeration, painting_index = await self._model_enumeration(client=client, root=root, entry=entry)
         except Exception as exc:
             msg = f'Failed to enumerate Azur Lane model {entry.id}: {exc}'
             raise AssetProcessingError(msg) from exc
 
+        if painting_index is not None:
+            await self._store_painting_index(model_id=entry.id, painting_index=painting_index)
         assets = _assets_from_enumeration(enumeration)
         failed_assets = await self._process_assets(client=client, root=root, assets=assets)
         blocking = [asset for asset in failed_assets if asset.kind in _REQUIRED_ASSET_KINDS]

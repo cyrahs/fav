@@ -30,6 +30,11 @@ HTTP_ERROR_MIN = 400
 CATALOG_ENTRY_ID_PREFIX = 'azurlane'
 CATALOG_VARIANT_TOKEN_SIZE = 6
 SPINE_PARTS_MANIFEST_EXTENSION = '.json'
+# The painting index reserves this key for the face anchor: it carries size/pivot/position
+# for the paintingface diffs, and is not a layer of its own.
+PAINTING_FACE_SLOT = 'face'
+_PAINTING_PAIR_LENGTH = 2
+_PAINTING_ZERO_PAIR = (0.0, 0.0)
 
 SourceErrorKind = Literal['network', 'parse', 'schema']
 L2DSuModelKind = Literal['live2d', 'spine', 'painting']
@@ -51,7 +56,10 @@ ResourceAssetKind = Literal[
     'spine.skel',
     'spine.atlas',
     'spine.texture',
+    'painting.index',
     'painting.image',
+    'painting.layer',
+    'painting.mesh',
     'painting.face',
     'icon.square',
     'icon.shipyard',
@@ -76,7 +84,10 @@ _RESOURCE_EXTENSION_BY_KIND: dict[ResourceAssetKind, str] = {
     'spine.skel': '.skel',
     'spine.atlas': '.atlas',
     'spine.texture': '.webp',
+    'painting.index': '.json',
     'painting.image': '.webp',
+    'painting.layer': '.webp',
+    'painting.mesh': '.obj',
     'painting.face': '.webp',
     'icon.square': '.webp',
     'icon.shipyard': '.webp',
@@ -630,6 +641,60 @@ class SpineResourceManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class PaintingLayer:
+    """One entry of `painting/<key>.json`.
+
+    A painting webp is a tight-packed sprite sheet: the mesh fragments with their transparent
+    space squeezed out. Reassembling the artwork needs `size` (the canvas the layer draws
+    into), `raw_size` (the sheet as stored, so `size / raw_size` is the downsample factor),
+    `position` (the layer's offset within the painting) and `pivot`, plus the mesh that maps
+    each packed triangle back to its place. `raw` layers are stored unpacked and have no mesh.
+    """
+
+    name: str
+    size: tuple[float, float] = (0.0, 0.0)
+    raw_size: tuple[float, float] = (0.0, 0.0)
+    position: tuple[float, float] = (0.0, 0.0)
+    pivot: tuple[float, float] = (0.0, 0.0)
+    raw: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """The origin's own field names, so a consumer parses this exactly as it parses the CDN copy."""
+        return {
+            'name': self.name,
+            'size': list(self.size),
+            'rawSize': list(self.raw_size),
+            'position': list(self.position),
+            'pivot': list(self.pivot),
+            'raw': self.raw,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PaintingIndex:
+    """`painting/<key>.json`: the drawing layers plus the `face` slot.
+
+    Layers keep source order, because a jsonb column does not preserve object key order and
+    the order is what decides which layer is drawn over which.
+    """
+
+    painting_key: str
+    index_url: str
+    layers: tuple[PaintingLayer, ...] = ()
+    face: PaintingLayer | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            'painting_key': self.painting_key,
+            'index_url': self.index_url,
+            'layers': [layer.to_dict() for layer in self.layers],
+        }
+        if self.face is not None:
+            payload['face'] = self.face.to_dict()
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class ResourceCandidateValidation:
     ok: bool
     url: str
@@ -1049,13 +1114,14 @@ def build_nagami_fallback_candidates(snapshot: NagamiSourceSnapshot) -> tuple[Na
     return tuple(_nagami_fallback_candidate(entry) for entry in sorted(snapshot.entries, key=lambda item: _catalog_key(item.key)))
 
 
-def enumerate_azurlane_model_resources(
+def enumerate_azurlane_model_resources(  # noqa: PLR0913
     entry: ModelEntry,
     *,
     model3_source: str | None = None,
     spine_parts_source: str | None = None,
     atlas_sources: Mapping[str, str] | None = None,
     voice_lines: tuple[L2DSuVoiceLine, ...] = (),
+    painting_index: PaintingIndex | None = None,
 ) -> AzurLaneModelResourceEnumeration:
     if entry.type == 'live2d':
         if model3_source is None:
@@ -1063,7 +1129,7 @@ def enumerate_azurlane_model_resources(
             raise SourceSchemaError(msg)
         specs = _live2d_resource_specs(entry, model3_source=model3_source)
     elif entry.type == 'painting':
-        specs = _painting_resource_specs(entry, voice_lines=voice_lines)
+        specs = _painting_resource_specs(entry, voice_lines=voice_lines, painting_index=painting_index)
     else:
         specs = _spine_resource_specs(entry, parts_source=spine_parts_source, atlas_sources=atlas_sources)
 
@@ -1714,7 +1780,12 @@ def _spine_texture_specs(
     return tuple(specs)
 
 
-def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoiceLine, ...]) -> tuple[_ResourceSpec, ...]:
+def _painting_resource_specs(
+    entry: ModelEntry,
+    *,
+    voice_lines: tuple[L2DSuVoiceLine, ...],
+    painting_index: PaintingIndex | None,
+) -> tuple[_ResourceSpec, ...]:
     painting_key = _painting_key_from_url(entry.resources.primary_url)
     specs = [
         _ResourceSpec(
@@ -1725,6 +1796,7 @@ def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoice
             context=_asset_context(entry, {'painting_field': 'image'}),
         ),
     ]
+    specs.extend(_painting_layer_specs(entry, painting_key=painting_key, painting_index=painting_index))
     # No case fallback is spelled out here: the downloader derives case variants for any
     # candidate that fails, which covers the filename and the key-bearing directory alike.
     specs.extend(
@@ -1764,6 +1836,58 @@ def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoice
         )
         for line in voice_lines
     )
+    return tuple(specs)
+
+
+def _painting_layer_specs(
+    entry: ModelEntry,
+    *,
+    painting_key: str,
+    painting_index: PaintingIndex | None,
+) -> tuple[_ResourceSpec, ...]:
+    """The index, the sibling layer sheets, and the mesh that unpacks each one.
+
+    The primary sheet already has its own `painting.image` spec, so it contributes only a
+    mesh here. A `raw` layer is stored unpacked and has no mesh at all -- asking for one
+    gets the site's SPA shell rather than a 404, so it must not be requested.
+    """
+    if painting_index is None:
+        return ()
+
+    specs = [
+        _ResourceSpec(
+            kind='painting.index',
+            source_url=painting_index.index_url,
+            fallback_url='',
+            base_url=painting_index.index_url,
+            context=_asset_context(entry, {'painting_field': 'index'}),
+        ),
+    ]
+    for layer in painting_index.layers:
+        # Case-insensitively: the index and storage disagree on case in both directions, so the
+        # entry can name Z28_3 where the index that answered for it says z28_3. Matching exactly
+        # would archive the primary sheet a second time under the other spelling.
+        if layer.name.casefold() != painting_key.casefold():
+            specs.append(
+                _ResourceSpec(
+                    kind='painting.layer',
+                    source_url=l2d_su_painting_url(layer.name),
+                    fallback_url='',
+                    base_url=_l2d_su_relative_base_url(),
+                    context=_asset_context(entry, {'painting_field': 'layer', 'layer': layer.name}),
+                ),
+            )
+        if layer.raw:
+            continue
+        specs.append(
+            _ResourceSpec(
+                kind='painting.mesh',
+                source_url=l2d_su_painting_mesh_url(layer.name),
+                fallback_url='',
+                base_url=_l2d_su_relative_base_url(),
+                context=_asset_context(entry, {'painting_field': 'mesh', 'layer': layer.name}),
+            ),
+        )
     return tuple(specs)
 
 
@@ -2306,6 +2430,59 @@ def _spine_model_part(model: dict[str, Any], *, parts_manifest_url: str, index: 
     )
 
 
+def painting_index_url(painting_url: str) -> str:
+    """The `<key>.json` index that sits beside a painting sheet on the CDN."""
+    return l2d_su_painting_index_url(_painting_key_from_url(painting_url))
+
+
+def parse_painting_index(source: str, *, painting_url: str) -> PaintingIndex:
+    painting_key = _painting_key_from_url(painting_url)
+    payload = _decode_json_object(source, context='l2d.su painting index')
+    layers: list[PaintingLayer] = []
+    face: PaintingLayer | None = None
+    for name, value in payload.items():
+        if not isinstance(value, dict) or not name.strip():
+            continue
+        layer = _painting_layer(name.strip(), value)
+        if layer.name == PAINTING_FACE_SLOT:
+            face = layer
+            continue
+        layers.append(layer)
+
+    if not layers:
+        msg = 'l2d.su painting index does not contain a drawable layer'
+        raise SourceSchemaError(msg)
+
+    return PaintingIndex(
+        painting_key=painting_key,
+        index_url=l2d_su_painting_index_url(painting_key),
+        layers=tuple(layers),
+        face=face,
+    )
+
+
+def _painting_layer(name: str, value: dict[str, Any]) -> PaintingLayer:
+    size = _painting_number_pair(value.get('size')) or _PAINTING_ZERO_PAIR
+    return PaintingLayer(
+        name=name,
+        size=size,
+        # rawSize is absent on layers that are stored at their declared size.
+        raw_size=_painting_number_pair(value.get('rawSize')) or size,
+        position=_painting_number_pair(value.get('position')) or _PAINTING_ZERO_PAIR,
+        pivot=_painting_number_pair(value.get('pivot')) or _PAINTING_ZERO_PAIR,
+        raw=value.get('raw') is True,
+    )
+
+
+def _painting_number_pair(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, list) or len(value) != _PAINTING_PAIR_LENGTH:
+        return None
+    numbers = [item for item in value if isinstance(item, int | float) and not isinstance(item, bool)]
+    if len(numbers) != _PAINTING_PAIR_LENGTH:
+        return None
+    return (float(numbers[0]), float(numbers[1]))
+
+
 def _spine_stem_url(url: str) -> str:
     base_url = url.rstrip('/')
     for suffix in ('.skel', '.atlas', SPINE_PARTS_MANIFEST_EXTENSION):
@@ -2744,6 +2921,14 @@ def _l2d_su_model_url(*, kind: L2DSuModelKind, model_key: str) -> str:
 
 def l2d_su_painting_url(painting_key: str) -> str:
     return f'{L2D_SU_STATIC_BASE_URL}/painting/{painting_key}.webp'
+
+
+def l2d_su_painting_index_url(painting_key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/painting/{painting_key}.json'
+
+
+def l2d_su_painting_mesh_url(layer_key: str) -> str:
+    return f'{L2D_SU_STATIC_BASE_URL}/painting/{layer_key}-mesh.obj'
 
 
 def l2d_su_painting_face_url(painting_key: str, face_id: str) -> str:
