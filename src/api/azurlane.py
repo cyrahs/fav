@@ -142,6 +142,26 @@ def _context_value(context: dict[str, Any], key: str) -> str:
     return _clean_text(context.get(key))
 
 
+def _iter_dicts(value: Any) -> list[dict[str, Any]]:
+    return [item for item in _json_list(value) if isinstance(item, dict)]
+
+
+def _skin_update_entry(item: dict[str, Any]) -> dict[str, Any]:
+    """One skin in the update feed, in the same shape wherever it appears.
+
+    The crawler normalises `new_skins` but keeps history entries as the source wrote them,
+    so the two arrays disagree on spelling; both are read here and only snake_case is served.
+    """
+    skin_ids = _json_list(item.get('skin_ids', item.get('skinIds')))
+    return {
+        'ship_group_id': _to_int(item.get('ship_group_id', item.get('shipGroupId'))) or 0,
+        'ship_name': _clean_text(item.get('ship_name', item.get('shipName'))),
+        'skin_name': _clean_text(item.get('skin_name', item.get('skinName'))),
+        'skin_type': _clean_text(item.get('skin_type', item.get('skinType'))),
+        'skin_ids': [value for value in (_to_int(entry) for entry in skin_ids) if value is not None],
+    }
+
+
 def _manifest_character_key(manifest_path: Path, manifest: dict[str, Any]) -> str:
     character_key = _clean_text(manifest.get('character_key'))
     if character_key:
@@ -287,6 +307,38 @@ class AzurLaneLibrary:
         except (OSError, TypeError, ValueError) as exc:
             msg = f'Azur Lane ship detail not readable: {record.character_key}'
             raise AzurLaneAssetNotFoundError(msg) from exc
+
+    def get_skin_updates(self) -> dict[str, Any]:
+        """The source's own "what changed" feed, lifted out of the archived snapshot.
+
+        Both arrays are already parsed and persisted by the crawler, so this only reshapes
+        them. Serving the snapshot file itself would ship megabytes of catalog and filter
+        enumerations for a payload measured in kilobytes.
+        """
+        snapshot_path = self._root / '_source' / 'l2d-su-snapshot.json'
+        if not snapshot_path.is_file():
+            msg = 'Azur Lane source snapshot not found'
+            raise AzurLaneAssetNotFoundError(msg)
+        try:
+            snapshot = _read_json_object(snapshot_path)
+        except (OSError, TypeError, ValueError) as exc:
+            msg = 'Azur Lane source snapshot not readable'
+            raise AzurLaneAssetNotFoundError(msg) from exc
+
+        return {
+            'game_version': _clean_text(snapshot.get('game_version')),
+            'region': _clean_text(snapshot.get('region')),
+            'generated_at': _clean_text(snapshot.get('generated_at')),
+            'new_skins': [_skin_update_entry(item) for item in _iter_dicts(snapshot.get('new_skins'))],
+            'skin_update_history': [
+                {
+                    'date': _clean_text(entry.get('date')),
+                    'version': _clean_text(entry.get('version')),
+                    'skins': [_skin_update_entry(item) for item in _iter_dicts(entry.get('skins'))],
+                }
+                for entry in _iter_dicts(snapshot.get('skin_update_history'))
+            ],
+        }
 
     def _manifest_entries(self) -> list[ManifestEntry]:
         if not self._root.is_dir():

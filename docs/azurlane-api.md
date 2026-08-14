@@ -41,6 +41,34 @@ Raw l2d.su per-ship detail payload (CN region), passed through unmodified. 404 w
 `azurlane_ship_detail_not_found` until the detail crawl has fetched that ship. The same JSON
 is also written to `detail.json` in the character directory (see Static files).
 
+### `GET /api/v2/azurlane/skin-updates`
+
+The source's own "what changed" feed, for a skin-updates panel. ETag + `public, max-age=300`,
+same as the sidebar; send `If-None-Match` to get a 304.
+
+```json
+{
+  "game_version": "9.7.323",
+  "region": "CN",
+  "generated_at": "2026-08-13T05:33:57.726Z",
+  "new_skins": [
+    {"ship_group_id": 10720, "ship_name": "本宁顿", "skin_name": "全速！盛夏逐光企划",
+     "skin_type": "Live2D+", "skin_ids": [107201]}
+  ],
+  "skin_update_history": [
+    {"date": "2026-08-13T03:57:01.516Z", "version": "9.7.323", "skins": [ ...same shape... ]}
+  ]
+}
+```
+
+Both arrays carry the same entry shape. The archived snapshot stores `new_skins` in snake_case
+and history entries in the source's camelCase; this endpoint reads either and always emits
+snake_case. 404 with code `azurlane_skin_updates_not_found` before the first crawl has written
+a snapshot.
+
+Do not read `_source/l2d-su-snapshot.json` for this — it is not served over HTTP, and it is
+megabytes of catalog and filter enumerations for a payload of a few kilobytes.
+
 ## Data model
 
 ### CharacterSummary

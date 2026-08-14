@@ -28,6 +28,7 @@ from .schemas import (
     AzurLaneProxyTestResult,
     AzurLaneSidebarCharacter,
     AzurLaneSidebarCharacterListResponse,
+    AzurLaneSkinUpdatesResponse,
     BD2CharacterDetail,
     BD2CharacterListResponse,
     BD2SidebarCharacter,
@@ -268,11 +269,15 @@ def _azurlane_sidebar_sort_key(item: AzurLaneSidebarCharacter) -> tuple[float, f
     )
 
 
+def _json_etag(payload: Any) -> str:
+    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
+    return f'"{hashlib.sha256(body).hexdigest()}"'
+
+
 def _sidebar_response_etag(
     payload: AzurLaneSidebarCharacterListResponse | BD2SidebarCharacterListResponse | NikkeSidebarCharacterListResponse,
 ) -> str:
-    body = json.dumps(payload.model_dump(mode='json'), ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
-    return f'"{hashlib.sha256(body).hexdigest()}"'
+    return _json_etag(payload.model_dump(mode='json'))
 
 
 def _etag_matches(header_value: str | None, etag: str) -> bool:
@@ -533,6 +538,28 @@ def list_azurlane_sidebar_characters(
     items = sorted(items, key=_azurlane_sidebar_sort_key, reverse=True)
     payload = AzurLaneSidebarCharacterListResponse(items=items, total=len(items))
     etag = _sidebar_response_etag(payload)
+    headers = {'Cache-Control': _AZURLANE_SIDEBAR_CACHE_CONTROL, 'ETag': etag}
+    if _etag_matches(request.headers.get('if-none-match'), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    response.headers.update(headers)
+    return payload
+
+
+@router.get(
+    '/azurlane/skin-updates',
+    operation_id='getAzurLaneSkinUpdates',
+    response_model=AzurLaneSkinUpdatesResponse,
+    responses=_SIDEBAR_RESPONSES,
+    tags=[TAG_AZURLANE],
+)
+def get_azurlane_skin_updates(
+    request: Request,
+    response: Response,
+    service: ApiServiceDep,
+) -> AzurLaneSkinUpdatesResponse | Response:
+    payload = AzurLaneSkinUpdatesResponse.model_validate(service.get_azurlane_skin_updates())
+    etag = _json_etag(payload.model_dump(mode='json'))
     headers = {'Cache-Control': _AZURLANE_SIDEBAR_CACHE_CONTROL, 'ETag': etag}
     if _etag_matches(request.headers.get('if-none-match'), etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
