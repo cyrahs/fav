@@ -707,10 +707,10 @@ def test_a_navigation_the_scan_interrupts_does_not_end_the_run(monkeypatch) -> N
     """
     qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
 
-    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
         return 1
 
-    async def _send_text(*, text, require_enabled=True) -> int:
+    async def _send_text(*, header='', text, require_enabled=True) -> int:
         return 2
 
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
@@ -750,11 +750,11 @@ def test_both_scans_of_the_two_stage_login_are_sent(monkeypatch) -> None:
     login_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
     verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG + b'\x01').decode()
 
-    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
         sent.append((caption, len(photo[1])))
         return 1
 
-    async def _send_text(*, text, require_enabled=True) -> int:
+    async def _send_text(*, header='', text, require_enabled=True) -> int:
         return 2
 
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
@@ -790,7 +790,7 @@ def test_the_verification_qr_is_reminted_on_a_timer(monkeypatch) -> None:
     """
     verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
 
-    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
         return 1
 
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
