@@ -877,7 +877,8 @@ class Hanime1:
             await enqueue_notification(
                 kind='download_completed',
                 source='hanime1',
-                title=f'Hanime1: {title}',
+                header='Hanime1',
+                title=title,
                 body=body,
                 link_url=watch_url,
                 image_url=cover_url or '',
@@ -1299,7 +1300,8 @@ class Hanime1:
                 dedupe_key=_PARSER_FAILURE_DEDUPE_KEY,
                 kind='job_failed',
                 source='worker',
-                title='Job recovered: Hanime1',
+                header='Hanime1',
+                title='Job recovered',
                 body='Hanime1 playlist parsing is healthy again.',
                 payload={'job': 'hanime1', 'dedupe_key': _PARSER_FAILURE_DEDUPE_KEY},
             )

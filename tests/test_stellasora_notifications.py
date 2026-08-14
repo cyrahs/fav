@@ -56,7 +56,8 @@ def test_download_resolved_files_enqueues_notification(tmp_path, monkeypatch) ->
         {
             'kind': 'download_completed',
             'source': 'stellasora',
-            'title': 'Stella Sora: Foo.png',
+            'header': 'Stella Sora',
+            'title': 'Foo.png',
             'body': 'disc/Foo.png',
             'link_url': 'https://wiki.example.com/Foo',
             'image_url': 'https://example.com/Foo.png',

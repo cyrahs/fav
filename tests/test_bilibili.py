@@ -194,7 +194,8 @@ def test_update_fav_sends_notification_for_each_video(tmp_path, monkeypatch) -> 
 
     assert len(notifications) == 2
     assert {notification['payload']['bvid'] for notification in notifications} == {'BV1TEST1', 'BV1TEST2'}
-    assert {notification['title'] for notification in notifications} == {'Bilibili (fav): Title One', 'Bilibili (fav): Title Two'}
+    assert {notification['header'] for notification in notifications} == {'Bilibili (fav)'}
+    assert {notification['title'] for notification in notifications} == {'Title One', 'Title Two'}
     assert sum('INSERT INTO bilibili' in sql for sql, _ in queries) == 2
     assert all('ON CONFLICT (bvid) DO UPDATE SET' in sql for sql, _ in queries if 'INSERT INTO bilibili' in sql)
 
@@ -382,7 +383,8 @@ def test_notify_download_enqueues_structured_payload(tmp_path, monkeypatch) -> N
         {
             'kind': 'download_completed',
             'source': 'bilibili',
-            'title': 'Bilibili (fav): 让你说话了吗?笨蛋',
+            'header': 'Bilibili (fav)',
+            'title': '让你说话了吗?笨蛋',
             'body': '孟程程_ | 720p | 20.0 MB | 2024-01-01',
             'link_url': 'https://www.bilibili.com/video/BV1wM4m1S7oo',
             'image_url': 'https://example.com/cover.jpg',
@@ -401,7 +403,8 @@ def test_notify_download_enqueues_structured_payload(tmp_path, monkeypatch) -> N
             'dedupe_key': 'job_failed:bilibili:bilibili:download:BV1wM4m1S7oo',
             'kind': 'job_recovered',
             'source': 'worker',
-            'title': 'Job recovered: Bilibili',
+            'header': 'Bilibili',
+            'title': 'Job recovered',
             'body': 'Download succeeded: 让你说话了吗?笨蛋 [BV1wM4m1S7oo]\n孟程程_ | fav | 720p | 20.0 MB | 2024-01-01',
             'link_url': 'https://www.bilibili.com/video/BV1wM4m1S7oo',
             'image_url': 'https://example.com/cover.jpg',

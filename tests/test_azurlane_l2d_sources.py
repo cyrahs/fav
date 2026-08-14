@@ -31,6 +31,7 @@ from src.tool.azurlane_l2d_sources import (
     apply_l2d_su_ship_classes,
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
+    case_variant_urls,
     enumerate_azurlane_model_resources,
     fetch_azurlane_l2d_health_report,
     fetch_l2d_su_snapshot,
@@ -573,8 +574,45 @@ def test_enumerate_painting_resources_covers_image_faces_icons_and_voices() -> N
     assert by_kind['voice.audio'][0].context['key'] == 'detail'
 
 
-def test_painting_resources_fall_back_to_a_lowercase_filename() -> None:
-    """l2d.su's index offers painting/Z28_3.webp while its storage only holds z28_3.webp."""
+def test_case_variants_cover_a_filename_in_both_directions() -> None:
+    """The index disagrees with storage both ways, so neither case alone is the answer.
+
+    Observed: the index gives painting/Z28_3.webp where the object is z28_3.webp, and
+    painting/u47_5.webp where the object is U47_5.webp.
+    """
+    lowered = case_variant_urls(f'{L2D_SU_STATIC_BASE_URL}/painting/Z28_3.webp')
+    assert f'{L2D_SU_STATIC_BASE_URL}/painting/z28_3.webp' in lowered
+
+    capitalised = case_variant_urls(f'{L2D_SU_STATIC_BASE_URL}/painting/u47_5.webp')
+    assert f'{L2D_SU_STATIC_BASE_URL}/painting/U47_5.webp' in capitalised
+
+
+def test_case_variants_also_vary_the_key_bearing_directory() -> None:
+    """A face lives under the painting key as a directory, so the key is not in the filename."""
+    variants = case_variant_urls(f'{L2D_SU_STATIC_BASE_URL}/paintingface/Z28_3/1.webp')
+
+    assert variants == (f'{L2D_SU_STATIC_BASE_URL}/paintingface/z28_3/1.webp',)
+
+
+def test_case_variants_leave_the_cdn_category_directory_alone() -> None:
+    """`painting` and `squareicon` are fixed path components; varying them only wastes a request."""
+    assert case_variant_urls(f'{L2D_SU_STATIC_BASE_URL}/painting/u47_5.webp') == (f'{L2D_SU_STATIC_BASE_URL}/painting/U47_5.webp',)
+    assert case_variant_urls(f'{L2D_SU_STATIC_BASE_URL}/squareicon/U96_2.webp') == (f'{L2D_SU_STATIC_BASE_URL}/squareicon/u96_2.webp',)
+
+
+def test_case_variants_never_repeat_the_original_url() -> None:
+    for url in (
+        f'{L2D_SU_STATIC_BASE_URL}/painting/biaoqiang.webp',
+        f'{L2D_SU_STATIC_BASE_URL}/painting/Z28_3.webp',
+        f'{L2D_SU_STATIC_BASE_URL}/paintingface/u47_5/1.webp',
+    ):
+        variants = case_variant_urls(url)
+        assert url not in variants
+        assert len(variants) == len(set(variants))
+
+
+def test_painting_resources_leave_case_handling_to_the_downloader() -> None:
+    """Enumeration names only what the source named; variants are derived when a fetch fails."""
     payload = _ship_index_payload([_ship(1, 'Z28', 'Z28', skins=[_static_skin(10, 'Z28', key='Z28_3')])])
     parsed = parse_l2d_su_ship_index(payload, region='CN')
     catalog = build_azurlane_model_catalog(_source_snapshots(parsed.characters, {}))
@@ -585,24 +623,8 @@ def test_painting_resources_fall_back_to_a_lowercase_filename() -> None:
     by_kind = defaultdict(list)
     for asset in enumeration.assets:
         by_kind[asset.kind].append(asset)
-    image = by_kind['painting.image'][0]
-    assert image.source_url == f'{L2D_SU_STATIC_BASE_URL}/painting/Z28_3.webp'
-    assert image.fallback_url == f'{L2D_SU_STATIC_BASE_URL}/painting/z28_3.webp'
-    assert by_kind['icon.square'][0].fallback_url == f'{L2D_SU_STATIC_BASE_URL}/squareicon/z28_3.webp'
-    # Only the filename is lowered; the directory segments keep their case.
+    assert by_kind['painting.image'][0].source_url == f'{L2D_SU_STATIC_BASE_URL}/painting/Z28_3.webp'
     assert by_kind['painting.face'][0].source_url == f'{L2D_SU_STATIC_BASE_URL}/paintingface/Z28_3/1.webp'
-    assert by_kind['painting.face'][0].fallback_url == f'{L2D_SU_STATIC_BASE_URL}/paintingface/z28_3/1.webp'
-
-
-def test_painting_resources_offer_no_fallback_when_the_filename_is_already_lowercase() -> None:
-    """A blanket lowercase would break the reverse cases, so an all-lowercase name gets no candidate."""
-    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '标枪', key='biaoqiang')])])
-    parsed = parse_l2d_su_ship_index(payload, region='CN')
-    catalog = build_azurlane_model_catalog(_source_snapshots(parsed.characters, {}))
-    entry = _catalog_entry(catalog, 'azurlane:painting:biaoqiang:biaoqiang')
-
-    enumeration = enumerate_azurlane_model_resources(entry)
-
     assert all(asset.fallback_url == '' for asset in enumeration.assets)
 
 

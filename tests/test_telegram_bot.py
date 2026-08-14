@@ -175,3 +175,22 @@ def test_long_markdown_uses_truncated_plain_text() -> None:
 
     assert len(payloads[0]['text']) == telegram_bot.MAX_MESSAGE_LENGTH
     assert 'parse_mode' not in payloads[0]
+
+
+def test_send_text_now_opens_with_the_same_header_line_as_the_outbox(pinned_settings, monkeypatch) -> None:
+    cfg = pinned_settings.notifications.telegram
+    cfg.bot_token = '123:token'
+    cfg.chat_id = '-100123'
+    cfg.enabled = True
+    payloads: list[dict[str, object]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={'ok': True, 'result': {'message_id': 5}})
+
+    monkeypatch.setattr(telegram_bot, 'build_client', lambda: httpx.AsyncClient(transport=httpx.MockTransport(_handler)))
+
+    message_id = asyncio.run(telegram_bot.send_text_now(header='RedNote', text='Signed in.'))
+
+    assert message_id == 5
+    assert payloads[0]['text'] == 'FAV · RedNote\nSigned in\\.'

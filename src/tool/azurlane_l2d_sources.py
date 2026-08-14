@@ -1720,19 +1720,18 @@ def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoice
         _ResourceSpec(
             kind='painting.image',
             source_url=entry.resources.primary_url,
-            fallback_url=_lowercase_filename_url(entry.resources.primary_url),
+            fallback_url='',
             base_url=entry.resources.primary_url,
             context=_asset_context(entry, {'painting_field': 'image'}),
         ),
     ]
-    # A face lives under the painting key as a directory, so the lowercase candidate is built
-    # from the key rather than by lowering the filename.
-    lowercase_key = painting_key.lower() if painting_key.lower() != painting_key else ''
+    # No case fallback is spelled out here: the downloader derives case variants for any
+    # candidate that fails, which covers the filename and the key-bearing directory alike.
     specs.extend(
         _ResourceSpec(
             kind='painting.face',
             source_url=l2d_su_painting_face_url(painting_key, face_id),
-            fallback_url=l2d_su_painting_face_url(lowercase_key, face_id) if lowercase_key else '',
+            fallback_url='',
             base_url=_l2d_su_relative_base_url(),
             context=_asset_context(entry, {'painting_field': 'face', 'face_id': face_id}),
         )
@@ -1748,7 +1747,7 @@ def _painting_resource_specs(entry: ModelEntry, *, voice_lines: tuple[L2DSuVoice
         _ResourceSpec(
             kind=kind,
             source_url=l2d_su_icon_url(icon_path),
-            fallback_url=_lowercase_filename_url(l2d_su_icon_url(icon_path)),
+            fallback_url='',
             base_url=_l2d_su_relative_base_url(),
             context=_asset_context(entry, {'painting_field': 'icon', 'icon_path': icon_path}),
         )
@@ -1772,19 +1771,40 @@ def _painting_key_from_url(url: str) -> str:
     return PurePosixPath(urlsplit(url).path).name.removesuffix('.webp')
 
 
-def _lowercase_filename_url(url: str) -> str:
-    """Same URL with only the filename lowercased, or '' when that changes nothing.
+def _segment_case_variants(segment: str) -> tuple[str, ...]:
+    lowered = segment.lower()
+    capitalised = segment[:1].upper() + segment[1:] if segment else segment
+    return tuple(dict.fromkeys(v for v in (lowered, capitalised) if v and v != segment))
 
-    l2d.su's object storage is case-sensitive and its index does not always match: the index
-    offers painting/Z28_3.webp where the stored object is z28_3.webp. Lowercasing everything
-    would break the reverse cases (hamanII.webp is served, hamanii.webp is not), so this is
-    only ever a fallback candidate tried after the index-given URL 404s.
+
+def case_variant_urls(url: str) -> tuple[str, ...]:
+    """URLs differing from `url` only in the case of the segment carrying the model key.
+
+    l2d.su's object storage is case-sensitive and its index disagrees with it in both
+    directions: the index offers painting/Z28_3.webp where the object is z28_3.webp, and
+    painting/u47_5.webp where the object is U47_5.webp. Neither lowercasing nor capitalising
+    everything is right, so both are offered as candidates and tried only after the
+    index-given URL has already failed.
+
+    Only the segment that can carry the key is varied. Face variations are numbered files
+    under a directory named for the key, so a numeric filename means the key sits one level
+    up; everything else carries it in the filename. The segment above that is a fixed CDN
+    category (painting, squareicon, paintingface) and is never varied.
     """
     split = urlsplit(url)
     head, separator, filename = split.path.rpartition('/')
-    if not separator or filename == filename.lower():
-        return ''
-    return urlunsplit(split._replace(path=f'{head}/{filename.lower()}'))
+    if not separator:
+        return ()
+
+    if PurePosixPath(filename).stem.isdigit():
+        parent_head, parent_separator, parent = head.rpartition('/')
+        if not parent_separator:
+            return ()
+        paths = [f'{parent_head}/{variant}/{filename}' for variant in _segment_case_variants(parent)]
+    else:
+        paths = [f'{head}/{variant}' for variant in _segment_case_variants(filename)]
+
+    return tuple(urlunsplit(split._replace(path=path)) for path in dict.fromkeys(paths))
 
 
 def _l2d_su_relative_base_url() -> str:

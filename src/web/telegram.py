@@ -160,7 +160,8 @@ class Telegram:
             await enqueue_notification(
                 kind='download_completed',
                 source='telegram',
-                title=f'Telegram: {title}',
+                header='Telegram',
+                title=title,
                 body=f'Channel {channel_name} | Message ID {message_id}',
                 payload=payload,
             )

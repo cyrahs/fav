@@ -825,7 +825,7 @@ class RedNote:
         else:
             caption = f'小红书需要登录（第 {attempt} 个二维码）：用手机小红书扫码，扫完还会有一个验证码。'  # noqa: RUF001 - Chinese punctuation
         try:
-            await telegram_bot_tool.send_photo_now(photo=('rednote-login.png', png, 'image/png'), caption=caption)
+            await telegram_bot_tool.send_photo_now(photo=('rednote-login.png', png, 'image/png'), header='RedNote', caption=caption)
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to send the RedNote login QR: %s', exc)
             return
@@ -833,7 +833,7 @@ class RedNote:
 
     async def _notify_login_complete(self) -> None:
         with contextlib.suppress(Exception):
-            await telegram_bot_tool.send_text_now(text='小红书已登录，继续同步点赞。')  # noqa: RUF001 - Chinese punctuation
+            await telegram_bot_tool.send_text_now(header='RedNote', text='小红书已登录，继续同步点赞。')  # noqa: RUF001 - Chinese punctuation
 
     async def _prepare_session(self, browser: NoteBrowser) -> None:
         """Sign in if needed, then settle what the rest of the run depends on."""
@@ -1287,7 +1287,8 @@ class RedNote:
             await enqueue_notification(
                 kind='summary',
                 source='rednote',
-                title='RedNote update completed',
+                header='RedNote',
+                title='Update completed',
                 body=f'Downloaded {downloaded} files, {resolved} of them newly liked.',
                 payload={'downloaded': downloaded, 'resolved': resolved, 'pending': pending},
             )

@@ -21,6 +21,8 @@ MAX_IMAGE_BYTES = 9_500_000
 MAX_CAPTION_LENGTH = 1024
 MAX_MESSAGE_LENGTH = 4096
 MARKDOWN_V2_SPECIAL_CHARS = frozenset('\\_*[]()~`>#+-=|{}.!')
+# Every message opens with this, so one glance in a busy chat says which app is talking.
+APP_LABEL = 'FAV'
 
 CONNECT_TIMEOUT_SECONDS = 5.0
 WRITE_TIMEOUT_SECONDS = 30.0
@@ -43,6 +45,19 @@ def escape_markdown_v2(value: str) -> str:
             escaped.append('\\')
         escaped.append(char)
     return ''.join(escaped)
+
+
+def format_header_line(header: str) -> str:
+    """Render the ``FAV · <source>`` line every message starts with, already escaped."""
+    return escape_markdown_v2(f'{APP_LABEL} · {header}')
+
+
+def _with_header_line(header: str, markdown: str) -> str:
+    normalized_header = header.strip()
+    if not normalized_header:
+        return markdown
+    header_line = format_header_line(normalized_header)
+    return f'{header_line}\n{markdown}' if markdown else header_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,7 +328,7 @@ async def deliver(
     return TelegramDeliveryResult(message_id=message_id, media_status=media_status, warnings=tuple(warnings))
 
 
-async def send_text_now(*, text: str, require_enabled: bool = True) -> int | None:
+async def send_text_now(*, header: str = '', text: str, require_enabled: bool = True) -> int | None:
     """Send one message immediately, outside the notification outbox.
 
     The outbox is the right place for anything that can wait. This is for the one
@@ -329,7 +344,7 @@ async def send_text_now(*, text: str, require_enabled: bool = True) -> int | Non
         return await _send_message(
             client=client,
             config=config,
-            markdown=escape_markdown_v2(text),
+            markdown=_with_header_line(header, escape_markdown_v2(text)),
             disable_notification=False,
             disable_web_page_preview=True,
         )
@@ -337,7 +352,7 @@ async def send_text_now(*, text: str, require_enabled: bool = True) -> int | Non
         await client.aclose()
 
 
-async def send_photo_now(*, photo: tuple[str, bytes, str], caption: str = '', require_enabled: bool = True) -> int | None:
+async def send_photo_now(*, photo: tuple[str, bytes, str], header: str = '', caption: str = '', require_enabled: bool = True) -> int | None:
     """Send one image immediately, outside the outbox. See ``send_text_now``."""
     config = load_config(require_enabled=require_enabled)
     if config is None:
@@ -348,7 +363,7 @@ async def send_photo_now(*, photo: tuple[str, bytes, str], caption: str = '', re
             client=client,
             config=config,
             photo=photo,
-            caption=escape_markdown_v2(caption),
+            caption=_with_header_line(header, escape_markdown_v2(caption)),
             disable_notification=False,
         )
     finally:
@@ -364,7 +379,7 @@ async def send_test_notification() -> TelegramDeliveryResult:
         message_id = await _send_message(
             client=client,
             config=config,
-            markdown='fav Telegram notification test',
+            markdown=_with_header_line('Telegram notifications', escape_markdown_v2('Notification test')),
             disable_notification=False,
             disable_web_page_preview=True,
         )
