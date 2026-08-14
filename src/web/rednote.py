@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -57,6 +58,7 @@ from src.tool import telegram_bot as telegram_bot_tool
 from src.tool.notifications import enqueue_notification
 from src.web.rednote_browser import (
     RISK_CONTROL_STATUS_CODES,
+    NoteGoneError,
     PlaywrightNoteBrowser,
     ProxyConfigurationError,
     cursor_of,
@@ -86,6 +88,9 @@ _USER_ID_STATE_KEY = 'user_id'
 _LOGGED_IN = 'logged_in'
 _LOGGED_OUT = 'logged_out'
 _LOGIN_UNKNOWN = 'unknown'
+# How many separate runs have to find a note gone before it stops being retried.
+# More than one because a single 404 can be a bad moment rather than a deletion.
+_MISSING_RUNS_BEFORE_RETIRING = 3
 _LOGIN_POLL_INTERVAL_SECONDS = 3.0
 # The second scan, in the account-security modal that follows the first one.
 _VERIFY_STAGE = 'verify'
@@ -547,6 +552,15 @@ class RedNote:
             CREATE TABLE IF NOT EXISTS rednote_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+        """)
+        await database.query_db("""
+            CREATE TABLE IF NOT EXISTS rednote_missing (
+                note_id TEXT PRIMARY KEY,
+                runs INTEGER NOT NULL DEFAULT 0,
+                last_run TEXT NOT NULL DEFAULT '',
+                first_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
         """)
 
@@ -1099,15 +1113,20 @@ class RedNote:
 
     # ---------- phases ----------
 
-    async def _absorb_page(self, notes: Sequence[NoteRef], *, browser: NoteBrowser, seen: set[str], page_index: int) -> int:
+    async def _absorb_page(self, notes: Sequence[NoteRef], *, browser: NoteBrowser, seen: set[str], page_index: int, run_id: str) -> int:
         """Resolve whatever on this page is not archived yet, and say what that added."""
-        known = await self._known_note_ids([note.note_id for note in notes])
-        unknown = [note for note in notes if note.note_id not in known and note.note_id not in seen]
-        seen.update(note.note_id for note in notes)
+        note_ids = [note.note_id for note in notes]
+        known = await self._known_note_ids(note_ids)
+        # Notes enough runs have agreed are gone. Skipped rather than re-opened, which
+        # is the whole point of counting: a deleted note otherwise costs a page load on
+        # every run for as long as it stays in the list.
+        retired = await self._retired_note_ids(note_ids)
+        unknown = [note for note in notes if note.note_id not in known and note.note_id not in retired and note.note_id not in seen]
+        seen.update(note_ids)
 
         added = 0
         if unknown:
-            added = await self._resolve_notes(unknown, browser)
+            added = await self._resolve_notes(unknown, browser, run_id=run_id)
             # Reading a note navigates away from the likes list, so it has to be
             # reopened before the next page can be scrolled into view.
             await browser.open_likes(user_id=self.user_id)
@@ -1131,6 +1150,9 @@ class RedNote:
         everything below wherever the first run got to permanently unreachable.
         """
         backfill_complete = await self._backfill_complete()
+        # Identifies this walk, so that a note seen twice in it counts once toward the
+        # runs that have to agree before it is retired.
+        run_id = secrets.token_hex(8)
         seen_cursors: set[str] = set()
         seen_note_ids: set[str] = set()
         page_index = 0
@@ -1166,7 +1188,7 @@ class RedNote:
                 continue
             seen_cursors.add(cursor)
 
-            added = await self._absorb_page(notes, browser=browser, seen=seen_note_ids, page_index=page_index)
+            added = await self._absorb_page(notes, browser=browser, seen=seen_note_ids, page_index=page_index, run_id=run_id)
             resolved += added
 
             # The stop rule asks what the page contributed, not whether every id on it
@@ -1197,7 +1219,7 @@ class RedNote:
             log.info('RedNote backfill finished; later runs stop after %d archived pages', self.cfg.abort_after)
         return resolved
 
-    async def _resolve_notes(self, notes: Sequence[NoteRef], browser: NoteBrowser) -> int:
+    async def _resolve_notes(self, notes: Sequence[NoteRef], browser: NoteBrowser, *, run_id: str) -> int:
         """Turn each new note into its rows. One unreadable note must not end the run."""
         resolved = 0
         total = len(notes)
@@ -1207,17 +1229,58 @@ class RedNote:
                 note_card = await self._fetch_note_card(note_id=note.note_id, xsec_token=note.xsec_token, browser=browser)
             except RedNoteError:
                 raise
+            except NoteGoneError:
+                # The site said so, in the only way it says so: a redirect to /404.
+                await self._record_missing(note.note_id, run_id=run_id)
+                continue
             except Exception as exc:  # noqa: BLE001
+                # Everything else is this run's problem, not the note's. Recording it
+                # would let a bad night retire a note that is perfectly fine.
                 log.warning('Failed to read note %s (%s/%s): %s', note.note_id, position, total, exc)
                 continue
 
             media = extract_note_media(note_card, note_id=note.note_id, xsec_token=note.xsec_token)
             if not media:
+                # Read fine, carries nothing this source handles. Not a deletion.
                 log.warning('Note %s carries no files, skipping', note.note_id)
                 continue
             await self._upsert_media(media)
+            await self._clear_missing(note.note_id)
             resolved += len(media)
         return resolved
+
+    async def _record_missing(self, note_id: str, *, run_id: str) -> None:
+        """Count one run that found this note gone.
+
+        Counted per run rather than per sighting: the same note can come round twice
+        in one walk, and three sightings in one bad minute is not the evidence being
+        asked for. ``last_run`` is what makes the second one in a run a no-op.
+        """
+        await database.query_db(
+            """
+            INSERT INTO rednote_missing (note_id, runs, last_run) VALUES (?, 1, ?)
+            ON CONFLICT (note_id) DO UPDATE
+            SET runs = rednote_missing.runs + 1, last_run = excluded.last_run, last_seen_at = CURRENT_TIMESTAMP
+            WHERE rednote_missing.last_run <> excluded.last_run;
+            """,
+            (note_id, run_id),
+        )
+        log.info('RedNote note %s is gone; it is retried until %d runs agree', note_id, _MISSING_RUNS_BEFORE_RETIRING)
+
+    async def _clear_missing(self, note_id: str) -> None:
+        """Forget a note that read fine, so a past 404 can never retire a live note."""
+        await database.query_db('DELETE FROM rednote_missing WHERE note_id = ?;', (note_id,))
+
+    async def _retired_note_ids(self, note_ids: Sequence[str]) -> set[str]:
+        """Notes that enough separate runs have found gone to stop asking about."""
+        if not note_ids:
+            return set()
+        placeholders = ','.join('?' for _ in note_ids)
+        rows = await database.query_db(
+            f'SELECT note_id FROM rednote_missing WHERE runs >= ? AND note_id IN ({placeholders});',  # noqa: S608 - placeholders only
+            (_MISSING_RUNS_BEFORE_RETIRING, *note_ids),
+        )
+        return {str(row['note_id']) for row in rows}
 
     async def _notify_summary(self, *, downloaded: int, resolved: int, pending: int) -> None:
         try:

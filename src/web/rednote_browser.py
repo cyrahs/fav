@@ -208,6 +208,16 @@ class ProxyConfigurationError(ValueError):
     """The configured proxy cannot be expressed to Chromium."""
 
 
+class NoteGoneError(LookupError):
+    """The site said the note does not exist, rather than failing to show it.
+
+    Raised only on the site's own verdict -- the redirect to /404 -- and never on a
+    timeout, a navigation error or an empty page. The caller counts these toward
+    retiring a note, so anything less than the site saying so would let a bad night
+    retire notes that are perfectly fine.
+    """
+
+
 class NoteBrowser(Protocol):
     """What the source needs from a browser. Implemented for real below, faked in tests."""
 
@@ -738,11 +748,12 @@ class PlaywrightNoteBrowser:
     async def note_state(self, *, note_url: str, note_id: str) -> dict[str, Any]:
         await self._page.goto(note_url, wait_until='domcontentloaded')
         # A note that is gone redirects to /404 rather than rendering an empty one.
-        # Worth saying out loud: the caller cannot otherwise tell "deleted" from "did
-        # not load in time", and the two deserve different patience.
+        # This is the only positive evidence of deletion available, so it is the only
+        # thing raised as such: the caller cannot otherwise tell "deleted" from "did
+        # not load in time", and those deserve very different patience.
         if _NOT_FOUND_PATH in urlsplit(self._page.url).path:
-            log.info('RedNote note %s is gone: the site redirected to 404', note_id)
-            return {}
+            msg = f'RedNote redirected note {note_id} to 404'
+            raise NoteGoneError(msg)
         note = await self._page.evaluate(_NOTE_STATE_SCRIPT, note_id)
         return note if isinstance(note, dict) else {}
 

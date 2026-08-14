@@ -154,6 +154,7 @@ class _FakeDatabase:
         self.pending_rows = list(pending_rows)
         self.backfill_complete = backfill_complete
         self.state: dict[str, str] = {}
+        self.missing: dict[str, tuple[int, str]] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.inserted: list[tuple[str, tuple[str, ...], list[tuple[str, ...]], str | None]] = []
 
@@ -171,6 +172,17 @@ class _FakeDatabase:
             return [{'value': self.state[key]}] if key in self.state else []
         if normalized.startswith('INSERT INTO rednote_state'):
             self.state[params[0]] = params[1]
+        if normalized.startswith('INSERT INTO rednote_missing'):
+            note_id, run_id = params[0], params[1]
+            runs, last_run = self.missing.get(note_id, (0, ''))
+            if last_run != run_id:
+                self.missing[note_id] = (runs + 1, run_id)
+        if normalized.startswith('DELETE FROM rednote_missing'):
+            self.missing.pop(params[0], None)
+        if normalized.startswith('SELECT note_id FROM rednote_missing'):
+            threshold = int(params[0])
+            wanted = set(params[1:])
+            return [{'note_id': n} for n, (runs, _r) in self.missing.items() if runs >= threshold and n in wanted]
         return []
 
     async def insert_db_batch(self, *, table: str, columns: tuple[str, ...], rows, on_conflict: str | None = None) -> None:
@@ -1168,6 +1180,99 @@ def test_the_newest_likes_arrive_with_the_page_and_are_not_skipped(monkeypatch) 
     assert 'older-1' in archived
 
 
+def test_only_the_site_saying_404_counts_toward_retiring_a_note(monkeypatch) -> None:
+    """A note is retired on evidence, and a failure to load is not evidence.
+
+    Timeouts, navigation errors and a note that simply carries nothing all leave a
+    live note looking exactly like a deleted one from here. Counting those would
+    retire notes on a bad night and never look at them again.
+    """
+    database = _FakeDatabase()
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    class _Browser(_FakeBrowser):
+        async def note_state(self, *, note_url: str, note_id: str) -> dict:
+            if note_id == 'deleted':
+                raise rednote_module.NoteGoneError('redirected to 404')
+            if note_id == 'timed-out':
+                raise TimeoutError('the page never settled')
+            return {}  # read fine, carries nothing this source handles
+
+    browser = _Browser()
+    job = _job(browser=browser)
+    notes = [NoteRef(note_id=n, xsec_token='T') for n in ('deleted', 'timed-out', 'empty')]
+
+    _run(job, job._resolve_notes(notes, browser, run_id='run-1'))
+
+    assert set(database.missing) == {'deleted'}
+
+
+def test_three_separate_runs_have_to_agree_before_a_note_is_retired(monkeypatch) -> None:
+    database = _FakeDatabase()
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    class _Browser(_FakeBrowser):
+        async def note_state(self, *, note_url: str, note_id: str) -> dict:
+            raise rednote_module.NoteGoneError('redirected to 404')
+
+    browser = _Browser()
+    job = _job(browser=browser)
+    note = [NoteRef(note_id='deleted', xsec_token='T')]
+
+    # Twice inside one run counts once: a note can come round twice in a single walk.
+    _run(job, job._resolve_notes(note * 2, browser, run_id='run-1'))
+    assert database.missing['deleted'][0] == 1
+    assert _run(job, job._retired_note_ids(['deleted'])) == set()
+
+    _run(job, job._resolve_notes(note, browser, run_id='run-2'))
+    assert _run(job, job._retired_note_ids(['deleted'])) == set()
+
+    _run(job, job._resolve_notes(note, browser, run_id='run-3'))
+    assert _run(job, job._retired_note_ids(['deleted'])) == {'deleted'}
+
+
+def test_a_note_that_reads_again_stops_being_counted_as_gone(monkeypatch) -> None:
+    """Otherwise two unlucky runs plus one later hiccup retires a live note."""
+    database = _FakeDatabase()
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    state = {'gone': True}
+
+    class _Browser(_FakeBrowser):
+        async def note_state(self, *, note_url: str, note_id: str) -> dict:
+            if state['gone']:
+                raise rednote_module.NoteGoneError('redirected to 404')
+            return _image_note_card()
+
+    browser = _Browser()
+    job = _job(browser=browser)
+    note = [NoteRef(note_id='flaky', xsec_token='T')]
+
+    _run(job, job._resolve_notes(note, browser, run_id='run-1'))
+    _run(job, job._resolve_notes(note, browser, run_id='run-2'))
+    assert database.missing['flaky'][0] == 2
+
+    state['gone'] = False
+    _run(job, job._resolve_notes(note, browser, run_id='run-3'))
+
+    assert 'flaky' not in database.missing
+
+
+def test_a_retired_note_is_not_opened_again(monkeypatch) -> None:
+    database = _FakeDatabase()
+    database.missing['retired'] = (3, 'run-3')
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    browser = _FakeBrowser(notes={'fresh': _image_note_card()})
+    job = _job(browser=browser)
+    notes = [NoteRef(note_id='retired', xsec_token='T'), NoteRef(note_id='fresh', xsec_token='T')]
+
+    _run(job, job._absorb_page(notes, browser=browser, seen=set(), page_index=1, run_id='run-4'))
+
+    # The whole point of counting: it stops costing a page load on every run.
+    assert all('retired' not in url for url in browser.note_urls)
+
+
 def test_a_note_that_can_never_be_read_does_not_hold_the_stop_rule_open(monkeypatch) -> None:
     """The list churns: notes get deleted, and get unliked while being looked at.
 
@@ -1317,7 +1422,7 @@ def test_resolving_a_note_writes_one_row_per_file(monkeypatch) -> None:
     browser = _FakeBrowser(notes={NOTE_ID: _page_note_card()})
     job = _job(browser=browser)
 
-    assert _run(job, job._resolve_notes([NoteRef(note_id=NOTE_ID, xsec_token='TOKEN')], browser)) == 1
+    assert _run(job, job._resolve_notes([NoteRef(note_id=NOTE_ID, xsec_token='TOKEN')], browser, run_id='run-1')) == 1
 
     table, _columns, rows, on_conflict = fake_db.inserted[0]
     assert table == 'rednote'
@@ -1341,7 +1446,7 @@ def test_a_note_that_cannot_be_read_does_not_end_the_run(monkeypatch) -> None:
     job = _job(browser=browser)
     notes = [NoteRef(note_id=NOTE_ID, xsec_token='T'), NoteRef(note_id=OTHER_NOTE_ID, xsec_token='T')]
 
-    assert _run(job, job._resolve_notes(notes, browser)) == 1
+    assert _run(job, job._resolve_notes(notes, browser, run_id='run-1')) == 1
 
 
 # ---------- where files land ----------

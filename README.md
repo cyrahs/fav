@@ -219,9 +219,19 @@ and being OOM-killed there would take the whole worker with it. Two pieces of st
 incremental: a note that already has rows costs one place in a list page instead of a page load of
 its own, and a `rednote_state` row marks whether the first full walk ever finished. Until it has,
 every run walks to the end of the list so the history fills in; afterwards runs stop once
-`abort_after` pages of nothing but archived notes come up in a row. A walk that ended early — on the
-stop rule, on `max_pages_per_run`, or because scrolling stopped producing — does not set that mark,
-so a failed backfill is retried rather than assumed complete.
+`abort_after` pages that **added nothing** come up in a row. A walk that ended early — on the stop
+rule, on `max_pages_per_run`, or because scrolling stopped producing — does not set that mark, so a
+failed backfill is retried rather than assumed complete.
+
+The stop rule counts what a page contributed rather than whether every note on it was already held,
+because the list churns underneath it: notes get deleted, and get unliked while you are looking at
+them. A deleted note never gains rows and so is never "already held" — under the older rule one of
+those near the top of the list reset the counter on every run, and the early stop was never reached.
+Those notes are tracked in `rednote_missing`, and retried until **three separate runs** have each
+found them gone, after which they stop costing a page load. Only the site's own verdict counts, which
+is its redirect to `/404`; a timeout, a navigation error or a note that simply carries no files is
+this run's problem rather than the note's, and reading a note successfully clears whatever had been
+counted against it.
 
 Images and the clips inside live photos come straight from the CDN; whole video notes go through
 yt-dlp, which re-resolves the note page itself and can reach the untranscoded original. Files land in
