@@ -1099,12 +1099,28 @@ class RedNote:
 
     # ---------- phases ----------
 
+    async def _absorb_page(self, notes: Sequence[NoteRef], *, browser: NoteBrowser, seen: set[str], page_index: int) -> int:
+        """Resolve whatever on this page is not archived yet, and say what that added."""
+        known = await self._known_note_ids([note.note_id for note in notes])
+        unknown = [note for note in notes if note.note_id not in known and note.note_id not in seen]
+        seen.update(note.note_id for note in notes)
+
+        added = 0
+        if unknown:
+            added = await self._resolve_notes(unknown, browser)
+            # Reading a note navigates away from the likes list, so it has to be
+            # reopened before the next page can be scrolled into view.
+            await browser.open_likes(user_id=self.user_id)
+        log.info('RedNote likes page=%s notes=%s new=%s added=%s', page_index, len(notes), len(unknown), added)
+        return added
+
     async def _crawl(self, browser: NoteBrowser) -> int:
         """Walk the likes list newest first, resolving each page's new notes as it goes.
 
-        The pages are the browser's own: scrolling the 赞过 tab makes the site fetch
-        them and the responses are read as they go by, so nothing here has to
-        reproduce a request signature.
+        The pages are the browser's own: the liked tab arrives with its first screenful
+        already rendered in, and scrolling makes the site fetch the rest, whose
+        responses are read as they go by. So nothing here reproduces a request
+        signature, and nothing is taken on trust about which page is first.
 
         Rows land page by page rather than at the end of the walk, so a run that dies
         part-way leaves the next one with less to re-fetch: an already-resolved note
@@ -1150,20 +1166,21 @@ class RedNote:
                 continue
             seen_cursors.add(cursor)
 
-            known = await self._known_note_ids([note.note_id for note in notes])
-            unknown = [note for note in notes if note.note_id not in known and note.note_id not in seen_note_ids]
-            seen_note_ids.update(note.note_id for note in notes)
-            log.info('RedNote likes page=%s notes=%s new=%s', page_index, len(notes), len(unknown))
+            added = await self._absorb_page(notes, browser=browser, seen=seen_note_ids, page_index=page_index)
+            resolved += added
 
-            if unknown:
+            # The stop rule asks what the page contributed, not whether every id on it
+            # was already known. A note that cannot be resolved -- deleted, or gone
+            # private -- never gains rows and so is never "known", and under the older
+            # rule one of those sitting near the top of the list reset this counter on
+            # every run, making the early stop unreachable and every run a full walk.
+            # Asking about the archive instead is also indifferent to the list
+            # shifting underneath it as things are liked and unliked.
+            if added:
                 full_hit_pages = 0
-                resolved += await self._resolve_notes(unknown, browser)
-                # Reading a note navigates away from the likes list, so it has to be
-                # reopened before the next page can be scrolled into view.
-                await browser.open_likes(user_id=self.user_id)
             else:
                 full_hit_pages += 1
-                log.info('RedNote page=%s is entirely archived, consecutive=%s/%s', page_index, full_hit_pages, self.cfg.abort_after)
+                log.info('RedNote page=%s added nothing, consecutive=%s/%s', page_index, full_hit_pages, self.cfg.abort_after)
                 if backfill_complete and full_hit_pages >= self.cfg.abort_after:
                     log.info('RedNote reached the incremental stop condition')
                     break

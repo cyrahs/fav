@@ -1168,6 +1168,36 @@ def test_the_newest_likes_arrive_with_the_page_and_are_not_skipped(monkeypatch) 
     assert 'older-1' in archived
 
 
+def test_a_note_that_can_never_be_read_does_not_hold_the_stop_rule_open(monkeypatch) -> None:
+    """The list churns: notes get deleted, and get unliked while being looked at.
+
+    The old rule asked whether every id on a page was already known. A deleted note
+    never gains rows, so it is never known, so a single one near the top reset the
+    counter on every run -- the early stop became unreachable and every incremental
+    run walked the whole list. Asking what the page *added* to the archive instead is
+    indifferent both to that and to the list shifting underneath the walk.
+    """
+    database = _FakeDatabase(known_note_ids=('archived-1',), backfill_complete=True)
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    # 'gone' is offered by the list on every page and resolves to nothing, forever.
+    browser = _FakeBrowser(
+        initial_notes=[{'note_id': 'gone', 'xsec_token': 'T'}, {'note_id': 'archived-1', 'xsec_token': 'T'}],
+        pages=[
+            _like_page([{'note_id': 'gone', 'xsec_token': 'T'}, {'note_id': 'archived-1', 'xsec_token': 'T'}], cursor='c1'),
+            _like_page([{'note_id': 'archived-1', 'xsec_token': 'T'}], cursor='c2'),
+            _like_page([{'note_id': 'should-not-be-reached', 'xsec_token': 'T'}], cursor='c3'),
+        ],
+        notes={'gone': {}},
+    )
+    job = _job(browser=browser, abort_after=2)
+
+    _run(job, job._crawl(browser))
+
+    archived = [row[0] for insert in database.inserted for row in insert[2]]
+    assert 'should-not-be-reached' not in archived
+
+
 def test_the_crawl_stops_once_it_has_caught_up(monkeypatch) -> None:
     fake_db = _FakeDatabase(known_note_ids=('old-1', 'old-2'))
     monkeypatch.setattr(rednote_module, 'database', fake_db)
