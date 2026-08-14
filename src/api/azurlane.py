@@ -35,7 +35,10 @@ _ASSET_KIND_ORDER = {
             'spine.skel',
             'spine.atlas',
             'spine.texture',
+            'painting.index',
             'painting.image',
+            'painting.layer',
+            'painting.mesh',
             'painting.face',
             'icon.square',
             'icon.shipyard',
@@ -641,7 +644,12 @@ class AzurLaneLibrary:
             }
         if model_type == 'painting':
             return {
+                'index': self._first_asset(assets, 'painting.index'),
                 'image': self._first_asset(assets, 'painting.image'),
+                # The sheets are tight-packed, so reassembling one needs its mesh. Pairing is by
+                # basename: layer `x_rw.webp` is unpacked by mesh `x_rw-mesh.obj`.
+                'layers': self._assets_by_kind(assets, 'painting.layer'),
+                'meshes': self._assets_by_kind(assets, 'painting.mesh'),
                 'faces': self._assets_by_kind(assets, 'painting.face'),
                 'square_icon': self._first_asset(assets, 'icon.square'),
                 'shipyard_icon': self._first_asset(assets, 'icon.shipyard'),

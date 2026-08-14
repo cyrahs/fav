@@ -40,11 +40,13 @@ from src.tool.azurlane_l2d_sources import (
     l2d_su_character_fingerprint,
     l2d_su_ship_index_url,
     model_probe_urls,
+    painting_index_url,
     parse_l2d_su_ship_class,
     parse_l2d_su_ship_index,
     parse_l2d_su_ship_models,
     parse_l2d_su_ship_voices,
     parse_nagami_mapping,
+    parse_painting_index,
     parse_spine_parts_manifest,
     probe_l2d_su_origin,
     spine_parts_manifest_url,
@@ -572,6 +574,132 @@ def test_enumerate_painting_resources_covers_image_faces_icons_and_voices() -> N
     assert by_kind['voice.audio'][0].local_path == 'assets/painting/biaoqiang/cue/cv-1/detail.ogg'
     assert by_kind['voice.audio'][0].context['text'] == ''
     assert by_kind['voice.audio'][0].context['key'] == 'detail'
+
+
+def _xiafei_index_payload() -> str:
+    """A real multi-layer index: `_rw` is the character, `_bj` the background, `raw` the flat sheet."""
+    return json.dumps(
+        {
+            'xiafei_4': {'size': [4574, 2866], 'pivot': [0.490676, 0.666504], 'position': [0, 0], 'rawSize': [2048, 1283], 'raw': True},
+            'xiafei_4_rw': {'size': [2000, 2048], 'pivot': [0.490676, 0.666504], 'position': [10, 272], 'rawSize': [2000, 2048]},
+            'xiafei_4_bj': {'size': [4574, 2866], 'pivot': [0.490676, 0.666504], 'position': [-35, 478], 'rawSize': [2048, 1283]},
+            'face': {'size': [372, 374], 'pivot': [0.5, 0.5], 'position': [-406.4, 596.8]},
+        },
+    )
+
+
+def test_painting_index_url_sits_beside_the_sheet() -> None:
+    assert painting_index_url(f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4.webp') == f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4.json'
+
+
+def test_parse_painting_index_keeps_layer_order_and_splits_off_the_face_slot() -> None:
+    index = parse_painting_index(_xiafei_index_payload(), painting_url=f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4.webp')
+
+    assert index.painting_key == 'xiafei_4'
+    assert index.index_url == f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4.json'
+    # Source order decides which layer draws over which, and a jsonb object would not keep it.
+    assert [layer.name for layer in index.layers] == ['xiafei_4', 'xiafei_4_rw', 'xiafei_4_bj']
+    assert index.layers[0].raw is True
+    assert index.layers[1].raw is False
+    assert index.layers[1].size == (2000.0, 2048.0)
+    assert index.layers[1].position == (10.0, 272.0)
+    assert index.face is not None
+    assert index.face.size == (372.0, 374.0)
+    assert index.face.position == (-406.4, 596.8)
+
+
+def test_parse_painting_index_defaults_raw_size_to_the_declared_size() -> None:
+    payload = json.dumps({'biaoqiang': {'size': [1020, 992], 'pivot': [0.5, 0.5], 'position': [0, 0]}})
+
+    index = parse_painting_index(payload, painting_url=f'{L2D_SU_STATIC_BASE_URL}/painting/biaoqiang.webp')
+
+    assert index.layers[0].raw_size == (1020.0, 992.0)
+    assert index.face is None
+
+
+def test_parse_painting_index_rejects_a_document_without_a_layer() -> None:
+    payload = json.dumps({'face': {'size': [100, 100], 'pivot': [0.5, 0.5], 'position': [0, 0]}})
+
+    with pytest.raises(SourceSchemaError):
+        parse_painting_index(payload, painting_url=f'{L2D_SU_STATIC_BASE_URL}/painting/biaoqiang.webp')
+
+
+def test_enumerate_painting_resources_adds_layer_sheets_and_meshes_from_the_index() -> None:
+    payload = _ship_index_payload([_ship(1, 'xiafei', '霞飞', skins=[_static_skin(10, '霞飞', key='xiafei_4')])])
+    parsed = parse_l2d_su_ship_index(payload, region='CN')
+    catalog = build_azurlane_model_catalog(_source_snapshots(parsed.characters, {}))
+    entry = _catalog_entry(catalog, 'azurlane:painting:xiafei:xiafei_4')
+    index = parse_painting_index(_xiafei_index_payload(), painting_url=entry.resources.primary_url)
+
+    enumeration = enumerate_azurlane_model_resources(entry, painting_index=index)
+
+    by_kind = defaultdict(list)
+    for asset in enumeration.assets:
+        by_kind[asset.kind].append(asset)
+    assert [asset.source_url for asset in by_kind['painting.index']] == [f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4.json']
+    # The primary sheet keeps its painting.image spec, so it is not repeated as a layer.
+    assert [asset.source_url for asset in by_kind['painting.layer']] == [
+        f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4_rw.webp',
+        f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4_bj.webp',
+    ]
+    # xiafei_4 is `raw: true`: it is stored unpacked, and asking for its mesh gets the SPA shell.
+    assert [asset.source_url for asset in by_kind['painting.mesh']] == [
+        f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4_rw-mesh.obj',
+        f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4_bj-mesh.obj',
+    ]
+    assert by_kind['painting.index'][0].local_path == 'assets/painting/xiafei_4/xiafei_4.json'
+    assert by_kind['painting.layer'][0].local_path == 'assets/painting/xiafei_4/painting/xiafei_4_rw.webp'
+    assert by_kind['painting.mesh'][0].local_path == 'assets/painting/xiafei_4/painting/xiafei_4_rw-mesh.obj'
+    assert by_kind['painting.mesh'][0].context['layer'] == 'xiafei_4_rw'
+
+
+def test_enumerate_painting_resources_matches_the_primary_layer_across_a_case_disagreement() -> None:
+    """The entry says Z28_3; the index that answered for it says z28_3. It is still one sheet."""
+    payload = _ship_index_payload([_ship(1, 'Z28', 'Z28', skins=[_static_skin(10, 'Z28', key='Z28_3')])])
+    parsed = parse_l2d_su_ship_index(payload, region='CN')
+    catalog = build_azurlane_model_catalog(_source_snapshots(parsed.characters, {}))
+    entry = _catalog_entry(catalog, 'azurlane:painting:Z28:Z28_3')
+    index_source = json.dumps({'z28_3': {'size': [1908, 2048], 'pivot': [0.5, 0.5], 'position': [0, 0]}})
+    index = parse_painting_index(index_source, painting_url=entry.resources.primary_url)
+
+    enumeration = enumerate_azurlane_model_resources(entry, painting_index=index)
+
+    by_kind = defaultdict(list)
+    for asset in enumeration.assets:
+        by_kind[asset.kind].append(asset)
+    assert by_kind['painting.layer'] == []
+    # The mesh keeps the index's spelling, which is the one the CDN actually stores.
+    assert [asset.source_url for asset in by_kind['painting.mesh']] == [f'{L2D_SU_STATIC_BASE_URL}/painting/z28_3-mesh.obj']
+
+
+def test_enumerate_painting_resources_without_an_index_stays_at_the_packed_sheet() -> None:
+    payload = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_static_skin(10, '标枪', key='biaoqiang')])])
+    parsed = parse_l2d_su_ship_index(payload, region='CN')
+    catalog = build_azurlane_model_catalog(_source_snapshots(parsed.characters, {}))
+    entry = _catalog_entry(catalog, 'azurlane:painting:biaoqiang:biaoqiang')
+
+    enumeration = enumerate_azurlane_model_resources(entry)
+
+    kinds = {asset.kind for asset in enumeration.assets}
+    assert 'painting.image' in kinds
+    assert kinds.isdisjoint({'painting.index', 'painting.layer', 'painting.mesh'})
+
+
+def test_painting_index_to_dict_uses_the_origin_field_names() -> None:
+    index = parse_painting_index(_xiafei_index_payload(), painting_url=f'{L2D_SU_STATIC_BASE_URL}/painting/xiafei_4.webp')
+
+    payload = index.to_dict()
+
+    assert payload['painting_key'] == 'xiafei_4'
+    assert payload['layers'][1] == {
+        'name': 'xiafei_4_rw',
+        'size': [2000.0, 2048.0],
+        'rawSize': [2000.0, 2048.0],
+        'position': [10.0, 272.0],
+        'pivot': [0.490676, 0.666504],
+        'raw': False,
+    }
+    assert payload['face']['size'] == [372.0, 374.0]
 
 
 def test_case_variants_cover_a_filename_in_both_directions() -> None:

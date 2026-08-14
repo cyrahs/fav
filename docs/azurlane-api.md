@@ -161,9 +161,35 @@ the authoritative place for anything not lifted into a first-class field.
   there is no separate text file.
 - `spine`: `parts`, `skel`, `skeletons[]`, `atlas`, `atlases[]`, `textures[]`
   (multi-part models list every part's skeleton/atlas/textures)
-- `painting`: `image`, `faces[]`, `square_icon`, `shipyard_icon`, `voices[]`. There is no
-  q-icon: the index advertises `qicon/<key>` for every skin but the CDN hosts none of them,
-  so `source_metadata.costume.q_icon` is carried through as source data only.
+- `painting`: `index`, `image`, `layers[]`, `meshes[]`, `faces[]`, `square_icon`,
+  `shipyard_icon`, `voices[]`. There is no q-icon: the index advertises `qicon/<key>` for every
+  skin but the CDN hosts none of them, so `source_metadata.costume.q_icon` is carried through
+  as source data only.
+
+### Reassembling a painting
+
+`image` is **not** the artwork. Azur Lane ships its paintings as tight-packed sprite sheets:
+mesh fragments with the transparent space squeezed out, so drawing the webp as-is gives a
+canvas of disconnected sleeves, gun barrels and faces. Packing costs 30–43% of the declared
+canvas and does not preserve aspect ratio, so no single scale or offset recovers the picture —
+each triangle has to be mapped individually.
+
+Three files reassemble it, all archived:
+
+- `files.index` — `painting/<key>.json`, also parsed onto
+  `source_metadata.painting_index` so no extra fetch is needed. It carries `layers[]` in draw
+  order, each with the origin's own field names: `name`, `size` (the canvas the layer draws
+  into), `rawSize` (the sheet as stored, so `size / rawSize` is the downsample factor, e.g.
+  2.40 for `guanghui_7`), `position`, `pivot` and `raw`. `face` is the anchor slot that
+  positions `painting.face` diffs — its `size` / `pivot` / `position` only, no image of its own.
+- `files.layers[]` — the sibling sheets (`_rw` is the character, `_bj` the background). The
+  layer named after the painting key is `files.image` and is not repeated here.
+- `files.meshes[]` — Wavefront OBJ with vertex, UV and face data; solve one affine transform
+  per face and clip to it. Faces may be quads, not only triangles.
+
+A `raw: true` layer is stored unpacked and has **no mesh**; draw it directly. The crawler never
+requests those, because the origin answers a missing mesh with the site's own HTML shell rather
+than a 404.
 
 ### Asset object
 
@@ -188,7 +214,8 @@ has not (yet) fetched.
 Asset kinds: `live2d.model3`, `live2d.moc3`, `live2d.texture`, `live2d.physics`,
 `live2d.pose`, `live2d.display-info`, `live2d.expression`, `live2d.motion`, `live2d.audio`,
 `spine.parts`, `spine.skel`, `spine.atlas`, `spine.texture`,
-`painting.image`, `painting.face`, `icon.square`, `icon.shipyard`, `voice.audio`.
+`painting.index`, `painting.image`, `painting.layer`, `painting.mesh`, `painting.face`,
+`icon.square`, `icon.shipyard`, `voice.audio`.
 
 ### Voice contexts
 
