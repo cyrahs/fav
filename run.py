@@ -184,7 +184,8 @@ async def _enqueue_job_failed_notification(
         await enqueue_notification(
             kind='job_failed',
             source='worker',
-            title=f'Job failed: {job.name}',
+            header=job.name,
+            title='Job failed',
             body=error_message,
             dedupe_key=dedupe_key,
             payload={

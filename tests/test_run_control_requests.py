@@ -46,14 +46,15 @@ def _notification(
         notification_id=notification_id,
         kind='job_failed',
         source='worker',
-        title='Job failed: Bilibili',
+        header='Bilibili',
+        title='Job failed',
         body='RuntimeError: boom',
         link_url='',
         image_url=image_url,
         payload=payload,
         dedupe_key='job_failed:bilibili:bilibili:download:BV1TEST',
         status='unread',
-        markdown='*Job failed: Bilibili*\nRuntimeError: boom',
+        markdown='FAV · Bilibili\n*Job failed*\nRuntimeError: boom',
         disable_web_page_preview=True,
         disable_notification=False,
         webhook_action=WEBHOOK_ACTION_UPSERT,
@@ -328,7 +329,8 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert result.error == 'RuntimeError: boom'
     assert captured['kind'] == 'job_failed'
     assert captured['source'] == 'worker'
-    assert captured['title'] == 'Job failed: Bilibili'
+    assert captured['header'] == 'Bilibili'
+    assert captured['title'] == 'Job failed'
     assert captured['body'] == 'RuntimeError: boom'
     assert captured['payload']['job'] == 'bilibili'
     assert captured['payload']['error_class'] == 'RuntimeError'

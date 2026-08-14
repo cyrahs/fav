@@ -316,7 +316,8 @@ class Twitter:
             await enqueue_notification(
                 kind='summary',
                 source='twitter',
-                title='X likes update completed',
+                header='X',
+                title='Likes update completed',
                 body=f'Downloaded {downloaded} files from liked tweets.',
                 payload={'downloaded': downloaded, 'backfilling': backfilling, 'username': self.cfg.username},
             )
