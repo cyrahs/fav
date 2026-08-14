@@ -146,6 +146,13 @@ There is no migration framework. Each source owns its schema in an `_ensure_tabl
 `CREATE TABLE IF NOT EXISTS`, then `PRAGMA table_info` plus `ALTER TABLE ADD COLUMN` for anything
 added later. Additive changes only — preserve backward compatibility.
 
+Statement order is the only migration there is, so keep the script in three blocks: tables, then
+every `ALTER TABLE ADD COLUMN`, then every `CREATE INDEX`. On an existing database the `CREATE TABLE`
+is a no-op, so a column added later arrives through its `ALTER` alone; an index naming that column
+ahead of the `ALTER` fails with `UndefinedColumn` and, because the connection is autocommit and
+`_ensure_table()` runs first, takes down the rest of the script — including the `ALTER` that would
+have repaired the table — on every run. `tests/test_database.py` enforces the ordering.
+
 ### Logging
 
 Use `from src.core import logger` and `logger.get('name')`. The handler is designed to coexist with
