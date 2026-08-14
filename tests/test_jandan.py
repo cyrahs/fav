@@ -559,7 +559,8 @@ def test_notify_summary_enqueues_structured_payload(monkeypatch) -> None:
         {
             'kind': 'summary',
             'source': 'jandan',
-            'title': 'Jandan update completed',
+            'header': 'Jandan',
+            'title': 'Update completed',
             'body': 'Downloaded 3 images from 8 API images.',
             'payload': {
                 'total_downloaded': 3,

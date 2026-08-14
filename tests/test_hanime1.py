@@ -1173,7 +1173,8 @@ def test_resolve_parser_failure_notification_uses_job_failure_dedupe_key(monkeyp
     asyncio.run(h._resolve_parser_failure_notification())
 
     assert captured['dedupe_key'] == 'job_failed:hanime1:hanime1:parser:playlist-wrapper'
-    assert captured['title'] == 'Job recovered: Hanime1'
+    assert captured['header'] == 'Hanime1'
+    assert captured['title'] == 'Job recovered'
 
 
 def test_update_resolves_parser_alert_after_scan_recovers(monkeypatch, tmp_path) -> None:
@@ -1528,7 +1529,8 @@ def test_notify_download_enqueues_structured_payload(tmp_path, monkeypatch) -> N
         {
             'kind': 'download_completed',
             'source': 'hanime1',
-            'title': 'Hanime1: 公開便所 2',
+            'header': 'Hanime1',
+            'title': '公開便所 2',
             'body': '720p | 1.0 MB | 2020-01-01',
             'link_url': 'https://hanime1.me/watch?v=12345',
             'image_url': '',

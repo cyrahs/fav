@@ -437,11 +437,11 @@ def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeyp
     qr_a = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
     qr_b = 'data:image/png;base64,' + base64.b64encode(QR_PNG + b'\x00').decode()
 
-    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
         sent.append(photo[1])
         return 1
 
-    async def _send_text(*, text, require_enabled=True) -> int:
+    async def _send_text(*, header='', text, require_enabled=True) -> int:
         return 2
 
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
@@ -468,7 +468,7 @@ def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeyp
 
 
 def test_a_login_that_is_never_scanned_ends_the_run_with_one_deduped_failure(monkeypatch) -> None:
-    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
         return 1
 
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
@@ -489,7 +489,7 @@ def test_a_second_run_inside_the_cooldown_does_not_send_another_qr(monkeypatch) 
     # A QR is dead within minutes, so a 04:00 cron sending one is pure noise.
     sent: list[bytes] = []
 
-    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
         sent.append(photo[1])
         return 1
 

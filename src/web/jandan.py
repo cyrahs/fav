@@ -362,7 +362,8 @@ class Jandan:
             await enqueue_notification(
                 kind='summary',
                 source='jandan',
-                title='Jandan update completed',
+                header='Jandan',
+                title='Update completed',
                 body=f'Downloaded {total_downloaded} images from {total_api_images} API images.',
                 payload={
                     'total_downloaded': total_downloaded,

@@ -1297,7 +1297,8 @@ class Nikke:
             await enqueue_notification(
                 kind='content_discovered',
                 source='nikke',
-                title=f'Nikke new {discovery}: {character_name}',
+                header='Nikke',
+                title=f'New {discovery}: {character_name}',
                 body=body,
                 link_url=f'{GAMEKEE_BASE_URL}/nikke/tj/{content_id}.html',
                 payload={

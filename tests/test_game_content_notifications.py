@@ -31,7 +31,8 @@ def test_nikke_new_character_notification_includes_character_and_skin_names(tmp_
         {
             'kind': 'content_discovered',
             'source': 'nikke',
-            'title': 'Nikke new character: Rapi',
+            'header': 'Nikke',
+            'title': 'New character: Rapi',
             'body': 'Character: Rapi\nSkin: Default, Summer Vacation',
             'link_url': 'https://www.gamekee.com/nikke/tj/101.html',
             'payload': {
@@ -69,7 +70,8 @@ def test_nikke_existing_character_only_notifies_for_new_skin(tmp_path, monkeypat
     asyncio.run(crawler._notify_content_discovery(snapshot=previous, character=character))
 
     assert len(notifications) == 1
-    assert notifications[0]['title'] == 'Nikke new skin: Rapi'
+    assert notifications[0]['header'] == 'Nikke'
+    assert notifications[0]['title'] == 'New skin: Rapi'
     assert notifications[0]['body'] == 'Character: Rapi\nSkin: Summer Vacation'
     assert notifications[0]['payload']['skin_names'] == ['Summer Vacation']
 
@@ -99,7 +101,8 @@ def test_bd2_existing_character_notification_includes_new_skin_name(tmp_path, mo
     asyncio.run(crawler._notify_content_discovery(snapshot=previous, character=character))
 
     assert len(notifications) == 1
-    assert notifications[0]['title'] == 'BD2 new skin: Justia'
+    assert notifications[0]['header'] == 'BD2'
+    assert notifications[0]['title'] == 'New skin: Justia'
     assert notifications[0]['body'] == 'Character: Justia\nSkin: Summer Knight'
     assert notifications[0]['link_url'] == 'https://www.gamekee.com/zsca2/tj/202.html'
 

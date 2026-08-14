@@ -73,6 +73,12 @@ Three moving parts, all coordinating through PostgreSQL rather than through memo
 - **Notifications**: sources call `enqueue_notification(...)` into a durable outbox table; the worker
   delivers it via `src/tool/telegram_bot.py`. Job failures are enqueued by `run.py` itself, and an
   exception carrying a `notification_dedupe_key` attribute is deduplicated instead of spamming.
+  Every message follows one template: a `FAV · <source>` line from `header`, then `title` carrying
+  the `link_url` hyperlink, then `body`. Pass `header` from every call site — the source's `JOB_SPECS`
+  name, so one source is never labelled two ways — and keep that name out of `title`. The immediate
+  sends in `telegram_bot.py` (`send_text_now`, `send_photo_now`) take the same `header`. Rendering
+  runs off the stored columns, and the worker re-renders at claim time, so anything the template
+  needs has to be a column rather than a call-time-only argument.
 
 A source is a duck type, not a base class. `JobSpec.factory()` must return an object with an
 `async update()`; an optional `async aclose()` is called afterwards if present.
@@ -162,7 +168,8 @@ across several hand-maintained registries, and missing one fails in a way that i
    `validate_runnable()` returning the field names that must be filled in first. Register it in the
    `Web` model, in `SECTION_MODELS`, and — if it has secrets — in `SENSITIVE_FIELDS`.
 2. `src/web/<source>.py`: the crawler, with `async update()` and an optional `async aclose()`.
-   Export it from `src/web/__init__.py`.
+   Export it from `src/web/__init__.py`. Any `enqueue_notification` it makes passes
+   `header='<JobSpec name>'`.
 3. `src/service/jobs.py`: a `JobSpec`, including `required_commands` for any external binary.
 4. `src/api/schemas.py`: add the key to `JobRequestTarget`, or manual triggers 422.
 5. `src/api/archive.py`: an `ARCHIVE_SOURCES` entry and an `_EXTERNAL_URL_BUILDERS` entry, so rows

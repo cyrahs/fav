@@ -34,6 +34,7 @@ _SELECT_FIELDS = """
     id,
     kind,
     source,
+    header,
     title,
     body,
     link_url,
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     id BIGSERIAL PRIMARY KEY,
     kind TEXT NOT NULL,
     source TEXT NOT NULL,
+    header TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',
     link_url TEXT NOT NULL DEFAULT '',
@@ -86,6 +88,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS header TEXT NOT NULL DEFAULT '';
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS markdown TEXT NOT NULL DEFAULT '';
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS disable_web_page_preview BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS disable_notification BOOLEAN NOT NULL DEFAULT TRUE;
@@ -137,6 +140,7 @@ class NotificationRecord:
     delivered_at: datetime | None = None
     last_error: str = ''
     pin: bool = False
+    header: str = ''
 
     @property
     def payload_json(self) -> dict[str, Any]:
@@ -181,6 +185,7 @@ def _escape_markdown_v2_url(value: str) -> str:
 def _notification_delivery_fields(
     *,
     kind: str,
+    header: str = '',
     title: str,
     body: str,
     link_url: str,
@@ -190,11 +195,15 @@ def _notification_delivery_fields(
 ) -> tuple[str, bool, bool, bool]:
     del image_url
     parts: list[str] = []
+    normalized_header = header.strip()
     normalized_title = title.strip()
     normalized_body = body.strip()
     normalized_link_url = link_url.strip()
     is_active_job_failure = kind == 'job_failed' and webhook_action != WEBHOOK_ACTION_RESOLVE
 
+    # The header names the app and the source, so the title line is free to be the item itself.
+    if normalized_header:
+        parts.append(telegram_bot.format_header_line(normalized_header))
     if normalized_title:
         title_markdown = f'*{_escape_markdown_v2(normalized_title)}*'
         if normalized_link_url:
@@ -216,6 +225,7 @@ def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
         notification_id=int(row['id']),
         kind=str(row['kind']),
         source=str(row['source']),
+        header=str(row.get('header') or ''),
         title=str(row.get('title') or ''),
         body=str(row.get('body') or ''),
         link_url=str(row.get('link_url') or ''),
@@ -243,6 +253,7 @@ def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
 def _with_rendered_delivery_fields(notification: NotificationRecord) -> NotificationRecord:
     markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
         kind=notification.kind,
+        header=notification.header,
         title=notification.title,
         body=notification.body,
         link_url=notification.link_url,
@@ -282,6 +293,7 @@ async def enqueue_notification(
     *,
     kind: str,
     source: str,
+    header: str = '',
     title: str = '',
     body: str = '',
     link_url: str = '',
@@ -295,6 +307,7 @@ async def enqueue_notification(
     payload_text = json.dumps(payload or {}, ensure_ascii=False, separators=(',', ':'))
     markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
         kind=kind,
+        header=header,
         title=title,
         body=body,
         link_url=link_url,
@@ -307,6 +320,7 @@ async def enqueue_notification(
         INSERT INTO notifications (
             kind,
             source,
+            header,
             title,
             body,
             link_url,
@@ -326,11 +340,12 @@ async def enqueue_notification(
             next_attempt_at,
             last_error
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
         ON CONFLICT (dedupe_key) WHERE dedupe_key <> ''
         DO UPDATE SET
             kind = EXCLUDED.kind,
             source = EXCLUDED.source,
+            header = EXCLUDED.header,
             title = EXCLUDED.title,
             body = EXCLUDED.body,
             link_url = EXCLUDED.link_url,
@@ -373,6 +388,7 @@ async def enqueue_notification(
         (
             kind,
             source,
+            header,
             title,
             body,
             link_url,
@@ -403,6 +419,7 @@ async def resolve_notification(
     dedupe_key: str,
     kind: str,
     source: str,
+    header: str = '',
     title: str,
     body: str = '',
     link_url: str = '',
@@ -417,6 +434,7 @@ async def resolve_notification(
     payload_text = json.dumps(payload or {}, ensure_ascii=False, separators=(',', ':'))
     markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
         kind=kind,
+        header=header,
         title=title,
         body=body,
         link_url=link_url,
@@ -429,6 +447,7 @@ async def resolve_notification(
         UPDATE notifications
         SET kind = ?,
             source = ?,
+            header = ?,
             title = ?,
             body = ?,
             link_url = ?,
@@ -454,6 +473,7 @@ async def resolve_notification(
         (
             kind,
             source,
+            header,
             title,
             body,
             link_url,
@@ -505,6 +525,7 @@ async def claim_next_pending_notification() -> NotificationRecord | None:
         notification = _from_row(row)
         markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
             kind=notification.kind,
+            header=notification.header,
             title=notification.title,
             body=notification.body,
             link_url=notification.link_url,

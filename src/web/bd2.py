@@ -1835,7 +1835,8 @@ class BD2:
             await enqueue_notification(
                 kind='content_discovered',
                 source='bd2',
-                title=f'BD2 new {discovery}: {character_name}',
+                header='BD2',
+                title=f'New {discovery}: {character_name}',
                 body=body,
                 link_url=f'{GAMEKEE_BASE_URL}/{GAME_ALIAS}/tj/{content_id}.html',
                 payload={
