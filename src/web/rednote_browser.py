@@ -61,6 +61,8 @@ _QR_DATA_URL_MARKER = ';base64,'
 _LOGIN_RENDER_TIMEOUT_SECONDS = 20.0
 _LOGIN_RENDER_POLL_SECONDS = 0.5
 _LIKED_TAB_TIMEOUT_MS = 15_000
+# Where the site sends a note that no longer exists.
+_NOT_FOUND_PATH = '/404'
 _SHAPE_MAX_KEYS = 40
 # What Chromium puts in its own UA when it has no window, and what the site refuses.
 _HEADLESS_UA_TOKEN = 'HeadlessChrome'  # noqa: S105 - a User-Agent token, not a credential
@@ -735,6 +737,12 @@ class PlaywrightNoteBrowser:
 
     async def note_state(self, *, note_url: str, note_id: str) -> dict[str, Any]:
         await self._page.goto(note_url, wait_until='domcontentloaded')
+        # A note that is gone redirects to /404 rather than rendering an empty one.
+        # Worth saying out loud: the caller cannot otherwise tell "deleted" from "did
+        # not load in time", and the two deserve different patience.
+        if _NOT_FOUND_PATH in urlsplit(self._page.url).path:
+            log.info('RedNote note %s is gone: the site redirected to 404', note_id)
+            return {}
         note = await self._page.evaluate(_NOTE_STATE_SCRIPT, note_id)
         return note if isinstance(note, dict) else {}
 
