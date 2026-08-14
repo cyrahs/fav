@@ -164,6 +164,21 @@ async def _close(handle: Any, page: Any) -> None:
     await handle.stop()
 
 
+def _matching(envelope: dict[str, Any], needle: str) -> dict[str, Any]:
+    """Narrow a likes page to the notes whose title contains `needle`.
+
+    Only the title is matched on and none of it is printed: this exists so a specific
+    note can be aimed at without paging through someone's likes by hand.
+    """
+    if not needle:
+        return envelope
+    raw = envelope.get('notes')
+    titles = [str(n.get('display_title') or '') for n in raw if isinstance(n, dict)] if isinstance(raw, list) else []
+    kept = [n for n in raw if isinstance(n, dict) and needle in str(n.get('display_title') or '')] if isinstance(raw, list) else []
+    del titles
+    return {**envelope, 'notes': kept}
+
+
 def _profile_dir(args: argparse.Namespace) -> Path:
     return Path(args.profile).expanduser()
 
@@ -435,12 +450,23 @@ async def cmd_notes(args: argparse.Namespace) -> None:
             return
 
         await browser.open_likes(user_id=user_id_from_probe(probe))
-        captured = await browser.next_like_page(timeout_seconds=30)
-        if captured is None:
-            print(json.dumps({'like_page': 'no response intercepted'}, indent=2))
-            return
-        notes, _cursor, _more = extract_like_page(parse_api_envelope(captured.get('body')))
-        print(json.dumps({'notes_on_page': len(notes)}, indent=2))
+        # Walk pages rather than reading only the first: scrolling is what drives the
+        # next request, and that this keeps producing has never been checked either.
+        notes = []
+        cursors: list[str] = []
+        for page_index in range(1, int(args.pages) + 1):
+            captured = await browser.next_like_page(timeout_seconds=30)
+            if captured is None:
+                print(json.dumps({'likes_stopped_at_page': page_index}, indent=2))
+                break
+            envelope = parse_api_envelope(captured.get('body'))
+            page_notes, cursor, more = extract_like_page(envelope)
+            cursors.append(cursor)
+            notes.extend(extract_like_page(_matching(envelope, args.match))[0])
+            print(json.dumps({'page': page_index, 'notes': len(page_notes), 'has_more': more, 'matched_so_far': len(notes)}, indent=2))
+            if not more:
+                break
+        print(json.dumps({'distinct_cursors': len(set(cursors)), 'pages_walked': len(cursors)}, indent=2))
 
         seen_shapes: set[str] = set()
         for ref in notes[: int(args.sample)]:
@@ -498,7 +524,7 @@ async def cmd_fetch(args: argparse.Namespace) -> None:
             return
         await browser.open_likes(user_id=user_id_from_probe(probe))
         captured = await browser.next_like_page(timeout_seconds=30)
-        refs, _cursor, _more = extract_like_page(parse_api_envelope((captured or {}).get('body')))
+        refs, _cursor, _more = extract_like_page(_matching(parse_api_envelope((captured or {}).get('body')), args.match))
 
         user_agent = await browser.user_agent()
         cookies = await browser.netscape_cookies()
@@ -572,9 +598,12 @@ def main() -> None:
     notes = sub.add_parser('notes', help='Resolve real liked notes and check the extractor against them')
     notes.add_argument('--sample', type=int, default=6, help='How many notes to open.')
     notes.add_argument('--pace', type=float, default=3.0, help='Seconds between note page loads.')
+    notes.add_argument('--pages', type=int, default=1, help='How many likes pages to walk.')
+    notes.add_argument('--match', default='', help='Only notes whose title contains this.')
     notes.add_argument('--depth', type=int, default=4, help='How deep to describe the note shape.')
     fetch = sub.add_parser('fetch', help='Take one real note of each kind to the downloader')
     fetch.add_argument('--pace', type=float, default=3.0, help='Seconds between note page loads.')
+    fetch.add_argument('--match', default='', help='Only notes whose title contains this.')
     likes = sub.add_parser('likes', help='Watch what the 赞过 tab pulls, using the stored session')
     likes.add_argument('--watch', type=float, default=20.0, help='Seconds to record traffic after opening the tab.')
 

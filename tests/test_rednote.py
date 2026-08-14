@@ -982,7 +982,17 @@ def test_a_live_photo_is_kept_as_both_the_still_and_the_clip() -> None:
             {'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://cdn/plain-1'}]},
             {
                 'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://cdn/live-still'}],
-                'stream': {'h264': [{'master_url': 'https://cdn/live-clip.mp4'}]},
+                # The live shape, captured from a real live photo: opaque buckets, most
+                # of them empty, and the one variant that exists names no codec at all.
+                # This is the case that made the codec fallback necessary rather than
+                # decorative -- without it the clip resolves to nothing and is dropped
+                # while its still is archived and the row is marked done.
+                'stream': {
+                    'EF6': [],
+                    'EF5': [],
+                    'EF7': [],
+                    'EF4': [{'masterUrl': 'https://cdn/live-clip.mp4', 'backupUrls': ['https://cdn/backup.mp4'], 'qualityType': 'HD'}],
+                },
             },
             {'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://cdn/plain-2'}]},
         ],
