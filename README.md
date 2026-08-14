@@ -413,6 +413,12 @@ Azur Lane crawler settings live in the `web.azurlane` section (`enabled`, `path`
 `enabled` to true to schedule archive updates. The API reads Azur Lane manifests from the configured
 path even when the scheduled job is disabled.
 
+The source advertises models whose files its CDN does not host, and no amount of crawling fixes
+that. A model whose required assets fail is put on an escalating retry cooldown — one day, then
+three, then a week — during which the run skips it entirely and does not count it as a failure.
+It is reported again the first run after the wait lapses, or immediately if the source moves the
+model's URL, so a permanent source-side gap is announced weekly rather than every six hours.
+
 ### Run
 
 ```bash
