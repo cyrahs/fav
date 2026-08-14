@@ -95,14 +95,21 @@ _LOGIN_PROBE_SCRIPT = """() => {
     // the account QR is inside `.login-modal`, and the account-security QR that
     // follows it is inside a separate captcha app. Both use `img.qrcode-img`, so a
     // selector scoped to the login modal sees only the first half of the flow.
+    // Anchored on the captcha *app*, not on the modal inside it: the wrapper varies
+    // with the theme the site picks -- observed as `.r-captcha-modal` in one context
+    // and absent in another, with the same `img.qrcode-img` underneath either way.
     const modal = document.querySelector('.login-modal');
-    const verifyModal = document.querySelector('.r-captcha-modal');
-    const loginQr = document.querySelector('.login-modal img.qrcode-img');
-    const verifyQr = document.querySelector('.r-captcha-modal img.qrcode-img');
-    // The verification modal sits on top of the login one and is the live step, so
-    // it wins when both are up -- which they are, for the whole second stage.
-    const stage = verifyQr ? 'verify' : (loginQr ? 'login' : '');
-    const qr = verifyQr || loginQr;
+    const verifyModal = document.querySelector('.fe-captcha-app');
+    // `img.qrcode-img` is the one constant. Its container is not: observed as a
+    // `.login-modal` overlay on /explore, as `.login-modal.full-page` on the
+    // standalone /login page the site sometimes redirects to, and as a
+    // `.fe-captcha-app` with no modal wrapper at all for the security scan.
+    const verifyQr = document.querySelector('.fe-captcha-app img.qrcode-img');
+    // The security scan sits on top and is the live step, so it wins when both exist.
+    const qr = verifyQr || document.querySelector('img.qrcode-img');
+    // Read off the element rather than off which query found it, so a fourth layout
+    // still lands in the right stage instead of silently in the wrong one.
+    const stage = qr ? (qr.closest('.fe-captcha-app') ? 'verify' : 'login') : '';
     // Scoped to the sidebar deliberately: an unscoped a[href^="/user/profile/"] matches
     // every note author in the feed -- about thirty of them, none of them this account.
     const own = document.querySelector('.side-bar a[href^="/user/profile/"]');
@@ -124,7 +131,7 @@ _LOGIN_PROBE_SCRIPT = """() => {
 # while it waits for the phone to confirm a scan that worked, so clicking it there
 # would throw away a successful scan.
 _REFRESH_VERIFY_QR_SCRIPT = """() => {
-    const qr = document.querySelector('.r-captcha-modal img.qrcode-img');
+    const qr = document.querySelector('.fe-captcha-app img.qrcode-img');
     if (!qr) { return false; }
     qr.click();
     return true;

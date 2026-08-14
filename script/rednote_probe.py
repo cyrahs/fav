@@ -105,6 +105,38 @@ _SITE_STATE_SCRIPT = """() => {
         verifyQr: Boolean(document.querySelector('.r-captcha-modal img.qrcode-img')),
         feedCards: document.querySelectorAll('section.note-item, a[href^="/explore/"]').length,
         bodyTextHead: (document.body.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
+        // Every QR on the page with its ancestry, because the container varies by
+        // theme, by entry point (/explore overlay vs the standalone /login page) and
+        // by how much the site trusts the browser. The image class is the constant.
+        qrImages: [...document.querySelectorAll('img.qrcode-img, img[class*="qrcode"]')].map((i) => {
+            const path = [];
+            for (let e = i, k = 0; e && k < 6; e = e.parentElement, k++) {
+                const cls = (typeof e.className === 'string' && e.className) ? '.' + e.className.trim().split(/\\s+/).join('.') : '';
+                path.push(e.tagName.toLowerCase() + cls);
+            }
+            const src = i.getAttribute('src') || '';
+            return {path: path.join(' < '), len: src.length, isData: src.startsWith('data:image/')};
+        }),
+        // What kind of challenge, if any. A slider, a QR and an iframed third-party
+        // widget each call for completely different handling -- or for giving up.
+        captcha: (() => {
+            const app = document.querySelector('.fe-captcha-app');
+            if (!app) { return null; }
+            const el = (sel, f) => [...app.querySelectorAll(sel)].map(f).slice(0, 6);
+            return {
+                classes: app.className,
+                text: (app.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 240),
+                modals: el('[class*="modal"]', (e) => e.className),
+                images: el('img', (i) => {
+                    const src = i.getAttribute('src') || '';
+                    return {cls: i.className, kind: src.slice(0, 22), len: src.length};
+                }),
+                iframes: el('iframe', (f) => f.getAttribute('src') || '(no src)'),
+                canvases: app.querySelectorAll('canvas').length,
+                sliders: el('[class*="slide"], [class*="drag"], [class*="track"]', (e) => e.className),
+                buttons: el('button, [role="button"], [class*="btn"]', (e) => (e.innerText || '').trim().slice(0, 24)).filter(Boolean),
+            };
+        })(),
     };
 }"""
 
