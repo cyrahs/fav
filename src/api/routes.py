@@ -50,6 +50,8 @@ from .schemas import (
     NikkeCharacterListResponse,
     NikkeSidebarCharacter,
     NikkeSidebarCharacterListResponse,
+    RedNoteProxyTestRequest,
+    RedNoteProxyTestResult,
     SettingsListResponse,
     SettingsSection,
     TelegramNotificationTestResponse,
@@ -404,6 +406,17 @@ async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotifica
 def test_azurlane_proxy(payload: AzurLaneProxyTestRequest, service: ApiServiceDep) -> AzurLaneProxyTestResult:
     """Check that the l2d.su origin is reachable through a proxy, without saving it."""
     return AzurLaneProxyTestResult.model_validate(service.test_azurlane_proxy(payload.model_dump()))
+
+
+@router.post(
+    '/rednote/proxy/test',
+    operation_id='testRedNoteProxy',
+    response_model=RedNoteProxyTestResult,
+    tags=[TAG_SETTINGS],
+)
+def test_rednote_proxy(payload: RedNoteProxyTestRequest, service: ApiServiceDep) -> RedNoteProxyTestResult:
+    """Check that xiaohongshu.com is reachable through a proxy, without saving it."""
+    return RedNoteProxyTestResult.model_validate(service.test_rednote_proxy(payload.model_dump()))
 
 
 @router.post(

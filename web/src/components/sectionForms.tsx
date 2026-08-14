@@ -13,6 +13,7 @@ import {
 import { AzurLaneProxyTest } from './AzurLaneProxyTest';
 import { BilibiliForm, validateBilibili } from './BilibiliForm';
 import { CookieCloudTest } from './CookieCloudTest';
+import { RedNoteProxyTest } from './RedNoteProxyTest';
 import { TelegramForm, validateTelegram } from './TelegramForm';
 import {
   PathField,
@@ -402,6 +403,7 @@ function TwitterForm(props: SectionFormProps) {
 function RedNoteForm(props: SectionFormProps) {
   const set = patcher(props);
   const allowDirect = bool(props.value, 'allow_direct_connection');
+  const proxy = str(props.value, 'proxy');
 
   return (
     <div className="field-grid">
@@ -420,10 +422,12 @@ function RedNoteForm(props: SectionFormProps) {
         <div className="field-grid">
           <SecretField
             label="代理"
-            value={str(props.value, 'proxy')}
+            value={proxy}
             onChange={(next) => set('proxy', next)}
+            invalid={!proxy && !allowDirect}
             hint="小红书屏蔽了大部分机房 IP 段。带账号密码时必须用 http(s)：Chromium 不支持 SOCKS 认证。"
           />
+          <RedNoteProxyTest proxy={proxy} />
           <CheckboxField
             label="允许不走代理直连"
             checked={allowDirect}

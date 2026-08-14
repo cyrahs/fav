@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -55,7 +56,15 @@ from src.core import logger, settings
 from src.tool import database, ensure_unique_path, format_media_filename, sanitize
 from src.tool import telegram_bot as telegram_bot_tool
 from src.tool.notifications import enqueue_notification
-from src.web.rednote_browser import PlaywrightNoteBrowser, ProxyConfigurationError, cursor_of, decode_qr_data_url
+from src.web.rednote_browser import (
+    RISK_CONTROL_STATUS_CODES,
+    NoteGoneError,
+    PlaywrightNoteBrowser,
+    ProxyConfigurationError,
+    cursor_of,
+    decode_qr_data_url,
+    describe_shape,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -79,7 +88,18 @@ _USER_ID_STATE_KEY = 'user_id'
 _LOGGED_IN = 'logged_in'
 _LOGGED_OUT = 'logged_out'
 _LOGIN_UNKNOWN = 'unknown'
+# How many separate runs have to find a note gone before it stops being retried.
+# More than one because a single 404 can be a bad moment rather than a deletion.
+_MISSING_RUNS_BEFORE_RETIRING = 3
 _LOGIN_POLL_INTERVAL_SECONDS = 3.0
+# The second scan, in the account-security modal that follows the first one.
+_VERIFY_STAGE = 'verify'
+# The verification code states a one-minute life, so it is reminted a little before
+# that rather than after the user has already pointed a phone at a dead code.
+_QR_REFRESH_SECONDS = 45.0
+# A floor on how often the page is reloaded while waiting, so a page that is quiet
+# for a reason other than a finished scan is not thrashed.
+_LOGIN_RELOAD_INTERVAL_SECONDS = 5.0
 # One photo per QR that RedNote actually mints. Past three the user is not
 # coming, and a fourth is just noise in their chat.
 _MAX_QR_MESSAGES = 3
@@ -87,8 +107,6 @@ _MAX_QR_MESSAGES = 3
 # scrolling, before deciding it has stopped producing.
 _LIKE_PAGE_TIMEOUT_SECONDS = 25.0
 
-# The captcha wall. Retrying it is how a session gets locked, so it ends the run.
-_RISK_CONTROL_STATUS_CODES = {461, 471}
 _SESSION_EXPIRED_CODES = {-100, -101}
 
 # A CDN URL that has rotated answers 403, and one for a deleted note answers 404 --
@@ -253,16 +271,33 @@ def pick_image_url(entry: Any) -> str:
 
 
 def pick_video_url(stream: Any) -> str:
-    """The best playable stream in a note's ``stream`` block, by codec preference."""
+    """The best playable stream in a note's ``stream`` block, by codec preference.
+
+    The keys under ``stream`` are opaque and versioned: this expected ``h264`` /
+    ``h265`` / ``av1`` and the live site answers with ``EF4`` / ``EF5`` / ``EF6`` /
+    ``EF7``, each holding variants that name their own codec in a ``videoCodec``
+    field. So the bucket name is ignored and the codec is read off the variant.
+
+    Getting this wrong was quiet in both places it is used. A video note still yields
+    a row, because yt-dlp re-resolves it from the note page -- but a live photo's clip
+    is fetched straight from this URL, so an empty one meant the still was archived
+    and the moving half was silently dropped.
+    """
     if not isinstance(stream, dict):
         return ''
-    for codec in _VIDEO_CODEC_PREFERENCE:
-        variants = stream.get(codec)
-        for variant in variants if isinstance(variants, list) else []:
+    ranked: dict[str, str] = {}
+    fallback = ''
+    for bucket in stream.values():
+        for variant in bucket if isinstance(bucket, list) else []:
+            if not isinstance(variant, dict):
+                continue
             url = normalize_media_url(str(_field(variant, 'masterUrl', 'master_url') or ''))
-            if url:
-                return url
-    return ''
+            if not url:
+                continue
+            fallback = fallback or url
+            ranked.setdefault(str(_field(variant, 'videoCodec', 'video_codec') or '').lower(), url)
+    # A named preference when the codec is stated, and anything playable when it is not.
+    return next((ranked[codec] for codec in _VIDEO_CODEC_PREFERENCE if codec in ranked), fallback)
 
 
 def build_note_url(note_id: str, xsec_token: str = '') -> str:
@@ -367,22 +402,32 @@ def parse_api_envelope(payload: Any) -> dict[str, Any]:
 def decide_login_state(probe: Mapping[str, Any], cookies: Mapping[str, str]) -> str:
     """Whether the profile is signed in, from what the page and the jar both say.
 
-    The modal wins over the cookie because ``web_session`` lags: it survives the
-    account revoking the session elsewhere, so trusting it alone would have a run
-    walk confidently into a login screen. ``UNKNOWN`` means the page has not
-    hydrated yet, which is a reason to look again rather than to give up.
+    The page's own store is the authority when it has an answer: it distinguishes a
+    signed-in account from the guest identity a signed-out visitor is also issued.
+    Everything below it is a fallback. The modal wins over the cookie because
+    ``web_session`` lags -- it survives the account revoking the session elsewhere, so
+    trusting it alone would have a run walk confidently into a login screen.
+    ``UNKNOWN`` means the page has not hydrated yet, which is a reason to look again
+    rather than to give up.
     """
-    if probe.get('has_login_modal'):
+    if probe.get('logged_in'):
+        return _LOGGED_IN
+    if probe.get('has_login_modal') or probe.get('has_verify_modal') or probe.get('qr_src'):
         return _LOGGED_OUT
     if not str(cookies.get('web_session') or '').strip():
         return _LOGGED_OUT
-    if probe.get('user_id') or probe.get('profile_href'):
-        return _LOGGED_IN
     return _LOGIN_UNKNOWN
 
 
 def user_id_from_probe(probe: Mapping[str, Any]) -> str:
-    """The signed-in account's own profile id, which the likes URL is built from."""
+    """The signed-in account's own profile id, which the likes URL is built from.
+
+    Gated on being signed in, because a signed-out page offers a guest id in the same
+    place and the same shape. Walking a guest's profile would find no likes and report
+    it as an empty run -- a wrong answer that looks exactly like a right one.
+    """
+    if not probe.get('logged_in'):
+        return ''
     user_id = str(probe.get('user_id') or '').strip()
     if user_id:
         return user_id
@@ -467,6 +512,7 @@ class RedNote:
         self.user_id = ''
         self.user_agent = ''
         self._browser_factory = self._new_browser
+        self._logged_card_shapes: set[str] = set()
 
     def _new_browser(self) -> PlaywrightNoteBrowser:
         return PlaywrightNoteBrowser(
@@ -506,6 +552,15 @@ class RedNote:
             CREATE TABLE IF NOT EXISTS rednote_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+        """)
+        await database.query_db("""
+            CREATE TABLE IF NOT EXISTS rednote_missing (
+                note_id TEXT PRIMARY KEY,
+                runs INTEGER NOT NULL DEFAULT 0,
+                last_run TEXT NOT NULL DEFAULT '',
+                first_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
         """)
 
@@ -657,12 +712,16 @@ class RedNote:
         so waiting here parks every queued manual trigger behind this run.
         """
         deadline = time.monotonic() + self.cfg.login_wait_seconds
-        sent: set[str] = set()
-        logged_modal = False
+        # Per stage, because signing in takes two scans from two different modals and
+        # a cap shared between them would spend the whole budget on the first one.
+        sent: dict[str, set[str]] = {}
+        first_seen: dict[str, float] = {}
+        last_reload = 0.0
+        self._login_modal_logged = False
         # Checked once for the whole wait, not per code: RedNote mints a new QR
         # every couple of minutes, and re-checking would let the cooldown block the
         # replacement for a code the user is still looking at.
-        may_prompt: bool | None = None
+        self._may_prompt = None
 
         while time.monotonic() < deadline:
             probe = await browser.probe_login()
@@ -674,23 +733,23 @@ class RedNote:
                 return
 
             qr_src = str(probe.get('qr_src') or '')
-            if qr_src and qr_src not in sent:
-                if len(sent) >= _MAX_QR_MESSAGES:
+            stage = str(probe.get('qr_stage') or 'login')
+            now = time.monotonic()
+
+            if qr_src:
+                if not await self._offer_qr(qr_src=qr_src, stage=stage, sent=sent):
                     break
-                if may_prompt is None:
-                    may_prompt = await self._login_prompt_allowed()
-                if not may_prompt:
-                    break
-                sent.add(qr_src)
-                await self._send_login_qr(decode_qr_data_url(qr_src), attempt=len(sent))
-            elif state == _LOGGED_OUT and not qr_src:
-                if not logged_modal:
-                    # The expiry markup is the one part of this flow that was never
-                    # observed signed in, so the first miss dumps it rather than
-                    # leaving a future reader to guess at selectors.
-                    log.debug('RedNote login modal without a QR: %s', str(probe.get('modal_html') or '')[:1000])
-                    logged_modal = True
-                await browser.reload_login()
+                if stage == _VERIFY_STAGE and now - first_seen.setdefault(qr_src, now) >= _QR_REFRESH_SECONDS:
+                    # The verification code is good for a minute and its expiry leaves
+                    # no mark in the DOM -- no class, and the same image bytes as
+                    # before. The only readout is a sentence, in whatever language the
+                    # profile runs in. So it is reminted on the clock, not on a state.
+                    first_seen[qr_src] = now
+                    if await browser.refresh_qr():
+                        log.info('RedNote reminted the expiring verification QR')
+            elif now - last_reload >= _LOGIN_RELOAD_INTERVAL_SECONDS:
+                last_reload = now
+                await self._nudge_login_page(browser, probe=probe, state=state)
 
             await asyncio.sleep(_LOGIN_POLL_INTERVAL_SECONDS)
 
@@ -700,6 +759,46 @@ class RedNote:
             else 'RedNote is signed out and no login QR could be sent. Check the Telegram notification settings.'
         )
         raise RedNoteError(msg, notification_dedupe_key='rednote:login')
+
+    async def _offer_qr(self, *, qr_src: str, stage: str, sent: dict[str, set[str]]) -> bool:
+        """Send this code if it is new and still allowed. False means stop waiting."""
+        stage_sent = sent.setdefault(stage, set())
+        if qr_src in stage_sent:
+            return True
+        if len(stage_sent) >= _MAX_QR_MESSAGES:
+            return False
+        if self._may_prompt is None:
+            self._may_prompt = await self._login_prompt_allowed()
+        if not self._may_prompt:
+            return False
+        stage_sent.add(qr_src)
+        await self._send_login_qr(decode_qr_data_url(qr_src), stage=stage, attempt=len(stage_sent))
+        return True
+
+    async def _nudge_login_page(self, browser: NoteBrowser, *, probe: Mapping[str, Any], state: str) -> None:
+        """Reload a page that is showing neither a QR nor a session.
+
+        This is the state a successful scan leaves behind: both modals closed, the
+        session cookie set, and ``__INITIAL_STATE__`` still reporting signed out
+        because it is the snapshot the page was loaded with. Without the reload that
+        reads as UNKNOWN for the rest of the budget, failing a login that worked.
+        """
+        if state == _LOGGED_OUT and not self._login_modal_logged:
+            self._login_modal_logged = True
+            log.info('RedNote is signed out but showed no QR: %s', str(probe.get('modal_html') or '')[:800] or '(no modal)')
+        await self._reload_login(browser)
+
+    async def _reload_login(self, browser: NoteBrowser) -> None:
+        """A navigation that gets interrupted here is not the run's problem.
+
+        The site navigates itself the moment a QR is scanned, and that aborts whatever
+        this had in flight -- ending the run at the exact moment it succeeded. Every
+        other cause is answered by the next poll anyway, and the wait is bounded.
+        """
+        try:
+            await browser.reload_login()
+        except Exception as exc:  # noqa: BLE001
+            log.info('RedNote login page reload was interrupted: %s', exc)
 
     async def _login_prompt_allowed(self) -> bool:
         """A QR dies within minutes, so a 04:00 cron sending one is pure noise."""
@@ -713,13 +812,18 @@ class RedNote:
         await self._write_state(_LOGIN_PROMPT_STATE_KEY, str(now))
         return True
 
-    async def _send_login_qr(self, png: bytes, *, attempt: int) -> None:
+    async def _send_login_qr(self, png: bytes, *, stage: str, attempt: int) -> None:
         """Straight to Telegram, not through the notification outbox.
 
         The outbox is drained after ``update()`` returns, which for a run blocked on
         this scan is long after the code has expired.
         """
-        caption = f'小红书需要登录（第 {attempt} 个二维码）：用手机小红书扫码。'  # noqa: RUF001 - Chinese punctuation
+        # Which of the two scans this is, because they look identical in a chat and
+        # the second one is only good for a minute.
+        if stage == _VERIFY_STAGE:
+            caption = f'小红书安全验证（第 {attempt} 个码，约 1 分钟内有效）：用已登录的小红书 App 扫码。'  # noqa: RUF001 - Chinese punctuation
+        else:
+            caption = f'小红书需要登录（第 {attempt} 个二维码）：用手机小红书扫码，扫完还会有一个验证码。'  # noqa: RUF001 - Chinese punctuation
         try:
             await telegram_bot_tool.send_photo_now(photo=('rednote-login.png', png, 'image/png'), header='RedNote', caption=caption)
         except Exception as exc:  # noqa: BLE001
@@ -749,6 +853,21 @@ class RedNote:
 
     # ---------- reading the account ----------
 
+    async def _initial_like_page(self, browser: NoteBrowser) -> tuple[list[NoteRef], str, bool] | None:
+        """The likes the page was served with, as a page in the same shape as the rest.
+
+        Carries no cursor, because it was never fetched with one -- and it needs none:
+        the cursor is only used to recognise a page the site sent twice, and this one
+        cannot be sent twice.
+        """
+        raw = await browser.initial_like_notes()
+        notes, _cursor, _has_more = extract_like_page({'notes': raw})
+        if not notes:
+            log.debug('RedNote found no pre-rendered likes on the profile page')
+            return None
+        log.info('RedNote read %d likes rendered into the page itself', len(notes))
+        return notes, '', True
+
     async def _next_like_page(self, browser: NoteBrowser) -> tuple[list[NoteRef], str, bool] | None:
         """One page of the likes list, taken from the browser's own XHR."""
         captured = await browser.next_like_page(timeout_seconds=_LIKE_PAGE_TIMEOUT_SECONDS)
@@ -756,7 +875,7 @@ class RedNote:
             return None
 
         status = _to_int(captured.get('status')) or 0
-        if status in _RISK_CONTROL_STATUS_CODES:
+        if status in RISK_CONTROL_STATUS_CODES:
             msg = f'RedNote answered the likes list with HTTP {status}: the account is behind a captcha. Clear it in the browser.'
             raise RedNoteError(msg, notification_dedupe_key='rednote:risk')
 
@@ -766,7 +885,15 @@ class RedNote:
         return notes, cursor_of(str(captured.get('url') or '')), has_more
 
     async def _fetch_note_card(self, *, note_id: str, xsec_token: str, browser: NoteBrowser) -> dict[str, Any]:
-        return await browser.note_state(note_url=build_note_url(note_id, xsec_token), note_id=note_id)
+        card = await browser.note_state(note_url=build_note_url(note_id, xsec_token), note_id=note_id)
+        # Once per note type per run. The camelCase spelling of a note was transcribed
+        # from the snake_case API rather than captured, and `media_index` is handed out
+        # by walking these fields -- so a shifted key is a wrongly numbered row.
+        note_type = str(_field(card, 'type') or 'unknown')
+        if note_type not in self._logged_card_shapes:
+            self._logged_card_shapes.add(note_type)
+            log.debug('RedNote note card shape (type=%s): %s', note_type, describe_shape(card))
+        return card
 
     # ---------- downloads ----------
 
@@ -986,12 +1113,33 @@ class RedNote:
 
     # ---------- phases ----------
 
+    async def _absorb_page(self, notes: Sequence[NoteRef], *, browser: NoteBrowser, seen: set[str], page_index: int, run_id: str) -> int:
+        """Resolve whatever on this page is not archived yet, and say what that added."""
+        note_ids = [note.note_id for note in notes]
+        known = await self._known_note_ids(note_ids)
+        # Notes enough runs have agreed are gone. Skipped rather than re-opened, which
+        # is the whole point of counting: a deleted note otherwise costs a page load on
+        # every run for as long as it stays in the list.
+        retired = await self._retired_note_ids(note_ids)
+        unknown = [note for note in notes if note.note_id not in known and note.note_id not in retired and note.note_id not in seen]
+        seen.update(note_ids)
+
+        added = 0
+        if unknown:
+            added = await self._resolve_notes(unknown, browser, run_id=run_id)
+            # Reading a note navigates away from the likes list, so it has to be
+            # reopened before the next page can be scrolled into view.
+            await browser.open_likes(user_id=self.user_id)
+        log.info('RedNote likes page=%s notes=%s new=%s added=%s', page_index, len(notes), len(unknown), added)
+        return added
+
     async def _crawl(self, browser: NoteBrowser) -> int:
         """Walk the likes list newest first, resolving each page's new notes as it goes.
 
-        The pages are the browser's own: scrolling the 赞过 tab makes the site fetch
-        them and the responses are read as they go by, so nothing here has to
-        reproduce a request signature.
+        The pages are the browser's own: the liked tab arrives with its first screenful
+        already rendered in, and scrolling makes the site fetch the rest, whose
+        responses are read as they go by. So nothing here reproduces a request
+        signature, and nothing is taken on trust about which page is first.
 
         Rows land page by page rather than at the end of the walk, so a run that dies
         part-way leaves the next one with less to re-fetch: an already-resolved note
@@ -1002,6 +1150,9 @@ class RedNote:
         everything below wherever the first run got to permanently unreachable.
         """
         backfill_complete = await self._backfill_complete()
+        # Identifies this walk, so that a note seen twice in it counts once toward the
+        # runs that have to agree before it is retired.
+        run_id = secrets.token_hex(8)
         seen_cursors: set[str] = set()
         seen_note_ids: set[str] = set()
         page_index = 0
@@ -1011,10 +1162,15 @@ class RedNote:
 
         log.info('RedNote walking the likes list (backfill_complete=%s)', backfill_complete)
         await browser.open_likes(user_id=self.user_id)
+        # The page arrives with its first screenful of likes already rendered into it,
+        # so the first request the site makes is for what comes *after* them. Reading
+        # only the requests would skip the newest likes -- the ones an incremental run
+        # exists for -- and then stop on `abort_after` having archived none of them.
+        pending_first = await self._initial_like_page(browser)
 
         while page_index < self.cfg.max_pages_per_run:
             page_index += 1
-            page = await self._next_like_page(browser)
+            page, pending_first = (pending_first, None) if pending_first is not None else (await self._next_like_page(browser), None)
             if page is None:
                 # Scrolling stopped producing. Not the same as reaching the end, so
                 # the backfill stays unfinished and the next run walks again.
@@ -1032,20 +1188,21 @@ class RedNote:
                 continue
             seen_cursors.add(cursor)
 
-            known = await self._known_note_ids([note.note_id for note in notes])
-            unknown = [note for note in notes if note.note_id not in known and note.note_id not in seen_note_ids]
-            seen_note_ids.update(note.note_id for note in notes)
-            log.info('RedNote likes page=%s notes=%s new=%s', page_index, len(notes), len(unknown))
+            added = await self._absorb_page(notes, browser=browser, seen=seen_note_ids, page_index=page_index, run_id=run_id)
+            resolved += added
 
-            if unknown:
+            # The stop rule asks what the page contributed, not whether every id on it
+            # was already known. A note that cannot be resolved -- deleted, or gone
+            # private -- never gains rows and so is never "known", and under the older
+            # rule one of those sitting near the top of the list reset this counter on
+            # every run, making the early stop unreachable and every run a full walk.
+            # Asking about the archive instead is also indifferent to the list
+            # shifting underneath it as things are liked and unliked.
+            if added:
                 full_hit_pages = 0
-                resolved += await self._resolve_notes(unknown, browser)
-                # Reading a note navigates away from the likes list, so it has to be
-                # reopened before the next page can be scrolled into view.
-                await browser.open_likes(user_id=self.user_id)
             else:
                 full_hit_pages += 1
-                log.info('RedNote page=%s is entirely archived, consecutive=%s/%s', page_index, full_hit_pages, self.cfg.abort_after)
+                log.info('RedNote page=%s added nothing, consecutive=%s/%s', page_index, full_hit_pages, self.cfg.abort_after)
                 if backfill_complete and full_hit_pages >= self.cfg.abort_after:
                     log.info('RedNote reached the incremental stop condition')
                     break
@@ -1062,7 +1219,7 @@ class RedNote:
             log.info('RedNote backfill finished; later runs stop after %d archived pages', self.cfg.abort_after)
         return resolved
 
-    async def _resolve_notes(self, notes: Sequence[NoteRef], browser: NoteBrowser) -> int:
+    async def _resolve_notes(self, notes: Sequence[NoteRef], browser: NoteBrowser, *, run_id: str) -> int:
         """Turn each new note into its rows. One unreadable note must not end the run."""
         resolved = 0
         total = len(notes)
@@ -1072,17 +1229,58 @@ class RedNote:
                 note_card = await self._fetch_note_card(note_id=note.note_id, xsec_token=note.xsec_token, browser=browser)
             except RedNoteError:
                 raise
+            except NoteGoneError:
+                # The site said so, in the only way it says so: a redirect to /404.
+                await self._record_missing(note.note_id, run_id=run_id)
+                continue
             except Exception as exc:  # noqa: BLE001
+                # Everything else is this run's problem, not the note's. Recording it
+                # would let a bad night retire a note that is perfectly fine.
                 log.warning('Failed to read note %s (%s/%s): %s', note.note_id, position, total, exc)
                 continue
 
             media = extract_note_media(note_card, note_id=note.note_id, xsec_token=note.xsec_token)
             if not media:
+                # Read fine, carries nothing this source handles. Not a deletion.
                 log.warning('Note %s carries no files, skipping', note.note_id)
                 continue
             await self._upsert_media(media)
+            await self._clear_missing(note.note_id)
             resolved += len(media)
         return resolved
+
+    async def _record_missing(self, note_id: str, *, run_id: str) -> None:
+        """Count one run that found this note gone.
+
+        Counted per run rather than per sighting: the same note can come round twice
+        in one walk, and three sightings in one bad minute is not the evidence being
+        asked for. ``last_run`` is what makes the second one in a run a no-op.
+        """
+        await database.query_db(
+            """
+            INSERT INTO rednote_missing (note_id, runs, last_run) VALUES (?, 1, ?)
+            ON CONFLICT (note_id) DO UPDATE
+            SET runs = rednote_missing.runs + 1, last_run = excluded.last_run, last_seen_at = CURRENT_TIMESTAMP
+            WHERE rednote_missing.last_run <> excluded.last_run;
+            """,
+            (note_id, run_id),
+        )
+        log.info('RedNote note %s is gone; it is retried until %d runs agree', note_id, _MISSING_RUNS_BEFORE_RETIRING)
+
+    async def _clear_missing(self, note_id: str) -> None:
+        """Forget a note that read fine, so a past 404 can never retire a live note."""
+        await database.query_db('DELETE FROM rednote_missing WHERE note_id = ?;', (note_id,))
+
+    async def _retired_note_ids(self, note_ids: Sequence[str]) -> set[str]:
+        """Notes that enough separate runs have found gone to stop asking about."""
+        if not note_ids:
+            return set()
+        placeholders = ','.join('?' for _ in note_ids)
+        rows = await database.query_db(
+            f'SELECT note_id FROM rednote_missing WHERE runs >= ? AND note_id IN ({placeholders});',  # noqa: S608 - placeholders only
+            (_MISSING_RUNS_BEFORE_RETIRING, *note_ids),
+        )
+        return {str(row['note_id']) for row in rows}
 
     async def _notify_summary(self, *, downloaded: int, resolved: int, pending: int) -> None:
         try:

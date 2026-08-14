@@ -17,6 +17,7 @@ the `app_settings` table and is edited from the web UI.
 | `API_PORT` | no | `8091` | API listen port |
 | `API_CORS_ORIGINS` | no | empty | Comma-separated origins, for separate front ends such as the Live2D viewer |
 | `API_CORS_ALLOW_CREDENTIALS` | no | `false` | Only if a browser must send credentialed requests |
+| `LOG_LEVEL` | no | `INFO` | `DEBUG` makes a run explain itself — every intercepted request, and the *shape* of the payloads a source parses (key names and types, never values) |
 | `TZ` | no | `UTC` | Scheduler timezone |
 
 `API_TOKEN` is mandatory: an empty token would leave the settings API of a freshly provisioned
@@ -181,19 +182,34 @@ ignores credentials embedded in `--proxy-server`, so they are split out before l
 the same proxy: it re-fetches the note page carrying the account's cookies, and leaving it on the
 pod's own address would undo the rest.
 
+**测试出口** beside the field checks the egress as typed, before saving and without the account: an
+anonymous request to the site, reporting the exit address so a home line can be told from a
+datacenter range, and calling out an HTTP 461 as the captcha wall rather than as a generic failure.
+It tells a dead proxy apart from a proxy that works and a site that will not answer it, and refuses
+an authenticated SOCKS proxy the same way the launcher will. It does not start Chromium, so it
+proves the address rather than the browser — a signed-out profile or a wrong `user_id` still only
+show up on a real run. With the field empty it probes the direct egress instead, which is how to
+decide whether `allow_direct_connection` is defensible here.
+
 **`profile_path` has to be on a volume.** It holds the cookies, localStorage, history and device
 identity; on ephemeral storage every run starts from a QR scan. The documented `docker run` in
 `AGENTS.md` mounts `data/`, and a Chromium profile wants real block storage — its LevelDB and SQLite
 files do not survive NFS locking.
 
-Signing in is interactive and happens **during** a run: when the profile is signed out, the login QR
-is read straight out of the page and sent to Telegram, and the run waits up to `login_wait_seconds`
-for it to be scanned. That send bypasses the notification outbox deliberately — queued notifications
-are only flushed after a job returns, which for a run blocked on the scan is long after the code has
-expired. So press 立即运行 with your phone to hand. One photo is sent per QR RedNote actually
-mints, at most three, and `login_prompt_cooldown_seconds` stops a 04:00 cron from sending a code that
-will be dead before anyone sees it. There is no inbound Telegram path, so the scan is detected by
-polling rather than by replying.
+Signing in is interactive and happens **during** a run, and it takes **two scans**: the account QR,
+and then an account-security QR that the site puts up on top of it — a separate modal, good for
+about a minute, and expected rather than exceptional when signing in from a new device and address.
+Both are read straight out of the page and sent to Telegram with captions that say which is which,
+and the run waits up to `login_wait_seconds` for them. That send bypasses the notification outbox
+deliberately — queued notifications are only flushed after a job returns, which for a run blocked on
+a scan is long after the code has expired. So press 立即运行 with your phone to hand.
+
+At most three codes are sent per stage, and `login_prompt_cooldown_seconds` stops a 04:00 cron from
+sending one that will be dead before anyone sees it. The verification code is reminted on a timer
+rather than when it is seen to expire: expiry leaves no mark in the page — same image bytes, no new
+class, just a sentence in whatever language the profile runs in. There is no inbound Telegram path,
+so a scan is detected by polling; and because the page does not update itself when a scan lands, the
+wait reloads it rather than trusting what the page said when it was first loaded.
 
 A run walks the likes list newest first, resolving each page's new notes into one row per file in the
 `rednote` table — keyed `(note_id, media_index)`, written with `downloaded = 0` — and then closes
@@ -203,9 +219,19 @@ and being OOM-killed there would take the whole worker with it. Two pieces of st
 incremental: a note that already has rows costs one place in a list page instead of a page load of
 its own, and a `rednote_state` row marks whether the first full walk ever finished. Until it has,
 every run walks to the end of the list so the history fills in; afterwards runs stop once
-`abort_after` pages of nothing but archived notes come up in a row. A walk that ended early — on the
-stop rule, on `max_pages_per_run`, or because scrolling stopped producing — does not set that mark,
-so a failed backfill is retried rather than assumed complete.
+`abort_after` pages that **added nothing** come up in a row. A walk that ended early — on the stop
+rule, on `max_pages_per_run`, or because scrolling stopped producing — does not set that mark, so a
+failed backfill is retried rather than assumed complete.
+
+The stop rule counts what a page contributed rather than whether every note on it was already held,
+because the list churns underneath it: notes get deleted, and get unliked while you are looking at
+them. A deleted note never gains rows and so is never "already held" — under the older rule one of
+those near the top of the list reset the counter on every run, and the early stop was never reached.
+Those notes are tracked in `rednote_missing`, and retried until **three separate runs** have each
+found them gone, after which they stop costing a page load. Only the site's own verdict counts, which
+is its redirect to `/404`; a timeout, a navigation error or a note that simply carries no files is
+this run's problem rather than the note's, and reading a note successfully clears whatever had been
+counted against it.
 
 Images and the clips inside live photos come straight from the CDN; whole video notes go through
 yt-dlp, which re-resolves the note page itself and can reach the untranscoded original. Files land in

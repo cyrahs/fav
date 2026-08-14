@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 import tomllib
 from pathlib import Path
 
@@ -10,9 +11,11 @@ import pytest
 
 import src.service.jobs as jobs_module
 import src.web.rednote as rednote_module
+import src.web.rednote_browser as rednote_browser_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
+from src.core.settings import SECTION_MODELS
 from src.web.rednote import (
     MediaUnavailableError,
     MediaUrlStaleError,
@@ -34,12 +37,17 @@ from src.web.rednote import (
     user_id_from_probe,
 )
 from src.web.rednote_browser import (
+    PlaywrightNoteBrowser,
+    ProxyProbe,
     browser_cookies_to_netscape,
     build_launch_options,
     build_proxy_settings,
     clear_stale_profile_locks,
     cursor_of,
     decode_qr_data_url,
+    describe_shape,
+    probe_proxy,
+    redact_probe,
 )
 
 # 2025-08-12 11:34:56 in the timezone the app displays.
@@ -76,11 +84,13 @@ class _FakeBrowser:
         *,
         probes: list[dict] | None = None,
         pages: list[dict] | None = None,
+        initial_notes: list[dict] | None = None,
         notes: dict[str, dict] | None = None,
         user_agent: str = 'Mozilla/5.0 (Test) Chrome/149.0.0.0',
     ) -> None:
-        self.probes = probes or [{'has_login_modal': False, 'user_id': 'me'}]
+        self.probes = probes or [{'logged_in': True, 'user_id': 'me'}]
         self.pages = list(pages or [])
+        self.initial_notes = list(initial_notes or [])
         self.notes = notes or {}
         self._user_agent = user_agent
         self.cookies = {'web_session': 'session-value'}
@@ -88,6 +98,7 @@ class _FakeBrowser:
         self.closed = False
         self.opened_likes: list[str] = []
         self.reloads = 0
+        self.qr_refreshes = 0
         self.note_urls: list[str] = []
 
     async def start(self) -> None:
@@ -111,8 +122,15 @@ class _FakeBrowser:
     async def reload_login(self) -> None:
         self.reloads += 1
 
+    async def refresh_qr(self) -> bool:
+        self.qr_refreshes += 1
+        return True
+
     async def open_likes(self, *, user_id: str) -> None:
         self.opened_likes.append(user_id)
+
+    async def initial_like_notes(self) -> list[dict]:
+        return list(self.initial_notes)
 
     async def next_like_page(self, *, timeout_seconds: float) -> dict | None:
         return self.pages.pop(0) if self.pages else None
@@ -136,6 +154,7 @@ class _FakeDatabase:
         self.pending_rows = list(pending_rows)
         self.backfill_complete = backfill_complete
         self.state: dict[str, str] = {}
+        self.missing: dict[str, tuple[int, str]] = {}
         self.calls: list[tuple[str, tuple]] = []
         self.inserted: list[tuple[str, tuple[str, ...], list[tuple[str, ...]], str | None]] = []
 
@@ -153,6 +172,17 @@ class _FakeDatabase:
             return [{'value': self.state[key]}] if key in self.state else []
         if normalized.startswith('INSERT INTO rednote_state'):
             self.state[params[0]] = params[1]
+        if normalized.startswith('INSERT INTO rednote_missing'):
+            note_id, run_id = params[0], params[1]
+            runs, last_run = self.missing.get(note_id, (0, ''))
+            if last_run != run_id:
+                self.missing[note_id] = (runs + 1, run_id)
+        if normalized.startswith('DELETE FROM rednote_missing'):
+            self.missing.pop(params[0], None)
+        if normalized.startswith('SELECT note_id FROM rednote_missing'):
+            threshold = int(params[0])
+            wanted = set(params[1:])
+            return [{'note_id': n} for n, (runs, _r) in self.missing.items() if runs >= threshold and n in wanted]
         return []
 
     async def insert_db_batch(self, *, table: str, columns: tuple[str, ...], rows, on_conflict: str | None = None) -> None:
@@ -180,6 +210,7 @@ def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -
     job.user_id = 'me'
     job.user_agent = 'Mozilla/5.0 (Test) Chrome/149.0.0.0'
     job._browser_factory = lambda: browser or _FakeBrowser()
+    job._logged_card_shapes = set()
     return job
 
 
@@ -240,11 +271,13 @@ def _video_note_card(**updates) -> dict:
         'user': {'nickname': 'artist', 'user_id': '5ff0000000000000000fffff'},
         # A video note also carries a cover image; it is deliberately not archived.
         'image_list': [{'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://sns-webpic.xhscdn.com/cover!nd_dft'}]}],
+        # The live shape: opaque bucket names, each variant naming its own codec.
         'video': {
             'media': {
                 'stream': {
-                    'h264': [{'master_url': 'https://sns-video.xhscdn.com/stream/h264.mp4'}],
-                    'h265': [{'master_url': 'https://sns-video.xhscdn.com/stream/h265.mp4'}],
+                    'EF4': [{'videoCodec': 'h265', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h265.mp4'}],
+                    'EF6': [],
+                    'EF5': [{'videoCodec': 'h264', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h264.mp4'}],
                 },
             },
         },
@@ -344,9 +377,13 @@ def test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell() ->
     assert options['ignore_default_args'] == ['--enable-automation']
 
 
-def test_the_launch_options_leave_the_user_agent_alone() -> None:
-    # Playwright does not regenerate Sec-CH-UA for an overridden UA, so pinning one
-    # creates a UA/client-hint mismatch that is louder than the default ever was.
+def test_the_launch_options_do_not_pin_a_user_agent() -> None:
+    """The UA is corrected after launch instead, because it cannot be corrected here.
+
+    The browser's own version is only readable once it is running, and a guessed one
+    would be the mismatch that overriding a UA is usually blamed for. See
+    `_hide_headless_user_agent`, which reads the real string and changes one token.
+    """
     assert 'user_agent' not in build_launch_options(user_data_dir=Path('/p'), proxy='', headless=True)
 
 
@@ -367,6 +404,169 @@ def test_an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous(
 
     # Without credentials SOCKS is fine.
     assert build_proxy_settings('socks5://home.example:1080') == {'server': 'socks5://home.example:1080'}
+
+
+def test_a_run_explains_its_payloads_without_repeating_their_contents() -> None:
+    """The unknown here is the shape; the content is the user's own liked notes."""
+    envelope = {
+        'code': 0,
+        'success': True,
+        'data': {
+            'has_more': True,
+            'cursor': '65a1b2c3000000000e01f00d',
+            'notes': [
+                {'note_id': '64f1a2b3000000001e02c0de', 'xsec_token': 'AB-secret-token', 'display_title': '我的私人笔记'},
+                {'note_id': 'second', 'xsec_token': 'also-secret', 'display_title': '另一条'},
+            ],
+        },
+    }
+
+    shape = describe_shape(envelope)
+    rendered = json.dumps(shape, ensure_ascii=False)
+
+    assert shape['data']['notes'][0] == 'list[2]'
+    assert shape['data']['notes'][1] == {'note_id': 'str[24]', 'xsec_token': 'str[15]', 'display_title': 'str[6]'}
+    assert shape['code'] == 'int'
+    assert shape['success'] == 'bool'
+    for secret in ('64f1a2b3000000001e02c0de', 'AB-secret-token', '我的私人笔记', '65a1b2c3000000000e01f00d'):
+        assert secret not in rendered
+
+
+def test_the_logged_login_probe_keeps_the_qr_and_the_account_id_out_of_it() -> None:
+    # The QR is a live credential for as long as it lasts, and the id is the user's.
+    probe = {
+        'logged_in': False,
+        'qr_stage': 'verify',
+        'qr_src': 'data:image/png;base64,' + 'A' * 7000,
+        'user_id': '6a7d8554000000001400c801',
+        'modal_html': '<div class="r-captcha-modal">...</div>',
+    }
+
+    redacted = redact_probe(probe)
+    rendered = json.dumps(redacted, ensure_ascii=False)
+
+    assert redacted['qr_stage'] == 'verify'
+    assert redacted['logged_in'] is False
+    assert redacted['qr_src'] == 'str[7022]'
+    assert 'modal_html' not in redacted
+    assert 'AAAA' not in rendered
+    assert '6a7d8554000000001400c801' not in rendered
+
+
+def _probe(handler, proxy: str = 'http://user:pw@home.example:3128'):
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        return probe_proxy(proxy, client=client)
+
+
+def test_the_proxy_probe_names_each_way_an_egress_can_be_wrong() -> None:
+    def refused(request: httpx.Request) -> httpx.Response:
+        raise httpx.ProxyError('refused', request=request)
+
+    def walled(request: httpx.Request) -> httpx.Response:
+        # The captcha wall, which is the answer this button exists to catch early.
+        return httpx.Response(200, text='198.51.100.9') if 'checkip' in str(request.url) else httpx.Response(461)
+
+    def reachable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text='203.0.113.7' if 'checkip' in str(request.url) else '<html></html>')
+
+    refused_result = _probe(refused)
+    assert (refused_result.ok, refused_result.code) == (False, 'proxy_error')
+
+    walled_result = _probe(walled)
+    assert (walled_result.ok, walled_result.code, walled_result.exit_ip) == (False, 'risk_control', '198.51.100.9')
+
+    ok_result = _probe(reachable)
+    assert (ok_result.ok, ok_result.code, ok_result.exit_ip, ok_result.direct) == (True, 'ok', '203.0.113.7', False)
+
+
+def test_a_dead_proxy_is_told_apart_from_a_site_that_will_not_answer_it() -> None:
+    """The two failures want opposite things done, so the button must not blur them.
+
+    Both surface as a connection error on the same call; what separates them is
+    whether anything at all came back through the proxy beforehand.
+    """
+
+    def nothing_gets_through(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError('no route to proxy', request=request)
+
+    def site_only_is_null_routed(request: httpx.Request) -> httpx.Response:
+        if 'checkip' in str(request.url):
+            return httpx.Response(200, text='198.51.100.9')
+        raise httpx.ConnectTimeout('timed out', request=request)
+
+    dead_proxy = _probe(nothing_gets_through)
+    assert (dead_proxy.ok, dead_proxy.code) == (False, 'proxy_error')
+    assert 'proxy' in dead_proxy.message
+
+    walled_exit = _probe(site_only_is_null_routed)
+    assert (walled_exit.ok, walled_exit.code, walled_exit.exit_ip) == (False, 'unreachable', '198.51.100.9')
+
+
+def test_the_proxy_probe_reports_a_bad_proxy_string_without_dialing_it() -> None:
+    # Chromium would connect as nobody rather than fail, so this has to be caught here.
+    dialled: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        dialled.append(str(request.url))
+        return httpx.Response(200)
+
+    result = _probe(handler, proxy='socks5://user:pw@home.example:1080')
+
+    assert (result.ok, result.code, dialled) == (False, 'invalid', [])
+    assert 'SOCKS' in result.message
+
+
+def test_an_empty_proxy_probes_the_direct_egress_rather_than_refusing() -> None:
+    # `allow_direct_connection` is a supported setup, so the button has to be able to
+    # answer for it -- and the exit address is exactly what decides whether it is sane.
+    def reachable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text='203.0.113.7' if 'checkip' in str(request.url) else '')
+
+    result = _probe(reachable, proxy='   ')
+
+    assert (result.ok, result.direct, result.exit_ip) == (True, True, '203.0.113.7')
+
+
+def test_an_unreachable_exit_ip_service_does_not_fail_the_probe() -> None:
+    def site_only(request: httpx.Request) -> httpx.Response:
+        if 'checkip' in str(request.url):
+            raise httpx.ConnectError('no route', request=request)
+        return httpx.Response(200)
+
+    result = _probe(site_only)
+
+    assert (result.ok, result.exit_ip) == (True, '')
+
+
+def test_the_proxy_test_button_resolves_a_masked_proxy_against_what_is_stored(monkeypatch) -> None:
+    """The form only ever shows the proxy masked, so this is the normal path, not an edge case.
+
+    Getting it wrong would send `••••` to the probe, which parses as a hostname-less
+    proxy -- a green "direct egress works" for a setup that is not direct at all.
+    """
+    from src.api import service as service_module  # noqa: PLC0415
+    from src.api.settings_masking import MASK_SUFFIX  # noqa: PLC0415
+
+    section = SECTION_MODELS['web.rednote'](proxy='http://user:pw@home.example:3128')
+    probed: list[str] = []
+
+    def fake_probe(proxy: str):
+        probed.append(proxy)
+        return ProxyProbe(ok=True, code='ok', message='', exit_ip='203.0.113.7')
+
+    monkeypatch.setattr(service_module, 'probe_rednote_proxy', fake_probe)
+    service = service_module.FavApiService(
+        dsn='postgresql://db.local/fav',
+        token='t' * 32,
+        hanime1_video_fetcher=lambda _dsn: [],
+        job_provider=list,
+        settings_section_getter=lambda _section: section,
+    )
+
+    result = service.test_rednote_proxy({'proxy': f'http{MASK_SUFFIX}'})
+
+    assert probed == ['http://user:pw@home.example:3128']
+    assert result == {'ok': True, 'code': 'ok', 'message': '', 'exit_ip': '203.0.113.7', 'direct': False}
 
 
 def test_a_killed_chromium_does_not_lock_the_profile_forever(tmp_path) -> None:
@@ -418,18 +618,218 @@ def test_the_login_modal_outranks_a_stale_cookie() -> None:
     # web_session survives the account revoking the session elsewhere, so trusting it
     # alone would walk a run confidently into a login screen.
     assert decide_login_state({'has_login_modal': True}, {'web_session': 'still-here'}) == 'logged_out'
-    assert decide_login_state({'has_login_modal': False, 'user_id': 'me'}, {}) == 'logged_out'
-    assert decide_login_state({'has_login_modal': False, 'user_id': 'me'}, {'web_session': 'v'}) == 'logged_in'
+    assert decide_login_state({'logged_in': True}, {'web_session': 'v'}) == 'logged_in'
+    # The page's own answer outranks even a missing cookie, which is only ever a proxy for it.
+    assert decide_login_state({'logged_in': True}, {}) == 'logged_in'
+    assert decide_login_state({'logged_in': False}, {}) == 'logged_out'
 
 
 def test_a_page_that_has_not_hydrated_yet_is_not_called_signed_out() -> None:
-    assert decide_login_state({'has_login_modal': False}, {'web_session': 'v'}) == 'unknown'
+    assert decide_login_state({}, {'web_session': 'v'}) == 'unknown'
 
 
-def test_the_profile_id_comes_from_the_page_or_its_own_profile_link() -> None:
-    assert user_id_from_probe({'user_id': '5ff'}) == '5ff'
-    assert user_id_from_probe({'profile_href': '/user/profile/5ff?tab=liked'}) == '5ff'
+def test_the_profile_id_is_never_taken_from_a_signed_out_page() -> None:
+    """A signed-out visitor is issued a guest id of exactly the same shape.
+
+    Crawling it would find no likes and finish clean, so the wrong answer here is
+    indistinguishable from the right one at every later step.
+    """
+    assert user_id_from_probe({'logged_in': True, 'user_id': '5ff'}) == '5ff'
+    assert user_id_from_probe({'logged_in': True, 'profile_href': '/user/profile/5ff?tab=liked'}) == '5ff'
+    # The guest identity, as the live signed-out page actually reports it.
+    assert user_id_from_probe({'logged_in': False, 'guest': True, 'user_id': '6a7d8554000000001400c801'}) == ''
     assert user_id_from_probe({}) == ''
+
+
+class _FakePage:
+    """Just enough page to drive probe_login: a script of successive DOM samples."""
+
+    url = 'https://www.xiaohongshu.com/explore'
+
+    def __init__(self, samples: list[dict]) -> None:
+        self.samples = samples
+        self.calls = 0
+
+    async def evaluate(self, script: str) -> dict:
+        self.calls += 1
+        return self.samples[min(self.calls, len(self.samples)) - 1]
+
+
+def _probe_login(samples: list[dict], monkeypatch) -> tuple[dict, _FakePage]:
+    monkeypatch.setattr(rednote_browser_module, '_LOGIN_RENDER_POLL_SECONDS', 0)
+    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
+    page = _FakePage(samples)
+    browser._page = page
+    return asyncio.run(browser.probe_login()), page
+
+
+def test_the_login_probe_waits_for_the_page_to_mount_before_believing_it(monkeypatch) -> None:
+    """This is the bug that took the first cluster run down.
+
+    `domcontentloaded` resolves more than a second before this SPA renders anything,
+    so the first sample shows no modal and no session. Read as "signed out, no QR",
+    that used to trigger an immediate re-navigation, which both threw away the modal
+    about to appear and aborted the in-flight load -- net::ERR_ABORTED, run over.
+    """
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    samples = [
+        {},  # hydrating: __INITIAL_STATE__ not wired up yet
+        {'has_login_modal': True, 'qr_src': ''},  # modal mounting, QR not drawn
+        {'has_login_modal': True, 'qr_src': qr},
+    ]
+
+    probe, page = _probe_login(samples, monkeypatch)
+
+    assert probe['qr_src'] == qr
+    assert page.calls == 3
+
+
+def test_the_login_probe_stops_waiting_once_the_page_says_it_is_signed_in(monkeypatch) -> None:
+    probe, page = _probe_login([{'logged_in': True, 'user_id': '5ff'}], monkeypatch)
+
+    assert (probe['logged_in'], page.calls) == (True, 1)
+
+
+def test_the_login_probe_gives_up_rather_than_waiting_out_the_whole_run(monkeypatch) -> None:
+    # A page that never offers either answer still has to return, so the caller's own
+    # bounded wait -- not this one -- is what decides how long a signed-out run takes.
+    monkeypatch.setattr(rednote_browser_module, '_LOGIN_RENDER_TIMEOUT_SECONDS', 0)
+
+    probe, page = _probe_login([{'has_login_modal': False, 'qr_src': ''}], monkeypatch)
+
+    assert (probe, page.calls) == ({'has_login_modal': False, 'qr_src': ''}, 1)
+
+
+def test_a_navigation_the_scan_interrupts_does_not_end_the_run(monkeypatch) -> None:
+    """Scanning the QR makes the site navigate itself, aborting whatever we had in flight.
+
+    Treating that as fatal would fail the run at the exact moment it succeeded.
+    """
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
+        return 1
+
+    async def _send_text(*, header='', text, require_enabled=True) -> int:
+        return 2
+
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    class _AbortingBrowser(_FakeBrowser):
+        async def reload_login(self) -> None:
+            self.reloads += 1
+            raise RuntimeError('Page.goto: net::ERR_ABORTED at https://www.xiaohongshu.com/')
+
+    browser = _AbortingBrowser(
+        probes=[
+            {'has_login_modal': True, 'qr_src': ''},
+            {'has_login_modal': True, 'qr_src': qr},
+            {'logged_in': True, 'user_id': 'me'},
+        ],
+    )
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    assert browser.reloads == 1
+    assert job.user_id == 'me'
+
+
+def test_both_scans_of_the_two_stage_login_are_sent(monkeypatch) -> None:
+    """Signing in takes two QRs, and the second lives outside the login modal.
+
+    Observed on the live site: the account QR is inside `.login-modal`, and the
+    account-security QR that follows it is a separate captcha app on top. A selector
+    scoped to the login modal sees only the first half, so a run would send one code,
+    watch the user scan it, and then wait out its whole budget on a modal it cannot see.
+    """
+    sent: list[tuple[str, int]] = []
+    login_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG + b'\x01').decode()
+
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
+        sent.append((caption, len(photo[1])))
+        return 1
+
+    async def _send_text(*, header='', text, require_enabled=True) -> int:
+        return 2
+
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    browser = _FakeBrowser(
+        probes=[
+            {'has_login_modal': True, 'qr_stage': 'login', 'qr_src': login_qr},
+            # Scanned: the verification modal opens on top, with its own code.
+            {'has_login_modal': True, 'has_verify_modal': True, 'qr_stage': 'verify', 'qr_src': verify_qr},
+            {'logged_in': True, 'user_id': 'me'},
+        ],
+    )
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    assert len(sent) == 2
+    # The captions have to tell them apart: they are identical images in a chat, and
+    # only the second one dies in a minute.
+    assert '验证' in sent[1][0]
+    assert job.user_id == 'me'
+
+
+def test_the_verification_qr_is_reminted_on_a_timer(monkeypatch) -> None:
+    """Its expiry leaves no mark: same image bytes, no class, only a sentence.
+
+    And that sentence is in whatever language the profile runs in -- the pod pins
+    zh-CN while the observation was made in English -- so the only durable trigger
+    is the clock.
+    """
+    verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
+        return 1
+
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    monkeypatch.setattr(rednote_module, '_QR_REFRESH_SECONDS', 0)
+
+    stuck = {'has_verify_modal': True, 'qr_stage': 'verify', 'qr_src': verify_qr}
+    browser = _FakeBrowser(probes=[stuck, stuck, stuck, {'logged_in': True, 'user_id': 'me'}])
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    # The same src is never re-sent, but the page is told to mint a new one.
+    assert browser.qr_refreshes >= 1
+
+
+def test_a_scan_that_worked_is_noticed_rather_than_waited_out(monkeypatch) -> None:
+    """The page does not update itself when the scan lands.
+
+    Observed live: both modals close, the session cookie is set, and
+    `__INITIAL_STATE__` still reports signed out because it is the snapshot the page
+    was loaded with. That reads as UNKNOWN, and without a reload it reads as UNKNOWN
+    for the rest of the budget -- failing a login that actually succeeded.
+    """
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    monkeypatch.setattr(rednote_module, '_LOGIN_RELOAD_INTERVAL_SECONDS', 0)
+
+    # No modal, no QR, no answer from the store -- and the cookie jar already has the
+    # session the scan just created.
+    after_scan = {'logged_in': False, 'has_login_modal': False, 'qr_src': ''}
+    browser = _FakeBrowser(probes=[after_scan, after_scan, {'logged_in': True, 'user_id': 'me'}])
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    assert browser.reloads >= 1
+    assert job.user_id == 'me'
 
 
 def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeypatch) -> None:
@@ -456,7 +856,7 @@ def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeyp
             {'has_login_modal': True, 'qr_src': qr_a},
             # RedNote minted a new one, so the src changed.
             {'has_login_modal': True, 'qr_src': qr_b},
-            {'has_login_modal': False, 'user_id': 'me'},
+            {'logged_in': True, 'user_id': 'me'},
         ],
     )
     job = _job(browser=browser)
@@ -599,7 +999,17 @@ def test_a_live_photo_is_kept_as_both_the_still_and_the_clip() -> None:
             {'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://cdn/plain-1'}]},
             {
                 'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://cdn/live-still'}],
-                'stream': {'h264': [{'master_url': 'https://cdn/live-clip.mp4'}]},
+                # The live shape, captured from a real live photo: opaque buckets, most
+                # of them empty, and the one variant that exists names no codec at all.
+                # This is the case that made the codec fallback necessary rather than
+                # decorative -- without it the clip resolves to nothing and is dropped
+                # while its still is archived and the row is marked done.
+                'stream': {
+                    'EF6': [],
+                    'EF5': [],
+                    'EF7': [],
+                    'EF4': [{'masterUrl': 'https://cdn/live-clip.mp4', 'backupUrls': ['https://cdn/backup.mp4'], 'qualityType': 'HD'}],
+                },
             },
             {'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://cdn/plain-2'}]},
         ],
@@ -625,9 +1035,29 @@ def test_a_video_note_is_one_file_and_its_cover_is_not_archived() -> None:
 
 
 def test_a_video_note_falls_back_to_the_next_codec() -> None:
-    card = _video_note_card(video={'media': {'stream': {'h265': [{'masterUrl': 'https://cdn/h265.mp4'}]}}})
+    card = _video_note_card(video={'media': {'stream': {'EF4': [{'videoCodec': 'h265', 'masterUrl': 'https://cdn/h265.mp4'}]}}})
 
     assert extract_note_media(card, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/h265.mp4'
+
+
+def test_a_stream_is_picked_by_its_stated_codec_not_by_the_bucket_it_sits_in() -> None:
+    """The buckets are opaque and versioned; the codec is a field on the variant.
+
+    This expected `h264`/`h265`/`av1` as keys and the live site answers with
+    `EF4`/`EF5`/`EF6`/`EF7`. Keying on the name yielded no URL at all -- survivable
+    for a video note, which yt-dlp re-resolves from the page, and silent data loss
+    for a live photo, whose clip is fetched straight from this URL.
+    """
+    # h264 is preferred, and it is in the bucket that sorts last.
+    assert extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')[0].media_url.endswith('h264.mp4')
+
+    # A variant that names no codec is still better than nothing.
+    unnamed = _video_note_card(video={'media': {'stream': {'EF7': [{'masterUrl': 'https://cdn/only.mp4'}]}}})
+    assert extract_note_media(unnamed, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/only.mp4'
+
+    # And the old shape still resolves, so a rollback of the site does not break it.
+    legacy = _video_note_card(video={'media': {'stream': {'h264': [{'master_url': 'https://cdn/legacy.mp4'}]}}})
+    assert extract_note_media(legacy, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/legacy.mp4'
 
 
 def test_a_video_note_yields_a_row_even_with_no_readable_stream() -> None:
@@ -721,6 +1151,156 @@ def test_a_deleted_note_is_told_apart_from_a_bad_night() -> None:
 
 def _resolved_note_ids(fake_db: _FakeDatabase) -> list[str]:
     return [row[0] for _table, _columns, rows, _conflict in fake_db.inserted for row in rows]
+
+
+def test_the_newest_likes_arrive_with_the_page_and_are_not_skipped(monkeypatch) -> None:
+    """The liked tab is served with its first screenful already rendered into it.
+
+    So the first request the site makes is for what comes *after* those, and a crawl
+    reading only requests starts below the newest likes -- the ones an incremental run
+    exists to collect. It would then meet `abort_after` pages of already-archived
+    notes and stop, having picked up none of them, on every run, forever.
+    """
+    database = _FakeDatabase(backfill_complete=True)
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    browser = _FakeBrowser(
+        initial_notes=[{'note_id': 'newest-1', 'xsec_token': 'T1'}, {'note_id': 'newest-2', 'xsec_token': 'T2'}],
+        pages=[_like_page([{'note_id': 'older-1', 'xsec_token': 'T3'}], cursor='c1')],
+        notes={note: _image_note_card() for note in ('newest-1', 'newest-2', 'older-1')},
+    )
+    job = _job(browser=browser)
+
+    _run(job, job._crawl(browser))
+
+    archived = [row[0] for insert in database.inserted for row in insert[2]]
+    assert 'newest-1' in archived
+    assert 'newest-2' in archived
+    # And the requested pages are still walked after them.
+    assert 'older-1' in archived
+
+
+def test_only_the_site_saying_404_counts_toward_retiring_a_note(monkeypatch) -> None:
+    """A note is retired on evidence, and a failure to load is not evidence.
+
+    Timeouts, navigation errors and a note that simply carries nothing all leave a
+    live note looking exactly like a deleted one from here. Counting those would
+    retire notes on a bad night and never look at them again.
+    """
+    database = _FakeDatabase()
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    class _Browser(_FakeBrowser):
+        async def note_state(self, *, note_url: str, note_id: str) -> dict:
+            if note_id == 'deleted':
+                raise rednote_module.NoteGoneError('redirected to 404')
+            if note_id == 'timed-out':
+                raise TimeoutError('the page never settled')
+            return {}  # read fine, carries nothing this source handles
+
+    browser = _Browser()
+    job = _job(browser=browser)
+    notes = [NoteRef(note_id=n, xsec_token='T') for n in ('deleted', 'timed-out', 'empty')]
+
+    _run(job, job._resolve_notes(notes, browser, run_id='run-1'))
+
+    assert set(database.missing) == {'deleted'}
+
+
+def test_three_separate_runs_have_to_agree_before_a_note_is_retired(monkeypatch) -> None:
+    database = _FakeDatabase()
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    class _Browser(_FakeBrowser):
+        async def note_state(self, *, note_url: str, note_id: str) -> dict:
+            raise rednote_module.NoteGoneError('redirected to 404')
+
+    browser = _Browser()
+    job = _job(browser=browser)
+    note = [NoteRef(note_id='deleted', xsec_token='T')]
+
+    # Twice inside one run counts once: a note can come round twice in a single walk.
+    _run(job, job._resolve_notes(note * 2, browser, run_id='run-1'))
+    assert database.missing['deleted'][0] == 1
+    assert _run(job, job._retired_note_ids(['deleted'])) == set()
+
+    _run(job, job._resolve_notes(note, browser, run_id='run-2'))
+    assert _run(job, job._retired_note_ids(['deleted'])) == set()
+
+    _run(job, job._resolve_notes(note, browser, run_id='run-3'))
+    assert _run(job, job._retired_note_ids(['deleted'])) == {'deleted'}
+
+
+def test_a_note_that_reads_again_stops_being_counted_as_gone(monkeypatch) -> None:
+    """Otherwise two unlucky runs plus one later hiccup retires a live note."""
+    database = _FakeDatabase()
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    state = {'gone': True}
+
+    class _Browser(_FakeBrowser):
+        async def note_state(self, *, note_url: str, note_id: str) -> dict:
+            if state['gone']:
+                raise rednote_module.NoteGoneError('redirected to 404')
+            return _image_note_card()
+
+    browser = _Browser()
+    job = _job(browser=browser)
+    note = [NoteRef(note_id='flaky', xsec_token='T')]
+
+    _run(job, job._resolve_notes(note, browser, run_id='run-1'))
+    _run(job, job._resolve_notes(note, browser, run_id='run-2'))
+    assert database.missing['flaky'][0] == 2
+
+    state['gone'] = False
+    _run(job, job._resolve_notes(note, browser, run_id='run-3'))
+
+    assert 'flaky' not in database.missing
+
+
+def test_a_retired_note_is_not_opened_again(monkeypatch) -> None:
+    database = _FakeDatabase()
+    database.missing['retired'] = (3, 'run-3')
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    browser = _FakeBrowser(notes={'fresh': _image_note_card()})
+    job = _job(browser=browser)
+    notes = [NoteRef(note_id='retired', xsec_token='T'), NoteRef(note_id='fresh', xsec_token='T')]
+
+    _run(job, job._absorb_page(notes, browser=browser, seen=set(), page_index=1, run_id='run-4'))
+
+    # The whole point of counting: it stops costing a page load on every run.
+    assert all('retired' not in url for url in browser.note_urls)
+
+
+def test_a_note_that_can_never_be_read_does_not_hold_the_stop_rule_open(monkeypatch) -> None:
+    """The list churns: notes get deleted, and get unliked while being looked at.
+
+    The old rule asked whether every id on a page was already known. A deleted note
+    never gains rows, so it is never known, so a single one near the top reset the
+    counter on every run -- the early stop became unreachable and every incremental
+    run walked the whole list. Asking what the page *added* to the archive instead is
+    indifferent both to that and to the list shifting underneath the walk.
+    """
+    database = _FakeDatabase(known_note_ids=('archived-1',), backfill_complete=True)
+    monkeypatch.setattr(rednote_module, 'database', database)
+
+    # 'gone' is offered by the list on every page and resolves to nothing, forever.
+    browser = _FakeBrowser(
+        initial_notes=[{'note_id': 'gone', 'xsec_token': 'T'}, {'note_id': 'archived-1', 'xsec_token': 'T'}],
+        pages=[
+            _like_page([{'note_id': 'gone', 'xsec_token': 'T'}, {'note_id': 'archived-1', 'xsec_token': 'T'}], cursor='c1'),
+            _like_page([{'note_id': 'archived-1', 'xsec_token': 'T'}], cursor='c2'),
+            _like_page([{'note_id': 'should-not-be-reached', 'xsec_token': 'T'}], cursor='c3'),
+        ],
+        notes={'gone': {}},
+    )
+    job = _job(browser=browser, abort_after=2)
+
+    _run(job, job._crawl(browser))
+
+    archived = [row[0] for insert in database.inserted for row in insert[2]]
+    assert 'should-not-be-reached' not in archived
 
 
 def test_the_crawl_stops_once_it_has_caught_up(monkeypatch) -> None:
@@ -842,7 +1422,7 @@ def test_resolving_a_note_writes_one_row_per_file(monkeypatch) -> None:
     browser = _FakeBrowser(notes={NOTE_ID: _page_note_card()})
     job = _job(browser=browser)
 
-    assert _run(job, job._resolve_notes([NoteRef(note_id=NOTE_ID, xsec_token='TOKEN')], browser)) == 1
+    assert _run(job, job._resolve_notes([NoteRef(note_id=NOTE_ID, xsec_token='TOKEN')], browser, run_id='run-1')) == 1
 
     table, _columns, rows, on_conflict = fake_db.inserted[0]
     assert table == 'rednote'
@@ -866,7 +1446,7 @@ def test_a_note_that_cannot_be_read_does_not_end_the_run(monkeypatch) -> None:
     job = _job(browser=browser)
     notes = [NoteRef(note_id=NOTE_ID, xsec_token='T'), NoteRef(note_id=OTHER_NOTE_ID, xsec_token='T')]
 
-    assert _run(job, job._resolve_notes(notes, browser)) == 1
+    assert _run(job, job._resolve_notes(notes, browser, run_id='run-1')) == 1
 
 
 # ---------- where files land ----------

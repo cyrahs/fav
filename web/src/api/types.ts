@@ -74,6 +74,14 @@ export interface AzurLaneProxyTestResult {
   exit_ip: string;
 }
 
+export interface RedNoteProxyTestResult {
+  ok: boolean;
+  code: string;
+  message: string;
+  exit_ip: string;
+  direct: boolean;
+}
+
 export interface CookieCloudTestResult {
   ok: boolean;
   code: string;
