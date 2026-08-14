@@ -14,15 +14,17 @@ function JobRow({ job }: { job: Job }) {
   const queryClient = useQueryClient();
   const [cron, setCron] = useState(job.cron);
   const [enabled, setEnabled] = useState(job.enabled);
+  const [notify, setNotify] = useState(job.notify);
   const [error, setError] = useState('');
 
   // Re-sync when the list refetches (e.g. after another edit lands).
   useEffect(() => {
     setCron(job.cron);
     setEnabled(job.enabled);
-  }, [job.cron, job.enabled]);
+    setNotify(job.notify);
+  }, [job.cron, job.enabled, job.notify]);
 
-  const dirty = cron !== job.cron || enabled !== job.enabled;
+  const dirty = cron !== job.cron || enabled !== job.enabled || notify !== job.notify;
   const cronValid = describeCron(cron).valid;
   // The API rejects enabling an incomplete source, so block it here rather than
   // letting the user submit a toggle that can only come back as a 422.
@@ -37,6 +39,7 @@ function JobRow({ job }: { job: Job }) {
         ...current.value,
         cron,
         enabled,
+        notify,
       });
     },
     onSuccess: () => {
@@ -70,15 +73,23 @@ function JobRow({ job }: { job: Job }) {
         <CronInput id={`cron-${job.key}`} value={cron} onChange={setCron} />
       </td>
       <td>
-        <label className="switch" title={incomplete ? '配置不完整，无法启用' : undefined}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            disabled={incomplete}
-            onChange={(e) => setEnabled(e.target.checked)}
-          />
-          <span>{incomplete ? '未就绪' : enabled ? '启用' : '停用'}</span>
-        </label>
+        <div className="switch-stack">
+          <label className="switch" title={incomplete ? '配置不完整，无法启用' : undefined}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={incomplete}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
+            {/* The checkbox already says on or off; a label that flips with it only
+                makes the row harder to read. */}
+            <span>{incomplete ? '未就绪' : '启用'}</span>
+          </label>
+          <label className="switch" title="关闭后这个任务不再发送任何 Telegram 通知，包括运行失败">
+            <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+            <span>通知</span>
+          </label>
+        </div>
       </td>
       <td className="actions">
         <button type="button" disabled={!dirty || !cronValid || save.isPending} onClick={() => save.mutate()}>

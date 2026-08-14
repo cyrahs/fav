@@ -337,6 +337,39 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert captured['payload']['error_message'] == 'boom'
 
 
+def test_run_job_skips_job_failed_notification_for_a_muted_job(monkeypatch) -> None:
+    class _FailingWorker:
+        async def update(self) -> None:
+            msg = 'boom'
+            raise RuntimeError(msg)
+
+    enqueued: list[dict[str, object]] = []
+
+    async def _fake_enqueue_notification(**payload) -> None:
+        enqueued.append(payload)
+
+    monkeypatch.setattr(run_module, 'enqueue_notification', _fake_enqueue_notification)
+
+    result = asyncio.run(
+        run_module._run_job(
+            job=ScheduledJob(
+                key='bilibili',
+                name='Bilibili',
+                cron='*/30 * * * *',
+                enabled=True,
+                notify=False,
+                required_commands=(),
+                factory=_FailingWorker,
+            ),
+        ),
+    )
+
+    # Still a failed run, just an unannounced one.
+    assert result.success is False
+    assert result.error == 'RuntimeError: boom'
+    assert enqueued == []
+
+
 def test_run_job_uses_exception_notification_dedupe_key(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

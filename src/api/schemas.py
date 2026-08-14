@@ -66,8 +66,10 @@ class JobSummary(ApiSchema):
     key: str
     name: str
     enabled: bool
+    # Whether this source's notifications are queued for delivery at all.
+    notify: bool = True
     cron: str
-    # Settings section that owns this job's enabled/cron fields.
+    # Settings section that owns this job's enabled/notify/cron fields.
     section: str = ''
     # Non-empty when the source is switched on but still missing required values,
     # in which case the scheduler keeps it parked.

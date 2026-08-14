@@ -264,6 +264,14 @@ td.actions > *:last-child {
   accent-color: var(--accent);
 }
 
+/* Stacked so the two job toggles keep their own line however narrow the column gets. */
+.switch-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
 .pill {
   display: inline-block;
   padding: 1px 8px;

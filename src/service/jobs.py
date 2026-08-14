@@ -19,6 +19,7 @@ class ScheduledJob:
     required_commands: tuple[str, ...]
     factory: Callable[[], object]
     section: str = ''
+    notify: bool = True
     missing_fields: tuple[str, ...] = field(default=())
 
     def as_public_dict(self) -> dict[str, Any]:
@@ -27,6 +28,7 @@ class ScheduledJob:
             'name': self.name,
             'cron': self.cron,
             'enabled': self.enabled,
+            'notify': self.notify,
             'section': self.section,
             'missing_fields': list(self.missing_fields),
         }
@@ -72,6 +74,7 @@ def build_jobs(current: settings.Settings | None = None) -> list[ScheduledJob]:
                 # A source with an incomplete configuration stays out of the
                 # scheduler even when the UI toggle says enabled.
                 enabled=job_cfg.enabled and not missing,
+                notify=job_cfg.notify,
                 required_commands=spec.required_commands,
                 factory=spec.factory,
                 section=f'web.{spec.attr}',

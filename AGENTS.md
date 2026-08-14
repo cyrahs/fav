@@ -78,7 +78,10 @@ Three moving parts, all coordinating through PostgreSQL rather than through memo
   name, so one source is never labelled two ways — and keep that name out of `title`. The immediate
   sends in `telegram_bot.py` (`send_text_now`, `send_photo_now`) take the same `header`. Rendering
   runs off the stored columns, and the worker re-renders at claim time, so anything the template
-  needs has to be a column rather than a call-time-only argument.
+  needs has to be a column rather than a call-time-only argument. `enqueue_notification` drops the
+  message and returns `None` when the source's `web.<source>.notify` toggle is off — `source` is the
+  job key, so pass it rather than a prettier label, or the toggle will not find its section. Call
+  sites that pass a `source` which is not a job key (`run.py` passes `worker`) gate themselves.
 
 A source is a duck type, not a base class. `JobSpec.factory()` must return an object with an
 `async update()`; an optional `async aclose()` is called afterwards if present.

@@ -9,10 +9,12 @@ from src.core.settings import (
     Hanime1Ranking,
     Hanime1RankingDeepScan,
     ScheduleJob,
+    Settings,
     Telegram,
     TelegramAccount,
     TelegramChannel,
     TelegramNotification,
+    notify_enabled,
 )
 
 _TELEGRAM_DEFAULT_SCAN_LIMIT = 50
@@ -32,11 +34,23 @@ def test_schedule_job_accepts_five_field_cron() -> None:
     assert job.cron == '*/5 * * * *'
     # Defaults are off so an unconfigured deployment boots idle.
     assert job.enabled is False
+    # Notifications are the other way around: a source that runs reports by default.
+    assert job.notify is True
 
 
 def test_schedule_job_rejects_non_five_field_cron() -> None:
     with pytest.raises(ValidationError):
         ScheduleJob(cron='*/5 * * *')
+
+
+def test_notify_enabled_follows_the_source_toggle(pinned_settings: Settings) -> None:
+    assert notify_enabled('bilibili') is True
+
+    pinned_settings.web.bilibili.notify = False
+
+    assert notify_enabled('bilibili') is False
+    # 'worker' is the job-failure source, not a section; it has no toggle to read.
+    assert notify_enabled('worker') is True
 
 
 def test_telegram_notification_requires_credentials_to_be_configured() -> None:

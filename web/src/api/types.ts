@@ -2,6 +2,7 @@ export interface Job {
   key: string;
   name: string;
   enabled: boolean;
+  notify: boolean;
   cron: string;
   section: string;
   missing_fields: string[];
