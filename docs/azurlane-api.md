@@ -243,6 +243,16 @@ Global source artifacts live in `/static/azurlane/_source/` (`l2d-su-snapshot.js
 path). Treat unknown fields as forward-compatible extras — the crawler stores whatever l2d.su
 returns.
 
+Passthrough means upstream's quirks reach you intact. Two that have already caught a consumer:
+
+- **`stages[]` can carry entries belonging to other ships.** Javelin (`shipGroupId` 20121) returns
+  `[201211, 201212, 201213, 201214, 900241, 900359, 900410]`. A ship's own stages are
+  `shipGroupId * 10 + tier`, so filter on that prefix before reading max-breakout stats.
+- **`stages[].oil` is a range string** like `"1-9"`, not a number.
+
+These are not normalised on purpose: `ship-detail` is the source payload verbatim, and guessing
+which entries upstream "meant" would quietly drop data. Filter client-side.
+
 ## Freshness semantics
 
 - The index (ships, skins, paintings, icons) refreshes every crawl run.
