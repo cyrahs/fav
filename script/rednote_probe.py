@@ -29,6 +29,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -140,6 +141,12 @@ _SITE_STATE_SCRIPT = """() => {
     };
 }"""
 
+_TABS_SCRIPT = """() => {
+    const tabs = [...document.querySelectorAll('[class*="tab"]')];
+    return tabs.map((t) => ({cls: t.className, text: (t.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 30)}))
+        .filter((t) => t.text).slice(0, 12);
+}"""
+
 _NOTE_STATE_SCRIPT = """(id) => {
     const state = window.__INITIAL_STATE__ || {};
     const map = (state.note && state.note.noteDetailMap) || {};
@@ -181,11 +188,18 @@ class _Recorder:
     def __init__(self) -> None:
         self.statuses: dict[int, int] = {}
         self.walled: list[str] = []
+        # Every API path the page pulls, deduped. The endpoint the likes grid actually
+        # drives has only ever been assumed; this is what would show it.
+        self.api_paths: dict[str, int] = {}
 
     def on_response(self, response: Any) -> None:
         self.statuses[response.status] = self.statuses.get(response.status, 0) + 1
         if response.status in RISK_CONTROL_STATUS_CODES:
             self.walled.append(f'{response.status} {response.url[:120]}')
+        path = urlsplit(response.url).path
+        if '/api/' in path:
+            key = f'{response.status} {urlsplit(response.url).netloc}{path}'
+            self.api_paths[key] = self.api_paths.get(key, 0) + 1
 
 
 async def _open(args: argparse.Namespace) -> tuple[Any, Any, _Recorder]:
@@ -291,6 +305,111 @@ async def cmd_note(args: argparse.Namespace) -> None:
         await _close(playwright, page)
 
 
+async def cmd_login(args: argparse.Namespace) -> None:
+    """Sign in by hand, then capture the two things only a session can answer.
+
+    Runs the source's own browser, so the selectors, the staging and the reload are
+    the shipped ones. Headful by default: the security code lives about a minute,
+    which a scan off this screen fits inside and a round trip through anything else
+    does not. In the cluster that code goes straight to Telegram instead.
+    """
+    from src.web.rednote import decide_login_state, extract_like_page, parse_api_envelope, user_id_from_probe  # noqa: PLC0415
+
+    browser, page, recorder = await _open(args)
+    try:
+        deadline = asyncio.get_running_loop().time() + args.wait
+        seen: set[str] = set()
+        probe: dict[str, Any] = {}
+        while asyncio.get_running_loop().time() < deadline:
+            probe = await browser.probe_login()
+            state = decide_login_state(probe, await browser.cookie_dict())
+            if state == 'logged_in':
+                break
+            qr_src = str(probe.get('qr_src') or '')
+            if qr_src and qr_src not in seen:
+                seen.add(qr_src)
+                print(f'>>> SCAN THE {str(probe.get("qr_stage") or "login").upper()} QR in the window ({len(qr_src)} bytes)', flush=True)
+            elif not qr_src:
+                await browser.reload_login()
+            await asyncio.sleep(2)
+
+        if str(probe.get('logged_in') or '') != 'True' and not probe.get('logged_in'):
+            print(json.dumps({'signed_in': False, 'last_probe_stage': probe.get('qr_stage')}, indent=2))
+            return
+
+        user_id = user_id_from_probe(probe)
+        cookies = await browser.cookie_dict()
+        print(json.dumps({'signed_in': True, 'user_id_len': len(user_id), 'has_web_session': bool(cookies.get('web_session'))}, indent=2))
+        print(json.dumps({'signed_in_user_shape': describe_shape(probe)}, indent=2, ensure_ascii=False))
+
+        # The one thing this whole source is built on and has never been seen.
+        await browser.open_likes(user_id=user_id)
+        captured = await browser.next_like_page(timeout_seconds=30)
+        if captured is None:
+            print(json.dumps({'like_page': 'no response intercepted', 'risk_hits': recorder.walled}, indent=2))
+            return
+        print(
+            json.dumps(
+                {'like_page_status': captured.get('status'), 'like_page_shape': describe_shape(captured.get('body'))},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        notes, cursor, has_more = extract_like_page(parse_api_envelope(captured.get('body')))
+        print(json.dumps({'parsed_notes': len(notes), 'cursor_len': len(cursor), 'has_more': has_more}, indent=2))
+    finally:
+        await _close(browser, page)
+
+
+async def cmd_likes(args: argparse.Namespace) -> None:
+    """What the 赞过 tab actually does, using the session already in the profile.
+
+    The whole crawl rests on that tab driving `note/like/page`, which was taken from
+    the API this source used to call directly and has never been watched. This clicks
+    the tab the way the source does and reports every API path the page pulls.
+    """
+    from src.web.rednote import decide_login_state, user_id_from_probe  # noqa: PLC0415
+
+    browser, page, recorder = await _open(args)
+    try:
+        probe = await browser.probe_login()
+        state = decide_login_state(probe, await browser.cookie_dict())
+        if state != 'logged_in':
+            print(json.dumps({'signed_in': False, 'state': state, 'hint': 'run the login command first'}, indent=2))
+            return
+
+        user_id = user_id_from_probe(probe)
+        opened = await browser.open_likes(user_id=user_id)
+        print(json.dumps({'liked_tab_opened': opened}, indent=2))
+
+        captured = await browser.next_like_page(timeout_seconds=args.watch)
+        if captured is not None:
+            from src.web.rednote import extract_like_page, parse_api_envelope  # noqa: PLC0415
+
+            print(
+                json.dumps({'status': captured.get('status'), 'shape': describe_shape(captured.get('body'))}, indent=2, ensure_ascii=False)
+            )
+            notes, cursor, has_more = extract_like_page(parse_api_envelope(captured.get('body')))
+            print(
+                json.dumps(
+                    {
+                        'parsed_notes': len(notes),
+                        'with_token': sum(1 for n in notes if n.xsec_token),
+                        'cursor_len': len(cursor),
+                        'has_more': has_more,
+                    },
+                    indent=2,
+                )
+            )
+        tabs = await _evaluate(page, _TABS_SCRIPT)
+        print(json.dumps({'url_after_open_likes': (await _evaluate(page, '() => location.href') or '')[:110]}, indent=2))
+        print(json.dumps({'tabs': tabs}, indent=2, ensure_ascii=False))
+        print(json.dumps({'api_paths': recorder.api_paths}, indent=2))
+        print(json.dumps({'risk_hits': recorder.walled}, indent=2))
+    finally:
+        await _close(browser, page)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--proxy', default='', help='Same value as web.rednote.proxy. Empty means direct.')
@@ -308,9 +427,13 @@ def main() -> None:
     sub.add_parser('door', help='What the site serves this browser, anonymously')
     note = sub.add_parser('note', help='Dump the shape of public note pages')
     note.add_argument('urls', nargs='+')
+    login = sub.add_parser('login', help='Sign in by hand, then capture the likes envelope')
+    login.add_argument('--wait', type=float, default=300.0, help='Seconds to wait for the scans.')
+    likes = sub.add_parser('likes', help='Watch what the 赞过 tab pulls, using the stored session')
+    likes.add_argument('--watch', type=float, default=20.0, help='Seconds to record traffic after opening the tab.')
 
     args = parser.parse_args()
-    handlers = {'egress': cmd_egress, 'door': cmd_door, 'note': cmd_note}
+    handlers = {'egress': cmd_egress, 'door': cmd_door, 'note': cmd_note, 'login': cmd_login, 'likes': cmd_likes}
     asyncio.run(handlers[args.command](args))
 
 

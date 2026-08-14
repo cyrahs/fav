@@ -38,7 +38,12 @@ log = logger.get('rednote')
 
 WEB_ORIGIN = 'https://www.xiaohongshu.com'
 LIKE_PAGE_PATH = '/api/sns/web/v1/note/like/page'
-LIKED_TAB_LABEL = '赞过'
+# The tab that lists what the account has liked, as the profile page labels it.
+# Observed live as 点赞, in a strip reading 笔记 / 收藏 / 点赞. `赞过` is kept behind it
+# because it is what the app says and what this was originally written against --
+# and because a label that matches nothing fails silently, which is how the first
+# version got all the way to a live account before anyone noticed it never clicked.
+LIKED_TAB_LABELS = ('点赞', '赞过')
 
 # The captcha wall. Whether it is a crawl being refused or this module's probe being
 # turned away, it means the same thing: the address is not one the site will serve.
@@ -55,6 +60,7 @@ _QR_DATA_URL_MARKER = ';base64,'
 # modal follows it.
 _LOGIN_RENDER_TIMEOUT_SECONDS = 20.0
 _LOGIN_RENDER_POLL_SECONDS = 0.5
+_LIKED_TAB_TIMEOUT_MS = 15_000
 _SHAPE_MAX_KEYS = 40
 # What Chromium puts in its own UA when it has no window, and what the site refuses.
 _HEADLESS_UA_TOKEN = 'HeadlessChrome'  # noqa: S105 - a User-Agent token, not a credential
@@ -178,7 +184,7 @@ class NoteBrowser(Protocol):
     async def netscape_cookies(self) -> str: ...
     async def user_agent(self) -> str: ...
     async def reload_login(self) -> None: ...
-    async def open_likes(self, *, user_id: str) -> None: ...
+    async def open_likes(self, *, user_id: str) -> bool: ...
     async def next_like_page(self, *, timeout_seconds: float) -> dict[str, Any] | None: ...
     async def note_state(self, *, note_url: str, note_id: str) -> dict[str, Any]: ...
 
@@ -538,7 +544,7 @@ class PlaywrightNoteBrowser:
         which reads as "signed out, no QR" -- and the answer to that used to be an
         immediate re-navigation, throwing away the modal that was about to appear.
         """
-        if self._page.url in ('', 'about:blank'):
+        if not self._on_site():
             await self._page.goto(WEB_ORIGIN, wait_until='domcontentloaded')
 
         deadline = time.monotonic() + _LOGIN_RENDER_TIMEOUT_SECONDS
@@ -610,6 +616,15 @@ class PlaywrightNoteBrowser:
             'majorVersion': version,
         }
 
+    def _on_site(self) -> bool:
+        """Whether the page is somewhere this module's selectors mean anything.
+
+        Not just "is it blank": reading the client hints parks the page on a neutral
+        origin first, and a check for `about:blank` alone let a login probe run
+        against that page and report a signed-in profile as signed out.
+        """
+        return self._page.url.startswith(WEB_ORIGIN)
+
     async def _read_login_probe(self) -> dict[str, Any]:
         """One sample, or an empty one if the page moved under it.
 
@@ -642,17 +657,35 @@ class PlaywrightNoteBrowser:
         # A reload, not a fresh goto: navigating to the URL the page is already on while
         # the SPA is still bootstrapping is answered with net::ERR_ABORTED, which used
         # to end the run on the second poll of every signed-out wait.
-        if self._page.url in ('', 'about:blank'):
+        if not self._on_site():
             await self._page.goto(WEB_ORIGIN, wait_until='domcontentloaded')
             return
         await self._page.reload(wait_until='domcontentloaded')
 
-    async def open_likes(self, *, user_id: str) -> None:
-        await self._page.goto(f'{WEB_ORIGIN}/user/profile/{user_id}', wait_until='domcontentloaded')
-        # The profile lands on 笔记; the click on 赞过 is what fires the first
-        # like/page request, which is the response the crawl is waiting for.
-        with contextlib.suppress(Exception):
-            await self._page.get_by_text(LIKED_TAB_LABEL, exact=True).first.click(timeout=15_000)
+    async def open_likes(self, *, user_id: str) -> bool:
+        """Open the profile and switch to its liked tab. False if the tab was not found.
+
+        The profile lands on 笔记, and the click is what fires the first like/page
+        request -- the response the whole crawl waits for. Reported rather than
+        suppressed: a tab that is never found produces a run that walks no pages and
+        finishes clean, which is indistinguishable from having nothing new to fetch.
+        """
+        # `?tab=liked` is what the site puts in the address bar once the tab is
+        # clicked, so ask for it directly and leave the click as the belt to its
+        # braces -- a label can be renamed, a query parameter is the site's own API
+        # to itself.
+        await self._page.goto(f'{WEB_ORIGIN}/user/profile/{user_id}?tab=liked', wait_until='domcontentloaded')
+        for label in LIKED_TAB_LABELS:
+            tab = self._page.locator('.reds-tab-item', has_text=label).first
+            try:
+                await tab.click(timeout=_LIKED_TAB_TIMEOUT_MS)
+            except Exception as exc:  # noqa: BLE001
+                log.debug('RedNote found no liked tab labelled %s: %s', label, str(exc).splitlines()[0])
+                continue
+            log.debug('RedNote opened the liked tab via %s', label)
+            return True
+        log.warning('RedNote could not find the liked tab (tried %s) on the profile page', ', '.join(LIKED_TAB_LABELS))
+        return False
 
     async def next_like_page(self, *, timeout_seconds: float) -> dict[str, Any] | None:
         deadline = time.monotonic() + timeout_seconds
