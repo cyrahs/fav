@@ -471,6 +471,15 @@ async def cmd_notes(args: argparse.Namespace) -> None:
         seen_shapes: set[str] = set()
         for ref in notes[: int(args.sample)]:
             card = await browser.note_state(note_url=build_note_url(ref.note_id, ref.xsec_token), note_id=ref.note_id)
+            # Whether the page actually carried the note asked for, now that a wrong
+            # one is no longer quietly substituted.
+            got = str((card or {}).get('noteId') or (card or {}).get('note_id') or '')
+            if not card:
+                print(json.dumps({'note_state': 'empty'}, indent=2))
+                await asyncio.sleep(args.pace)
+                continue
+            if got and got != ref.note_id:
+                print(json.dumps({'note_state': 'WRONG NOTE returned'}, indent=2))
             note_type = str((card or {}).get('type') or (card or {}).get('noteType') or 'unknown')
             media = extract_note_media(card or {}, note_id=ref.note_id, xsec_token=ref.xsec_token)
             rows = [

@@ -148,7 +148,12 @@ _REFRESH_VERIFY_QR_SCRIPT = """() => {
 _NOTE_STATE_SCRIPT = """(id) => {
     const state = window.__INITIAL_STATE__ || {};
     const map = (state.note && state.note.noteDetailMap) || {};
-    const entry = map[id] || Object.values(map)[0] || null;
+    const entry = map[id];
+    // Deliberately no fallback to "whatever note happens to be in the map". This is a
+    // single long-lived page, so a note that fails to load leaves the previous one
+    // sitting there, and extracting that would file one note's images under another
+    // note's id -- rows keyed to media that was never in it, and no way to tell later.
+    // Missing means missing; the caller retries the note on the next run.
     return (entry && entry.note) || null;
 }"""
 
