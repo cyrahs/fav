@@ -579,10 +579,12 @@ class RedNote(ScheduleJob):
     # off. Reaching it leaves the backfill marked unfinished, which is what makes
     # the next run walk past the part already archived.
     max_pages_per_run: int = 40
-    # How long a run waits at the login screen before giving up. Bounded because the
-    # control-request consumer runs one request at a time, so a longer wait parks
+    # How long a run waits at the login screen before giving up. Signing in takes two
+    # scans -- the account QR, then an account-security QR good for about a minute --
+    # so this covers two Telegram round trips, not one. Still bounded, because the
+    # control-request consumer runs one request at a time and a longer wait parks
     # every queued manual trigger behind it.
-    login_wait_seconds: int = 240
+    login_wait_seconds: int = 300
     # Quiet period between login prompts. A QR is dead within minutes, so a 04:00
     # cron sending one is pure noise.
     login_prompt_cooldown_seconds: int = 3600

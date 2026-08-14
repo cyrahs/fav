@@ -55,6 +55,8 @@ _QR_DATA_URL_MARKER = ';base64,'
 # modal follows it.
 _LOGIN_RENDER_TIMEOUT_SECONDS = 20.0
 _LOGIN_RENDER_POLL_SECONDS = 0.5
+_SHAPE_MAX_KEYS = 40
+_PROBE_LENGTH_ONLY_FIELDS = ('qr_src', 'user_id', 'profile_href')
 # The settings form's proxy test. Short, because an operator is watching it spin.
 _PROBE_TIMEOUT_SECONDS = 30.0
 _EXIT_IP_TIMEOUT_SECONDS = 15.0
@@ -86,8 +88,18 @@ _LOGIN_PROBE_SCRIPT = """() => {
     // payload that simply omits `guest` must not be read as signed out.
     const guest = info.guest === true;
     const loggedIn = unwrap(user.loggedIn) === true && !guest;
+    // Signing in takes two scans, and the second one lives in a different DOM tree:
+    // the account QR is inside `.login-modal`, and the account-security QR that
+    // follows it is inside a separate captcha app. Both use `img.qrcode-img`, so a
+    // selector scoped to the login modal sees only the first half of the flow.
     const modal = document.querySelector('.login-modal');
-    const qr = document.querySelector('.login-modal img.qrcode-img');
+    const verifyModal = document.querySelector('.r-captcha-modal');
+    const loginQr = document.querySelector('.login-modal img.qrcode-img');
+    const verifyQr = document.querySelector('.r-captcha-modal img.qrcode-img');
+    // The verification modal sits on top of the login one and is the live step, so
+    // it wins when both are up -- which they are, for the whole second stage.
+    const stage = verifyQr ? 'verify' : (loginQr ? 'login' : '');
+    const qr = verifyQr || loginQr;
     // Scoped to the sidebar deliberately: an unscoped a[href^="/user/profile/"] matches
     // every note author in the feed -- about thirty of them, none of them this account.
     const own = document.querySelector('.side-bar a[href^="/user/profile/"]');
@@ -95,11 +107,24 @@ _LOGIN_PROBE_SCRIPT = """() => {
         logged_in: loggedIn,
         guest: guest,
         has_login_modal: Boolean(modal),
+        has_verify_modal: Boolean(verifyModal),
+        qr_stage: stage,
         qr_src: (qr && qr.getAttribute('src')) || '',
         user_id: loggedIn ? String(info.userId || '') : '',
         profile_href: (own && own.getAttribute('href')) || '',
-        modal_html: modal ? modal.outerHTML.slice(0, 4000) : '',
+        modal_html: (verifyModal || modal) ? (verifyModal || modal).outerHTML.slice(0, 4000) : '',
     };
+}"""
+
+# Clicking the image is how the verification QR is reminted -- the modal says so and
+# there is no button. Only that one: the login modal's `重新扫码` control is also shown
+# while it waits for the phone to confirm a scan that worked, so clicking it there
+# would throw away a successful scan.
+_REFRESH_VERIFY_QR_SCRIPT = """() => {
+    const qr = document.querySelector('.r-captcha-modal img.qrcode-img');
+    if (!qr) { return false; }
+    qr.click();
+    return true;
 }"""
 
 # Narrowed inside the page: __INITIAL_STATE__ as a whole is megabytes of feed and
@@ -126,6 +151,7 @@ class NoteBrowser(Protocol):
     """What the source needs from a browser. Implemented for real below, faked in tests."""
 
     async def probe_login(self) -> dict[str, Any]: ...
+    async def refresh_qr(self) -> bool: ...
     async def cookie_dict(self) -> dict[str, str]: ...
     async def netscape_cookies(self) -> str: ...
     async def user_agent(self) -> str: ...
@@ -311,6 +337,47 @@ def build_launch_options(*, user_data_dir: Path, proxy: str, headless: bool) -> 
     }
 
 
+def describe_shape(value: Any, *, depth: int = 5) -> Any:
+    """Key names and types, never values.
+
+    What is unverified about this source is the *shape* of what the site returns --
+    which keys exist, and whether a field is a list or a scalar. What is in those
+    fields is the user's own liked notes, so a run that explains itself should say
+    ``{'note_id': 'str[24]'}`` and never the id itself.
+    """
+    if depth <= 0:
+        return '...'
+    if isinstance(value, dict):
+        return {str(key): describe_shape(item, depth=depth - 1) for key, item in list(value.items())[:_SHAPE_MAX_KEYS]}
+    if isinstance(value, list):
+        # One sample stands for the list: these are homogeneous arrays of notes or
+        # image entries, and the second one never says anything the first did not.
+        return [f'list[{len(value)}]', describe_shape(value[0], depth=depth - 1)] if value else 'list[0]'
+    # bool before str/int: it is a subclass of int, and 'bool' is the more useful answer.
+    if isinstance(value, bool):
+        return 'bool'
+    if isinstance(value, str):
+        return f'str[{len(value)}]'
+    return 'null' if value is None else type(value).__name__
+
+
+def redact_probe(probe: Mapping[str, Any]) -> dict[str, Any]:
+    """The login probe with the QR image and the account id taken out.
+
+    The QR is kilobytes of base64 and a live credential for as long as it lasts; the
+    account id is the user's. Neither belongs in a log, but their presence does.
+    """
+    redacted: dict[str, Any] = {}
+    for key, value in probe.items():
+        if key in _PROBE_LENGTH_ONLY_FIELDS:
+            redacted[key] = f'str[{len(str(value or ""))}]'
+        elif key == 'modal_html':
+            continue
+        else:
+            redacted[key] = value
+    return redacted
+
+
 def decode_qr_data_url(src: str) -> bytes:
     """The login QR arrives as a data: URL in the DOM, so no screenshot is needed."""
     value = src.strip()
@@ -371,6 +438,7 @@ class PlaywrightNoteBrowser:
         self._page: Any = None
         self._like_pages: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._capture_tasks: set[asyncio.Task[None]] = set()
+        self._logged_like_shape = False
 
     async def start(self) -> None:
         try:
@@ -423,6 +491,11 @@ class PlaywrightNoteBrowser:
         body: Any = None
         with contextlib.suppress(Exception):
             body = await response.json()
+        if not self._logged_like_shape:
+            # Once per run: the envelope this source is built around has never been
+            # seen coming back from the site, only inferred.
+            self._logged_like_shape = True
+            log.debug('RedNote like/page %s shape: %s', response.status, describe_shape(body))
         await self._like_pages.put({'url': response.url, 'status': response.status, 'body': body})
 
     # ---------- NoteBrowser ----------
@@ -446,8 +519,13 @@ class PlaywrightNoteBrowser:
             probe = result if isinstance(result, dict) else {}
             # Either answer is the page having spoken; anything else is it still loading.
             if probe.get('logged_in') or probe.get('qr_src') or time.monotonic() >= deadline:
+                log.debug('RedNote login probe: %s', redact_probe(probe))
                 return probe
             await asyncio.sleep(_LOGIN_RENDER_POLL_SECONDS)
+
+    async def refresh_qr(self) -> bool:
+        """Remint the verification QR. True if there was one to remint."""
+        return bool(await self._page.evaluate(_REFRESH_VERIFY_QR_SCRIPT))
 
     async def cookie_dict(self) -> dict[str, str]:
         cookies = await self._context.cookies()

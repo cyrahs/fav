@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 import tomllib
 from pathlib import Path
 
@@ -44,7 +45,9 @@ from src.web.rednote_browser import (
     clear_stale_profile_locks,
     cursor_of,
     decode_qr_data_url,
+    describe_shape,
     probe_proxy,
+    redact_probe,
 )
 
 # 2025-08-12 11:34:56 in the timezone the app displays.
@@ -93,6 +96,7 @@ class _FakeBrowser:
         self.closed = False
         self.opened_likes: list[str] = []
         self.reloads = 0
+        self.qr_refreshes = 0
         self.note_urls: list[str] = []
 
     async def start(self) -> None:
@@ -115,6 +119,10 @@ class _FakeBrowser:
 
     async def reload_login(self) -> None:
         self.reloads += 1
+
+    async def refresh_qr(self) -> bool:
+        self.qr_refreshes += 1
+        return True
 
     async def open_likes(self, *, user_id: str) -> None:
         self.opened_likes.append(user_id)
@@ -185,6 +193,7 @@ def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -
     job.user_id = 'me'
     job.user_agent = 'Mozilla/5.0 (Test) Chrome/149.0.0.0'
     job._browser_factory = lambda: browser or _FakeBrowser()
+    job._logged_card_shapes = set()
     return job
 
 
@@ -372,6 +381,53 @@ def test_an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous(
 
     # Without credentials SOCKS is fine.
     assert build_proxy_settings('socks5://home.example:1080') == {'server': 'socks5://home.example:1080'}
+
+
+def test_a_run_explains_its_payloads_without_repeating_their_contents() -> None:
+    """The unknown here is the shape; the content is the user's own liked notes."""
+    envelope = {
+        'code': 0,
+        'success': True,
+        'data': {
+            'has_more': True,
+            'cursor': '65a1b2c3000000000e01f00d',
+            'notes': [
+                {'note_id': '64f1a2b3000000001e02c0de', 'xsec_token': 'AB-secret-token', 'display_title': '我的私人笔记'},
+                {'note_id': 'second', 'xsec_token': 'also-secret', 'display_title': '另一条'},
+            ],
+        },
+    }
+
+    shape = describe_shape(envelope)
+    rendered = json.dumps(shape, ensure_ascii=False)
+
+    assert shape['data']['notes'][0] == 'list[2]'
+    assert shape['data']['notes'][1] == {'note_id': 'str[24]', 'xsec_token': 'str[15]', 'display_title': 'str[6]'}
+    assert shape['code'] == 'int'
+    assert shape['success'] == 'bool'
+    for secret in ('64f1a2b3000000001e02c0de', 'AB-secret-token', '我的私人笔记', '65a1b2c3000000000e01f00d'):
+        assert secret not in rendered
+
+
+def test_the_logged_login_probe_keeps_the_qr_and_the_account_id_out_of_it() -> None:
+    # The QR is a live credential for as long as it lasts, and the id is the user's.
+    probe = {
+        'logged_in': False,
+        'qr_stage': 'verify',
+        'qr_src': 'data:image/png;base64,' + 'A' * 7000,
+        'user_id': '6a7d8554000000001400c801',
+        'modal_html': '<div class="r-captcha-modal">...</div>',
+    }
+
+    redacted = redact_probe(probe)
+    rendered = json.dumps(redacted, ensure_ascii=False)
+
+    assert redacted['qr_stage'] == 'verify'
+    assert redacted['logged_in'] is False
+    assert redacted['qr_src'] == 'str[7022]'
+    assert 'modal_html' not in redacted
+    assert 'AAAA' not in rendered
+    assert '6a7d8554000000001400c801' not in rendered
 
 
 def _probe(handler, proxy: str = 'http://user:pw@home.example:3128'):
@@ -656,6 +712,100 @@ def test_a_navigation_the_scan_interrupts_does_not_end_the_run(monkeypatch) -> N
     _run(job, job._await_login(browser))
 
     assert browser.reloads == 1
+    assert job.user_id == 'me'
+
+
+def test_both_scans_of_the_two_stage_login_are_sent(monkeypatch) -> None:
+    """Signing in takes two QRs, and the second lives outside the login modal.
+
+    Observed on the live site: the account QR is inside `.login-modal`, and the
+    account-security QR that follows it is a separate captcha app on top. A selector
+    scoped to the login modal sees only the first half, so a run would send one code,
+    watch the user scan it, and then wait out its whole budget on a modal it cannot see.
+    """
+    sent: list[tuple[str, int]] = []
+    login_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG + b'\x01').decode()
+
+    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+        sent.append((caption, len(photo[1])))
+        return 1
+
+    async def _send_text(*, text, require_enabled=True) -> int:
+        return 2
+
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    browser = _FakeBrowser(
+        probes=[
+            {'has_login_modal': True, 'qr_stage': 'login', 'qr_src': login_qr},
+            # Scanned: the verification modal opens on top, with its own code.
+            {'has_login_modal': True, 'has_verify_modal': True, 'qr_stage': 'verify', 'qr_src': verify_qr},
+            {'logged_in': True, 'user_id': 'me'},
+        ],
+    )
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    assert len(sent) == 2
+    # The captions have to tell them apart: they are identical images in a chat, and
+    # only the second one dies in a minute.
+    assert '验证' in sent[1][0]
+    assert job.user_id == 'me'
+
+
+def test_the_verification_qr_is_reminted_on_a_timer(monkeypatch) -> None:
+    """Its expiry leaves no mark: same image bytes, no class, only a sentence.
+
+    And that sentence is in whatever language the profile runs in -- the pod pins
+    zh-CN while the observation was made in English -- so the only durable trigger
+    is the clock.
+    """
+    verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+
+    async def _send_photo(*, photo, caption='', require_enabled=True) -> int:
+        return 1
+
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    monkeypatch.setattr(rednote_module, '_QR_REFRESH_SECONDS', 0)
+
+    stuck = {'has_verify_modal': True, 'qr_stage': 'verify', 'qr_src': verify_qr}
+    browser = _FakeBrowser(probes=[stuck, stuck, stuck, {'logged_in': True, 'user_id': 'me'}])
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    # The same src is never re-sent, but the page is told to mint a new one.
+    assert browser.qr_refreshes >= 1
+
+
+def test_a_scan_that_worked_is_noticed_rather_than_waited_out(monkeypatch) -> None:
+    """The page does not update itself when the scan lands.
+
+    Observed live: both modals close, the session cookie is set, and
+    `__INITIAL_STATE__` still reports signed out because it is the snapshot the page
+    was loaded with. That reads as UNKNOWN, and without a reload it reads as UNKNOWN
+    for the rest of the budget -- failing a login that actually succeeded.
+    """
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    monkeypatch.setattr(rednote_module, '_LOGIN_RELOAD_INTERVAL_SECONDS', 0)
+
+    # No modal, no QR, no answer from the store -- and the cookie jar already has the
+    # session the scan just created.
+    after_scan = {'logged_in': False, 'has_login_modal': False, 'qr_src': ''}
+    browser = _FakeBrowser(probes=[after_scan, after_scan, {'logged_in': True, 'user_id': 'me'}])
+    job = _job(browser=browser)
+
+    _run(job, job._await_login(browser))
+
+    assert browser.reloads >= 1
     assert job.user_id == 'me'
 
 

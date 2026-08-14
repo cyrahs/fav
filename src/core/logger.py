@@ -8,6 +8,8 @@ from typing import Any
 import colorlog
 from tqdm import tqdm
 
+from src.core.env import env
+
 NOTICE = 25
 logging.addLevelName(NOTICE, 'NOTICE')
 
@@ -63,7 +65,9 @@ file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(m
 file_handler.setFormatter(file_formatter)
 root.addHandler(file_handler)
 
-app_logger.setLevel(logging.INFO)
+# Set from LOG_LEVEL. This used to be pinned to INFO, which meant every debug line
+# written to explain a hard-to-reproduce run was written nowhere.
+app_logger.setLevel(logging.getLevelName(env.log_level))
 
 
 def get(name: str) -> MyLogger:

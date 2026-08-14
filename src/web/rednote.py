@@ -61,6 +61,7 @@ from src.web.rednote_browser import (
     ProxyConfigurationError,
     cursor_of,
     decode_qr_data_url,
+    describe_shape,
 )
 
 if TYPE_CHECKING:
@@ -86,6 +87,14 @@ _LOGGED_IN = 'logged_in'
 _LOGGED_OUT = 'logged_out'
 _LOGIN_UNKNOWN = 'unknown'
 _LOGIN_POLL_INTERVAL_SECONDS = 3.0
+# The second scan, in the account-security modal that follows the first one.
+_VERIFY_STAGE = 'verify'
+# The verification code states a one-minute life, so it is reminted a little before
+# that rather than after the user has already pointed a phone at a dead code.
+_QR_REFRESH_SECONDS = 45.0
+# A floor on how often the page is reloaded while waiting, so a page that is quiet
+# for a reason other than a finished scan is not thrashed.
+_LOGIN_RELOAD_INTERVAL_SECONDS = 5.0
 # One photo per QR that RedNote actually mints. Past three the user is not
 # coming, and a fourth is just noise in their chat.
 _MAX_QR_MESSAGES = 3
@@ -381,7 +390,7 @@ def decide_login_state(probe: Mapping[str, Any], cookies: Mapping[str, str]) -> 
     """
     if probe.get('logged_in'):
         return _LOGGED_IN
-    if probe.get('has_login_modal') or probe.get('qr_src'):
+    if probe.get('has_login_modal') or probe.get('has_verify_modal') or probe.get('qr_src'):
         return _LOGGED_OUT
     if not str(cookies.get('web_session') or '').strip():
         return _LOGGED_OUT
@@ -481,6 +490,7 @@ class RedNote:
         self.user_id = ''
         self.user_agent = ''
         self._browser_factory = self._new_browser
+        self._logged_card_shapes: set[str] = set()
 
     def _new_browser(self) -> PlaywrightNoteBrowser:
         return PlaywrightNoteBrowser(
@@ -671,12 +681,16 @@ class RedNote:
         so waiting here parks every queued manual trigger behind this run.
         """
         deadline = time.monotonic() + self.cfg.login_wait_seconds
-        sent: set[str] = set()
-        logged_modal = False
+        # Per stage, because signing in takes two scans from two different modals and
+        # a cap shared between them would spend the whole budget on the first one.
+        sent: dict[str, set[str]] = {}
+        first_seen: dict[str, float] = {}
+        last_reload = 0.0
+        self._login_modal_logged = False
         # Checked once for the whole wait, not per code: RedNote mints a new QR
         # every couple of minutes, and re-checking would let the cooldown block the
         # replacement for a code the user is still looking at.
-        may_prompt: bool | None = None
+        self._may_prompt = None
 
         while time.monotonic() < deadline:
             probe = await browser.probe_login()
@@ -688,22 +702,23 @@ class RedNote:
                 return
 
             qr_src = str(probe.get('qr_src') or '')
-            if qr_src and qr_src not in sent:
-                if len(sent) >= _MAX_QR_MESSAGES:
+            stage = str(probe.get('qr_stage') or 'login')
+            now = time.monotonic()
+
+            if qr_src:
+                if not await self._offer_qr(qr_src=qr_src, stage=stage, sent=sent):
                     break
-                if may_prompt is None:
-                    may_prompt = await self._login_prompt_allowed()
-                if not may_prompt:
-                    break
-                sent.add(qr_src)
-                await self._send_login_qr(decode_qr_data_url(qr_src), attempt=len(sent))
-            elif state == _LOGGED_OUT and not qr_src:
-                if not logged_modal:
-                    # At info, not debug: the app pins its logger to INFO, so a debug
-                    # dump of the one thing worth seeing here would go nowhere.
-                    log.info('RedNote is signed out but showed no QR: %s', str(probe.get('modal_html') or '')[:800] or '(no modal)')
-                    logged_modal = True
-                await self._reload_login(browser)
+                if stage == _VERIFY_STAGE and now - first_seen.setdefault(qr_src, now) >= _QR_REFRESH_SECONDS:
+                    # The verification code is good for a minute and its expiry leaves
+                    # no mark in the DOM -- no class, and the same image bytes as
+                    # before. The only readout is a sentence, in whatever language the
+                    # profile runs in. So it is reminted on the clock, not on a state.
+                    first_seen[qr_src] = now
+                    if await browser.refresh_qr():
+                        log.info('RedNote reminted the expiring verification QR')
+            elif now - last_reload >= _LOGIN_RELOAD_INTERVAL_SECONDS:
+                last_reload = now
+                await self._nudge_login_page(browser, probe=probe, state=state)
 
             await asyncio.sleep(_LOGIN_POLL_INTERVAL_SECONDS)
 
@@ -713,6 +728,34 @@ class RedNote:
             else 'RedNote is signed out and no login QR could be sent. Check the Telegram notification settings.'
         )
         raise RedNoteError(msg, notification_dedupe_key='rednote:login')
+
+    async def _offer_qr(self, *, qr_src: str, stage: str, sent: dict[str, set[str]]) -> bool:
+        """Send this code if it is new and still allowed. False means stop waiting."""
+        stage_sent = sent.setdefault(stage, set())
+        if qr_src in stage_sent:
+            return True
+        if len(stage_sent) >= _MAX_QR_MESSAGES:
+            return False
+        if self._may_prompt is None:
+            self._may_prompt = await self._login_prompt_allowed()
+        if not self._may_prompt:
+            return False
+        stage_sent.add(qr_src)
+        await self._send_login_qr(decode_qr_data_url(qr_src), stage=stage, attempt=len(stage_sent))
+        return True
+
+    async def _nudge_login_page(self, browser: NoteBrowser, *, probe: Mapping[str, Any], state: str) -> None:
+        """Reload a page that is showing neither a QR nor a session.
+
+        This is the state a successful scan leaves behind: both modals closed, the
+        session cookie set, and ``__INITIAL_STATE__`` still reporting signed out
+        because it is the snapshot the page was loaded with. Without the reload that
+        reads as UNKNOWN for the rest of the budget, failing a login that worked.
+        """
+        if state == _LOGGED_OUT and not self._login_modal_logged:
+            self._login_modal_logged = True
+            log.info('RedNote is signed out but showed no QR: %s', str(probe.get('modal_html') or '')[:800] or '(no modal)')
+        await self._reload_login(browser)
 
     async def _reload_login(self, browser: NoteBrowser) -> None:
         """A navigation that gets interrupted here is not the run's problem.
@@ -738,13 +781,18 @@ class RedNote:
         await self._write_state(_LOGIN_PROMPT_STATE_KEY, str(now))
         return True
 
-    async def _send_login_qr(self, png: bytes, *, attempt: int) -> None:
+    async def _send_login_qr(self, png: bytes, *, stage: str, attempt: int) -> None:
         """Straight to Telegram, not through the notification outbox.
 
         The outbox is drained after ``update()`` returns, which for a run blocked on
         this scan is long after the code has expired.
         """
-        caption = f'小红书需要登录（第 {attempt} 个二维码）：用手机小红书扫码。'  # noqa: RUF001 - Chinese punctuation
+        # Which of the two scans this is, because they look identical in a chat and
+        # the second one is only good for a minute.
+        if stage == _VERIFY_STAGE:
+            caption = f'小红书安全验证（第 {attempt} 个码，约 1 分钟内有效）：用已登录的小红书 App 扫码。'  # noqa: RUF001 - Chinese punctuation
+        else:
+            caption = f'小红书需要登录（第 {attempt} 个二维码）：用手机小红书扫码，扫完还会有一个验证码。'  # noqa: RUF001 - Chinese punctuation
         try:
             await telegram_bot_tool.send_photo_now(photo=('rednote-login.png', png, 'image/png'), caption=caption)
         except Exception as exc:  # noqa: BLE001
@@ -791,7 +839,15 @@ class RedNote:
         return notes, cursor_of(str(captured.get('url') or '')), has_more
 
     async def _fetch_note_card(self, *, note_id: str, xsec_token: str, browser: NoteBrowser) -> dict[str, Any]:
-        return await browser.note_state(note_url=build_note_url(note_id, xsec_token), note_id=note_id)
+        card = await browser.note_state(note_url=build_note_url(note_id, xsec_token), note_id=note_id)
+        # Once per note type per run. The camelCase spelling of a note was transcribed
+        # from the snake_case API rather than captured, and `media_index` is handed out
+        # by walking these fields -- so a shifted key is a wrongly numbered row.
+        note_type = str(_field(card, 'type') or 'unknown')
+        if note_type not in self._logged_card_shapes:
+            self._logged_card_shapes.add(note_type)
+            log.debug('RedNote note card shape (type=%s): %s', note_type, describe_shape(card))
+        return card
 
     # ---------- downloads ----------
 

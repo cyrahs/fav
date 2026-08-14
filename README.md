@@ -17,6 +17,7 @@ the `app_settings` table and is edited from the web UI.
 | `API_PORT` | no | `8091` | API listen port |
 | `API_CORS_ORIGINS` | no | empty | Comma-separated origins, for separate front ends such as the Live2D viewer |
 | `API_CORS_ALLOW_CREDENTIALS` | no | `false` | Only if a browser must send credentialed requests |
+| `LOG_LEVEL` | no | `INFO` | `DEBUG` makes a run explain itself — every intercepted request, and the *shape* of the payloads a source parses (key names and types, never values) |
 | `TZ` | no | `UTC` | Scheduler timezone |
 
 `API_TOKEN` is mandatory: an empty token would leave the settings API of a freshly provisioned
@@ -195,14 +196,20 @@ identity; on ephemeral storage every run starts from a QR scan. The documented `
 `AGENTS.md` mounts `data/`, and a Chromium profile wants real block storage — its LevelDB and SQLite
 files do not survive NFS locking.
 
-Signing in is interactive and happens **during** a run: when the profile is signed out, the login QR
-is read straight out of the page and sent to Telegram, and the run waits up to `login_wait_seconds`
-for it to be scanned. That send bypasses the notification outbox deliberately — queued notifications
-are only flushed after a job returns, which for a run blocked on the scan is long after the code has
-expired. So press 立即运行 with your phone to hand. One photo is sent per QR RedNote actually
-mints, at most three, and `login_prompt_cooldown_seconds` stops a 04:00 cron from sending a code that
-will be dead before anyone sees it. There is no inbound Telegram path, so the scan is detected by
-polling rather than by replying.
+Signing in is interactive and happens **during** a run, and it takes **two scans**: the account QR,
+and then an account-security QR that the site puts up on top of it — a separate modal, good for
+about a minute, and expected rather than exceptional when signing in from a new device and address.
+Both are read straight out of the page and sent to Telegram with captions that say which is which,
+and the run waits up to `login_wait_seconds` for them. That send bypasses the notification outbox
+deliberately — queued notifications are only flushed after a job returns, which for a run blocked on
+a scan is long after the code has expired. So press 立即运行 with your phone to hand.
+
+At most three codes are sent per stage, and `login_prompt_cooldown_seconds` stops a 04:00 cron from
+sending one that will be dead before anyone sees it. The verification code is reminted on a timer
+rather than when it is seen to expire: expiry leaves no mark in the page — same image bytes, no new
+class, just a sentence in whatever language the profile runs in. There is no inbound Telegram path,
+so a scan is detected by polling; and because the page does not update itself when a scan lands, the
+wait reloads it rather than trusting what the page said when it was first loaded.
 
 A run walks the likes list newest first, resolving each page's new notes into one row per file in the
 `rednote` table — keyed `(note_id, media_index)`, written with `downloaded = 0` — and then closes
