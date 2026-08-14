@@ -254,11 +254,13 @@ def _video_note_card(**updates) -> dict:
         'user': {'nickname': 'artist', 'user_id': '5ff0000000000000000fffff'},
         # A video note also carries a cover image; it is deliberately not archived.
         'image_list': [{'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://sns-webpic.xhscdn.com/cover!nd_dft'}]}],
+        # The live shape: opaque bucket names, each variant naming its own codec.
         'video': {
             'media': {
                 'stream': {
-                    'h264': [{'master_url': 'https://sns-video.xhscdn.com/stream/h264.mp4'}],
-                    'h265': [{'master_url': 'https://sns-video.xhscdn.com/stream/h265.mp4'}],
+                    'EF4': [{'videoCodec': 'h265', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h265.mp4'}],
+                    'EF6': [],
+                    'EF5': [{'videoCodec': 'h264', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h264.mp4'}],
                 },
             },
         },
@@ -1006,9 +1008,29 @@ def test_a_video_note_is_one_file_and_its_cover_is_not_archived() -> None:
 
 
 def test_a_video_note_falls_back_to_the_next_codec() -> None:
-    card = _video_note_card(video={'media': {'stream': {'h265': [{'masterUrl': 'https://cdn/h265.mp4'}]}}})
+    card = _video_note_card(video={'media': {'stream': {'EF4': [{'videoCodec': 'h265', 'masterUrl': 'https://cdn/h265.mp4'}]}}})
 
     assert extract_note_media(card, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/h265.mp4'
+
+
+def test_a_stream_is_picked_by_its_stated_codec_not_by_the_bucket_it_sits_in() -> None:
+    """The buckets are opaque and versioned; the codec is a field on the variant.
+
+    This expected `h264`/`h265`/`av1` as keys and the live site answers with
+    `EF4`/`EF5`/`EF6`/`EF7`. Keying on the name yielded no URL at all -- survivable
+    for a video note, which yt-dlp re-resolves from the page, and silent data loss
+    for a live photo, whose clip is fetched straight from this URL.
+    """
+    # h264 is preferred, and it is in the bucket that sorts last.
+    assert extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')[0].media_url.endswith('h264.mp4')
+
+    # A variant that names no codec is still better than nothing.
+    unnamed = _video_note_card(video={'media': {'stream': {'EF7': [{'masterUrl': 'https://cdn/only.mp4'}]}}})
+    assert extract_note_media(unnamed, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/only.mp4'
+
+    # And the old shape still resolves, so a rollback of the site does not break it.
+    legacy = _video_note_card(video={'media': {'stream': {'h264': [{'master_url': 'https://cdn/legacy.mp4'}]}}})
+    assert extract_note_media(legacy, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/legacy.mp4'
 
 
 def test_a_video_note_yields_a_row_even_with_no_readable_stream() -> None:

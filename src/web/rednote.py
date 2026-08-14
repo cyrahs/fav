@@ -266,16 +266,33 @@ def pick_image_url(entry: Any) -> str:
 
 
 def pick_video_url(stream: Any) -> str:
-    """The best playable stream in a note's ``stream`` block, by codec preference."""
+    """The best playable stream in a note's ``stream`` block, by codec preference.
+
+    The keys under ``stream`` are opaque and versioned: this expected ``h264`` /
+    ``h265`` / ``av1`` and the live site answers with ``EF4`` / ``EF5`` / ``EF6`` /
+    ``EF7``, each holding variants that name their own codec in a ``videoCodec``
+    field. So the bucket name is ignored and the codec is read off the variant.
+
+    Getting this wrong was quiet in both places it is used. A video note still yields
+    a row, because yt-dlp re-resolves it from the note page -- but a live photo's clip
+    is fetched straight from this URL, so an empty one meant the still was archived
+    and the moving half was silently dropped.
+    """
     if not isinstance(stream, dict):
         return ''
-    for codec in _VIDEO_CODEC_PREFERENCE:
-        variants = stream.get(codec)
-        for variant in variants if isinstance(variants, list) else []:
+    ranked: dict[str, str] = {}
+    fallback = ''
+    for bucket in stream.values():
+        for variant in bucket if isinstance(bucket, list) else []:
+            if not isinstance(variant, dict):
+                continue
             url = normalize_media_url(str(_field(variant, 'masterUrl', 'master_url') or ''))
-            if url:
-                return url
-    return ''
+            if not url:
+                continue
+            fallback = fallback or url
+            ranked.setdefault(str(_field(variant, 'videoCodec', 'video_codec') or '').lower(), url)
+    # A named preference when the codec is stated, and anything playable when it is not.
+    return next((ranked[codec] for codec in _VIDEO_CODEC_PREFERENCE if codec in ranked), fallback)
 
 
 def build_note_url(note_id: str, xsec_token: str = '') -> str:

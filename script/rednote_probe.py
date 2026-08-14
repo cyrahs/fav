@@ -410,6 +410,146 @@ async def cmd_likes(args: argparse.Namespace) -> None:
         await _close(browser, page)
 
 
+async def cmd_notes(args: argparse.Namespace) -> None:
+    """Resolve real liked notes and report what the extractor makes of them.
+
+    Structure only. These are the user's own liked notes, so nothing that identifies
+    one leaves this function: media rows are reported as index, type and extension,
+    which is exactly what `media_index` correctness turns on and no more.
+    """
+    from src.web.rednote import (  # noqa: PLC0415
+        build_note_url,
+        decide_login_state,
+        extract_like_page,
+        extract_note_media,
+        infer_image_extension,
+        parse_api_envelope,
+        user_id_from_probe,
+    )
+
+    browser, page, recorder = await _open(args)
+    try:
+        probe = await browser.probe_login()
+        if decide_login_state(probe, await browser.cookie_dict()) != 'logged_in':
+            print(json.dumps({'signed_in': False, 'hint': 'run the login command first'}, indent=2))
+            return
+
+        await browser.open_likes(user_id=user_id_from_probe(probe))
+        captured = await browser.next_like_page(timeout_seconds=30)
+        if captured is None:
+            print(json.dumps({'like_page': 'no response intercepted'}, indent=2))
+            return
+        notes, _cursor, _more = extract_like_page(parse_api_envelope(captured.get('body')))
+        print(json.dumps({'notes_on_page': len(notes)}, indent=2))
+
+        seen_shapes: set[str] = set()
+        for ref in notes[: int(args.sample)]:
+            card = await browser.note_state(note_url=build_note_url(ref.note_id, ref.xsec_token), note_id=ref.note_id)
+            note_type = str((card or {}).get('type') or (card or {}).get('noteType') or 'unknown')
+            media = extract_note_media(card or {}, note_id=ref.note_id, xsec_token=ref.xsec_token)
+            rows = [
+                {
+                    'i': m.media_index,
+                    'type': m.media_type,
+                    'ext': infer_image_extension(m.media_url) if m.media_type == 'image' else 'mp4',
+                    'url': bool(m.media_url),
+                }
+                for m in media
+            ]
+            print(json.dumps({'type': note_type, 'rows': rows}, indent=2))
+            if note_type not in seen_shapes:
+                seen_shapes.add(note_type)
+                print(json.dumps({f'shape[{note_type}]': describe_shape(card, depth=args.depth)}, indent=2, ensure_ascii=False))
+            await asyncio.sleep(args.pace)
+        print(json.dumps({'note_types_seen': sorted(seen_shapes), 'risk_hits': recorder.walled}, indent=2))
+    finally:
+        await _close(browser, page)
+
+
+async def cmd_fetch(args: argparse.Namespace) -> None:
+    """Take one real note of each kind all the way to the downloader.
+
+    The half of the run that happens after the browser closes: images off the CDN
+    over httpx, videos through yt-dlp carrying the account's cookies. Both are
+    checked without keeping anything -- the image is read and dropped, and yt-dlp is
+    asked to resolve rather than download.
+    """
+    import subprocess  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    import httpx  # noqa: PLC0415
+
+    from src.web.rednote import (  # noqa: PLC0415
+        build_note_url,
+        build_ytdlp_command,
+        decide_login_state,
+        extract_like_page,
+        extract_note_media,
+        infer_image_extension,
+        parse_api_envelope,
+        user_id_from_probe,
+    )
+
+    browser, page, _recorder = await _open(args)
+    try:
+        probe = await browser.probe_login()
+        if decide_login_state(probe, await browser.cookie_dict()) != 'logged_in':
+            print(json.dumps({'signed_in': False, 'hint': 'run the login command first'}, indent=2))
+            return
+        await browser.open_likes(user_id=user_id_from_probe(probe))
+        captured = await browser.next_like_page(timeout_seconds=30)
+        refs, _cursor, _more = extract_like_page(parse_api_envelope((captured or {}).get('body')))
+
+        user_agent = await browser.user_agent()
+        cookies = await browser.netscape_cookies()
+        image_done = video_done = False
+        for ref in refs:
+            if image_done and video_done:
+                break
+            card = await browser.note_state(note_url=build_note_url(ref.note_id, ref.xsec_token), note_id=ref.note_id)
+            media = extract_note_media(card or {}, note_id=ref.note_id, xsec_token=ref.xsec_token)
+            for item in media:
+                if item.media_type == 'image' and not image_done:
+                    image_done = True
+                    async with httpx.AsyncClient(
+                        follow_redirects=True, timeout=30, headers={'Accept-Language': 'zh-CN,zh;q=0.9'}
+                    ) as client:
+                        response = await client.get(item.media_url)
+                    body = response.content
+                    print(
+                        json.dumps(
+                            {
+                                'image': {
+                                    'status': response.status_code,
+                                    'content_type': response.headers.get('content-type'),
+                                    'bytes': len(body),
+                                    'magic': body[:4].hex(),
+                                    'inferred_ext': infer_image_extension(item.media_url),
+                                },
+                            },
+                            indent=2,
+                        )
+                    )
+                if item.media_type == 'video' and not video_done:
+                    video_done = True
+                    with tempfile.TemporaryDirectory() as tmp:
+                        jar = Path(tmp) / 'cookies.txt'
+                        jar.write_text(cookies)
+                        command = build_ytdlp_command(
+                            note_url=build_note_url(ref.note_id, ref.xsec_token),
+                            cookie_path=jar,
+                            output_template=str(Path(tmp) / '%(id)s.%(ext)s'),
+                            proxy=args.proxy,
+                            user_agent=user_agent,
+                        )
+                        command.append('--simulate')
+                        done = await asyncio.to_thread(subprocess.run, command, capture_output=True, text=True, check=False)
+                    print(json.dumps({'ytdlp': {'exit': done.returncode, 'stderr_head': done.stderr.strip().splitlines()[:3]}}, indent=2))
+            await asyncio.sleep(args.pace)
+    finally:
+        await _close(browser, page)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--proxy', default='', help='Same value as web.rednote.proxy. Empty means direct.')
@@ -429,11 +569,25 @@ def main() -> None:
     note.add_argument('urls', nargs='+')
     login = sub.add_parser('login', help='Sign in by hand, then capture the likes envelope')
     login.add_argument('--wait', type=float, default=300.0, help='Seconds to wait for the scans.')
+    notes = sub.add_parser('notes', help='Resolve real liked notes and check the extractor against them')
+    notes.add_argument('--sample', type=int, default=6, help='How many notes to open.')
+    notes.add_argument('--pace', type=float, default=3.0, help='Seconds between note page loads.')
+    notes.add_argument('--depth', type=int, default=4, help='How deep to describe the note shape.')
+    fetch = sub.add_parser('fetch', help='Take one real note of each kind to the downloader')
+    fetch.add_argument('--pace', type=float, default=3.0, help='Seconds between note page loads.')
     likes = sub.add_parser('likes', help='Watch what the 赞过 tab pulls, using the stored session')
     likes.add_argument('--watch', type=float, default=20.0, help='Seconds to record traffic after opening the tab.')
 
     args = parser.parse_args()
-    handlers = {'egress': cmd_egress, 'door': cmd_door, 'note': cmd_note, 'login': cmd_login, 'likes': cmd_likes}
+    handlers = {
+        'egress': cmd_egress,
+        'door': cmd_door,
+        'note': cmd_note,
+        'login': cmd_login,
+        'likes': cmd_likes,
+        'notes': cmd_notes,
+        'fetch': cmd_fetch,
+    }
     asyncio.run(handlers[args.command](args))
 
 
