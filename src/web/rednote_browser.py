@@ -56,6 +56,9 @@ _QR_DATA_URL_MARKER = ';base64,'
 _LOGIN_RENDER_TIMEOUT_SECONDS = 20.0
 _LOGIN_RENDER_POLL_SECONDS = 0.5
 _SHAPE_MAX_KEYS = 40
+# What Chromium puts in its own UA when it has no window, and what the site refuses.
+_HEADLESS_UA_TOKEN = 'HeadlessChrome'  # noqa: S105 - a User-Agent token, not a credential
+_ACCEPT_LANGUAGE = 'zh-CN,zh;q=0.9'
 _PROBE_LENGTH_ONLY_FIELDS = ('qr_src', 'user_id', 'profile_href')
 # The settings form's proxy test. Short, because an operator is watching it spin.
 _PROBE_TIMEOUT_SECONDS = 30.0
@@ -137,6 +140,18 @@ _NOTE_STATE_SCRIPT = """(id) => {
 }"""
 
 _WEBDRIVER_INIT_SCRIPT = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+
+_USER_AGENT_HINTS_SCRIPT = """async () => {
+    const data = navigator.userAgentData;
+    if (!data) { return {}; }
+    const high = await data.getHighEntropyValues(['architecture', 'model', 'platformVersion', 'uaFullVersion']);
+    return {
+        brands: data.brands.map(b => ({brand: b.brand, version: b.version})),
+        mobile: data.mobile,
+        platform: data.platform,
+        ...high,
+    };
+}"""
 
 
 class BrowserDependencyError(RuntimeError):
@@ -306,10 +321,11 @@ def build_launch_options(*, user_data_dir: Path, proxy: str, headless: bool) -> 
 
     Deliberately absent, and each for a reason:
 
-    * ``user_agent`` -- Playwright does not regenerate the Sec-CH-UA client hints to
-      match an overridden one, and a UA that disagrees with its own hints is a
-      louder signal than the default UA ever was. The real one is read back out of
-      the browser for yt-dlp, so the two provably agree.
+    * ``user_agent`` -- not because the UA is left alone, but because it cannot be
+      corrected from here: the browser's own version is only readable once it is
+      running. ``_hide_headless_user_agent`` does it over CDP after launch, carrying
+      the client hints with it. An earlier revision argued the default was safer than
+      any override; measuring it said otherwise, and said so at the login endpoint.
     * ``--no-sandbox`` -- Playwright already runs Chromium unsandboxed
       (``chromium_sandbox`` defaults to false), which is why the image's root smoke
       test passes. Passing it again would just imply it mattered.
@@ -439,6 +455,7 @@ class PlaywrightNoteBrowser:
         self._like_pages: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._capture_tasks: set[asyncio.Task[None]] = set()
         self._logged_like_shape = False
+        self._cdp: Any = None
 
     async def start(self) -> None:
         try:
@@ -457,6 +474,7 @@ class PlaywrightNoteBrowser:
             await self._context.add_init_script(_WEBDRIVER_INIT_SCRIPT)
             self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
             self._page.on('response', self._on_response)
+            await self._hide_headless_user_agent()
         except Exception:
             await self.aclose()
             raise
@@ -465,6 +483,10 @@ class PlaywrightNoteBrowser:
         for task in list(self._capture_tasks):
             task.cancel()
         self._capture_tasks.clear()
+        if self._cdp is not None:
+            with contextlib.suppress(Exception):
+                await self._cdp.detach()
+            self._cdp = None
         if self._context is not None:
             with contextlib.suppress(Exception):
                 await self._context.close()
@@ -515,13 +537,85 @@ class PlaywrightNoteBrowser:
         deadline = time.monotonic() + _LOGIN_RENDER_TIMEOUT_SECONDS
         probe: dict[str, Any] = {}
         while True:
-            result = await self._page.evaluate(_LOGIN_PROBE_SCRIPT)
-            probe = result if isinstance(result, dict) else {}
+            probe = await self._read_login_probe()
             # Either answer is the page having spoken; anything else is it still loading.
             if probe.get('logged_in') or probe.get('qr_src') or time.monotonic() >= deadline:
                 log.debug('RedNote login probe: %s', redact_probe(probe))
                 return probe
             await asyncio.sleep(_LOGIN_RENDER_POLL_SECONDS)
+
+    async def _hide_headless_user_agent(self) -> None:
+        """Drop the `Headless` token Chromium puts in its own User-Agent.
+
+        Measured against the live site from a residential address, with everything
+        else held equal: the default headless UA is answered with HTTP 461 on the
+        login endpoints -- `login/qrcode/create` among them, so the site will not
+        even mint a QR. The same browser with that one token removed is served
+        normally. Headful behaves like the stripped UA, so it is the string being
+        judged rather than the absence of a window.
+
+        This overrides `Emulation.setUserAgentOverride` rather than the launch option
+        so the real version is read off the browser first and only that token changes
+        -- and so the client hints can be carried across with it, which the launch
+        option does not do.
+        """
+        user_agent = str(await self._page.evaluate('() => navigator.userAgent'))
+        if _HEADLESS_UA_TOKEN not in user_agent:
+            return
+        cleaned = user_agent.replace(_HEADLESS_UA_TOKEN, 'Chrome')
+        override: dict[str, Any] = {'userAgent': cleaned, 'acceptLanguage': _ACCEPT_LANGUAGE}
+        # Only when they can actually be read. The hints never carry the Headless
+        # token, so they need no correction -- but sending an empty `brands` blanks
+        # `navigator.userAgentData`, and a browser with no brands at all is a stranger
+        # signal than the one being fixed.
+        metadata = await self._user_agent_metadata(cleaned)
+        if metadata.get('brands'):
+            override['userAgentMetadata'] = metadata
+        # Held open for the life of the browser on purpose: detaching the session
+        # reverts every emulation override applied through it, which is how the first
+        # version of this set the UA and was still served the old one.
+        self._cdp = await self._context.new_cdp_session(self._page)
+        await self._cdp.send('Emulation.setUserAgentOverride', override)
+        log.info('RedNote hid the Headless token in the browser User-Agent')
+
+    async def _user_agent_metadata(self, user_agent: str) -> dict[str, Any]:
+        """The client hints as the browser reports them, with the version it reports.
+
+        Read from somewhere other than ``about:blank``, which is not a secure context
+        and therefore has no ``navigator.userAgentData`` at all. Somewhere neutral,
+        too: this runs before the UA is corrected, and the one origin that must not
+        see the uncorrected string is the site itself.
+        """
+        if not await self._page.evaluate('() => Boolean(navigator.userAgentData)'):
+            with contextlib.suppress(Exception):
+                await self._page.goto(_EXIT_IP_URL, wait_until='domcontentloaded')
+        hints = await self._page.evaluate(_USER_AGENT_HINTS_SCRIPT)
+        from_ua = user_agent.rsplit('Chrome/', maxsplit=1)[-1].split('.', maxsplit=1)[0]
+        version = str(hints.get('uaFullVersion') or '').split('.')[0] or from_ua
+        return {
+            'brands': hints.get('brands') or [],
+            'fullVersion': hints.get('uaFullVersion') or '',
+            'platform': hints.get('platform') or '',
+            'platformVersion': hints.get('platformVersion') or '',
+            'architecture': hints.get('architecture') or '',
+            'model': hints.get('model') or '',
+            'mobile': bool(hints.get('mobile')),
+            'majorVersion': version,
+        }
+
+    async def _read_login_probe(self) -> dict[str, Any]:
+        """One sample, or an empty one if the page moved under it.
+
+        The site routes itself while it settles, and an evaluate that lands during a
+        navigation comes back as `Execution context was destroyed` rather than as a
+        result. That is a reason to look again on the next poll, not to end the run.
+        """
+        try:
+            result = await self._page.evaluate(_LOGIN_PROBE_SCRIPT)
+        except Exception as exc:  # noqa: BLE001
+            log.debug('RedNote login probe landed mid-navigation: %s', exc)
+            return {}
+        return result if isinstance(result, dict) else {}
 
     async def refresh_qr(self) -> bool:
         """Remint the verification QR. True if there was one to remint."""

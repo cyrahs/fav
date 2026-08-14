@@ -358,9 +358,13 @@ def test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell() ->
     assert options['ignore_default_args'] == ['--enable-automation']
 
 
-def test_the_launch_options_leave_the_user_agent_alone() -> None:
-    # Playwright does not regenerate Sec-CH-UA for an overridden UA, so pinning one
-    # creates a UA/client-hint mismatch that is louder than the default ever was.
+def test_the_launch_options_do_not_pin_a_user_agent() -> None:
+    """The UA is corrected after launch instead, because it cannot be corrected here.
+
+    The browser's own version is only readable once it is running, and a guessed one
+    would be the mismatch that overriding a UA is usually blamed for. See
+    `_hide_headless_user_agent`, which reads the real string and changes one token.
+    """
     assert 'user_agent' not in build_launch_options(user_data_dir=Path('/p'), proxy='', headless=True)
 
 
