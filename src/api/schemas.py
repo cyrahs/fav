@@ -262,6 +262,28 @@ class AzurLaneSidebarCharacterListResponse(ApiSchema):
     total: int
 
 
+class AzurLaneSkinUpdate(ApiSchema):
+    ship_group_id: int = 0
+    ship_name: str = ''
+    skin_name: str = ''
+    skin_type: str = ''
+    skin_ids: list[int] = Field(default_factory=list)
+
+
+class AzurLaneSkinUpdateHistoryEntry(ApiSchema):
+    date: str = ''
+    version: str = ''
+    skins: list[AzurLaneSkinUpdate] = Field(default_factory=list)
+
+
+class AzurLaneSkinUpdatesResponse(ApiSchema):
+    game_version: str = ''
+    region: str = ''
+    generated_at: str = ''
+    new_skins: list[AzurLaneSkinUpdate] = Field(default_factory=list)
+    skin_update_history: list[AzurLaneSkinUpdateHistoryEntry] = Field(default_factory=list)
+
+
 class AzurLaneCostume(ApiSchema):
     key: str = ''
     id: int | None = None

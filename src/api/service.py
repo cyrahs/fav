@@ -606,6 +606,15 @@ class FavApiService:
             log.exception('Failed to get Azur Lane ship detail character_key=%s', character_key)
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
+    def get_azurlane_skin_updates(self) -> dict[str, object]:
+        try:
+            return self._azurlane_library.get_skin_updates()
+        except AzurLaneAssetNotFoundError:
+            raise ApiError(status_code=404, code='azurlane_skin_updates_not_found', message='Azur Lane skin updates not found.') from None
+        except Exception:
+            log.exception('Failed to get Azur Lane skin updates')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
     def list_bd2_characters(self) -> list[dict[str, object]]:
         try:
             return self._bd2_library.list_characters()

@@ -535,6 +535,65 @@ def test_list_azurlane_sidebar_characters_returns_etagged_light_payload(tmp_path
     assert cached_response.headers['etag'] == response.headers['etag']
 
 
+def test_get_azurlane_skin_updates_normalises_both_arrays(tmp_path: Path) -> None:
+    """The crawler normalises new_skins but stores history entries as the source wrote them."""
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    _write_json(
+        root / '_source' / 'l2d-su-snapshot.json',
+        {
+            'game_version': '9.7.323',
+            'region': 'CN',
+            'generated_at': '2026-08-13T05:33:57.726Z',
+            'characters': [{'char_id': 1}],
+            'filters': {'skinSeries': ['a'] * 32},
+            'new_skins': [
+                {'ship_group_id': 10720, 'ship_name': '本宁顿', 'skin_name': '盛夏', 'skin_type': 'Live2D+', 'skin_ids': [107201]},
+            ],
+            'skin_update_history': [
+                {
+                    'date': '2026-08-13T03:57:01.516Z',
+                    'version': '9.7.323',
+                    'skins': [{'shipGroupId': 20712, 'shipName': '不挠', 'skinName': '领航员', 'skinType': 'Live2D+', 'skinIds': [207122]}],
+                },
+            ],
+        },
+    )
+    service = _build_service(root)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/azurlane/skin-updates', headers=_auth_headers())
+        cached = client.get(
+            '/api/v2/azurlane/skin-updates',
+            headers={**_auth_headers(), 'If-None-Match': response.headers['etag']},
+        )
+
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'public, max-age=300'
+    payload = response.json()
+    assert payload['game_version'] == '9.7.323'
+    assert payload['region'] == 'CN'
+    assert payload['new_skins'] == [
+        {'ship_group_id': 10720, 'ship_name': '本宁顿', 'skin_name': '盛夏', 'skin_type': 'Live2D+', 'skin_ids': [107201]},
+    ]
+    # camelCase in, snake_case out, so both arrays carry the same shape.
+    assert payload['skin_update_history'][0]['skins'] == [
+        {'ship_group_id': 20712, 'ship_name': '不挠', 'skin_name': '领航员', 'skin_type': 'Live2D+', 'skin_ids': [207122]},
+    ]
+    # The catalog and filter enumerations are not echoed back.
+    assert set(payload) == {'game_version', 'region', 'generated_at', 'new_skins', 'skin_update_history'}
+    assert cached.status_code == 304
+
+
+def test_get_azurlane_skin_updates_404s_without_a_snapshot(tmp_path: Path) -> None:
+    service = _build_service(_create_azurlane_fixture(tmp_path / 'azurlane'))
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/azurlane/skin-updates', headers=_auth_headers())
+
+    assert response.status_code == 404
+    assert response.json()['error']['code'] == 'azurlane_skin_updates_not_found'
+
+
 def test_get_azurlane_character_route_returns_models_and_assets(tmp_path: Path) -> None:
     root = _create_azurlane_fixture(tmp_path / 'azurlane')
     service = _build_service(root)
