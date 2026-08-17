@@ -452,7 +452,32 @@ class KemonoCreator(BaseModel):
 class Kemono(ScheduleJob):
     path: Path = Path('./collection/kemono')
     cron: str = '0 */6 * * *'
+    # kemono.party -> .su -> .cr -> dead; pawchive already advertises .st beside .pw.
+    # The next domain move should be a settings edit, not a deploy.
+    base_url: str = 'https://pawchive.pw'
+    # Attachments live on a separate host (the main domain 404s on /data paths).
+    file_base_url: str = 'https://file.pawchive.pw'
+    # Applied before every API and file request. Raise it via settings if the site
+    # starts throttling; no redeploy needed.
+    sleep_request_seconds: float = 1.0
     creators: list[KemonoCreator] = Field(default_factory=list)
+
+    @field_validator('base_url', 'file_base_url')
+    @classmethod
+    def normalize_base_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip('/')
+        if not normalized.startswith(('http://', 'https://')):
+            msg = 'base URLs must start with http:// or https://'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('sleep_request_seconds')
+    @classmethod
+    def validate_sleep_request_seconds(cls, value: float) -> float:
+        if value < 0:
+            msg = 'sleep_request_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
 
     def validate_runnable(self) -> list[str]:
         return [] if self.creators else ['creators']

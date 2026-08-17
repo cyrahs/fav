@@ -219,6 +219,30 @@ function KemonoForm(props: SectionFormProps) {
     <div className="field-grid">
       <PathField {...props} />
 
+      <TextField
+        label="站点地址"
+        value={str(props.value, 'base_url')}
+        onChange={(next) => set('base_url', next)}
+        placeholder="https://pawchive.pw"
+        mono
+        hint="kemono 系站点域名换过多次，换新域名改这里即可，无需发版。"
+      />
+      <TextField
+        label="文件服务器地址"
+        value={str(props.value, 'file_base_url')}
+        onChange={(next) => set('file_base_url', next)}
+        placeholder="https://file.pawchive.pw"
+        mono
+        hint="附件下载走独立域名（主站对 /data 路径返回 404）。"
+      />
+      <NumberField
+        label="请求间隔（秒）"
+        value={num(props.value, 'sleep_request_seconds', 1)}
+        onChange={(next) => set('sleep_request_seconds', next)}
+        step={0.5}
+        hint="每次 API 请求与文件下载前的等待。站点开始限流时调大即可，立即生效。"
+      />
+
       <Repeater
         label="创作者"
         count={creators.length}
@@ -651,6 +675,15 @@ export function validateSection(section: string, value: Record<string, unknown>)
   }
 
   if (section === 'web.kemono') {
+    for (const field of ['base_url', 'file_base_url'] as const) {
+      const url = str(value, field).trim();
+      if (url && !/^https?:\/\//.test(url)) {
+        issues.push(`${field} 必须以 http:// 或 https:// 开头`);
+      }
+    }
+    if (num(value, 'sleep_request_seconds', 1) < 0) {
+      issues.push('请求间隔不能为负数');
+    }
     list<KemonoCreator>(value, 'creators').forEach((creator, index) => {
       if (!creator.service?.trim() || !creator.id?.trim() || !creator.name?.trim()) {
         issues.push(`创作者 #${index + 1} 的 service / id / 名称都不能为空`);
