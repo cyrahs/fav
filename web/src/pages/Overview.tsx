@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import type { ArchiveSourceStat, Health, Job, JobRequest, ListResponse, Readiness } from '../api/types';
 import { describeCron } from '../components/CronInput';
-import { sectionLabel, sourceLabel } from '../labels';
+import { StatusPill } from '../components/StatusPill';
+import { kindLabel, sectionLabel, sourceLabel, targetLabel } from '../labels';
 
 export function OverviewPage() {
   const health = useQuery({
@@ -26,7 +27,8 @@ export function OverviewPage() {
     queryFn: () => api.get<ListResponse<ArchiveSourceStat>>('/api/v2/archive/sources'),
   });
   const requests = useQuery({
-    queryKey: ['job-requests'],
+    // Distinct from the Jobs page key: same endpoint, different limit/filter.
+    queryKey: ['job-requests', 'overview'],
     queryFn: () => api.get<ListResponse<JobRequest>>('/api/v2/job-requests?limit=5'),
   });
 
@@ -99,13 +101,14 @@ export function OverviewPage() {
       </section>
 
       <section className="card">
-        <h2>最近触发</h2>
+        <h2>最近运行</h2>
         {requests.data?.items.length === 0 && <p className="muted">暂无记录。</p>}
         <ul className="plain-list">
           {requests.data?.items.map((request) => (
             <li key={request.id}>
-              <span className={`pill pill-${request.status}`}>{request.status}</span>
-              <strong>{request.target}</strong>
+              <StatusPill status={request.status} />
+              <strong>{targetLabel(request.target)}</strong>
+              <span className="muted">{kindLabel(request.kind)}</span>
               <span className="muted">{request.requested_at}</span>
             </li>
           ))}

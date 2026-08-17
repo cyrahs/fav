@@ -335,13 +335,13 @@ def get_job_request(
 )
 def list_job_requests(
     service: ApiServiceDep,
-    status_filter: Annotated[JobRequestStatus | None, Query(alias='status')] = None,
+    status_filter: Annotated[list[JobRequestStatus] | None, Query(alias='status')] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> JobRequestListResponse:
     items = [
         service.model_job_request(request)
         for request in service.list_job_requests(
-            status=status_filter.value if status_filter is not None else None,
+            statuses=[item.value for item in status_filter] if status_filter else None,
             limit=limit,
         )
     ]
