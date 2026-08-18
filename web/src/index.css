@@ -135,6 +135,10 @@ a:hover {
   word-break: break-word;
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
 input,
 textarea,
 button,
@@ -278,6 +282,7 @@ td.actions > *:last-child {
   border-radius: 999px;
   font-size: 12px;
   border: 1px solid var(--border);
+  white-space: nowrap;
 }
 .pill-succeeded {
   color: var(--ok);
@@ -520,7 +525,9 @@ select {
 /* Blocks sitting directly in an account card need their own spacing -- inside a
    field grid the grid gap supplies it, but here there is no gap to inherit. */
 .account-card > .repeater,
-.account-card > .subsection {
+.account-card > .subsection,
+.section-editor > .subsection,
+.section-editor > .actions {
   margin-top: 16px;
 }
 

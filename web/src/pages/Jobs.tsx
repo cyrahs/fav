@@ -192,8 +192,8 @@ export function JobsPage() {
               {requests.data.items.map((request) => (
                 <tr key={request.id}>
                   <td className="mono">{request.id}</td>
-                  <td>{targetLabel(request.target)}</td>
-                  <td className="muted">{kindLabel(request.kind)}</td>
+                  <td className="nowrap">{targetLabel(request.target)}</td>
+                  <td className="muted nowrap">{kindLabel(request.kind)}</td>
                   <td>
                     <StatusPill status={request.status} />
                   </td>

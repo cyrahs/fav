@@ -104,6 +104,15 @@ function SectionEditor({ section }: { section: SettingsSection }) {
 
       {section.section === 'notifications.telegram' && <TelegramNotificationTest dirty={dirty} />}
 
+      {/* Authors and seeds live in their own tables and apply immediately, so they
+          render outside the form draft and are untouched by 保存/重置. */}
+      {section.section === 'web.hanime1' && (
+        <>
+          <Hanime1Authors />
+          <Hanime1Seeds />
+        </>
+      )}
+
       {parseError && <p className="warn">{parseError}</p>}
       {issues.length > 0 && (
         <ul className="issues">
@@ -179,9 +188,9 @@ function Hanime1Seeds() {
   });
 
   return (
-    <section className="card">
-      <h2>Hanime1 系列种子</h2>
-      <p className="muted">可填写视频 ID、或 {'{id-12345}'} 形式的种子；标题会自动解析。</p>
+    <div className="subsection">
+      <h4>系列种子</h4>
+      <p className="muted">可填写视频 ID、或 {'{id-12345}'} 形式的种子；标题会自动解析，添加后立即生效。</p>
 
       <div className="inline-form">
         <input
@@ -241,7 +250,7 @@ function Hanime1Seeds() {
           </tbody>
         </table>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -272,9 +281,9 @@ function Hanime1Authors() {
   });
 
   return (
-    <section className="card">
-      <h2>Hanime1 作者订阅</h2>
-      <p className="muted">可填写作者 ID 或作者页 URL；显示名会自动解析，新视频按「分类/作者名」归档。</p>
+    <div className="subsection">
+      <h4>作者订阅</h4>
+      <p className="muted">可填写作者 ID 或作者页 URL；显示名会自动解析，添加后立即生效，新视频按「分类/作者名」归档。</p>
 
       <div className="inline-form">
         <input
@@ -334,7 +343,7 @@ function Hanime1Authors() {
           </tbody>
         </table>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -360,9 +369,6 @@ export function SettingsPage() {
             <SectionEditor key={section.section} section={section} />
           ))}
       </section>
-
-      <Hanime1Seeds />
-      <Hanime1Authors />
     </div>
   );
 }
