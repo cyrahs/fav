@@ -410,6 +410,10 @@ class Kemono:
         return stats
 
     async def _notify_summary(self, totals: _CreatorStats, missing_creators: list[str], failed: list[str]) -> None:
+        if totals.new_posts == 0 and totals.missing_files == 0 and not missing_creators and not failed:
+            log.info('No new Kemono posts or warnings; summary notification skipped')
+            return
+
         body = f'Archived {totals.new_posts} new posts with {totals.downloaded_files} files.'
         if totals.missing_files:
             body += f' {totals.missing_files} files missing upstream.'
