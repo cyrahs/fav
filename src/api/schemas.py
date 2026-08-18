@@ -163,6 +163,16 @@ class Hanime1AuthorCreate(ApiSchema):
     author: str = Field(min_length=1)
 
 
+class KemonoCreatorResolveRequest(ApiSchema):
+    creator: str = Field(min_length=1)
+
+
+class KemonoCreatorResolved(ApiSchema):
+    service: str
+    id: str
+    name: str
+
+
 class Live2DVector2(ApiSchema):
     x: float
     y: float

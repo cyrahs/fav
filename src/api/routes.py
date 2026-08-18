@@ -15,6 +15,7 @@ from .constants import (
     TAG_BD2,
     TAG_HANIME1,
     TAG_JOBS,
+    TAG_KEMONO,
     TAG_NIKKE,
     TAG_SETTINGS,
 )
@@ -47,6 +48,8 @@ from .schemas import (
     JobRequestCreate,
     JobRequestListResponse,
     JobRequestStatus,
+    KemonoCreatorResolved,
+    KemonoCreatorResolveRequest,
     Live2DViewOverride,
     Live2DViewOverrideUpsert,
     NikkeCharacterDetail,
@@ -549,6 +552,19 @@ def delete_hanime1_author(
 ) -> Response:
     service.delete_hanime1_author(author_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    '/kemono/creators/resolve',
+    operation_id='resolveKemonoCreator',
+    response_model=KemonoCreatorResolved,
+    tags=[TAG_KEMONO],
+)
+def resolve_kemono_creator(
+    payload: KemonoCreatorResolveRequest,
+    service: ApiServiceDep,
+) -> KemonoCreatorResolved:
+    return service.model_kemono_creator(service.resolve_kemono_creator(payload.creator))
 
 
 @router.get(
