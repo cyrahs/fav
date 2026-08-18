@@ -74,7 +74,7 @@ type Hanime1VideoFetcher = Callable[[str], list[dict[str, str | None]]]
 type JobProvider = Callable[[], list[ScheduledJob]]
 type ControlRequestCreator = Callable[[str, str], ControlRequest]
 type ControlRequestGetter = Callable[[int], ControlRequest | None]
-type ControlRequestLister = Callable[[str | None, int], list[ControlRequest]]
+type ControlRequestLister = Callable[[list[str] | None, int], list[ControlRequest]]
 type SettingsSectionGetter = Callable[[str], BaseModel]
 type SettingsSectionSaver = Callable[[str, dict[str, Any]], BaseModel]
 type TelegramNotificationTester = Callable[[], Awaitable[TelegramDeliveryResult]]
@@ -136,7 +136,7 @@ class FavApiService:
         )
         self._control_request_getter = control_request_getter or (lambda request_id: get_control_request_sync(self._dsn, request_id))
         self._control_request_lister = control_request_lister or (
-            lambda status, limit: list_control_requests_sync(self._dsn, status=status, limit=limit)
+            lambda statuses, limit: list_control_requests_sync(self._dsn, statuses=statuses, limit=limit)
         )
         self._settings_section_getter = settings_section_getter or settings.load_section
         self._settings_section_saver = settings_section_saver or settings.save_section
@@ -334,9 +334,9 @@ class FavApiService:
             raise ApiError(status_code=404, code='not_found', message='Job request not found.')
         return serialize_control_request(request)
 
-    def list_job_requests(self, *, status: str | None = None, limit: int = 50) -> list[dict[str, object]]:
+    def list_job_requests(self, *, statuses: list[str] | None = None, limit: int = 50) -> list[dict[str, object]]:
         try:
-            requests = self._control_request_lister(status, limit)
+            requests = self._control_request_lister(statuses, limit)
         except ValueError as exc:
             raise ApiError(status_code=422, code='invalid_status', message=str(exc)) from None
         except Exception:

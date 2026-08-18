@@ -103,10 +103,11 @@ def _build_request(
     request_id: int = 99,
     target: str = 'bilibili',
     status: str = 'pending',
+    kind: str = 'trigger_job',
 ) -> ControlRequest:
     return ControlRequest(
         request_id=request_id,
-        kind='trigger_job',
+        kind=kind,
         target=target,
         payload='{}',
         status=status,
@@ -125,6 +126,7 @@ def _build_service(
     jobs: list[ScheduledJob] | None = None,
     request_creator=None,
     request_getter=None,
+    request_lister=None,
     runtime_service: _RuntimeService | None = None,
     telegram_notification_tester=None,
 ) -> api_server.FavApiService:
@@ -139,6 +141,7 @@ def _build_service(
         job_provider=(lambda: list(jobs or [])),
         control_request_creator=request_creator,
         control_request_getter=request_getter,
+        control_request_lister=request_lister,
         runtime_service=runtime,
         telegram_notification_tester=telegram_notification_tester,
     )
@@ -516,6 +519,62 @@ def test_create_job_request_rejects_invalid_target_as_validation_error() -> None
 
     assert response.status_code == 422
     assert response.json()['error']['code'] == 'validation_error'
+
+
+def test_list_job_requests_accepts_repeated_status_params() -> None:
+    lister_calls: list[tuple[list[str] | None, int]] = []
+
+    def _lister(statuses: list[str] | None, limit: int) -> list[ControlRequest]:
+        lister_calls.append((statuses, limit))
+        return [_build_request(status='failed')]
+
+    service = _build_service(token=_VALID_TOKEN, request_lister=_lister)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests?status=failed&status=rejected&limit=10', headers=_auth_headers())
+
+    assert response.status_code == 200
+    assert lister_calls == [(['failed', 'rejected'], 10)]
+    assert response.json()['items'][0]['status'] == 'failed'
+
+
+def test_list_job_requests_without_status_passes_none() -> None:
+    lister_calls: list[tuple[list[str] | None, int]] = []
+
+    def _lister(statuses: list[str] | None, limit: int) -> list[ControlRequest]:
+        lister_calls.append((statuses, limit))
+        return []
+
+    service = _build_service(token=_VALID_TOKEN, request_lister=_lister)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests', headers=_auth_headers())
+
+    assert response.status_code == 200
+    assert lister_calls == [(None, 50)]
+
+
+def test_list_job_requests_rejects_unknown_status() -> None:
+    service = _build_service(token=_VALID_TOKEN, request_lister=lambda statuses, limit: [])
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests?status=bogus', headers=_auth_headers())
+
+    assert response.status_code == 422
+    assert response.json()['error']['code'] == 'validation_error'
+
+
+def test_list_job_requests_serializes_scheduled_kind() -> None:
+    service = _build_service(
+        token=_VALID_TOKEN,
+        request_lister=lambda statuses, limit: [_build_request(status='succeeded', kind='scheduled_job')],
+    )
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests', headers=_auth_headers())
+
+    assert response.status_code == 200
+    assert response.json()['items'][0]['kind'] == 'scheduled_job'
 
 
 @pytest.mark.parametrize('status', ['pending', 'running', 'succeeded', 'failed', 'rejected'])
