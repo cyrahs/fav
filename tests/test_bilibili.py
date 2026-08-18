@@ -82,6 +82,7 @@ def _fake_video_factory(*, bvid: str, **_kwargs) -> _DummyVideo:
 
 def _make_bilibili(tmp_path: Path) -> Bilibili:
     b = Bilibili.__new__(Bilibili)
+    b.cfg = settings.Bilibili()
     b._tmp_dir = _DummyTmpDir()
     b.cache_dir = tmp_path / 'cache'
     b.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -635,6 +636,39 @@ def test_download_retry_does_not_emit_warning_per_attempt(tmp_path, monkeypatch)
     assert calls['count'] == 3
     assert warnings == []
     assert exc_info.value.notification_dedupe_key == 'bilibili:download:BV1TEST1'
+
+
+@pytest.mark.parametrize('proxy', ['', 'http://gluetun-hk.proxy.svc.cluster.local:80'])
+def test_download_routes_yt_dlp_through_the_configured_proxy(tmp_path, monkeypatch, proxy) -> None:
+    # The proxy steers bilibili's CDN mirror assignment, so it has to reach yt-dlp
+    # itself: yt-dlp resolves the playurl, not this module.
+    b = _make_bilibili(tmp_path)
+    b.cfg = settings.Bilibili(proxy=proxy)
+    b.cookie_path = tmp_path / 'cookies.txt'
+    b.cookie_path.write_text('', encoding='utf-8')
+    commands: list[list[str]] = []
+
+    class _OkResult:
+        returncode = 0
+        stdout = ''
+        stderr = ''
+
+    def _fake_run(command, **_kwargs):
+        commands.append(command)
+        return _OkResult()
+
+    monkeypatch.setattr(bilibili_module.subprocess, 'run', _fake_run)
+
+    b.download(url='https://www.bilibili.com/video/BV1TEST1', bvid='BV1TEST1', dirpath=tmp_path / 'videos')
+
+    assert len(commands) == 1
+    command = commands[0]
+    if proxy:
+        assert command[command.index('--proxy') + 1] == proxy
+    else:
+        assert '--proxy' not in command
+    # The video URL stays the final argument either way.
+    assert command[-1] == 'https://www.bilibili.com/video/BV1TEST1'
 
 
 def _account(name: str, **overrides) -> settings.BilibiliAccount:

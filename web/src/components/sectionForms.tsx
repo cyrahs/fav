@@ -180,16 +180,14 @@ function AzurLaneForm(props: SectionFormProps) {
     <div className="field-grid">
       <PathField {...props} />
 
-      <SecretField
+      <TextField
         label="源站代理"
         value={originProxy}
         onChange={(next) => set('origin_proxy', next)}
+        mono
         invalid={!originProxy}
-        hint={
-          originProxy
-            ? undefined
-            : 'l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。格式：http://用户名:密码@主机:端口'
-        }
+        placeholder="http://用户名:密码@主机:端口"
+        hint="l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。"
       />
       <AzurLaneProxyTest originProxy={originProxy} />
 
@@ -444,11 +442,13 @@ function RedNoteForm(props: SectionFormProps) {
       <div className="subsection">
         <h4>出口与登录</h4>
         <div className="field-grid">
-          <SecretField
+          <TextField
             label="代理"
             value={proxy}
             onChange={(next) => set('proxy', next)}
+            mono
             invalid={!proxy && !allowDirect}
+            placeholder="http://用户名:密码@主机:端口"
             hint="小红书屏蔽了大部分机房 IP 段。带账号密码时必须用 http(s)：Chromium 不支持 SOCKS 认证。"
           />
           <RedNoteProxyTest proxy={proxy} />

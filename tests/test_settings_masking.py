@@ -135,18 +135,18 @@ def test_saving_twitter_with_a_masked_password_keeps_the_stored_one() -> None:
     assert merged['username'] == 'someone-else'
 
 
-def test_the_rednote_proxy_survives_a_round_trip() -> None:
-    # It points at the user's own line and may carry credentials.
+def test_the_rednote_proxy_is_shown_and_saved_in_plaintext() -> None:
+    # Deliberate: proxies are configuration, not credentials, in this single-user
+    # deployment, so the UI shows and edits them as ordinary text.
     stored = {'user_id': '', 'proxy': 'http://user:pw@home.example:3128'}
     edited = mask_section('web.rednote', stored)
-    edited['user_id'] = '5ff'
 
-    assert edited['proxy'] == f'http{MASK_SUFFIX}'
+    assert edited['proxy'] == 'http://user:pw@home.example:3128'
 
+    edited['proxy'] = 'http://other.example:3128'
     merged = unmask_section('web.rednote', edited, stored)
 
-    assert merged['proxy'] == 'http://user:pw@home.example:3128'
-    assert merged['user_id'] == '5ff'
+    assert merged['proxy'] == 'http://other.example:3128'
 
 
 def test_twitter_section_without_a_cookiecloud_block_is_left_alone() -> None:

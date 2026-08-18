@@ -440,26 +440,13 @@ class FavApiService:
             'warnings': list(result.warnings),
         }
 
-    def _stored_azurlane_proxy(self) -> str:
-        try:
-            stored = json.loads(self._settings_section_getter('web.azurlane').model_dump_json())
-        except UnknownSectionError:
-            raise ApiError(status_code=404, code='unknown_section', message='Unknown settings section: web.azurlane') from None
-        except Exception:
-            log.exception('Failed to load web.azurlane for the proxy test')
-            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
-        return str(stored.get('origin_proxy') or '')
-
     def test_azurlane_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check that the l2d.su origin is reachable through a proxy, without saving it.
 
-        The draft from the form wins, except that a masked or omitted value is resolved
-        against what is already stored.
+        The draft from the form is probed as-is: proxies are shown to the UI in
+        plaintext, so there is no masked value to resolve.
         """
-        draft = {'origin_proxy': str(payload.get('origin_proxy') or '')}
-        keep_secret(draft, 'origin_proxy', self._stored_azurlane_proxy())
-
-        result = probe_l2d_su_origin(draft['origin_proxy'])
+        result = probe_l2d_su_origin(str(payload.get('origin_proxy') or ''))
         return {'ok': result.ok, 'code': result.code, 'message': result.message, 'exit_ip': result.exit_ip}
 
     def _stored_section(self, section: str) -> dict[str, Any]:
@@ -474,14 +461,10 @@ class FavApiService:
     def test_rednote_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check the egress the RedNote source would use, without saving it.
 
-        The draft from the form wins, except that a masked or omitted value is resolved
-        against what is already stored -- so the button works on a proxy the UI has
-        only ever shown masked.
+        The draft from the form is probed as-is: proxies are shown to the UI in
+        plaintext, so there is no masked value to resolve.
         """
-        draft = {'proxy': str(payload.get('proxy') or '')}
-        keep_secret(draft, 'proxy', str(self._stored_section('web.rednote').get('proxy') or ''))
-
-        result = probe_rednote_proxy(draft['proxy'])
+        result = probe_rednote_proxy(str(payload.get('proxy') or ''))
         return {
             'ok': result.ok,
             'code': result.code,
