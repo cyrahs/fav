@@ -24,6 +24,7 @@ from src.tool.control_queue import (
 )
 from src.tool.hanime1_author import Hanime1AuthorService
 from src.tool.hanime1_series import Hanime1SeriesService
+from src.tool.kemono_creator import KemonoCreatorResolver
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
 from src.web.rednote_browser import probe_proxy as probe_rednote_proxy
@@ -61,6 +62,7 @@ from .schemas import (
     HealthResponse,
     JobRequest,
     JobSummary,
+    KemonoCreatorResolved,
     Live2DViewOverride,
     NikkeCharacterDetail,
     NikkeCharacterSummary,
@@ -122,6 +124,7 @@ class FavApiService:
         telegram_notification_tester: TelegramNotificationTester | None = None,
         runtime_service: Hanime1SeriesService | None = None,
         author_service: Hanime1AuthorService | None = None,
+        kemono_creator_resolver: KemonoCreatorResolver | None = None,
         archive_library: ArchiveLibrary | None = None,
         azurlane_library: AzurLaneLibrary | None = None,
         nikke_library: NikkeLibrary | None = None,
@@ -156,6 +159,7 @@ class FavApiService:
             host=settings.load().web.hanime1.host,
             user_lang=settings.load().web.hanime1.user_lang,
         )
+        self._kemono_creator_resolver = kemono_creator_resolver or KemonoCreatorResolver()
         self._azurlane_library = azurlane_library or AzurLaneLibrary(settings.load().web.azurlane.path)
         self._nikke_library = nikke_library or NikkeLibrary(settings.load().web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(settings.load().web.bd2.path)
@@ -164,7 +168,7 @@ class FavApiService:
         self._readiness_lock = asyncio.Lock()
 
     def close(self) -> None:
-        for service in (self._runtime_service, self._author_service):
+        for service in (self._runtime_service, self._author_service, self._kemono_creator_resolver):
             close = getattr(service, 'close', None)
             if callable(close):
                 close()
@@ -651,6 +655,19 @@ class FavApiService:
         if not deleted:
             raise ApiError(status_code=404, code='not_found', message='Hanime1 author not found.')
 
+    def resolve_kemono_creator(self, creator: str) -> dict[str, str]:
+        try:
+            return self._kemono_creator_resolver.resolve(creator)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_creator', message='Creator id or URL is invalid.') from None
+        except LookupError:
+            raise ApiError(status_code=404, code='creator_not_found', message='Creator not found upstream.') from None
+        except ConnectionError:
+            raise ApiError(status_code=502, code='creator_resolve_failed', message='Unable to reach the Kemono site.') from None
+        except Exception:
+            log.exception('Failed to resolve Kemono creator')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
     def list_azurlane_characters(self) -> list[dict[str, object]]:
         try:
             return self._azurlane_library.list_characters()
@@ -923,6 +940,10 @@ class FavApiService:
     @staticmethod
     def model_hanime1_author_detail(payload: dict[str, Any]) -> Hanime1AuthorDetail:
         return Hanime1AuthorDetail.model_validate(payload)
+
+    @staticmethod
+    def model_kemono_creator(payload: dict[str, str]) -> KemonoCreatorResolved:
+        return KemonoCreatorResolved.model_validate(payload)
 
     @staticmethod
     def model_settings_section(payload: dict[str, object]) -> SettingsSection:
