@@ -538,16 +538,12 @@ def test_an_unreachable_exit_ip_service_does_not_fail_the_probe() -> None:
     assert (result.ok, result.exit_ip) == (True, '')
 
 
-def test_the_proxy_test_button_resolves_a_masked_proxy_against_what_is_stored(monkeypatch) -> None:
-    """The form only ever shows the proxy masked, so this is the normal path, not an edge case.
-
-    Getting it wrong would send `••••` to the probe, which parses as a hostname-less
-    proxy -- a green "direct egress works" for a setup that is not direct at all.
-    """
+def test_the_proxy_test_button_probes_the_draft_as_typed(monkeypatch) -> None:
+    """Proxies reach the UI in plaintext now, so the draft is probed verbatim --
+    no resolution against the stored section."""
     from src.api import service as service_module  # noqa: PLC0415
-    from src.api.settings_masking import MASK_SUFFIX  # noqa: PLC0415
 
-    section = SECTION_MODELS['web.rednote'](proxy='http://user:pw@home.example:3128')
+    section = SECTION_MODELS['web.rednote'](proxy='http://stored.example:3128')
     probed: list[str] = []
 
     def fake_probe(proxy: str):
@@ -563,7 +559,7 @@ def test_the_proxy_test_button_resolves_a_masked_proxy_against_what_is_stored(mo
         settings_section_getter=lambda _section: section,
     )
 
-    result = service.test_rednote_proxy({'proxy': f'http{MASK_SUFFIX}'})
+    result = service.test_rednote_proxy({'proxy': 'http://user:pw@home.example:3128'})
 
     assert probed == ['http://user:pw@home.example:3128']
     assert result == {'ok': True, 'code': 'ok', 'message': '', 'exit_ip': '203.0.113.7', 'direct': False}

@@ -138,7 +138,18 @@ class BilibiliAccount(BaseModel):
 
 class Bilibili(ScheduleJob):
     cron: str = '*/30 * * * *'
+    # Egress for the yt-dlp downloads only; the favourites API stays direct. Bilibili
+    # assigns the CDN mirror by egress IP, and from a US address the playurl sometimes
+    # lands on the Akamai overseas mirror, which throttles each connection to ~1MB/s
+    # server-side. A Hong Kong exit consistently gets the fast Tencent COS mirror, so
+    # the point of this proxy is steering the mirror assignment, not a faster route.
+    proxy: str = ''
     accounts: list[BilibiliAccount] = Field(default_factory=list)
+
+    @field_validator('proxy')
+    @classmethod
+    def normalize_proxy(cls, value: str) -> str:
+        return value.strip()
 
     @model_validator(mode='after')
     def validate_accounts(self) -> Self:
@@ -728,12 +739,12 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 }
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
+# Proxy URLs are deliberately not in here: this is a single-user deployment, the
+# UI needs to show and edit them as ordinary text, and masking them cost more in
+# round-trip machinery than the credential inside was worth.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
-    'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.twitter': ('cookiecloud.password',),
-    # A proxy URL may carry credentials, and this one points at the user's own line.
-    'web.rednote': ('proxy',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
 }

@@ -463,8 +463,12 @@ class Bilibili:
             '15',
             '--socket-timeout',
             '30',
-            url,
         ]
+        if self.cfg.proxy:
+            # yt-dlp resolves the playurl itself, so the proxy steers both the CDN
+            # mirror assignment and the media transfer. See settings.Bilibili.proxy.
+            command += ['--proxy', self.cfg.proxy]
+        command.append(url)
 
         def _on_retry_before_sleep(retry_state: RetryCallState) -> None:
             # Keep retry logs at debug level to avoid alert noise from transient failures.
