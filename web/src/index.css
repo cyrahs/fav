@@ -135,6 +135,10 @@ a:hover {
   word-break: break-word;
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
 input,
 textarea,
 button,
@@ -278,6 +282,7 @@ td.actions > *:last-child {
   border-radius: 999px;
   font-size: 12px;
   border: 1px solid var(--border);
+  white-space: nowrap;
 }
 .pill-succeeded {
   color: var(--ok);
