@@ -333,6 +333,33 @@ def test_update_aborts_creator_on_transient_failure(tmp_path, monkeypatch) -> No
     assert notifications[0]['payload']['failed_creators'] == ['fanbox/123']
 
 
+def test_update_skips_summary_when_there_are_no_new_posts(tmp_path, monkeypatch) -> None:
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[_post_payload('1')])
+
+    fake_db = _FakeDatabase(select_rows=[{'id': '1'}])
+    monkeypatch.setattr(kemono_module.database, 'query_db', fake_db.query_db)
+    notifications: list[dict] = []
+
+    async def _fake_notify(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(kemono_module, 'enqueue_notification', _fake_notify)
+    _configure_kemono(
+        path=tmp_path,
+        sleep_request_seconds=0.0,
+        creators=[KemonoCreator(service='fanbox', id='123', name='tester')],
+    )
+    job = _kemono_job(_handler)
+    try:
+        asyncio.run(job.update())
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert fake_db.inserted_ids() == []
+    assert notifications == []
+
+
 def test_update_reports_missing_creator(tmp_path, monkeypatch) -> None:
     async def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, text='not found')
