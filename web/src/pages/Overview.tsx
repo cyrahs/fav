@@ -58,11 +58,13 @@ export function OverviewPage() {
           </div>
         </div>
         {readiness.data?.checks &&
-          Object.entries(readiness.data.checks).map(([name, check]) => (
-            <p key={name} className="muted">
-              {name}: {check.message}
-            </p>
-          ))}
+          Object.entries(readiness.data.checks)
+            .filter(([, check]) => check.status !== 'ok')
+            .map(([name, check]) => (
+              <p key={name} className="muted">
+                {name}: {check.message}
+              </p>
+            ))}
         {incomplete.length > 0 && (
           <p className="warn">
             配置不完整：
