@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
+import type { Hanime1Author, Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
 import { TelegramNotificationTest } from '../components/TelegramNotificationTest';
 import { JOBS_PAGE_ONLY_SECTIONS, SECTION_FORMS, validateSection } from '../components/sectionForms';
 import { sectionLabel } from '../labels';
@@ -245,6 +245,99 @@ function Hanime1Seeds() {
   );
 }
 
+function Hanime1Authors() {
+  const queryClient = useQueryClient();
+  const [author, setAuthor] = useState('');
+  const [error, setError] = useState('');
+
+  const authors = useQuery({
+    queryKey: ['hanime1-authors'],
+    queryFn: () => api.get<ListResponse<Hanime1Author>>('/api/v2/hanime1/authors'),
+  });
+
+  const add = useMutation({
+    mutationFn: () => api.post('/api/v2/hanime1/authors', { author }),
+    onSuccess: () => {
+      setAuthor('');
+      setError('');
+      void queryClient.invalidateQueries({ queryKey: ['hanime1-authors'] });
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const remove = useMutation({
+    mutationFn: (authorId: string) => api.delete(`/api/v2/hanime1/authors/${authorId}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['hanime1-authors'] }),
+    onError: (err: Error) => setError(err.message),
+  });
+
+  return (
+    <section className="card">
+      <h2>Hanime1 作者订阅</h2>
+      <p className="muted">可填写作者 ID 或作者页 URL；显示名会自动解析，新视频按「分类/作者名」归档。</p>
+
+      <div className="inline-form">
+        <input
+          type="text"
+          value={author}
+          placeholder="202534 或 https://hanime1.me/user/202534/uploaded"
+          onChange={(event) => setAuthor(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && author.trim()) add.mutate();
+          }}
+        />
+        <button type="button" disabled={!author.trim() || add.isPending} onClick={() => add.mutate()}>
+          {add.isPending ? '解析中…' : '添加'}
+        </button>
+      </div>
+      {error && <p className="warn">{error}</p>}
+
+      {authors.data?.items.length === 0 && <p className="muted">还没有作者订阅。</p>}
+      {authors.data && authors.data.items.length > 0 && (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>作者</th>
+              <th>ID</th>
+              <th>视频数</th>
+              <th>最近扫描</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {authors.data.items.map((item) => (
+              <tr key={item.author_id}>
+                <td>
+                  <a href={item.author_url} target="_blank" rel="noreferrer">
+                    {item.name}
+                  </a>
+                  {item.last_scan_error && <div className="warn">{item.last_scan_error}</div>}
+                </td>
+                <td className="mono">{item.author_id}</td>
+                <td>{item.video_count}</td>
+                <td className="muted">{item.last_scanned_at ?? '—'}</td>
+                <td className="actions">
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => {
+                      if (window.confirm(`删除作者订阅「${item.name}」？已下载的视频记录不会被删除。`)) {
+                        remove.mutate(item.author_id);
+                      }
+                    }}
+                  >
+                    删除
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 export function SettingsPage() {
   const settings = useQuery({
     queryKey: ['settings'],
@@ -269,6 +362,7 @@ export function SettingsPage() {
       </section>
 
       <Hanime1Seeds />
+      <Hanime1Authors />
     </div>
   );
 }

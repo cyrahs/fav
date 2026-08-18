@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 import src.web.hanime1 as hanime1_module
+from src.tool.hanime1_author import Hanime1Author, Hanime1AuthorVideoEntry
 from src.tool.hanime1_series import Hanime1SeriesService
 from src.tool.runtime_config import Hanime1ParserIncompatibleError, parse_hanime1_playlist
 from src.web.hanime1 import (
@@ -1269,6 +1270,7 @@ def test_download_item_renames_and_moves_file(tmp_path, monkeypatch) -> None:
             title='Watch Title',
             release_date='2020-01-01',
             plot='watch plot',
+            genre='里番',
         )
 
     def _fake_download_stream(*, task, dirpath: Path) -> Path:
@@ -1297,7 +1299,7 @@ def test_download_item_renames_and_moves_file(tmp_path, monkeypatch) -> None:
     assert result.plot == 'watch plot'
     assert result.cover_url is None
     assert result.final_path.exists()
-    assert result.final_path == output_dir / '公開便所' / 'Watch Title [video-123].mp4'
+    assert result.final_path == output_dir / '里番' / '公開便所' / 'Watch Title [video-123].mp4'
 
 
 def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, monkeypatch) -> None:
@@ -1326,6 +1328,7 @@ def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, 
             uploader='Watch Studio',
             release_date='2020-01-01',
             plot='watch plot',
+            genre='里番',
         )
 
     def _fake_download_stream(*, task, dirpath: Path) -> Path:
@@ -1347,7 +1350,7 @@ def test_download_item_uses_uploader_from_watch_metadata_when_missing(tmp_path, 
     assert result.uploader == 'Watch Studio'
     assert result.resolution is None
     assert result.cover_url is None
-    assert result.final_path == output_dir / 'tag-b' / 'Playlist Title 01 [video-234].mp4'
+    assert result.final_path == output_dir / '里番' / 'tag-b' / 'Playlist Title 01 [video-234].mp4'
 
 
 def test_download_item_keeps_playlist_item_title_for_path_and_watch_title_for_metadata(tmp_path, monkeypatch) -> None:
@@ -1367,7 +1370,7 @@ def test_download_item_keeps_playlist_item_title_for_path_and_watch_title_for_me
         return ('https://video.example.com/407017-1080p.mp4', '援助交配 11')
 
     async def _fake_resolve_metadata(_item: HanimeRecord) -> WatchMetadata:
-        return WatchMetadata(title='○○交配 第十一話 前編 [中文字幕]')
+        return WatchMetadata(title='○○交配 第十一話 前編 [中文字幕]', genre='里番')
 
     def _fake_download_stream(*, task, dirpath: Path) -> Path:
         dirpath.mkdir(parents=True, exist_ok=True)
@@ -1384,7 +1387,7 @@ def test_download_item_keeps_playlist_item_title_for_path_and_watch_title_for_me
 
     assert result.title == '○○交配 第十一話 前編 [中文字幕]'
     assert result.archive_title == '援助交配 11'
-    assert result.final_path == output_dir / '○○交配' / '援助交配 11 [407017].mp4'
+    assert result.final_path == output_dir / '里番' / '○○交配' / '援助交配 11 [407017].mp4'
 
 
 def test_download_item_raises_for_ignored_site_markers(tmp_path) -> None:
@@ -1571,6 +1574,436 @@ def test_notify_download_keeps_cover_url_when_available(tmp_path, monkeypatch) -
     )
 
     assert notifications[0]['image_url'] == 'https://cdn.example.com/covers/12345.jpg'
+
+
+@pytest.mark.parametrize(
+    ('page_html', 'expected'),
+    [
+        (
+            '<a id="video-artist-name" href="/search?query=Maplestar">Maplestar</a>'
+            '<a href="https://hanime1.me/search?genre=2D動畫">2D動畫</a>',
+            '2D動畫',
+        ),
+        (
+            '<a id="video-artist-name" href="/search?query=メリー">メリー</a>'
+            '<a href="https://hanime1.me/search?genre=%E8%A3%8F%E7%95%AA">裏番</a>',
+            '裏番',
+        ),
+        # Nav-bar genre links without the artist anchor must not be picked up.
+        ('<nav><a href="/search?genre=裏番">裏番</a><a href="/search?genre=MMD">MMD</a></nav>', None),
+        # A genre link past the search window belongs to unrelated page areas.
+        (
+            f'<a id="video-artist-name" href="/search?query=Maplestar">Maplestar</a><span>{"x" * 1200}</span>'
+            '<a href="/search?genre=2D動畫">2D動畫</a>',
+            None,
+        ),
+    ],
+)
+def test_extract_genre_from_watch_html_variants(page_html: str, expected: str | None) -> None:
+    assert Hanime1._extract_genre_from_watch_html(page_html) == expected
+
+
+def test_extract_watch_metadata_includes_simplified_genre() -> None:
+    page_html = """
+    <html>
+      <body>
+        <div>觀看次數:43.4萬次&nbsp;&nbsp;2026-08-12</div>
+        <a id="video-artist-name" href="https://hanime1.me/search?query=Maplestar">Maplestar</a>
+        <a href="https://hanime1.me/search?genre=2D動畫">2D動畫</a>
+        <div>SAKAMOTO DAYS FULL ANIMATION</div>
+        <div class="video-caption-text">Title: SAKAMOTO DAYS FULL ANIMATION</div>
+      </body>
+    </html>
+    """
+
+    metadata = Hanime1.extract_watch_metadata(page_html)
+
+    assert metadata.uploader == 'Maplestar'
+    assert metadata.genre == '2D动画'
+
+
+def test_strip_uploader_prefix() -> None:
+    assert Hanime1._strip_uploader_prefix('[Maplestar] SAKAMOTO DAYS', 'Maplestar') == 'SAKAMOTO DAYS'
+    assert Hanime1._strip_uploader_prefix('[maplestar] SAKAMOTO DAYS', 'Maplestar') == 'SAKAMOTO DAYS'
+    assert Hanime1._strip_uploader_prefix('[Other] SAKAMOTO DAYS', 'Maplestar') == '[Other] SAKAMOTO DAYS'
+    assert Hanime1._strip_uploader_prefix('SAKAMOTO DAYS', None) == 'SAKAMOTO DAYS'
+    # A title that is nothing but the prefix keeps its original form.
+    assert Hanime1._strip_uploader_prefix('[Maplestar]', 'Maplestar') == '[Maplestar]'
+
+
+def test_download_item_archives_author_video_under_genre_and_author(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    output_dir = tmp_path / 'hanime1'
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
+
+    item = HanimeRecord(
+        id='407657',
+        title='SAKAMOTO DAYS FULL ANIMATION',
+        keyword='Maplestar',
+        uploader='Maplestar',
+        page_url='https://hanime1.me/watch?v=407657',
+        stream_url=None,
+    )
+
+    async def _fake_resolve_stream(_item: HanimeRecord) -> tuple[str, str | None]:
+        return ('https://video.example.com/407657-1080p.mp4', '[Maplestar] SAKAMOTO DAYS FULL ANIMATION')
+
+    async def _fake_resolve_metadata(_item: HanimeRecord) -> WatchMetadata:
+        return WatchMetadata(title='[Maplestar] SAKAMOTO DAYS FULL ANIMATION', uploader='Maplestar', genre='2D动画')
+
+    def _fake_download_stream(*, task, dirpath: Path) -> Path:
+        dirpath.mkdir(parents=True, exist_ok=True)
+        saved = dirpath / f'{task.video_id}.mp4'
+        saved.write_bytes(b'video')
+        return saved
+
+    monkeypatch.setattr(h, 'resolve_stream_from_download_page', _fake_resolve_stream)
+    monkeypatch.setattr(h, 'resolve_metadata_from_watch_page', _fake_resolve_metadata)
+    monkeypatch.setattr(h, 'download_stream', _fake_download_stream)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: None)
+
+    result = asyncio.run(h.download_item(item))
+
+    assert result.title == '[Maplestar] SAKAMOTO DAYS FULL ANIMATION'
+    assert result.archive_title == 'SAKAMOTO DAYS FULL ANIMATION'
+    assert result.final_path == output_dir / '2D动画' / 'Maplestar' / 'SAKAMOTO DAYS FULL ANIMATION [407657].mp4'
+
+
+def test_download_item_strips_author_prefix_when_item_title_missing(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    output_dir = tmp_path / 'hanime1'
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
+
+    item = HanimeRecord(
+        id='407657',
+        title='',
+        keyword='Maplestar',
+        uploader='Maplestar',
+        page_url='https://hanime1.me/watch?v=407657',
+        stream_url=None,
+    )
+
+    async def _fake_resolve_stream(_item: HanimeRecord) -> tuple[str, str | None]:
+        return ('https://video.example.com/407657-1080p.mp4', None)
+
+    async def _fake_resolve_metadata(_item: HanimeRecord) -> WatchMetadata:
+        return WatchMetadata(title='[Maplestar] SAKAMOTO DAYS FULL ANIMATION', uploader='Maplestar', genre='2D动画')
+
+    def _fake_download_stream(*, task, dirpath: Path) -> Path:
+        dirpath.mkdir(parents=True, exist_ok=True)
+        saved = dirpath / f'{task.video_id}.mp4'
+        saved.write_bytes(b'video')
+        return saved
+
+    monkeypatch.setattr(h, 'resolve_stream_from_download_page', _fake_resolve_stream)
+    monkeypatch.setattr(h, 'resolve_metadata_from_watch_page', _fake_resolve_metadata)
+    monkeypatch.setattr(h, 'download_stream', _fake_download_stream)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: None)
+
+    result = asyncio.run(h.download_item(item))
+
+    assert result.title == '[Maplestar] SAKAMOTO DAYS FULL ANIMATION'
+    assert result.archive_title == 'SAKAMOTO DAYS FULL ANIMATION'
+    assert result.final_path == output_dir / '2D动画' / 'Maplestar' / 'SAKAMOTO DAYS FULL ANIMATION [407657].mp4'
+
+
+def test_download_item_falls_back_to_uncategorized_without_genre(tmp_path, monkeypatch, caplog) -> None:
+    h = _make_hanime1(tmp_path)
+    output_dir = tmp_path / 'hanime1'
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
+
+    item = HanimeRecord(
+        id='407657',
+        title='Some Title',
+        keyword='Maplestar',
+        uploader='Maplestar',
+        page_url='https://hanime1.me/watch?v=407657',
+        stream_url='https://video.example.com/407657-1080p.mp4',
+    )
+
+    async def _fake_resolve_metadata(_item: HanimeRecord) -> WatchMetadata:
+        return WatchMetadata(title='Some Title')
+
+    def _fake_download_stream(*, task, dirpath: Path) -> Path:
+        dirpath.mkdir(parents=True, exist_ok=True)
+        saved = dirpath / f'{task.video_id}.mp4'
+        saved.write_bytes(b'video')
+        return saved
+
+    monkeypatch.setattr(h, 'resolve_metadata_from_watch_page', _fake_resolve_metadata)
+    monkeypatch.setattr(h, 'download_stream', _fake_download_stream)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: None)
+
+    with caplog.at_level('WARNING'):
+        result = asyncio.run(h.download_item(item))
+
+    assert result.final_path == output_dir / '未分类' / 'Maplestar' / 'Some Title [407657].mp4'
+    assert any('no resolvable genre' in record.message for record in caplog.records)
+
+
+def test_fetch_author_page_entries_builds_url_and_parses_listing(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: 'user_lang=zhs')
+
+    page_html = """
+    <a href="https://hanime1.me/watch?v=407657" class="video-link">
+      <div class="thumb-container"><div class="duration">03:14</div></div>
+      <div class="title">SAKAMOTO DAYS FULL ANIMATION</div>
+    </a>
+    <a class="video-link" href="/watch?v=406852">
+      <div class="title">Reze (Chainsaw Man) - Animation</div>
+    </a>
+    """
+
+    calls: list[str] = []
+
+    class _Response:
+        status_code = 200
+        text = page_html
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _Client:
+        async def get(self, url: str, *, headers: dict[str, str]) -> _Response:
+            calls.append(url)
+            assert headers.get('Cookie') == 'user_lang=zhs'
+            return _Response()
+
+    h.client = _Client()
+
+    entries = asyncio.run(h.fetch_author_page_entries(author_id='202534'))
+    asyncio.run(h.fetch_author_page_entries(author_id='202534', page=2))
+
+    assert entries == [
+        Hanime1AuthorVideoEntry(video_id='407657', title='SAKAMOTO DAYS FULL ANIMATION'),
+        Hanime1AuthorVideoEntry(video_id='406852', title='Reze (Chainsaw Man) - Animation'),
+    ]
+    assert calls == [
+        f'{hanime1_module.cfg().host.rstrip("/")}/user/202534/uploaded',
+        f'{hanime1_module.cfg().host.rstrip("/")}/user/202534/uploaded?page=2',
+    ]
+
+
+def test_fetch_author_page_entries_treats_404_as_empty(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(h, '_get_cookie_header', lambda: None)
+
+    class _Response:
+        status_code = 404
+        text = ''
+
+        def raise_for_status(self) -> None:
+            msg = 'should not be called for 404'
+            raise AssertionError(msg)
+
+    class _Client:
+        async def get(self, url: str, *, headers: dict[str, str]) -> _Response:
+            assert url.endswith('/user/202534/uploaded?page=9')
+            assert 'Cookie' not in headers
+            return _Response()
+
+    h.client = _Client()
+
+    assert asyncio.run(h.fetch_author_page_entries(author_id='202534', page=9)) == []
+
+
+def test_fetch_all_author_entries_stops_on_empty_and_echo_pages(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    pages = {
+        1: [Hanime1AuthorVideoEntry(video_id='1', title='a'), Hanime1AuthorVideoEntry(video_id='2', title='b')],
+        2: [Hanime1AuthorVideoEntry(video_id='3', title='c')],
+        3: [],
+    }
+    fetched_pages: list[int] = []
+
+    async def _fake_fetch(*, author_id: str, page: int = 1) -> list[Hanime1AuthorVideoEntry]:
+        assert author_id == '202534'
+        fetched_pages.append(page)
+        return pages[page]
+
+    monkeypatch.setattr(h, 'fetch_author_page_entries', _fake_fetch)
+
+    entries = asyncio.run(h._fetch_all_author_entries('202534'))
+
+    assert [entry.video_id for entry in entries] == ['1', '2', '3']
+    assert fetched_pages == [1, 2, 3]
+
+    # A page that only repeats known videos also terminates pagination.
+    pages[3] = pages[1]
+    fetched_pages.clear()
+    entries = asyncio.run(h._fetch_all_author_entries('202534'))
+    assert [entry.video_id for entry in entries] == ['1', '2', '3']
+    assert fetched_pages == [1, 2, 3]
+
+
+def test_fetch_all_author_entries_respects_max_pages_cap(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(hanime1_module, '_AUTHOR_MAX_PAGES', 2)
+    fetched_pages: list[int] = []
+
+    async def _fake_fetch(*, author_id: str, page: int = 1) -> list[Hanime1AuthorVideoEntry]:
+        assert author_id == '202534'
+        fetched_pages.append(page)
+        return [Hanime1AuthorVideoEntry(video_id=str(page), title=f'page {page}')]
+
+    monkeypatch.setattr(h, 'fetch_author_page_entries', _fake_fetch)
+
+    entries = asyncio.run(h._fetch_all_author_entries('202534'))
+
+    assert [entry.video_id for entry in entries] == ['1', '2']
+    assert fetched_pages == [1, 2]
+
+
+def test_collect_author_candidates_marks_failure_and_continues(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    authors = [
+        Hanime1Author(author_id='111', name='Broken'),
+        Hanime1Author(author_id='202534', name='Maplestar'),
+    ]
+
+    async def _fake_fetch_all(author_id: str) -> list[Hanime1AuthorVideoEntry]:
+        if author_id == '111':
+            msg = 'boom'
+            raise RuntimeError(msg)
+        return [Hanime1AuthorVideoEntry(video_id='407657', title='SAKAMOTO DAYS FULL ANIMATION')]
+
+    queries: list[tuple[str, tuple]] = []
+
+    async def _fake_query_db(sql: str, params: tuple = ()) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        return []
+
+    monkeypatch.setattr(h, '_fetch_all_author_entries', _fake_fetch_all)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    candidates = asyncio.run(h._collect_author_candidates(authors))
+
+    assert list(candidates) == ['407657']
+    assert candidates['407657'] == HanimeCandidate(
+        video_id='407657',
+        source_name='Maplestar',
+        archive_title='SAKAMOTO DAYS FULL ANIMATION',
+    )
+    failure_updates = [params for sql, params in queries if 'last_scan_error = ?' in sql]
+    assert failure_updates == [('RuntimeError: boom', '111')]
+    success_updates = [params for sql, params in queries if "last_scan_error = ''" in sql]
+    assert success_updates == [(1, '202534')]
+
+
+def test_get_author_items_filters_downloaded_and_ignored(tmp_path, monkeypatch) -> None:
+    h = _make_hanime1(tmp_path)
+    authors = [Hanime1Author(author_id='202534', name='Maplestar')]
+
+    async def _fake_collect(_authors: list[Hanime1Author]) -> dict[str, HanimeCandidate]:
+        return {
+            '407657': HanimeCandidate(video_id='407657', source_name='Maplestar', archive_title='SAKAMOTO DAYS FULL ANIMATION'),
+            '406852': HanimeCandidate(video_id='406852', source_name='Maplestar', archive_title='Reze - Animation'),
+            '405944': HanimeCandidate(video_id='405944', source_name='Maplestar', archive_title='OVA Demo [新番預告]'),
+        }
+
+    async def _fake_query_db(sql: str, _params: tuple = ()) -> list[dict[str, str]]:
+        if 'SELECT id FROM hanime1' in sql:
+            return [{'id': '406852'}]
+        return []
+
+    monkeypatch.setattr(h, '_collect_author_candidates', _fake_collect)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    items = asyncio.run(h.get_author_items(authors=authors))
+
+    assert len(items) == 1
+    item = items[0]
+    assert item.id == '407657'
+    assert item.title == 'SAKAMOTO DAYS FULL ANIMATION'
+    assert item.keyword == 'Maplestar'
+    assert item.uploader == 'Maplestar'
+    assert item.page_url == f'{hanime1_module.cfg().host.rstrip("/")}/watch?v=407657'
+
+
+def test_update_downloads_series_then_author_items(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    output_dir = tmp_path / 'hanime1'
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', output_dir)
+    series_item = HanimeRecord(
+        id='series-1',
+        title='Series Title',
+        keyword='系列',
+        page_url='https://hanime1.me/watch?v=series-1',
+        stream_url='https://video.example.com/master.m3u8',
+    )
+    author_item = HanimeRecord(
+        id='author-1',
+        title='Author Title',
+        keyword='Maplestar',
+        uploader='Maplestar',
+        page_url='https://hanime1.me/watch?v=author-1',
+        stream_url='https://video.example.com/master.m3u8',
+    )
+
+    async def _fake_get_items(*, seeds: list[RuntimeSeriesSeed]) -> list[HanimeRecord]:
+        assert seeds == []
+        return [series_item]
+
+    async def _fake_get_author_items() -> list[HanimeRecord]:
+        return [author_item]
+
+    downloaded: list[str] = []
+
+    async def _fake_download_item(item: HanimeRecord) -> DownloadResult:
+        downloaded.append(item.id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        final_path = output_dir / f'{item.id}.mp4'
+        final_path.write_bytes(b'video')
+        return DownloadResult(
+            item_id=item.id,
+            title=item.title,
+            stream_url=item.stream_url or '',
+            final_path=final_path,
+        )
+
+    async def _fake_notify_download(**_kwargs) -> None:  # noqa: ANN003
+        return None
+
+    queries: list[tuple[str, tuple]] = []
+
+    async def _fake_query_db(sql: str, params: tuple = ()) -> list[dict[str, str]]:
+        queries.append((sql, params))
+        return []
+
+    monkeypatch.setattr(h, 'get_items', _fake_get_items)
+    monkeypatch.setattr(h, 'get_author_items', _fake_get_author_items)
+    monkeypatch.setattr(h, 'download_item', _fake_download_item)
+    monkeypatch.setattr(h, '_notify_download', _fake_notify_download)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    asyncio.run(h.update())
+
+    assert downloaded == ['series-1', 'author-1']
+    inserts = [params for sql, params in queries if 'INSERT OR IGNORE INTO hanime1 ' in sql]
+    assert [params[0] for params in inserts] == ['series-1', 'author-1']
+
+
+def test_update_survives_author_enumeration_failure(monkeypatch, tmp_path) -> None:
+    h = _make_hanime1(tmp_path)
+    monkeypatch.setattr(hanime1_module.cfg(), 'path', tmp_path / 'hanime1')
+
+    async def _fake_get_items(*, seeds: list[RuntimeSeriesSeed]) -> list[HanimeRecord]:
+        assert seeds == []
+        return []
+
+    async def _fake_get_author_items() -> list[HanimeRecord]:
+        msg = 'author route exploded'
+        raise RuntimeError(msg)
+
+    async def _fake_query_db(_sql: str, _params: tuple = ()) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(h, 'get_items', _fake_get_items)
+    monkeypatch.setattr(h, 'get_author_items', _fake_get_author_items)
+    monkeypatch.setattr(hanime1_module.database, 'query_db', _fake_query_db)
+
+    asyncio.run(h.update())
 
 
 def test_stream_resolution_label_parses_quality() -> None:

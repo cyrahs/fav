@@ -335,6 +335,9 @@ Protected endpoints:
 - `POST /api/v2/hanime1/seeds`
 - `GET /api/v2/hanime1/seeds`
 - `DELETE /api/v2/hanime1/seeds/{canonical_video_id}`
+- `POST /api/v2/hanime1/authors`
+- `GET /api/v2/hanime1/authors`
+- `DELETE /api/v2/hanime1/authors/{author_id}`
 - `GET /api/v2/job-requests`
 - `GET /api/v2/settings`
 - `GET /api/v2/settings/{section}`
@@ -492,6 +495,30 @@ channel_cooldown_seconds = 1800
 history_wait_seconds = 1
 flood_sleep_threshold_seconds = 300
 ```
+
+## Hanime1 Archive Layout
+
+Every downloaded video lands under `{web.hanime1.path}/{genre}/{group}/{title} [id].mp4`. The genre is read from the video's own
+watch page (the link next to the artist name) and converted to Simplified Chinese, e.g. `里番`, `泡面番`, `2D动画`, `AI生成`, `MMD`.
+Videos whose watch page exposes no genre fall back to `未分类` with a warning log.
+
+- Series subscriptions archive as `{path}/里番/{series}/{title NN} [id].mp4` — point Emby libraries at the `里番` / `泡面番`
+  directories for TMDB scraping.
+- Author subscriptions archive as `{path}/2D动画/{author}/{title} [id].mp4` — point Stash libraries at the fan-work genre
+  directories (`2D动画`, `AI生成`, `MMD`, ...).
+
+Files downloaded before the genre layer existed sit directly under `{path}/{series}/` and are not migrated automatically; move them
+into the matching genre directory manually when repointing media libraries. Dedup is database-backed (the `hanime1` table), so
+files uploaded and removed from disk by clouddrive2 are never re-downloaded.
+
+## Hanime1 Author Subscriptions
+
+Author (circle) uploads can be subscribed by user id from the Settings page or the API. The worker scans each author's
+`/user/{id}/uploaded` listing on every run, downloads new videos through the regular pipeline, and archives them under the author's
+display name. Adding a subscription accepts either the numeric id (`202534`) or the profile URL
+(`https://hanime1.me/user/202534/uploaded`); the display name is resolved from the profile page at add time and refused if
+unavailable. Per-author scan state (`video_count`, `last_scanned_at`, `last_scan_error`) is kept on the `hanime1_author` table, and
+a failing author never blocks the series route or the other authors.
 
 ## Hanime1 Ranking Discovery
 

@@ -140,6 +140,29 @@ class Hanime1SeedCreate(ApiSchema):
     seed: str = Field(min_length=1)
 
 
+class Hanime1Author(ApiSchema):
+    author_id: str
+    name: str
+    author_url: str
+
+
+class Hanime1AuthorDetail(Hanime1Author):
+    video_count: int
+    created_at: str | None = None
+    updated_at: str | None = None
+    last_scanned_at: str | None = None
+    last_scan_error: str = ''
+
+
+class Hanime1AuthorListResponse(ApiSchema):
+    items: list[Hanime1AuthorDetail]
+    total: int
+
+
+class Hanime1AuthorCreate(ApiSchema):
+    author: str = Field(min_length=1)
+
+
 class Live2DVector2(ApiSchema):
     x: float
     y: float

@@ -50,6 +50,16 @@ export interface Hanime1Seed {
   last_scan_error: string;
   watch_url: string;
 }
+export interface Hanime1Author {
+  author_id: string;
+  name: string;
+  author_url: string;
+  video_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+  last_scanned_at: string | null;
+  last_scan_error: string;
+}
 export interface ListResponse<T> {
   items: T[];
   total: number;

@@ -35,6 +35,9 @@ from .schemas import (
     BD2SidebarCharacterListResponse,
     CookieCloudTestRequest,
     CookieCloudTestResult,
+    Hanime1Author,
+    Hanime1AuthorCreate,
+    Hanime1AuthorListResponse,
     Hanime1ListResponse,
     Hanime1Seed,
     Hanime1SeedCreate,
@@ -506,6 +509,45 @@ def delete_hanime1_seed(
     service: ApiServiceDep,
 ) -> Response:
     service.delete_hanime1_seed(canonical_video_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    '/hanime1/authors',
+    operation_id='createHanime1Author',
+    response_model=Hanime1Author,
+    status_code=status.HTTP_201_CREATED,
+    tags=[TAG_HANIME1],
+)
+def create_hanime1_author(
+    payload: Hanime1AuthorCreate,
+    service: ApiServiceDep,
+) -> Hanime1Author:
+    return service.model_hanime1_author(service.add_hanime1_author(payload.author))
+
+
+@router.get(
+    '/hanime1/authors',
+    operation_id='listHanime1Authors',
+    response_model=Hanime1AuthorListResponse,
+    tags=[TAG_HANIME1],
+)
+def list_hanime1_authors(service: ApiServiceDep) -> Hanime1AuthorListResponse:
+    items = [service.model_hanime1_author_detail(author) for author in service.list_hanime1_authors()]
+    return Hanime1AuthorListResponse(items=items, total=len(items))
+
+
+@router.delete(
+    '/hanime1/authors/{author_id}',
+    operation_id='deleteHanime1Author',
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=[TAG_HANIME1],
+)
+def delete_hanime1_author(
+    author_id: Annotated[str, Path(min_length=1, max_length=32, pattern=r'^[0-9]+$')],
+    service: ApiServiceDep,
+) -> Response:
+    service.delete_hanime1_author(author_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
