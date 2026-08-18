@@ -520,7 +520,8 @@ select {
 /* Blocks sitting directly in an account card need their own spacing -- inside a
    field grid the grid gap supplies it, but here there is no gap to inherit. */
 .account-card > .repeater,
-.account-card > .subsection {
+.account-card > .subsection,
+.section-editor > .subsection {
   margin-top: 16px;
 }
 
