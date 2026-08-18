@@ -85,6 +85,37 @@ class _RuntimeService:
         return None
 
 
+class _AuthorService:
+    def __init__(self, authors: list[dict] | None = None) -> None:
+        self.authors = list(authors or [])
+        self.add_error: Exception | None = None
+        self.added: list[str] = []
+        self.deleted: list[str] = []
+
+    def list_authors(self) -> list[dict]:
+        return [dict(author) for author in self.authors]
+
+    def add_author(self, raw_author: str) -> dict:
+        self.added.append(raw_author)
+        if self.add_error is not None:
+            raise self.add_error
+        return {
+            'author_id': '202534',
+            'name': 'Maplestar',
+            'author_url': 'https://hanime1.me/user/202534/uploaded',
+        }
+
+    def delete_author(self, author_id: str) -> bool:
+        remaining = [author for author in self.authors if author['author_id'] != author_id]
+        deleted = len(remaining) != len(self.authors)
+        self.authors = remaining
+        self.deleted.append(author_id)
+        return deleted
+
+    def close(self) -> None:
+        return None
+
+
 def _job(*, key: str, enabled: bool = True, notify: bool = True) -> ScheduledJob:
     return ScheduledJob(
         key=key,
@@ -128,6 +159,7 @@ def _build_service(
     request_getter=None,
     request_lister=None,
     runtime_service: _RuntimeService | None = None,
+    author_service: _AuthorService | None = None,
     telegram_notification_tester=None,
 ) -> api_server.FavApiService:
     runtime = runtime_service or _RuntimeService()
@@ -143,6 +175,7 @@ def _build_service(
         control_request_getter=request_getter,
         control_request_lister=request_lister,
         runtime_service=runtime,
+        author_service=author_service or _AuthorService(),
         telegram_notification_tester=telegram_notification_tester,
     )
 
@@ -325,6 +358,8 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     assert '/api/v2/hanime1/seeds' in payload['paths']
     assert set(payload['paths']['/api/v2/hanime1/seeds']) == {'get', 'post'}
     assert set(payload['paths']['/api/v2/hanime1/seeds/{canonical_video_id}']) == {'delete'}
+    assert set(payload['paths']['/api/v2/hanime1/authors']) == {'get', 'post'}
+    assert set(payload['paths']['/api/v2/hanime1/authors/{author_id}']) == {'delete'}
     assert '/api/v2/settings' in payload['paths']
     assert set(payload['paths']['/api/v2/settings/{section}']) == {'get', 'put'}
     assert set(payload['paths']['/api/v2/notifications/telegram/test']) == {'post'}
@@ -708,6 +743,94 @@ def test_add_hanime1_seed_returns_resolve_error() -> None:
         'error': {
             'code': 'seed_resolve_failed',
             'message': 'Unable to resolve Hanime1 seed.',
+            'details': None,
+        },
+    }
+
+
+def test_hanime1_author_list_and_delete_endpoints_are_available() -> None:
+    author_service = _AuthorService(
+        authors=[
+            {
+                'author_id': '202534',
+                'name': 'Maplestar',
+                'author_url': 'https://hanime1.me/user/202534/uploaded',
+                'video_count': 34,
+                'created_at': _FIXED_NOW,
+                'updated_at': _FIXED_NOW,
+                'last_scanned_at': None,
+                'last_scan_error': '',
+            },
+        ],
+    )
+    service = _build_service(token=_VALID_TOKEN, author_service=author_service)
+
+    with TestClient(create_app(service=service)) as client:
+        list_response = client.get('/api/v2/hanime1/authors', headers=_auth_headers())
+        delete_response = client.delete('/api/v2/hanime1/authors/202534', headers=_auth_headers())
+        missing_response = client.delete('/api/v2/hanime1/authors/99999', headers=_auth_headers())
+        invalid_response = client.delete('/api/v2/hanime1/authors/not-a-number', headers=_auth_headers())
+
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload['total'] == 1
+    assert payload['items'][0] == {
+        'author_id': '202534',
+        'name': 'Maplestar',
+        'author_url': 'https://hanime1.me/user/202534/uploaded',
+        'video_count': 34,
+        'created_at': '2026-03-02T00:00:00Z',
+        'updated_at': '2026-03-02T00:00:00Z',
+        'last_scanned_at': None,
+        'last_scan_error': '',
+    }
+    assert delete_response.status_code == 204
+    assert author_service.deleted == ['202534', '99999']
+    assert missing_response.status_code == 404
+    assert invalid_response.status_code == 422
+
+
+def test_add_hanime1_author_returns_created_author() -> None:
+    author_service = _AuthorService()
+    service = _build_service(token=_VALID_TOKEN, author_service=author_service)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post(
+            '/api/v2/hanime1/authors',
+            headers=_auth_headers(),
+            json={'author': 'https://hanime1.me/user/202534/uploaded'},
+        )
+
+    assert response.status_code == 201
+    assert author_service.added == ['https://hanime1.me/user/202534/uploaded']
+    assert response.json() == {
+        'author_id': '202534',
+        'name': 'Maplestar',
+        'author_url': 'https://hanime1.me/user/202534/uploaded',
+    }
+
+
+@pytest.mark.parametrize(
+    ('error', 'expected_status', 'expected_code', 'expected_message'),
+    [
+        (FileExistsError('duplicate_author'), 409, 'duplicate_author', 'Hanime1 author already exists.'),
+        (LookupError('author_resolve_failed'), 422, 'author_resolve_failed', 'Unable to resolve Hanime1 author.'),
+        (ValueError('invalid_author'), 422, 'invalid_author', 'Author id or URL is invalid.'),
+    ],
+)
+def test_add_hanime1_author_maps_errors(error, expected_status, expected_code, expected_message) -> None:
+    author_service = _AuthorService()
+    author_service.add_error = error
+    service = _build_service(token=_VALID_TOKEN, author_service=author_service)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post('/api/v2/hanime1/authors', headers=_auth_headers(), json={'author': '202534'})
+
+    assert response.status_code == expected_status
+    assert response.json() == {
+        'error': {
+            'code': expected_code,
+            'message': expected_message,
             'details': None,
         },
     }

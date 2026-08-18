@@ -22,6 +22,7 @@ from src.tool.control_queue import (
     get_control_request_sync,
     list_control_requests_sync,
 )
+from src.tool.hanime1_author import Hanime1AuthorService
 from src.tool.hanime1_series import Hanime1SeriesService
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
@@ -52,6 +53,8 @@ from .schemas import (
     AzurLaneCharacterSummary,
     BD2CharacterDetail,
     BD2CharacterSummary,
+    Hanime1Author,
+    Hanime1AuthorDetail,
     Hanime1Seed,
     Hanime1SeedDetail,
     Hanime1Video,
@@ -118,6 +121,7 @@ class FavApiService:
         settings_section_saver: SettingsSectionSaver | None = None,
         telegram_notification_tester: TelegramNotificationTester | None = None,
         runtime_service: Hanime1SeriesService | None = None,
+        author_service: Hanime1AuthorService | None = None,
         archive_library: ArchiveLibrary | None = None,
         azurlane_library: AzurLaneLibrary | None = None,
         nikke_library: NikkeLibrary | None = None,
@@ -147,6 +151,11 @@ class FavApiService:
             host=settings.load().web.hanime1.host,
             user_lang=settings.load().web.hanime1.user_lang,
         )
+        self._author_service = author_service or Hanime1AuthorService(
+            dsn=self._dsn,
+            host=settings.load().web.hanime1.host,
+            user_lang=settings.load().web.hanime1.user_lang,
+        )
         self._azurlane_library = azurlane_library or AzurLaneLibrary(settings.load().web.azurlane.path)
         self._nikke_library = nikke_library or NikkeLibrary(settings.load().web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(settings.load().web.bd2.path)
@@ -155,9 +164,10 @@ class FavApiService:
         self._readiness_lock = asyncio.Lock()
 
     def close(self) -> None:
-        close = getattr(self._runtime_service, 'close', None)
-        if callable(close):
-            close()
+        for service in (self._runtime_service, self._author_service):
+            close = getattr(service, 'close', None)
+            if callable(close):
+                close()
 
     def authenticate(self, authorization: str | None) -> None:
         if not authorization:
@@ -601,6 +611,46 @@ class FavApiService:
         if not deleted:
             raise ApiError(status_code=404, code='not_found', message='Hanime1 seed not found.')
 
+    def add_hanime1_author(self, author: str) -> dict[str, str]:
+        try:
+            return self._author_service.add_author(author)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_author', message='Author id or URL is invalid.') from None
+        except FileExistsError:
+            raise ApiError(status_code=409, code='duplicate_author', message='Hanime1 author already exists.') from None
+        except LookupError:
+            raise ApiError(status_code=422, code='author_resolve_failed', message='Unable to resolve Hanime1 author.') from None
+        except Exception:
+            log.exception('Failed to add Hanime1 author subscription')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+    def list_hanime1_authors(self) -> list[dict[str, Any]]:
+        try:
+            authors = self._author_service.list_authors()
+        except Exception:
+            log.exception('Failed to list Hanime1 author subscriptions')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return [
+            {
+                **author,
+                'created_at': serialize_datetime(author.get('created_at')),
+                'updated_at': serialize_datetime(author.get('updated_at')),
+                'last_scanned_at': serialize_datetime(author.get('last_scanned_at')),
+            }
+            for author in authors
+        ]
+
+    def delete_hanime1_author(self, author_id: str) -> None:
+        try:
+            deleted = self._author_service.delete_author(author_id)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_author', message='Author id is invalid.') from None
+        except Exception:
+            log.exception('Failed to delete Hanime1 author subscription id=%s', author_id)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        if not deleted:
+            raise ApiError(status_code=404, code='not_found', message='Hanime1 author not found.')
+
     def list_azurlane_characters(self) -> list[dict[str, object]]:
         try:
             return self._azurlane_library.list_characters()
@@ -865,6 +915,14 @@ class FavApiService:
     @staticmethod
     def model_hanime1_seed_detail(payload: dict[str, Any]) -> Hanime1SeedDetail:
         return Hanime1SeedDetail.model_validate(payload)
+
+    @staticmethod
+    def model_hanime1_author(payload: dict[str, str]) -> Hanime1Author:
+        return Hanime1Author.model_validate(payload)
+
+    @staticmethod
+    def model_hanime1_author_detail(payload: dict[str, Any]) -> Hanime1AuthorDetail:
+        return Hanime1AuthorDetail.model_validate(payload)
 
     @staticmethod
     def model_settings_section(payload: dict[str, object]) -> SettingsSection:

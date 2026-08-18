@@ -18,7 +18,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote_plus, urlsplit
+from urllib.parse import parse_qs, quote_plus, unquote, urlsplit
 
 import httpx
 from opencc import OpenCC
@@ -26,6 +26,12 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 
 from src.core import logger, settings
 from src.tool import database, ensure_unique_path, format_video_filename, sanitize
+from src.tool.hanime1_author import (
+    Hanime1Author,
+    Hanime1AuthorVideoEntry,
+    ensure_hanime1_author_tables,
+    extract_author_video_entries,
+)
 from src.tool.hanime1_series import ensure_hanime1_series_tables
 from src.tool.notifications import enqueue_notification, format_job_failure_dedupe_key, resolve_notification
 from src.tool.runtime_config import (
@@ -70,6 +76,12 @@ _WATCH_UPLOADER_RE = re.compile(
     r'<a[^>]+id=["\']video-artist-name["\'][^>]*>(?P<uploader>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
+_WATCH_GENRE_LINK_RE = re.compile(r'href=["\'][^"\']*/search\?[^"\']*genre=(?P<genre>[^"\'&#]+)["\']', re.IGNORECASE)
+# The video's own genre link sits right next to the artist anchor; the nav bar
+# (before the anchor) and related-video cards (far below) also carry genre
+# links, so the search must stay anchored to a short window after the artist.
+_GENRE_SEARCH_WINDOW = 1000
+_UNCATEGORIZED_GENRE = '未分类'
 _WATCH_PRIMARY_TITLE_RES = (
     re.compile(
         r'<(?P<tag>h[1-6]|div)[^>]+id=["\']shareBtn-title["\'][^>]*>(?P<title>.*?)</(?P=tag)>',
@@ -97,6 +109,7 @@ _RANKING_SORT_BY_PERIOD = {
     'monthly': '本月排行',
 }
 _RANKING_DEBT_EPSILON = 1e-9
+_AUTHOR_MAX_PAGES = 50
 _IGNORED_TITLE_MARKERS = (
     '[新番预告]',
     '[中字后补]',
@@ -167,6 +180,7 @@ class WatchMetadata:
     release_date: str | None = None
     plot: str | None = None
     cover_url: str | None = None
+    genre: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -545,6 +559,28 @@ class Hanime1:
         return content or None
 
     @staticmethod
+    def _extract_genre_from_watch_html(page_html: str) -> str | None:
+        artist_match = _WATCH_UPLOADER_RE.search(page_html)
+        if not artist_match:
+            return None
+        window = page_html[artist_match.end() : artist_match.end() + _GENRE_SEARCH_WINDOW]
+        link_match = _WATCH_GENRE_LINK_RE.search(window)
+        if not link_match:
+            return None
+        genre = html.unescape(unquote(link_match.group('genre'))).strip()
+        return genre or None
+
+    @staticmethod
+    def _strip_uploader_prefix(title: str, uploader: str | None) -> str:
+        # Author-uploaded watch pages title themselves as '[Uploader] Title'
+        # while the author listing page shows the bare title; archive filenames
+        # should not repeat the uploader that already names the directory.
+        if not uploader:
+            return title
+        stripped = re.sub(r'^\[\s*' + re.escape(uploader.strip()) + r'\s*\]\s*', '', title, flags=re.IGNORECASE).strip()
+        return stripped or title
+
+    @staticmethod
     def _extract_cover_url_from_watch_html(page_html: str) -> str | None:
         for pattern in _OG_IMAGE_RES:
             match = pattern.search(page_html)
@@ -576,6 +612,7 @@ class Hanime1:
             release_date=release_date,
             plot=Hanime1._to_simplified_chinese(plot),
             cover_url=Hanime1._extract_cover_url_from_watch_html(page_html),
+            genre=Hanime1._to_simplified_chinese(Hanime1._extract_genre_from_watch_html(page_html)),
         )
 
     @staticmethod
@@ -637,13 +674,16 @@ class Hanime1:
         return 'unknown'
 
     @staticmethod
-    def _resolve_output_dir(keyword: str | None) -> Path:
-        if not keyword:
-            return cfg().path
-        normalized = sanitize(keyword.strip(), max_bytes=120)
-        if not normalized:
-            return cfg().path
-        return cfg().path / normalized
+    def _resolve_output_dir(*, item_id: str, genre: str | None, group: str | None) -> Path:
+        genre_dir = sanitize((genre or '').strip(), max_bytes=120)
+        if not genre_dir:
+            log.warning('Hanime1 %s has no resolvable genre on its watch page; archiving under %s', item_id, _UNCATEGORIZED_GENRE)
+            genre_dir = _UNCATEGORIZED_GENRE
+        base = cfg().path / genre_dir
+        group_dir = sanitize((group or '').strip(), max_bytes=120)
+        if not group_dir:
+            return base
+        return base / group_dir
 
     @staticmethod
     def _get_cookie_header() -> str:
@@ -1366,6 +1406,140 @@ class Hanime1:
         log.info('Hanime1 discovery path watch-series(ids) produced %d new videos', len(records))
         return records
 
+    async def _load_runtime_authors(self) -> list[Hanime1Author]:
+        rows = await database.query_db('SELECT author_id, name FROM hanime1_author ORDER BY created_at, author_id;')
+        authors: list[Hanime1Author] = []
+        for row in rows:
+            author_id = str(row.get('author_id') or '').strip()
+            name = str(row.get('name') or '').strip()
+            if not author_id or not name:
+                continue
+            authors.append(Hanime1Author(author_id=author_id, name=name))
+        return authors
+
+    async def _mark_author_scan_success(self, author_id: str, *, video_count: int) -> None:
+        await database.query_db(
+            """
+            UPDATE hanime1_author
+            SET last_scanned_at = CURRENT_TIMESTAMP,
+                last_scan_error = '',
+                video_count = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE author_id = ?;
+            """,
+            (video_count, author_id),
+        )
+
+    async def _mark_author_scan_failure(self, author_id: str, exc: Exception) -> None:
+        await database.query_db(
+            """
+            UPDATE hanime1_author
+            SET last_scan_error = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE author_id = ?;
+            """,
+            (self._format_scan_error(exc), author_id),
+        )
+
+    async def fetch_author_page_entries(self, *, author_id: str, page: int = 1) -> list[Hanime1AuthorVideoEntry]:
+        author_url = f'{cfg().host.rstrip("/")}/user/{author_id}/uploaded'
+        if page > 1:
+            author_url = f'{author_url}?page={page}'
+        headers = await self._build_page_headers(referer=cfg().host.rstrip('/') + '/')
+        res = await self.client.get(author_url, headers=headers)
+        if res.status_code == httpx.codes.NOT_FOUND:
+            # Past-the-end pages currently render empty listings; treat a
+            # future 404 the same way instead of failing the whole author.
+            return []
+        res.raise_for_status()
+        page_html = res.text
+        if all(marker in page_html for marker in _CF_BLOCK_MARKERS):
+            msg = 'Blocked by Cloudflare while resolving Hanime1 author page.'
+            raise ValueError(msg)
+        return extract_author_video_entries(page_html)
+
+    async def _fetch_all_author_entries(self, author_id: str) -> list[Hanime1AuthorVideoEntry]:
+        entries: list[Hanime1AuthorVideoEntry] = []
+        seen_ids: set[str] = set()
+        for page in range(1, _AUTHOR_MAX_PAGES + 1):
+            page_entries = await self.fetch_author_page_entries(author_id=author_id, page=page)
+            new_entries = [entry for entry in page_entries if entry.video_id not in seen_ids]
+            # Stop on an empty page (past the end) and on a page that only
+            # repeats known videos, in case the site echoes the listing for
+            # out-of-range pages instead of returning it empty.
+            if not new_entries:
+                break
+            for entry in new_entries:
+                seen_ids.add(entry.video_id)
+                entries.append(entry)
+        else:
+            log.warning('Hanime1 author %s pagination exceeded %d pages; stopping early', author_id, _AUTHOR_MAX_PAGES)
+        return entries
+
+    async def _collect_author_candidates(self, authors: list[Hanime1Author]) -> dict[str, HanimeCandidate]:
+        collected: dict[str, HanimeCandidate] = {}
+        for author in authors:
+            try:
+                entries = await self._fetch_all_author_entries(author.author_id)
+            except Exception as exc:  # noqa: BLE001
+                log.warning('Failed to scan Hanime1 author %s (%s): %s', author.author_id, author.name, exc)
+                await self._mark_author_scan_failure(author.author_id, exc)
+                continue
+
+            await self._mark_author_scan_success(author.author_id, video_count=len(entries))
+            new_count = 0
+            for entry in entries:
+                key = entry.video_id.casefold()
+                if key in collected:
+                    continue
+                collected[key] = HanimeCandidate(
+                    video_id=entry.video_id,
+                    source_name=author.name,
+                    archive_title=self._to_simplified_chinese(entry.title) or '',
+                )
+                new_count += 1
+            log.info('Hanime1 author %s (%s) listed %d videos (%d unique)', author.author_id, author.name, len(entries), new_count)
+        return collected
+
+    async def get_author_items(self, *, authors: list[Hanime1Author] | None = None) -> list[HanimeRecord]:
+        if authors is None:
+            authors = await self._load_runtime_authors()
+        if not authors:
+            return []
+
+        candidate_map = await self._collect_author_candidates(authors)
+        if not candidate_map:
+            return []
+
+        downloaded_ids = await self._get_downloaded_ids()
+        records: list[HanimeRecord] = []
+        seen_ids = set(downloaded_ids)
+        for key, candidate in candidate_map.items():
+            if key in seen_ids:
+                continue
+            marker = self._ignored_title_marker(candidate.archive_title)
+            if marker is not None:
+                log.info(
+                    'Skipping Hanime1 author item %s because listing title contains ignored marker %s: %s',
+                    candidate.video_id,
+                    marker,
+                    candidate.archive_title,
+                )
+                continue
+            seen_ids.add(key)
+            records.append(
+                HanimeRecord(
+                    id=candidate.video_id,
+                    title=candidate.archive_title,
+                    keyword=candidate.source_name,
+                    uploader=candidate.source_name,
+                    page_url=f'{cfg().host.rstrip("/")}/watch?v={candidate.video_id}',
+                    stream_url=None,
+                ),
+            )
+        log.info('Hanime1 discovery path author-uploads produced %d new videos', len(records))
+        return records
+
     async def download_item(self, item: HanimeRecord) -> DownloadResult:
         item_id = self._derive_item_id(item)
         item_title = self._to_simplified_chinese(item.title)
@@ -1397,7 +1571,7 @@ class Hanime1:
         if watch_metadata.title:
             metadata_title = watch_metadata.title
             if not item_title:
-                archive_title = watch_metadata.title
+                archive_title = self._strip_uploader_prefix(watch_metadata.title, watch_metadata.uploader or uploader)
         if not uploader and watch_metadata.uploader:
             uploader = watch_metadata.uploader
 
@@ -1424,7 +1598,7 @@ class Hanime1:
             video_id=item_id,
             ext=downloaded_path.suffix,
         )
-        output_dir = self._resolve_output_dir(item.keyword)
+        output_dir = self._resolve_output_dir(item_id=item_id, genre=watch_metadata.genre, group=item.keyword)
         await asyncio.to_thread(output_dir.mkdir, parents=True, exist_ok=True)
         final_path = ensure_unique_path(output_dir / filename)
         await asyncio.to_thread(shutil.move, downloaded_path, final_path)
@@ -1465,6 +1639,7 @@ class Hanime1:
         if 'uploader' not in column_names:
             await database.query_db('ALTER TABLE hanime1 ADD COLUMN uploader TEXT;')
         await ensure_hanime1_series_tables()
+        await ensure_hanime1_author_tables()
 
     async def update(self) -> None:
         await self._ensure_table()
@@ -1475,13 +1650,27 @@ class Hanime1:
         items = await self.get_items(seeds=seeds)
         if seeds:
             await self._resolve_parser_failure_notification()
-        if not items:
-            log.info('No new videos' if seeds else 'No Hanime1 series seeds configured in database')
-            return
+        if items:
+            await asyncio.to_thread(cfg().path.mkdir, parents=True, exist_ok=True)
+            log.info('Found %d new series videos', len(items))
+            await self._download_and_record(items)
+        else:
+            log.info('No new series videos' if seeds else 'No Hanime1 series seeds configured in database')
 
-        await asyncio.to_thread(cfg().path.mkdir, parents=True, exist_ok=True)
+        try:
+            author_items = await self.get_author_items()
+        except Exception:
+            # Author enumeration must never fail the job after the series
+            # route already ran; per-author errors land in last_scan_error.
+            log.exception('Failed to enumerate Hanime1 author subscriptions')
+            author_items = []
+        if author_items:
+            await asyncio.to_thread(cfg().path.mkdir, parents=True, exist_ok=True)
+            log.info('Found %d new author videos', len(author_items))
+            await self._download_and_record(author_items)
+
+    async def _download_and_record(self, items: list[HanimeRecord]) -> None:
         total = len(items)
-        log.info('Found %d new videos', total)
         for idx, item in enumerate(items, start=1):
             log.info('Downloading Hanime1 %s (%d/%d)', item.id, idx, total)
             try:
