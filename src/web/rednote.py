@@ -29,9 +29,18 @@ Two pieces of state make a run incremental:
   has, runs walk to the end of the list so the history fills in; after that they
   stop once ``abort_after`` pages of nothing but archived notes come up in a row.
 
-Images and the clips inside live photos are fetched straight from the CDN, with the
-browser closed. Whole video notes go through yt-dlp, which re-resolves the note page
-itself and can reach the untranscoded original.
+Every file -- images, the clips inside live photos, and whole videos -- is then
+fetched straight from the CDN with the browser closed and no cookies attached. The
+account is only ever presented to xiaohongshu.com, and only from inside the browser.
+
+Video notes used to be handed to yt-dlp instead, which re-read the note page from
+xiaohongshu.com carrying an exported copy of the session. That reached the
+untranscoded original, but it also put the account's cookies on a second client with
+its own TLS fingerprint and request rhythm, which is the shape of automation risk
+control looks for. It is not needed: the original is addressed by ``originVideoKey``,
+which the signed-in page states outright and which the CDN serves unsigned to anyone.
+So the key is read during the crawl, while the browser is open and signed in anyway,
+and the download itself carries no identity at all.
 """
 
 from __future__ import annotations
@@ -39,9 +48,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import secrets
-import shutil
-import subprocess
-import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -50,10 +56,9 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.core import logger, settings
-from src.tool import database, ensure_unique_path, format_media_filename, sanitize
+from src.tool import database, format_media_filename, sanitize
 from src.tool import telegram_bot as telegram_bot_tool
 from src.tool.notifications import enqueue_notification
 from src.web.rednote_browser import (
@@ -69,18 +74,18 @@ from src.web.rednote_browser import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from tenacity import RetryCallState
-
     from src.web.rednote_browser import NoteBrowser
 
 log = logger.get('rednote')
 
 _WEB_ORIGIN = 'https://www.xiaohongshu.com'
 # Where a note reached from a likes list is declared to have come from. It travels
-# with the token in the archive's outgoing links and in what yt-dlp is handed.
+# with the token in the archive's outgoing links.
 _XSEC_SOURCE = 'pc_user'
-_COOKIE_FILENAME = 'rednote-cookies.txt'
-_VIDEO_CACHE_DIRNAME = 'videos'
+# The original upload, before RedNote transcoded it into the streams the web player
+# offers. ``originVideoKey`` is a whole object key rather than a path, and the host
+# serves it unsigned, so this URL neither expires nor carries any identity.
+_ORIGIN_VIDEO_ORIGIN = 'https://sns-video-bd.xhscdn.com'
 _BACKFILL_STATE_KEY = 'backfill_complete'
 _LOGIN_PROMPT_STATE_KEY = 'login_prompt_at'
 _USER_ID_STATE_KEY = 'user_id'
@@ -116,6 +121,10 @@ _MEDIA_STALE_STATUS_CODES = {403, 404, 410}
 _MEDIA_ACCEPT = 'image/*,video/*,*/*;q=0.8'
 # Written into last_error so the next run can find these rows again.
 _STALE_URL_MARKER = 'stale-url'
+_DOWNLOAD_CHUNK_BYTES = 1 << 20
+# Marks a file still being written. Never a name the archive itself produces, so a
+# leftover one is always debris from a killed run.
+_PARTIAL_SUFFIX = '.part'
 
 _VIDEO_NOTE_TYPE = 'video'
 _IMAGE_MEDIA_TYPE = 'image'
@@ -143,12 +152,6 @@ _VIDEO_EXT = 'mp4'
 # Note timestamps are epoch milliseconds; rendered in the timezone the app shows.
 _DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
 
-_YTDLP_MAX_ATTEMPTS = 3
-_YTDLP_BASE_DELAY_SECONDS = 5
-# yt-dlp says this when the note page no longer carries a note. Anything else it
-# reports is treated as retryable, so a bad night never marks a note gone forever.
-_NOTE_GONE_MARKERS = ('当前笔记暂时无法浏览', '笔记不存在', '内容不存在', '已被删除')
-
 
 class RedNoteError(RuntimeError):
     """A run-ending failure: the session, or RedNote refusing the whole crawl."""
@@ -158,16 +161,8 @@ class RedNoteError(RuntimeError):
         self.notification_dedupe_key = notification_dedupe_key
 
 
-class MediaUnavailableError(RuntimeError):
-    """The note or one of its files is gone, rather than temporarily failing."""
-
-
 class MediaUrlStaleError(RuntimeError):
     """The stored CDN URL no longer serves; the note has to be looked at again."""
-
-
-class VideoDownloadError(RuntimeError):
-    """yt-dlp failed in a way that is worth trying again."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,10 +273,9 @@ def pick_video_url(stream: Any) -> str:
     ``EF7``, each holding variants that name their own codec in a ``videoCodec``
     field. So the bucket name is ignored and the codec is read off the variant.
 
-    Getting this wrong was quiet in both places it is used. A video note still yields
-    a row, because yt-dlp re-resolves it from the note page -- but a live photo's clip
-    is fetched straight from this URL, so an empty one meant the still was archived
-    and the moving half was silently dropped.
+    Getting this wrong is quiet: every file is fetched straight from the URL picked
+    here, so an empty one means a live photo's still is archived while its moving half
+    is dropped, or a video note waits for a re-resolve it did not need.
     """
     if not isinstance(stream, dict):
         return ''
@@ -298,6 +292,21 @@ def pick_video_url(stream: Any) -> str:
             ranked.setdefault(str(_field(variant, 'videoCodec', 'video_codec') or '').lower(), url)
     # A named preference when the codec is stated, and anything playable when it is not.
     return next((ranked[codec] for codec in _VIDEO_CODEC_PREFERENCE if codec in ranked), fallback)
+
+
+def pick_origin_video_url(video_block: Any) -> str:
+    """The untranscoded upload, if the note admits to having one.
+
+    ``consumer.originVideoKey`` is only in the page a signed-in session renders; a
+    logged-out one is served the same note with the whole ``consumer`` block missing.
+    That is the one thing here that needs the account, and the crawl is signed in
+    anyway -- what the key buys is a download that does not need it.
+    """
+    consumer = _field(video_block, 'consumer')
+    key = str(_field(consumer, 'originVideoKey', 'origin_video_key') or '').strip()
+    if not key:
+        return ''
+    return f'{_ORIGIN_VIDEO_ORIGIN}/{key.lstrip("/")}'
 
 
 def build_note_url(note_id: str, xsec_token: str = '') -> str:
@@ -323,55 +332,6 @@ def build_media_filename(media: RedNoteMedia, *, ext: str = '') -> str:
         uploader=media.author,
         ext=ext,
     )
-
-
-def build_ytdlp_command(
-    *,
-    note_url: str,
-    cookie_path: Path,
-    output_template: Path,
-    proxy: str = '',
-    user_agent: str = '',
-) -> list[str]:
-    """The yt-dlp invocation for one video note.
-
-    The output template is the note id alone: yt-dlp cannot know the repository's
-    filename shape, so the file is renamed once it is on disk.
-
-    ``proxy`` matters as much here as it does for the browser. yt-dlp re-fetches the
-    note page from xiaohongshu.com carrying the account's cookies, so leaving it on
-    the pod's own address would put the session back on exactly the network that got
-    it flagged. ``user_agent`` is read out of the live browser rather than pinned, so
-    the two provably agree instead of merely claiming to.
-    """
-    command = [
-        'yt-dlp',
-        '-o',
-        str(output_template),
-        '--no-mtime',
-        '--cookies',
-        str(cookie_path),
-        '--referer',
-        f'{_WEB_ORIGIN}/',
-    ]
-    if user_agent:
-        command.extend(['--add-header', f'User-Agent:{user_agent}'])
-    if proxy:
-        command.extend(['--proxy', proxy])
-    command.extend(
-        [
-            '-N',
-            '4',
-            '--retries',
-            '15',
-            '--fragment-retries',
-            '15',
-            '--socket-timeout',
-            '30',
-            note_url,
-        ],
-    )
-    return command
 
 
 def parse_api_envelope(payload: Any) -> dict[str, Any]:
@@ -455,8 +415,8 @@ def extract_note_media(note_card: dict[str, Any], *, note_id: str, xsec_token: s
     clip of a live photo counting separately. The numbering has to be reproducible
     from the same note: refreshing an expired URL looks the row up by it.
 
-    A video note yields a row even when no stream URL can be read out of it, because
-    yt-dlp downloads it from the note page rather than from that URL.
+    A video note yields a row even when neither the original nor a stream can be read
+    out of it: the row is what the next run looks the note up by to try again.
     """
     user = _field(note_card, 'user')
     user = user if isinstance(user, dict) else {}
@@ -472,9 +432,11 @@ def extract_note_media(note_card: dict[str, Any], *, note_id: str, xsec_token: s
     }
 
     if note_type == _VIDEO_NOTE_TYPE:
-        media_block = _field(note_card.get('video'), 'media')
-        stream = _field(media_block, 'stream')
-        return [RedNoteMedia(media_index=1, media_type=_VIDEO_MEDIA_TYPE, media_url=pick_video_url(stream), **shared)]
+        video_block = note_card.get('video')
+        # The original first: the streams beside it are what the web player was given,
+        # re-encoded smaller and, on a phone-shot note, at a fraction of the pixels.
+        media_url = pick_origin_video_url(video_block) or pick_video_url(_field(_field(video_block, 'media'), 'stream'))
+        return [RedNoteMedia(media_index=1, media_type=_VIDEO_MEDIA_TYPE, media_url=media_url, **shared)]
 
     image_list = _field(note_card, 'imageList', 'image_list')
     media: list[RedNoteMedia] = []
@@ -490,10 +452,6 @@ def extract_note_media(note_card: dict[str, Any], *, note_id: str, xsec_token: s
         if live_url:
             media.append(RedNoteMedia(media_index=len(media) + 1, media_type=_LIVE_MEDIA_TYPE, media_url=live_url, **shared))
     return media
-
-
-def is_note_gone(message: str) -> bool:
-    return any(marker in message for marker in _NOTE_GONE_MARKERS)
 
 
 class RedNote:
@@ -513,6 +471,7 @@ class RedNote:
         self.user_agent = ''
         self._browser_factory = self._new_browser
         self._logged_card_shapes: set[str] = set()
+        self._warned_transcoded = False
 
     def _new_browser(self) -> PlaywrightNoteBrowser:
         return PlaywrightNoteBrowser(
@@ -949,13 +908,26 @@ class RedNote:
             refreshed += 1
         return refreshed
 
-    async def _fetch_file(self, url: str) -> httpx.Response:
-        response = await self.client.get(url, headers={'Accept': _MEDIA_ACCEPT})
-        response.raise_for_status()
-        return response
+    async def _stream_to_file(self, url: str, dst_path: Path) -> None:
+        """Write the response body out as it arrives, never holding it whole.
+
+        A video row is the original upload rather than a stream sized for the web
+        player, so this is routinely hundreds of megabytes -- enough that buffering it
+        would put the worker's memory ceiling at the mercy of whatever got liked.
+        """
+        with dst_path.open('wb') as handle:
+            async with self.client.stream('GET', url, headers={'Accept': _MEDIA_ACCEPT}) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
+                    await asyncio.to_thread(handle.write, chunk)
 
     async def _download_file(self, media: RedNoteMedia) -> Path:
-        """An image or a live photo's clip, straight from the CDN."""
+        """One file straight from the CDN: an image, a live photo's clip, or a video.
+
+        Written beside its destination and moved into place at the end. A partial file
+        under the real name would be indistinguishable from a finished one on the next
+        run, which skips whatever is already on disk.
+        """
         dst_path = self._build_output_path(media)
         await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
         if await asyncio.to_thread(dst_path.exists):
@@ -964,9 +936,11 @@ class RedNote:
             msg = f'{_STALE_URL_MARKER} the row carries no URL'
             raise MediaUrlStaleError(msg)
 
+        part_path = dst_path.with_name(f'{dst_path.name}{_PARTIAL_SUFFIX}')
         try:
-            response = await self._fetch_file(media.media_url)
+            await self._stream_to_file(media.media_url, part_path)
         except httpx.HTTPStatusError as exc:
+            await self._discard(part_path)
             status = exc.response.status_code
             if status not in _MEDIA_STALE_STATUS_CODES:
                 raise
@@ -975,102 +949,19 @@ class RedNote:
             # at the note again and decides.
             msg = f'{_STALE_URL_MARKER} http {status}'
             raise MediaUrlStaleError(msg) from exc
+        except BaseException:
+            # Cancellation included: a killed run leaves no half file behind.
+            await self._discard(part_path)
+            raise
 
-        await asyncio.to_thread(dst_path.write_bytes, response.content)
+        await asyncio.to_thread(part_path.replace, dst_path)
         return dst_path
 
     @staticmethod
-    def _cleanup_dir(dirpath: Path) -> None:
-        if not dirpath.exists():
-            return
-        for entry in dirpath.iterdir():
-            if entry.is_dir():
-                shutil.rmtree(entry)
-            else:
-                entry.unlink()
+    async def _discard(path: Path) -> None:
+        await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
 
-    def _run_ytdlp(self, *, note_url: str, cookie_path: Path, cache_dir: Path, note_id: str) -> None:
-        command = build_ytdlp_command(
-            note_url=note_url,
-            cookie_path=cookie_path,
-            output_template=cache_dir / f'{note_id}.%(ext)s',
-            proxy=self.cfg.proxy,
-            user_agent=self.user_agent,
-        )
-
-        def _on_retry_before_sleep(retry_state: RetryCallState) -> None:
-            exc = retry_state.outcome.exception() if retry_state.outcome else None
-            if exc is None:
-                return
-            sleep = retry_state.next_action.sleep if retry_state.next_action else 0.0
-            log.debug('Retrying note %s (%d/%d), next wait %.1fs: %s', note_id, retry_state.attempt_number, _YTDLP_MAX_ATTEMPTS, sleep, exc)
-
-        @retry(
-            reraise=True,
-            stop=stop_after_attempt(_YTDLP_MAX_ATTEMPTS),
-            wait=wait_exponential(multiplier=_YTDLP_BASE_DELAY_SECONDS, min=_YTDLP_BASE_DELAY_SECONDS, max=_YTDLP_BASE_DELAY_SECONDS * 6),
-            retry=retry_if_exception_type(VideoDownloadError),
-            before_sleep=_on_retry_before_sleep,
-        )
-        def _run_once() -> None:
-            self._cleanup_dir(cache_dir)
-            result = subprocess.run(command, text=True, capture_output=True, check=False)  # noqa: S603
-            if result.returncode == 0:
-                if result.stderr:
-                    log.debug('yt-dlp stderr: %s', result.stderr.strip())
-                return
-            message = result.stderr.strip() or result.stdout.strip() or f'yt-dlp exited with code {result.returncode}'
-            if is_note_gone(message):
-                raise MediaUnavailableError(message)
-            raise VideoDownloadError(message)
-
-        _run_once()
-
-    def _move_download(self, *, cache_dir: Path, media: RedNoteMedia) -> Path:
-        """Rename what yt-dlp produced into the repository's filename shape."""
-        entries = [entry for entry in sorted(cache_dir.iterdir()) if entry.is_file()] if cache_dir.exists() else []
-        if not entries:
-            msg = 'yt-dlp reported success but produced no file'
-            raise VideoDownloadError(msg)
-
-        # A note is one video; anything else next to it is a thumbnail or a fragment.
-        source = max(entries, key=lambda entry: entry.stat().st_size)
-        dst_path = self._build_output_path(media, ext=source.suffix.removeprefix('.') or _VIDEO_EXT)
-        dst_path.parent.mkdir(parents=True, exist_ok=True)
-        dst_path = ensure_unique_path(dst_path)
-        # shutil.move, not rename: the video directory is usually a different mount.
-        shutil.move(str(source), str(dst_path))
-        self._cleanup_dir(cache_dir)
-        return dst_path
-
-    async def _download_video(self, media: RedNoteMedia, *, cookie_path: Path, cache_dir: Path) -> Path:
-        dst_path = self._build_output_path(media)
-        await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
-        if await asyncio.to_thread(dst_path.exists):
-            return dst_path
-
-        await asyncio.to_thread(cache_dir.mkdir, parents=True, exist_ok=True)
-        # yt-dlp runs for minutes; keep it off the event loop so the worker's queues
-        # and Telegram listeners stay responsive.
-        await asyncio.to_thread(
-            self._run_ytdlp,
-            note_url=build_note_url(media.note_id, media.xsec_token),
-            cookie_path=cookie_path,
-            cache_dir=cache_dir,
-            note_id=media.note_id,
-        )
-        return await asyncio.to_thread(self._move_download, cache_dir=cache_dir, media=media)
-
-    async def _download_one(self, media: RedNoteMedia, *, cookie_path: Path, cache_dir: Path) -> Path:
-        if media.media_type == _VIDEO_MEDIA_TYPE:
-            # yt-dlp reads the note page off xiaohongshu.com itself, so it is paced
-            # like an API request. The CDN the other files come from is not metered
-            # that way, and pacing it would add hours to a first backfill.
-            await self._sleep_between_requests()
-            return await self._download_video(media, cookie_path=cookie_path, cache_dir=cache_dir)
-        return await self._download_file(media)
-
-    async def _download_pending(self, items: Sequence[RedNoteMedia], *, cookie_path: Path, cache_dir: Path) -> int:
+    async def _download_pending(self, items: Sequence[RedNoteMedia]) -> int:
         downloaded = 0
         total = len(items)
         for position, media in enumerate(items, start=1):
@@ -1083,12 +974,7 @@ class RedNote:
                 media.media_type,
             )
             try:
-                dst_path = await self._download_one(media, cookie_path=cookie_path, cache_dir=cache_dir)
-            except MediaUnavailableError as exc:
-                reason = str(exc).strip() or 'confirmed unavailable'
-                await self._mark_unavailable(media, reason)
-                log.info('Marked unavailable note=%s index=%s: %s', media.note_id, media.media_index, reason)
-                continue
+                dst_path = await self._download_file(media)
             except MediaUrlStaleError as exc:
                 # Recorded rather than resolved: the next run re-reads the note with
                 # the browser open and either refreshes the URL or retires the row.
@@ -1244,10 +1130,30 @@ class RedNote:
                 # Read fine, carries nothing this source handles. Not a deletion.
                 log.warning('Note %s carries no files, skipping', note.note_id)
                 continue
+            self._warn_if_transcoded(note_card, media)
             await self._upsert_media(media)
             await self._clear_missing(note.note_id)
             resolved += len(media)
         return resolved
+
+    def _warn_if_transcoded(self, note_card: dict[str, Any], media: Sequence[RedNoteMedia]) -> None:
+        """Say so, once per run, when a video row settled for the web player's copy.
+
+        The original is what makes this source worth pointing at a video note at all,
+        and losing access to it would otherwise be invisible: the run still succeeds,
+        the files still land, and only their resolution gives it away. If this starts
+        firing for every note, the signed-in page has stopped stating the key and the
+        crawl is reading notes as a stranger would.
+        """
+        if self._warned_transcoded or not any(item.media_type == _VIDEO_MEDIA_TYPE for item in media):
+            return
+        if pick_origin_video_url(note_card.get('video')):
+            return
+        self._warned_transcoded = True
+        log.warning(
+            'RedNote note %s offers no originVideoKey; archiving the transcoded stream instead of the original',
+            str(note_card.get('noteId') or note_card.get('note_id') or ''),
+        )
 
     async def _record_missing(self, note_id: str, *, run_id: str) -> None:
         """Count one run that found this note gone.
@@ -1295,7 +1201,7 @@ class RedNote:
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue rednote summary notification: %s', exc)
 
-    async def _read_account(self, cookie_path: Path) -> int:
+    async def _read_account(self) -> int:
         """Everything that needs the browser, in one session.
 
         Held open for as short a window as possible: a persistent Chromium context
@@ -1312,7 +1218,6 @@ class RedNote:
             await self._prepare_session(browser)
             resolved = await self._crawl(browser)
             await self._refresh_stale_media(browser)
-            await asyncio.to_thread(cookie_path.write_text, await browser.netscape_cookies(), encoding='utf-8')
         finally:
             await browser.aclose()
         return resolved
@@ -1329,20 +1234,19 @@ class RedNote:
         if self.cfg.video_path is not None:
             await asyncio.to_thread(self.cfg.video_path.mkdir, parents=True, exist_ok=True)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            cookie_path = Path(tmp_dir) / _COOKIE_FILENAME
-            cache_dir = Path(tmp_dir) / _VIDEO_CACHE_DIRNAME
-            # One writer per profile: a Chromium user-data-dir is single-owner, and
-            # the worker, the API and a --trigger run are three plausible claimants.
-            lock_name = f'rednote-profile:{self.cfg.profile_path.expanduser().resolve()}'
-            async with database.advisory_lock(lock_name) as acquired:
-                if not acquired:
-                    log.warning('The RedNote browser profile is in use by another run; skip this one')
-                    return
-                resolved = await self._read_account(cookie_path)
+        # One writer per profile: a Chromium user-data-dir is single-owner, and
+        # the worker, the API and a --trigger run are three plausible claimants.
+        lock_name = f'rednote-profile:{self.cfg.profile_path.expanduser().resolve()}'
+        async with database.advisory_lock(lock_name) as acquired:
+            if not acquired:
+                log.warning('The RedNote browser profile is in use by another run; skip this one')
+                return
+            resolved = await self._read_account()
 
-            pending = await self._pending_media()
-            downloaded = await self._download_pending(pending, cookie_path=cookie_path, cache_dir=cache_dir)
+        # Outside the lock, and with the browser gone: the downloads are plain CDN
+        # traffic that neither the profile nor the account is involved in.
+        pending = await self._pending_media()
+        downloaded = await self._download_pending(pending)
 
         log.info('RedNote resolved %d new files and downloaded %d of %d pending', resolved, downloaded, len(pending))
         if downloaded:
