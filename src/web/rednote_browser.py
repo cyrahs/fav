@@ -31,7 +31,7 @@ import httpx
 from src.core import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping
     from pathlib import Path
 
 log = logger.get('rednote')
@@ -224,7 +224,6 @@ class NoteBrowser(Protocol):
     async def probe_login(self) -> dict[str, Any]: ...
     async def refresh_qr(self) -> bool: ...
     async def cookie_dict(self) -> dict[str, str]: ...
-    async def netscape_cookies(self) -> str: ...
     async def user_agent(self) -> str: ...
     async def reload_login(self) -> None: ...
     async def open_likes(self, *, user_id: str) -> bool: ...
@@ -474,32 +473,6 @@ def cursor_of(url: str) -> str:
     return values[0]
 
 
-def browser_cookies_to_netscape(cookies: Sequence[Mapping[str, Any]]) -> str:
-    """A cookie jar for yt-dlp, in the format it reads.
-
-    Written to a throwaway file rather than into the profile: yt-dlp rewrites the
-    file it is handed, and the profile is Chromium's to own.
-    """
-    lines = [
-        '# Netscape HTTP Cookie File',
-        '# https://curl.se/docs/http-cookies.html',
-        '# This file was generated from the RedNote browser profile',
-    ]
-    for cookie in cookies:
-        name = str(cookie.get('name') or '')
-        if not name:
-            continue
-        domain = str(cookie.get('domain') or '')
-        include_subdomains = 'TRUE' if domain.startswith('.') else 'FALSE'
-        secure = 'TRUE' if cookie.get('secure') else 'FALSE'
-        expires = cookie.get('expires')
-        # A session cookie comes back as -1; the file format spells that 0.
-        expiry = int(expires) if isinstance(expires, (int, float)) and expires > 0 else 0
-        path = str(cookie.get('path') or '/')
-        lines.append(f'{domain}\t{include_subdomains}\t{path}\t{secure}\t{expiry}\t{name}\t{cookie.get("value") or ""}')
-    return '\n'.join(lines)
-
-
 class PlaywrightNoteBrowser:
     """A persistent Chromium context, opened for the length of one crawl."""
 
@@ -690,9 +663,6 @@ class PlaywrightNoteBrowser:
     async def cookie_dict(self) -> dict[str, str]:
         cookies = await self._context.cookies()
         return {str(cookie.get('name') or ''): str(cookie.get('value') or '') for cookie in cookies if cookie.get('name')}
-
-    async def netscape_cookies(self) -> str:
-        return browser_cookies_to_netscape(await self._context.cookies())
 
     async def user_agent(self) -> str:
         return str(await self._page.evaluate('() => navigator.userAgent'))

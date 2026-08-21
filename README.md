@@ -217,9 +217,8 @@ nothing to break when RedNote rotates one.
 **The proxy is required** unless `allow_direct_connection` is set: most datacenter ranges answer 461,
 and going out over one is what cost the account its sessions, so it is now a decision rather than a
 default. Credentials have to be `http(s)` — Chromium cannot authenticate to a SOCKS proxy, and it
-ignores credentials embedded in `--proxy-server`, so they are split out before launch. yt-dlp gets
-the same proxy: it re-fetches the note page carrying the account's cookies, and leaving it on the
-pod's own address would undo the rest.
+ignores credentials embedded in `--proxy-server`, so they are split out before launch. Only the
+browser needs it: nothing else in this source ever contacts xiaohongshu.com.
 
 **测试出口** beside the field checks the egress as typed, before saving and without the account: an
 anonymous request to the site, reporting the exit address so a home line can be told from a
@@ -272,10 +271,16 @@ is its redirect to `/404`; a timeout, a navigation error or a note that simply c
 this run's problem rather than the note's, and reading a note successfully clears whatever had been
 counted against it.
 
-Images and the clips inside live photos come straight from the CDN; whole video notes go through
-yt-dlp, which re-resolves the note page itself and can reach the untranscoded original. Files land in
+Every file comes straight from the CDN, with the browser closed and no cookies attached — images,
+the clips inside live photos, and whole videos alike. A video row points at `originVideoKey`, the
+untranscoded upload: the signed-in page states the key outright and the CDN serves it unsigned, so
+the original is reachable without presenting the account for it. Only if a note is rendered without
+that key does the row fall back to the transcoded stream the web player is given, which on a
+phone-shot note is a quarter of the pixels. Files land in
 `<root>/<nickname>/[<nickname>]<date> [<note_id>_<n>].<ext>`, where `<root>` is `path`, or
-`video_path` for mp4s when that is set. A CDN URL that stops serving is recorded rather than judged:
+`video_path` for mp4s when that is set. Downloads stream to a neighbouring `.part` file and are moved
+into place at the end, because the next run skips whatever is already on disk. A CDN URL that stops
+serving is recorded rather than judged:
 the browser is closed by then, and a 404 says as much about a rotated URL as a deleted note, so the
 next run looks at the note again and either refreshes the URL or retires the row.
 

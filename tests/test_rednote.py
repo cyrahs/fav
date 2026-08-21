@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 import tomllib
 from pathlib import Path
 
@@ -17,29 +18,25 @@ from src.api.schemas import JobRequestTarget
 from src.core import settings
 from src.core.settings import SECTION_MODELS
 from src.web.rednote import (
-    MediaUnavailableError,
     MediaUrlStaleError,
     NoteRef,
     RedNote,
     RedNoteError,
     RedNoteMedia,
-    VideoDownloadError,
     build_media_filename,
     build_note_url,
-    build_ytdlp_command,
     decide_login_state,
     extract_like_page,
     extract_note_media,
     infer_image_extension,
-    is_note_gone,
     normalize_media_url,
     parse_api_envelope,
+    pick_origin_video_url,
     user_id_from_probe,
 )
 from src.web.rednote_browser import (
     PlaywrightNoteBrowser,
     ProxyProbe,
-    browser_cookies_to_netscape,
     build_launch_options,
     build_proxy_settings,
     clear_stale_profile_locks,
@@ -112,9 +109,6 @@ class _FakeBrowser:
 
     async def cookie_dict(self) -> dict[str, str]:
         return dict(self.cookies)
-
-    async def netscape_cookies(self) -> str:
-        return '# Netscape HTTP Cookie File'
 
     async def user_agent(self) -> str:
         return self._user_agent
@@ -211,6 +205,7 @@ def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -
     job.user_agent = 'Mozilla/5.0 (Test) Chrome/149.0.0.0'
     job._browser_factory = lambda: browser or _FakeBrowser()
     job._logged_card_shapes = set()
+    job._warned_transcoded = False
     return job
 
 
@@ -576,21 +571,6 @@ def test_a_killed_chromium_does_not_lock_the_profile_forever(tmp_path) -> None:
     assert sorted(cleared) == ['SingletonCookie', 'SingletonLock']
     assert not (tmp_path / 'SingletonLock').is_symlink()
     assert clear_stale_profile_locks(tmp_path) == []
-
-
-def test_browser_cookies_become_a_jar_yt_dlp_can_read() -> None:
-    text = browser_cookies_to_netscape(
-        [
-            {'name': 'web_session', 'value': 'v', 'domain': '.xiaohongshu.com', 'path': '/', 'secure': True, 'expires': 1893456000},
-            {'name': 'session_only', 'value': 's', 'domain': 'www.xiaohongshu.com', 'path': '/', 'secure': False, 'expires': -1},
-        ],
-    )
-
-    lines = text.splitlines()
-    assert lines[0] == '# Netscape HTTP Cookie File'
-    assert lines[3].split('\t') == ['.xiaohongshu.com', 'TRUE', '/', 'TRUE', '1893456000', 'web_session', 'v']
-    # A session cookie comes back as -1; the file format spells that 0.
-    assert lines[4].split('\t')[4] == '0'
 
 
 def test_the_login_qr_is_decoded_straight_out_of_the_dom() -> None:
@@ -1040,9 +1020,8 @@ def test_a_stream_is_picked_by_its_stated_codec_not_by_the_bucket_it_sits_in() -
     """The buckets are opaque and versioned; the codec is a field on the variant.
 
     This expected `h264`/`h265`/`av1` as keys and the live site answers with
-    `EF4`/`EF5`/`EF6`/`EF7`. Keying on the name yielded no URL at all -- survivable
-    for a video note, which yt-dlp re-resolves from the page, and silent data loss
-    for a live photo, whose clip is fetched straight from this URL.
+    `EF4`/`EF5`/`EF6`/`EF7`. Keying on the name yielded no URL at all, which is silent
+    data loss: every file is fetched straight from the URL picked here.
     """
     # h264 is preferred, and it is in the bucket that sorts last.
     assert extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')[0].media_url.endswith('h264.mp4')
@@ -1057,8 +1036,8 @@ def test_a_stream_is_picked_by_its_stated_codec_not_by_the_bucket_it_sits_in() -
 
 
 def test_a_video_note_yields_a_row_even_with_no_readable_stream() -> None:
-    # yt-dlp downloads it from the note page, so an unreadable stream block is not a
-    # reason to drop the note on the floor.
+    # The row is what the next run looks the note up by, so an unreadable video block
+    # is not a reason to drop the note on the floor.
     media = extract_note_media(_video_note_card(video={}), note_id=NOTE_ID, xsec_token='T')
 
     assert [(item.media_index, item.media_type, item.media_url) for item in media] == [(1, 'video', '')]
@@ -1091,55 +1070,6 @@ def test_videos_and_live_clips_are_named_as_mp4() -> None:
 def test_a_note_link_carries_the_token_that_makes_it_readable() -> None:
     assert build_note_url(NOTE_ID, 'TOKEN') == f'https://www.xiaohongshu.com/explore/{NOTE_ID}?xsec_token=TOKEN&xsec_source=pc_user'
     assert build_note_url(NOTE_ID) == f'https://www.xiaohongshu.com/explore/{NOTE_ID}'
-
-
-# ---------- yt-dlp invocation ----------
-
-
-def test_the_video_command_leaves_through_the_same_proxy_as_the_browser() -> None:
-    # yt-dlp re-fetches the note page carrying the account's cookies, so skipping the
-    # proxy here would put the session straight back on the pod's own address.
-    command = build_ytdlp_command(
-        note_url=build_note_url(NOTE_ID, 'TOKEN'),
-        cookie_path=Path('/run/cookies/c.txt'),
-        output_template=Path('/cache') / f'{NOTE_ID}.%(ext)s',
-        proxy='http://home.example:3128',
-        user_agent='Mozilla/5.0 (Test) Chrome/149.0.0.0',
-    )
-
-    assert command[command.index('--proxy') + 1] == 'http://home.example:3128'
-    assert command[command.index('--cookies') + 1] == '/run/cookies/c.txt'
-    assert command[command.index('-o') + 1] == f'/cache/{NOTE_ID}.%(ext)s'
-    # Read off the live browser rather than pinned, so the two provably agree.
-    assert command[command.index('--add-header') + 1] == 'User-Agent:Mozilla/5.0 (Test) Chrome/149.0.0.0'
-    assert command[-1].endswith('?xsec_token=TOKEN&xsec_source=pc_user')
-
-
-def test_the_video_command_omits_what_it_was_not_given() -> None:
-    command = build_ytdlp_command(note_url='https://x', cookie_path=Path('/c'), output_template=Path('/o.%(ext)s'))
-
-    assert '--proxy' not in command
-    assert '--add-header' not in command
-
-
-def test_the_installed_yt_dlp_still_claims_rednote_note_pages() -> None:
-    """Guard the unattended upgrade path.
-
-    yt-dlp is bumped and merged by Dependabot without a human looking. Every other
-    test here only checks the strings this module builds; this one asks the installed
-    yt-dlp whether it still has an extractor for the URL they are built around.
-    """
-    from yt_dlp.extractor import gen_extractor_classes  # noqa: PLC0415
-
-    url = build_note_url(NOTE_ID, 'TOKEN')
-    matched = [extractor for extractor in gen_extractor_classes() if extractor.suitable(url) and extractor.IE_NAME != 'generic']
-
-    assert [extractor.IE_NAME for extractor in matched] == ['XiaoHongShu']
-
-
-def test_a_deleted_note_is_told_apart_from_a_bad_night() -> None:
-    assert is_note_gone('ERROR: [XiaoHongShu] 当前笔记暂时无法浏览') is True
-    assert is_note_gone('ERROR: unable to download webpage: timed out') is False
 
 
 # ---------- walking the likes list ----------
@@ -1515,7 +1445,7 @@ def test_downloading_marks_each_row_and_keeps_going_past_a_dead_url(monkeypatch,
     job = _job(_handler, path=tmp_path)
     pending = [_media(media_index=1, media_url=dead_url), _media(media_index=2)]
 
-    downloaded = _run(job, job._download_pending(pending, cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'))
+    downloaded = _run(job, job._download_pending(pending))
 
     assert downloaded == 1
     updates = fake_db.updates()
@@ -1539,7 +1469,7 @@ def test_the_cdn_is_not_paced_like_the_site(monkeypatch, tmp_path) -> None:
     job = _job(_handler, path=tmp_path, sleep_request_seconds=3.0)
     pending = [_media(media_index=1), _media(media_index=2)]
 
-    assert _run(job, job._download_pending(pending, cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache')) == 2
+    assert _run(job, job._download_pending(pending)) == 2
     assert sleeps == []
 
 
@@ -1596,74 +1526,105 @@ def test_a_file_the_note_no_longer_offers_is_retired(monkeypatch) -> None:
 # ---------- video notes ----------
 
 
-def _fake_ytdlp(*, exit_code: int = 0, stderr: str = '', suffix: str = '.mp4'):
-    calls: list[list[str]] = []
+def test_a_video_note_is_fetched_from_the_cdn_like_every_other_file(tmp_path) -> None:
+    """No second client, no exported session: a video is a URL and a write.
 
-    class _Result:
-        def __init__(self, returncode: int) -> None:
-            self.returncode = returncode
-            self.stdout = ''
-            self.stderr = stderr
+    This used to shell out to yt-dlp with a copy of the account's cookies, which
+    re-read the note page from xiaohongshu.com under a different TLS fingerprint --
+    the shape risk control reads as automation, and the thing that cost the account
+    its sessions once already.
+    """
 
-    def _run_command(command, **_kwargs):
-        calls.append(command)
-        if exit_code == 0:
-            template = Path(command[command.index('-o') + 1])
-            output = template.with_name(template.name.replace('.%(ext)s', suffix))
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b'video-bytes')
-        return _Result(exit_code)
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        assert 'xiaohongshu.com' not in str(request.url)
+        assert 'cookie' not in {name.lower() for name in request.headers}
+        return httpx.Response(200, content=b'video-bytes')
 
-    return _run_command, calls
+    job = _job(_handler, path=tmp_path / 'images', video_path=tmp_path / 'videos')
 
-
-def test_a_video_note_is_downloaded_by_yt_dlp_and_renamed(monkeypatch, tmp_path) -> None:
-    run_command, calls = _fake_ytdlp()
-    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
-    job = _job(path=tmp_path / 'images', video_path=tmp_path / 'videos')
-
-    dst_path = _run(
-        job,
-        job._download_video(_media(media_type='video', media_url=''), cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'),
-    )
+    dst_path = _run(job, job._download_file(_media(media_type='video', media_url='https://sns-video-bd.xhscdn.com/origin-key')))
 
     assert dst_path == tmp_path / 'videos' / 'artist' / f'[artist]2025-08-12 [{NOTE_ID}_1].mp4'
     assert dst_path.read_bytes() == b'video-bytes'
-    assert list((tmp_path / 'cache').iterdir()) == []
-    assert calls[0][-1].startswith(f'https://www.xiaohongshu.com/explore/{NOTE_ID}?xsec_token=')
 
 
-def test_a_video_yt_dlp_saved_as_something_else_keeps_that_extension(monkeypatch, tmp_path) -> None:
-    run_command, _ = _fake_ytdlp(suffix='.mkv')
-    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
-    job = _job(path=tmp_path)
+def test_the_original_upload_outranks_the_streams_beside_it() -> None:
+    """``originVideoKey`` is the file the author uploaded, before transcoding.
 
-    dst_path = _run(job, job._download_video(_media(media_type='video'), cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'))
+    Observed live: the streams a note offers the web player are 720p h264, while the
+    key resolves to the 2160x3840 original. Preferring the streams would quietly
+    archive a quarter of the pixels.
+    """
+    card = _video_note_card(
+        video={
+            'consumer': {'originVideoKey': 'pre_post/1040g0k031abc'},
+            'media': {'stream': {'EF5': [{'videoCodec': 'h264', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h264.mp4'}]}},
+        },
+    )
 
-    assert dst_path.suffix == '.mkv'
+    media = extract_note_media(card, note_id=NOTE_ID, xsec_token='T')
 
-
-def test_a_deleted_video_note_is_not_retried(monkeypatch, tmp_path) -> None:
-    run_command, calls = _fake_ytdlp(exit_code=1, stderr='ERROR: [XiaoHongShu] 当前笔记暂时无法浏览')
-    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
-    job = _job(path=tmp_path)
-
-    with pytest.raises(MediaUnavailableError):
-        _run(job, job._download_video(_media(media_type='video'), cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'))
-
-    assert len(calls) == 1
+    assert media[0].media_url == 'https://sns-video-bd.xhscdn.com/pre_post/1040g0k031abc'
 
 
-def test_a_video_that_merely_failed_is_reported_as_retryable(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(rednote_module, '_YTDLP_MAX_ATTEMPTS', 1)
-    run_command, calls = _fake_ytdlp(exit_code=1, stderr='ERROR: unable to download webpage: timed out')
-    monkeypatch.setattr(rednote_module.subprocess, 'run', run_command)
-    job = _job(path=tmp_path)
+def test_a_note_rendered_without_the_original_still_yields_its_stream() -> None:
+    # A logged-out page is served the same note with the whole `consumer` block
+    # missing, and a stream is better than waiting for a re-resolve that cannot help.
+    assert extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')[0].media_url.endswith('h264.mp4')
+    assert pick_origin_video_url({'consumer': {}}) == ''
+    assert pick_origin_video_url({}) == ''
+    # The API spelling, for the same reason every other field tolerates both.
+    assert pick_origin_video_url({'consumer': {'origin_video_key': 'k'}}) == 'https://sns-video-bd.xhscdn.com/k'
 
-    with pytest.raises(VideoDownloadError):
-        _run(job, job._download_video(_media(media_type='video'), cookie_path=tmp_path / 'c.txt', cache_dir=tmp_path / 'cache'))
 
-    assert len(calls) == 1
+def test_settling_for_a_transcoded_stream_is_said_out_loud_once(caplog) -> None:
+    """A run that quietly stops getting originals still succeeds; only the pixels drop."""
+    job = _job()
+    without_key = _video_note_card()
+    media = extract_note_media(without_key, note_id=NOTE_ID, xsec_token='T')
+
+    with caplog.at_level(logging.WARNING):
+        job._warn_if_transcoded(without_key, media)
+        job._warn_if_transcoded(without_key, media)
+
+    assert sum('originVideoKey' in record.message for record in caplog.records) == 1
+
+    # And a note that does state its key says nothing at all.
+    job = _job()
+    with_key = _video_note_card(video={'consumer': {'originVideoKey': 'k'}, 'media': {'stream': {}}})
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        job._warn_if_transcoded(with_key, extract_note_media(with_key, note_id=NOTE_ID, xsec_token='T'))
+
+    assert caplog.records == []
+    asyncio.run(job.client.aclose())
+
+
+def test_a_download_that_dies_half_way_leaves_nothing_that_looks_finished(tmp_path) -> None:
+    """The next run skips whatever is already on disk, so a partial file is forever."""
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        msg = 'connection reset'
+        raise httpx.ReadError(msg)
+
+    job = _job(_handler, path=tmp_path)
+
+    with pytest.raises(httpx.ReadError):
+        _run(job, job._download_file(_media(media_type='video', media_url='https://sns-video-bd.xhscdn.com/k')))
+
+    assert list((tmp_path / 'artist').iterdir()) == []
+
+
+def test_an_expired_video_url_is_recorded_without_leaving_a_stub(tmp_path) -> None:
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    job = _job(_handler, path=tmp_path)
+
+    with pytest.raises(MediaUrlStaleError, match='stale-url'):
+        _run(job, job._download_file(_media(media_type='video', media_url='https://sns-video-bd.xhscdn.com/k')))
+
+    assert list((tmp_path / 'artist').iterdir()) == []
 
 
 # ---------- run ----------
@@ -1740,7 +1701,8 @@ def test_the_job_is_registered_and_parked_until_configured() -> None:
     job = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'rednote')
 
     assert job.section == 'web.rednote'
-    assert job.required_commands == ('yt-dlp',)
+    # Nothing to shell out to any more: the browser reads, httpx downloads.
+    assert job.required_commands == ()
     assert job.factory is jobs_module.RedNote
     assert job.enabled is False
     assert 'proxy' in job.missing_fields

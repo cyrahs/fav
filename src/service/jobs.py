@@ -55,7 +55,7 @@ JOB_SPECS: tuple[JobSpec, ...] = (
     JobSpec(key='stellasora', name='Stella Sora', attr='stellasora', required_commands=(), factory=StellaSora),
     JobSpec(key='twitter', name='X', attr='twitter', required_commands=('gallery-dl',), factory=Twitter),
     JobSpec(key='pixiv', name='Pixiv', attr='pixiv', required_commands=(), factory=Pixiv),
-    JobSpec(key='rednote', name='RedNote', attr='rednote', required_commands=('yt-dlp',), factory=RedNote),
+    JobSpec(key='rednote', name='RedNote', attr='rednote', required_commands=(), factory=RedNote),
 )
 
 JOB_KEYS: tuple[str, ...] = tuple(spec.key for spec in JOB_SPECS)
