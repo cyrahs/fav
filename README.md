@@ -39,7 +39,8 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.rednote`, `notifications.telegram`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`,
+`notifications.telegram`.
 
 Every `web.*` section carries `cron`, `enabled` and `notify`, all three edited on the jobs page
 rather than the settings page. `notify` defaults to true and covers everything that source sends to
@@ -123,8 +124,8 @@ uv lock --upgrade-package gallery-dl
 The session comes from the same CookieCloud vault Bilibili uses, read from `x.com` (or `twitter.com`,
 whichever the browser extension synced), and needs `auth_token` and `ct0`. It is re-fetched at the
 start of every run, so signing in again in the browser is all it takes to recover from an expired
-session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili` or `twitter`) and the
-settings page exposes it as the same 测试连接 button.
+session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili`, `twitter` or `pixiv`)
+and the settings page exposes it as the same 测试连接 button.
 
 Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
 covers both. Setting `video_path` keeps videos and GIFs on a different disk from the images; leave it
@@ -146,6 +147,38 @@ rather than assumed complete.
 Caveats worth knowing: this is an unofficial path, so keep `sleep_request_seconds` conservative; X
 truncates a deep likes timeline server-side, so the backfill reaches only as far back as X is willing
 to serve; and unliking a tweet does not delete what was already downloaded.
+
+#### pixiv public bookmarks
+
+`web.pixiv` archives your own public bookmarks (公開ブックマーク) through the `www.pixiv.net` ajax
+API: illustrations and manga as their original files (one file per page), and ugoira synthesized from
+their frame zip into a single animated webp with Pillow, honoring each frame's delay. Novels are not
+collected, and R-18 bookmarks arrive with the session like any other.
+
+```jsonc
+{
+  "cron": "0 */6 * * *",
+  "enabled": true,
+  "path": "collection/pixiv",
+  "user_id": "",                            // empty: derived from the PHPSESSID cookie
+  "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." },
+  "sleep_request_seconds": 1.0,             // spacing between ajax requests; CDN downloads are not paced
+  "proxy": ""                               // empty: direct (or the global HTTP_PROXY)
+}
+```
+
+The bookmarks listing refuses anonymous requests, so the session is the `PHPSESSID` cookie read from
+the CookieCloud vault under `pixiv.net`, re-fetched at the start of every run. The logged-in user's
+id is embedded in that cookie's value (`{user_id}_{hash}`), so `user_id` normally stays empty. Image
+originals on `i.pximg.net` need only the `Referer` header, never the cookie.
+
+Every output file is a row in the `pixiv` table keyed by `(illust_id, num)` with
+`downloaded`/`unavailable` flags, and files land in `path/<author>/[<author>]<title> [<id>_p<num>].<ext>`
+(ugoira: `[<id>_ugoira].webp`). A run walks the bookmarks newest-first and stops after two consecutive
+pages whose every work is already settled, so the first run backfills everything and later runs stay
+short. A bookmark whose work was deleted or made private shows up masked and is settled as
+unavailable — an already-downloaded file is left alone, which is what the archive is for. Works a
+previous run left pending are retried from the database at the end of every run.
 
 #### RedNote liked notes
 
@@ -258,7 +291,7 @@ them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete sour
 crashing.
 
 Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.twitter.cookiecloud.password`,
-`web.rednote.proxy`, `web.telegram.accounts[].api_hash`,
+`web.pixiv.cookiecloud.password`, `web.rednote.proxy`, `web.telegram.accounts[].api_hash`,
 `notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the

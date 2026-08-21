@@ -561,6 +561,50 @@ class Twitter(ScheduleJob):
         return missing
 
 
+class Pixiv(ScheduleJob):
+    """Public pixiv bookmarks, crawled through the www.pixiv.net ajax API.
+
+    The session is a PHPSESSID cookie pulled from CookieCloud so it tracks the
+    browser. The logged-in user's id is normally derived from that cookie's value
+    (``{user_id}_{hash}``); ``user_id`` only overrides it for a vault whose cookie
+    does not carry that shape.
+    """
+
+    path: Path = Path('./collection/pixiv')
+    cron: str = '0 */6 * * *'
+    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+    # Optional override; empty means "derive from the PHPSESSID cookie".
+    user_id: str = ''
+    # Spacing between ajax API requests. Image downloads hit the CDN and are not paced.
+    sleep_request_seconds: float = 1.0
+    proxy: str = ''
+
+    @field_validator('user_id')
+    @classmethod
+    def normalize_user_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized and not normalized.isdigit():
+            msg = 'user_id must contain only digits'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('proxy')
+    @classmethod
+    def normalize_proxy(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('sleep_request_seconds')
+    @classmethod
+    def validate_sleep_request_seconds(cls, value: float) -> float:
+        if value < 0:
+            msg = 'sleep_request_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
+
+    def validate_runnable(self) -> list[str]:
+        return [f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable()]
+
+
 class RedNote(ScheduleJob):
     """Liked notes on RedNote (小红书), read through a signed-in Chromium profile.
 
@@ -704,6 +748,7 @@ class Web(BaseModel):
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono = Field(default_factory=Kemono)
     twitter: Twitter = Field(default_factory=Twitter)
+    pixiv: Pixiv = Field(default_factory=Pixiv)
     rednote: RedNote = Field(default_factory=RedNote)
 
 
@@ -723,6 +768,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.jandan': Jandan,
     'web.kemono': Kemono,
     'web.twitter': Twitter,
+    'web.pixiv': Pixiv,
     'web.rednote': RedNote,
     'notifications.telegram': TelegramNotification,
 }
@@ -732,6 +778,7 @@ SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.twitter': ('cookiecloud.password',),
+    'web.pixiv': ('cookiecloud.password',),
     # A proxy URL may carry credentials, and this one points at the user's own line.
     'web.rednote': ('proxy',),
     'web.telegram': ('accounts[].api_hash',),
