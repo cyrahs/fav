@@ -2,6 +2,7 @@ export interface Job {
   key: string;
   name: string;
   enabled: boolean;
+  notify: boolean;
   cron: string;
   section: string;
   missing_fields: string[];
@@ -48,6 +49,21 @@ export interface Hanime1Seed {
   last_scanned_at: string | null;
   last_scan_error: string;
   watch_url: string;
+}
+export interface Hanime1Author {
+  author_id: string;
+  name: string;
+  author_url: string;
+  video_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+  last_scanned_at: string | null;
+  last_scan_error: string;
+}
+export interface KemonoCreatorResolved {
+  service: string;
+  id: string;
+  name: string;
 }
 export interface ListResponse<T> {
   items: T[];

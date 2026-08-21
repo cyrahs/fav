@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 from src.tool import database
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
     from typing import Any
 
@@ -20,7 +20,9 @@ STATUS_REJECTED = 'rejected'
 STATUS_RUNNING = 'running'
 STATUS_SUCCEEDED = 'succeeded'
 VALID_STATUSES = {STATUS_PENDING, STATUS_RUNNING, STATUS_SUCCEEDED, STATUS_FAILED, STATUS_REJECTED}
-VALID_KINDS = {'trigger_job'}
+KIND_TRIGGER_JOB = 'trigger_job'
+KIND_SCHEDULED_JOB = 'scheduled_job'
+VALID_KINDS = {KIND_TRIGGER_JOB, KIND_SCHEDULED_JOB}
 _STALE_RUNNING_REQUEST_SECONDS = 6 * 60 * 60
 
 _CREATE_CONTROL_REQUESTS_TABLE_SQL = """
@@ -131,9 +133,10 @@ def create_control_request_sync(
     return _from_row(row)
 
 
-def list_control_requests_sync(dsn: str, *, status: str | None = None, limit: int = 50) -> list[ControlRequest]:
-    if status is not None and status not in VALID_STATUSES:
-        msg = f'Unsupported control request status: {status}'
+def list_control_requests_sync(dsn: str, *, statuses: Sequence[str] | None = None, limit: int = 50) -> list[ControlRequest]:
+    invalid = set(statuses or ()) - VALID_STATUSES
+    if invalid:
+        msg = f'Unsupported control request status: {", ".join(sorted(invalid))}'
         raise ValueError(msg)
 
     ensure_control_requests_table_sync(dsn)
@@ -143,9 +146,10 @@ def list_control_requests_sync(dsn: str, *, status: str | None = None, limit: in
         FROM control_requests
     """
     params: tuple[Any, ...] = ()
-    if status is not None:
-        query += ' WHERE status = %s'
-        params = (status,)
+    if statuses:
+        # psycopg adapts a list as an array; a tuple would be sent as a record.
+        query += ' WHERE status = ANY(%s)'
+        params = (list(statuses),)
     query += ' ORDER BY requested_at DESC, id DESC LIMIT %s;'
 
     with psycopg.connect(dsn, autocommit=True, row_factory=dict_row) as conn, conn.cursor() as cursor:
@@ -190,6 +194,27 @@ async def claim_next_control_request() -> ControlRequest | None:
     if not rows:
         return None
     return _from_row(rows[0])
+
+
+async def record_scheduled_run_start(target: str) -> int:
+    """Insert a bookkeeping row for a cron-fired run and return its id.
+
+    Born as `running`, so the claim loop (which only picks up `pending`
+    rows) can never execute it a second time.
+    """
+    await ensure_control_requests_table()
+    rows = await database.query_db(
+        """
+        INSERT INTO control_requests (kind, target, status, started_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        RETURNING id;
+        """,
+        (KIND_SCHEDULED_JOB, target, STATUS_RUNNING),
+    )
+    if not rows:
+        msg = 'Failed to record scheduled run'
+        raise RuntimeError(msg)
+    return int(rows[0]['id'])
 
 
 async def update_control_request(

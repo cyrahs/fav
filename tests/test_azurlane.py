@@ -44,6 +44,9 @@ class FakeAzurLaneDatabase:
         self.model_assets: list[dict[str, Any]] = []
         self.ship_details: dict[int, dict[str, Any]] = {}
         self.queries: list[str] = []
+        # What a failed model's cooldown is stamped with. Set it to None to play out the run
+        # that happens once the wait has lapsed.
+        self.model_retry_at: str | None = 'future'
 
     @asynccontextmanager
     async def advisory_lock(self, _name: str) -> AsyncIterator[bool]:
@@ -219,11 +222,15 @@ class FakeAzurLaneDatabase:
                 source_metadata,
             ) = params
             metadata = json.loads(str(source_metadata))
+            stored = self.models.get(str(model_id), {})
             # Mirrors the upsert's CASE: geometry merged in during the download phase outlives
             # the catalog refresh that starts every run.
-            stored_index = self.models.get(str(model_id), {}).get('source_metadata', {}).get('painting_index')
+            stored_index = stored.get('source_metadata', {}).get('painting_index')
             if isinstance(stored_index, dict):
                 metadata['painting_index'] = stored_index
+            # And the other CASE: the retry cooldown survives the refresh unless the source
+            # moved the URL it was waiting on.
+            url_moved = bool(stored) and stored.get('primary_url') != primary_url
             self.models[str(model_id)] = {
                 'model_id': model_id,
                 'model_type': model_type,
@@ -240,10 +247,36 @@ class FakeAzurLaneDatabase:
                 'source_metadata': metadata,
                 'active': True,
                 'completed': False,
+                'failed_count': 0 if url_moved else stored.get('failed_count', 0),
+                'last_error': stored.get('last_error', ''),
+                'next_retry_at': None if url_moved else stored.get('next_retry_at'),
             }
             return []
         if sql.startswith('UPDATE azurlane_models SET fetched_at'):
             self.models[str(params[0])]['completed'] = False
+            return []
+        if sql.startswith('SELECT model_id, next_retry_at, (next_retry_at > NOW()) AS in_cooldown'):
+            return [
+                {
+                    'model_id': model_id,
+                    'next_retry_at': row.get('next_retry_at'),
+                    'in_cooldown': bool(row.get('next_retry_at')),
+                }
+                for model_id, row in sorted(self.models.items())
+                if int(row.get('failed_count') or 0) > 0
+            ]
+        if sql.startswith('UPDATE azurlane_models SET failed_count = failed_count + 1'):
+            last_error, *_retry_days, model_id = params
+            row = self.models[str(model_id)]
+            row['failed_count'] = int(row.get('failed_count') or 0) + 1
+            row['last_error'] = last_error
+            row['next_retry_at'] = self.model_retry_at
+            return []
+        if sql.startswith('UPDATE azurlane_models SET failed_count = 0'):
+            row = self.models[str(params[0])]
+            row['failed_count'] = 0
+            row['last_error'] = ''
+            row['next_retry_at'] = None
             return []
         if sql.startswith('UPDATE azurlane_models SET source_metadata = source_metadata ||'):
             source_metadata, model_id = params
@@ -1077,6 +1110,133 @@ def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch:
     assert 'HTTP 404' in failed['last_error']
     assert failed['next_retry_at'] == 'future'
     assert any(row['url'] == texture_url and row['kind'] == 'live2d.texture' for row in fake_db.model_assets)
+    model = fake_db.models['azurlane:live2d:javelin:javelin']
+    assert model['failed_count'] == 1
+    assert model['next_retry_at'] == 'future'
+    assert 'Azur Lane assets failed' in model['last_error']
+
+
+_SECOND_MODEL_FAILURE = 2
+
+
+def _run_javelin_missing_texture_crawl(*, tmp_path: Path, seen_asset_urls: list[str], texture_hosted: bool = False) -> None:
+    """One update() over a Javelin whose texture the CDN does not host until it does."""
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+
+    hosted = {
+        model3_url: (_live2d_model3_payload().encode('utf-8'), 'application/json'),
+        moc_url: (b'moc-bytes', 'application/octet-stream'),
+    }
+    if texture_hosted:
+        hosted[texture_url] = (b'texture-bytes', 'image/webp')
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        seen_asset_urls.append(url)
+        body = hosted.get(url)
+        if body is None:
+            return httpx.Response(404)
+        return httpx.Response(200, content=body[0], headers={'content-type': body[1]})
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+
+def test_azurlane_update_stays_quiet_while_a_failed_model_is_in_cooldown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    first_run_urls: list[str] = []
+    with pytest.raises(azurlane_module.CrawlRunError):
+        _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=first_run_urls)
+    assert first_run_urls
+
+    # The source has not changed, so the next run has nothing to report -- and nothing to
+    # download either. The cheap existence probe that would notice a corrected path survives;
+    # re-fetching the model's assets to watch them fail again does not.
+    second_run_urls: list[str] = []
+    _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=second_run_urls)
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    assert texture_url not in second_run_urls
+    assert moc_url not in second_run_urls
+    assert len(second_run_urls) < len(first_run_urls)
+    assert fake_db.assets[texture_url]['failed_count'] == 1
+    assert fake_db.models['azurlane:live2d:javelin:javelin']['failed_count'] == 1
+
+
+def test_azurlane_update_reports_a_failed_model_again_once_its_cooldown_lapses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    with pytest.raises(azurlane_module.CrawlRunError):
+        _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=[])
+
+    fake_db.model_retry_at = None
+    fake_db.models['azurlane:live2d:javelin:javelin']['next_retry_at'] = None
+    retry_urls: list[str] = []
+    with pytest.raises(azurlane_module.CrawlRunError):
+        _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=retry_urls)
+    assert f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp' in retry_urls
+    assert fake_db.models['azurlane:live2d:javelin:javelin']['failed_count'] == _SECOND_MODEL_FAILURE
+
+
+def test_azurlane_update_retries_a_failed_model_when_the_source_moves_its_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    with pytest.raises(azurlane_module.CrawlRunError):
+        _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=[])
+
+    model_id = 'azurlane:live2d:javelin:javelin'
+    assert fake_db.models[model_id]['next_retry_at'] == 'future'
+    fake_db.models[model_id]['primary_url'] = _live2d_url('javelinOld')
+    retry_urls: list[str] = []
+    with pytest.raises(azurlane_module.CrawlRunError):
+        _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=retry_urls)
+    assert f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp' in retry_urls
+
+
+def test_azurlane_update_clears_the_retry_state_once_the_source_serves_the_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_db = _install_fake_database(monkeypatch)
+    with pytest.raises(azurlane_module.CrawlRunError):
+        _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=[])
+
+    model_id = 'azurlane:live2d:javelin:javelin'
+    fake_db.model_retry_at = None
+    fake_db.models[model_id]['next_retry_at'] = None
+    _run_javelin_missing_texture_crawl(tmp_path=tmp_path, seen_asset_urls=[], texture_hosted=True)
+    assert fake_db.models[model_id]['failed_count'] == 0
+    assert fake_db.models[model_id]['next_retry_at'] is None
+    assert fake_db.models[model_id]['last_error'] == ''
 
 
 def test_azurlane_update_recovers_a_painting_stored_under_a_different_case(

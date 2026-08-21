@@ -46,7 +46,7 @@ export function patcher({ value, onChange }: SectionFormProps) {
 /* ---------- field groups shared by several sections ---------- */
 
 /**
- * `cron` and `enabled` live on the jobs page, not here — but they are still part
+ * `cron`, `enabled` and `notify` live on the jobs page, not here — but they are still part
  * of the section payload, and PUT replaces the whole section. Every form spreads
  * the original value, which is what carries them through untouched.
  */

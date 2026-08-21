@@ -1,10 +1,12 @@
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { api } from '../api/client';
+import type { KemonoCreatorResolved } from '../api/types';
 import { describeCron } from './CronInput';
 import {
   CheckboxField,
   CheckboxGroup,
   NumberField,
-  Repeater,
   SecretField,
   SelectField,
   TextField,
@@ -180,16 +182,14 @@ function AzurLaneForm(props: SectionFormProps) {
     <div className="field-grid">
       <PathField {...props} />
 
-      <SecretField
+      <TextField
         label="源站代理"
         value={originProxy}
         onChange={(next) => set('origin_proxy', next)}
+        mono
         invalid={!originProxy}
-        hint={
-          originProxy
-            ? undefined
-            : 'l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。格式：http://用户名:密码@主机:端口'
-        }
+        placeholder="http://用户名:密码@主机:端口"
+        hint="l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。"
       />
       <AzurLaneProxyTest originProxy={originProxy} />
 
@@ -207,6 +207,8 @@ function AzurLaneForm(props: SectionFormProps) {
 function KemonoForm(props: SectionFormProps) {
   const set = patcher(props);
   const creators = list<KemonoCreator>(props.value, 'creators');
+  const [creatorInput, setCreatorInput] = useState('');
+  const [addError, setAddError] = useState('');
 
   const update = (index: number, patch: Partial<KemonoCreator>) => {
     set(
@@ -215,74 +217,116 @@ function KemonoForm(props: SectionFormProps) {
     );
   };
 
+  const resolve = useMutation({
+    mutationFn: () =>
+      api.post<KemonoCreatorResolved>('/api/v2/kemono/creators/resolve', { creator: creatorInput.trim() }),
+    onSuccess: (resolved) => {
+      if (creators.some((creator) => creator.service === resolved.service && creator.id === resolved.id)) {
+        setAddError(`已在列表里：${resolved.service}/${resolved.id}`);
+        return;
+      }
+      set('creators', [...creators, resolved]);
+      setCreatorInput('');
+      setAddError('');
+    },
+    onError: (err: Error) => setAddError(err.message),
+  });
+
   return (
     <div className="field-grid">
       <PathField {...props} />
 
-      <Repeater
-        label="创作者"
-        count={creators.length}
-        addLabel="添加创作者"
-        empty="还没有创作者，Kemono 任务会保持未就绪。"
-        hint="service 与 id 取自作品页地址：/{service}/user/{id}"
-        onAdd={() => set('creators', [...creators, { service: 'fanbox', id: '', name: '' }])}
-      >
-        <table className="table compact">
-          <thead>
-            <tr>
-              <th>Service</th>
-              <th>用户 ID</th>
-              <th>名称（目录名）</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {creators.map((creator, index) => (
-              // eslint-disable-next-line react/no-array-index-key -- rows have no stable id until saved
-              <tr key={index}>
-                <td>
-                  <input
-                    type="text"
-                    className="mono-input"
-                    value={creator.service ?? ''}
-                    placeholder="fanbox"
-                    onChange={(event) => update(index, { service: event.target.value })}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    className="mono-input"
-                    value={creator.id ?? ''}
-                    onChange={(event) => update(index, { id: event.target.value })}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="text"
-                    value={creator.name ?? ''}
-                    onChange={(event) => update(index, { name: event.target.value })}
-                  />
-                </td>
-                <td className="actions">
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() =>
-                      set(
-                        'creators',
-                        creators.filter((_, position) => position !== index),
-                      )
-                    }
-                  >
-                    删除
-                  </button>
-                </td>
+      <TextField
+        label="站点地址"
+        value={str(props.value, 'base_url')}
+        onChange={(next) => set('base_url', next)}
+        placeholder="https://pawchive.pw"
+        mono
+        hint="kemono 系站点域名换过多次，换新域名改这里即可，无需发版。"
+      />
+      <TextField
+        label="文件服务器地址"
+        value={str(props.value, 'file_base_url')}
+        onChange={(next) => set('file_base_url', next)}
+        placeholder="https://file.pawchive.pw"
+        mono
+        hint="附件下载走独立域名（主站对 /data 路径返回 404）。"
+      />
+      <NumberField
+        label="请求间隔（秒）"
+        value={num(props.value, 'sleep_request_seconds', 1)}
+        onChange={(next) => set('sleep_request_seconds', next)}
+        step={0.5}
+        hint="每次 API 请求与文件下载前的等待。站点开始限流时调大即可，立即生效。"
+      />
+
+      <div className="repeater">
+        <div className="repeater-head">
+          <h4>
+            创作者 <span className="muted">({creators.length})</span>
+          </h4>
+        </div>
+        <p className="field-hint">粘贴创作者页地址或纯数字 ID（纯 ID 默认 fanbox）；名称自动解析，添加后仍可修改，保存后生效。</p>
+        <div className="inline-form">
+          <input
+            type="text"
+            className="mono-input"
+            value={creatorInput}
+            placeholder="https://pawchive.pw/fanbox/user/70050825 或 70050825"
+            onChange={(event) => setCreatorInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && creatorInput.trim() && !resolve.isPending) resolve.mutate();
+            }}
+          />
+          <button type="button" disabled={!creatorInput.trim() || resolve.isPending} onClick={() => resolve.mutate()}>
+            {resolve.isPending ? '解析中…' : '添加'}
+          </button>
+        </div>
+        {addError && <p className="warn">{addError}</p>}
+        {creators.length === 0 ? (
+          <p className="muted">还没有创作者，Kemono 任务会保持未就绪。</p>
+        ) : (
+          <table className="table compact">
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>用户 ID</th>
+                <th>名称（目录名）</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </Repeater>
+            </thead>
+            <tbody>
+              {creators.map((creator, index) => (
+                <tr key={`${creator.service ?? ''}/${creator.id ?? ''}/${index}`}>
+                  <td className="mono">{creator.service ?? ''}</td>
+                  <td className="mono">{creator.id ?? ''}</td>
+                  <td>
+                    <input
+                      type="text"
+                      value={creator.name ?? ''}
+                      onChange={(event) => update(index, { name: event.target.value })}
+                    />
+                  </td>
+                  <td className="actions">
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() =>
+                        set(
+                          'creators',
+                          creators.filter((_, position) => position !== index),
+                        )
+                      }
+                    >
+                      删除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
@@ -400,6 +444,83 @@ function TwitterForm(props: SectionFormProps) {
   );
 }
 
+function PixivForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const userId = str(props.value, 'user_id');
+  const userIdOk = /^\d*$/.test(userId);
+  const cookiecloud = record(props.value, 'cookiecloud') as CookieCloudCredentials;
+  const setCookieCloud = (patch: Partial<CookieCloudCredentials>) =>
+    set('cookiecloud', { ...cookiecloud, ...patch });
+
+  return (
+    <div className="field-grid">
+      <PathField {...props} />
+      <TextField
+        label="用户 ID"
+        value={userId}
+        onChange={(next) => set('user_id', next)}
+        mono
+        placeholder="留空则自动推导"
+        invalid={!userIdOk}
+        hint="留空即可：会从 CookieCloud 里 PHPSESSID 的前缀自动推导登录账号的 ID。"
+        error={userId && !userIdOk ? '只能包含数字' : undefined}
+      />
+
+      <div className="subsection">
+        <h4>CookieCloud 凭据</h4>
+        <div className="field-grid">
+          <TextField
+            label="服务地址"
+            value={cookiecloud.server_url ?? ''}
+            onChange={(next) => setCookieCloud({ server_url: next })}
+            mono
+            placeholder="https://cookiecloud.example.com/"
+          />
+          <TextField
+            label="UUID"
+            value={cookiecloud.uuid ?? ''}
+            onChange={(next) => setCookieCloud({ uuid: next })}
+            mono
+          />
+          <SecretField
+            label="密码"
+            value={cookiecloud.password ?? ''}
+            onChange={(next) => setCookieCloud({ password: next })}
+            hint="浏览器插件需要同步 pixiv.net 的 PHPSESSID"
+          />
+          <CookieCloudTest
+            source="pixiv"
+            serverUrl={cookiecloud.server_url ?? ''}
+            uuid={cookiecloud.uuid ?? ''}
+            password={cookiecloud.password ?? ''}
+          />
+        </div>
+      </div>
+
+      <div className="subsection">
+        <h4>抓取节奏</h4>
+        <div className="field-grid">
+          <NumberField
+            label="请求间隔（秒）"
+            value={num(props.value, 'sleep_request_seconds', 1)}
+            onChange={(next) => set('sleep_request_seconds', next)}
+            step={0.5}
+            hint="只作用于 pixiv 的 ajax 接口；图片直接走 CDN，不受此限制。"
+          />
+          <TextField
+            label="代理"
+            value={str(props.value, 'proxy')}
+            onChange={(next) => set('proxy', next)}
+            mono
+            placeholder="http://host:port"
+            hint="留空则直连（或走全局 HTTP_PROXY）"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RedNoteForm(props: SectionFormProps) {
   const set = patcher(props);
   const allowDirect = bool(props.value, 'allow_direct_connection');
@@ -420,11 +541,13 @@ function RedNoteForm(props: SectionFormProps) {
       <div className="subsection">
         <h4>出口与登录</h4>
         <div className="field-grid">
-          <SecretField
+          <TextField
             label="代理"
             value={proxy}
             onChange={(next) => set('proxy', next)}
+            mono
             invalid={!proxy && !allowDirect}
+            placeholder="http://用户名:密码@主机:端口"
             hint="小红书屏蔽了大部分机房 IP 段。带账号密码时必须用 http(s)：Chromium 不支持 SOCKS 认证。"
           />
           <RedNoteProxyTest proxy={proxy} />
@@ -548,6 +671,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.jandan': JandanForm,
   'web.kemono': KemonoForm,
   'web.twitter': TwitterForm,
+  'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
   'notifications.telegram': TelegramNotificationForm,
 };
@@ -650,7 +774,26 @@ export function validateSection(section: string, value: Record<string, unknown>)
     }
   }
 
+  if (section === 'web.pixiv') {
+    const userId = str(value, 'user_id').trim();
+    if (userId && !/^\d+$/.test(userId)) {
+      issues.push('用户 ID 只能包含数字');
+    }
+    if (num(value, 'sleep_request_seconds', 1) < 0) {
+      issues.push('请求间隔不能为负数');
+    }
+  }
+
   if (section === 'web.kemono') {
+    for (const field of ['base_url', 'file_base_url'] as const) {
+      const url = str(value, field).trim();
+      if (url && !/^https?:\/\//.test(url)) {
+        issues.push(`${field} 必须以 http:// 或 https:// 开头`);
+      }
+    }
+    if (num(value, 'sleep_request_seconds', 1) < 0) {
+      issues.push('请求间隔不能为负数');
+    }
     list<KemonoCreator>(value, 'creators').forEach((creator, index) => {
       if (!creator.service?.trim() || !creator.id?.trim() || !creator.name?.trim()) {
         issues.push(`创作者 #${index + 1} 的 service / id / 名称都不能为空`);

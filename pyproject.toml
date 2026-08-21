@@ -12,6 +12,8 @@ dependencies = [
     "gallery-dl>=1.32.9",
     "httpx>=0.28.1",
     "opencc-python-reimplemented>=0.1.7",
+    # Synthesizes pixiv ugoira frame zips into animated webp files.
+    "pillow>=11.0",
     "playwright>=1.59.0",
     "psycopg-pool>=3.2",
     "psycopg[binary]>=3.2.10",

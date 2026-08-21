@@ -26,6 +26,7 @@ from src.tool.control_queue import (
     claim_next_control_request,
     ensure_control_requests_table,
     fail_stale_running_control_requests,
+    record_scheduled_run_start,
     update_control_request,
 )
 from src.tool.notifications import (
@@ -178,6 +179,12 @@ async def _enqueue_job_failed_notification(
     elapsed_seconds: float,
     exc: BaseException,
 ) -> None:
+    # The outbox gates on the notification's own source, and this one is the worker
+    # rather than the job that failed, so the job's toggle is applied here.
+    if not job.notify:
+        log.debug('Notifications are off for %s; not reporting its failure', job.key)
+        return
+
     error_message = _format_exception(exc)
     dedupe_key = _exception_notification_dedupe_key(job=job, exc=exc)
     try:
@@ -479,6 +486,34 @@ def _missing_commands(job: ScheduledJob) -> list[str]:
     return [command for command in job.required_commands if shutil.which(command) is None]
 
 
+def _make_scheduled_runner(*, job: ScheduledJob, runner: Callable[[], object]) -> Callable[[], Awaitable[None]]:
+    """Wrap a runner so cron fires leave a control_requests row.
+
+    Only the scheduled path is wrapped: manual triggers already record into
+    the row the API created, so wrapping `runner_by_key` itself would
+    double-record them. Bookkeeping failures must never stop the job.
+    """
+
+    async def scheduled_runner() -> None:
+        request_id: int | None = None
+        try:
+            request_id = await record_scheduled_run_start(job.key)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to record scheduled run for %s: %s', job.key, exc)
+        result = await _run_control_runner(job=job, runner=runner)
+        if request_id is None:
+            return
+        try:
+            if result.success:
+                await update_control_request(request_id, status=STATUS_SUCCEEDED, result=f'Completed {job.key}.')
+            else:
+                await update_control_request(request_id, status=STATUS_FAILED, error=result.error)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to record scheduled run result for %s: %s', job.key, exc)
+
+    return scheduled_runner
+
+
 def _sync_scheduled_jobs(
     *,
     scheduler: AsyncIOScheduler,
@@ -520,7 +555,7 @@ def _sync_scheduled_jobs(
 
         if existing is None:
             scheduler.add_job(
-                runner,
+                _make_scheduled_runner(job=job, runner=runner),
                 trigger=trigger,
                 id=job.key,
                 name=job.name,

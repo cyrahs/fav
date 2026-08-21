@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from src.core import settings
-from src.web import BD2, AzurLane, Bilibili, Hanime1, Jandan, Kemono, Nikke, RedNote, StellaSora, Telegram, Twitter
+from src.web import BD2, AzurLane, Bilibili, Hanime1, Jandan, Kemono, Nikke, Pixiv, RedNote, StellaSora, Telegram, Twitter
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -19,6 +19,7 @@ class ScheduledJob:
     required_commands: tuple[str, ...]
     factory: Callable[[], object]
     section: str = ''
+    notify: bool = True
     missing_fields: tuple[str, ...] = field(default=())
 
     def as_public_dict(self) -> dict[str, Any]:
@@ -27,6 +28,7 @@ class ScheduledJob:
             'name': self.name,
             'cron': self.cron,
             'enabled': self.enabled,
+            'notify': self.notify,
             'section': self.section,
             'missing_fields': list(self.missing_fields),
         }
@@ -52,6 +54,7 @@ JOB_SPECS: tuple[JobSpec, ...] = (
     JobSpec(key='telegram', name='Telegram', attr='telegram', required_commands=(), factory=Telegram),
     JobSpec(key='stellasora', name='Stella Sora', attr='stellasora', required_commands=(), factory=StellaSora),
     JobSpec(key='twitter', name='X', attr='twitter', required_commands=('gallery-dl',), factory=Twitter),
+    JobSpec(key='pixiv', name='Pixiv', attr='pixiv', required_commands=(), factory=Pixiv),
     JobSpec(key='rednote', name='RedNote', attr='rednote', required_commands=(), factory=RedNote),
 )
 
@@ -72,6 +75,7 @@ def build_jobs(current: settings.Settings | None = None) -> list[ScheduledJob]:
                 # A source with an incomplete configuration stays out of the
                 # scheduler even when the UI toggle says enabled.
                 enabled=job_cfg.enabled and not missing,
+                notify=job_cfg.notify,
                 required_commands=spec.required_commands,
                 factory=spec.factory,
                 section=f'web.{spec.attr}',

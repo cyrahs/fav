@@ -110,6 +110,10 @@ _HTTP_REQUEST_TIMEOUT = 408
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVICE_UNAVAILABLE = 503
 _HTTP_METHOD_UNSUPPORTED = {405, 501}
+# Escalating wait before a failure is worth another request, applied to a single asset and to the
+# model that needs it. The same ladder governs both on purpose: a model retried while its assets
+# are still cooling down would skip every download and fail again having asked the CDN nothing.
+# Because the model's cooldown is stamped after its assets', the two always expire in that order.
 _ASSET_RETRY_COOLDOWN_DAYS = (1, 3, 7)
 _JSON_ASSET_KINDS = {
     'live2d.model3',
@@ -205,6 +209,10 @@ CREATE TABLE IF NOT EXISTS azurlane_models (
     availability_state TEXT NOT NULL DEFAULT 'unchecked',
     active BOOLEAN NOT NULL DEFAULT TRUE,
     source_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    last_attempt_at TIMESTAMPTZ,
+    next_retry_at TIMESTAMPTZ,
     first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     fetched_at TIMESTAMPTZ,
@@ -261,16 +269,25 @@ CREATE TABLE IF NOT EXISTS azurlane_model_assets (
     PRIMARY KEY (model_id, url, kind, context_hash)
 );
 
-CREATE INDEX IF NOT EXISTS azurlane_models_character_key_idx ON azurlane_models (character_key);
-CREATE INDEX IF NOT EXISTS azurlane_assets_sha256_size_idx ON azurlane_assets (sha256, size);
-CREATE INDEX IF NOT EXISTS azurlane_assets_status_retry_idx ON azurlane_assets (status, next_retry_at);
-CREATE INDEX IF NOT EXISTS azurlane_model_assets_model_id_idx ON azurlane_model_assets (model_id);
+-- Columns first, indexes second. On a database that predates a column, the CREATE TABLE above is a
+-- no-op and the ALTER is the only thing that adds it, so an index naming that column has to wait
+-- until after the whole ALTER block or it fails with UndefinedColumn -- and takes the rest of the
+-- script, including the ALTER that would have fixed it, down with it on every run.
+ALTER TABLE azurlane_models ADD COLUMN IF NOT EXISTS failed_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE azurlane_models ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE azurlane_models ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
+ALTER TABLE azurlane_models ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS downloaded_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS fallback_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT '';
 ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
 ALTER TABLE azurlane_assets ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 ALTER TABLE azurlane_model_assets ADD COLUMN IF NOT EXISTS fallback_url TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS azurlane_models_character_key_idx ON azurlane_models (character_key);
+CREATE INDEX IF NOT EXISTS azurlane_models_retry_idx ON azurlane_models (next_retry_at);
+CREATE INDEX IF NOT EXISTS azurlane_assets_sha256_size_idx ON azurlane_assets (sha256, size);
+CREATE INDEX IF NOT EXISTS azurlane_assets_status_retry_idx ON azurlane_assets (status, next_retry_at);
+CREATE INDEX IF NOT EXISTS azurlane_model_assets_model_id_idx ON azurlane_model_assets (model_id);
 """
 
 
@@ -304,6 +321,22 @@ class AzurLaneAsset:
     error: str = ''
     downloaded_url: str = ''
     contexts: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ModelRetryState:
+    """Everything the last runs learned about which models the source cannot currently serve."""
+
+    failed_model_ids: set[str] = field(default_factory=set)
+    cooldown_until: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ModelCrawlOutcome:
+    """What the download phase did, split by whether the run actually asked the source."""
+
+    failed_model_ids: list[str] = field(default_factory=list)
+    cooldown_model_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1274,6 +1307,17 @@ class AzurLane:
                                     || jsonb_build_object('painting_index', azurlane_models.source_metadata -> 'painting_index')
                             ELSE excluded.source_metadata
                         END,
+                        -- A model resting out its retry cooldown is waiting on a URL the CDN
+                        -- refused. Move that URL and the wait is answering the wrong question,
+                        -- so a path the source corrected is picked up on the very next run.
+                        failed_count = CASE
+                            WHEN azurlane_models.primary_url IS DISTINCT FROM excluded.primary_url THEN 0
+                            ELSE azurlane_models.failed_count
+                        END,
+                        next_retry_at = CASE
+                            WHEN azurlane_models.primary_url IS DISTINCT FROM excluded.primary_url THEN NULL
+                            ELSE azurlane_models.next_retry_at
+                        END,
                         last_seen_at = NOW(),
                         fetched_at = NOW();
                     """,
@@ -1302,6 +1346,60 @@ class AzurLane:
             """
             UPDATE azurlane_models
             SET fetched_at = NOW(), completed_at = NULL, last_seen_at = NOW()
+            WHERE model_id = ?;
+            """,
+            (entry.id,),
+        )
+
+    async def _model_retry_state(self) -> ModelRetryState:
+        """Models the source has already refused, and which of them are still serving out the wait."""
+        rows = await database.query_db(
+            """
+            SELECT model_id, next_retry_at, (next_retry_at > NOW()) AS in_cooldown
+            FROM azurlane_models
+            WHERE failed_count > 0;
+            """,
+        )
+        state = ModelRetryState()
+        for row in rows:
+            model_id = _row_text(row, 'model_id')
+            if not model_id:
+                continue
+            state.failed_model_ids.add(model_id)
+            if row.get('in_cooldown'):
+                state.cooldown_until[model_id] = _timestamp_value(row.get('next_retry_at')) or ''
+        return state
+
+    async def _mark_model_retry_failed(self, entry: ModelEntry, reason: str) -> None:
+        await database.query_db(
+            """
+            UPDATE azurlane_models
+            SET failed_count = failed_count + 1,
+                last_error = ?,
+                last_attempt_at = NOW(),
+                next_retry_at = NOW() + (
+                    CASE
+                        WHEN failed_count + 1 <= 1 THEN ?::integer * INTERVAL '1 day'
+                        WHEN failed_count + 1 = 2 THEN ?::integer * INTERVAL '1 day'
+                        ELSE ?::integer * INTERVAL '1 day'
+                    END
+                )
+            WHERE model_id = ?;
+            """,
+            (
+                reason[:500],
+                _retry_cooldown_days(1),
+                _retry_cooldown_days(_SECOND_FAILURE_COUNT),
+                _retry_cooldown_days(_SECOND_FAILURE_COUNT + 1),
+                entry.id,
+            ),
+        )
+
+    async def _clear_model_retry_state(self, entry: ModelEntry) -> None:
+        await database.query_db(
+            """
+            UPDATE azurlane_models
+            SET failed_count = 0, last_error = '', last_attempt_at = NOW(), next_retry_at = NULL
             WHERE model_id = ?;
             """,
             (entry.id,),
@@ -2066,15 +2164,32 @@ class AzurLane:
         entries: Iterable[ModelEntry],
         *,
         client: httpx.AsyncClient,
-    ) -> list[str]:
-        failed_model_ids: list[str] = []
+    ) -> ModelCrawlOutcome:
+        retry_state = await self._model_retry_state()
+        outcome = ModelCrawlOutcome()
         for entry in entries:
+            if entry.id in retry_state.cooldown_until:
+                outcome.cooldown_model_ids.append(entry.id)
+                continue
             try:
                 await self._archive_model(client=client, entry=entry)
-            except Exception:
+            except Exception as exc:
                 log.exception('Failed to crawl Azur Lane model_id=%s', entry.id)
-                failed_model_ids.append(entry.id)
-        return failed_model_ids
+                await self._mark_model_retry_failed(entry, str(exc) or exc.__class__.__name__)
+                outcome.failed_model_ids.append(entry.id)
+            else:
+                # Only a model carrying failures has anything to clear, and on a healthy archive
+                # that is a handful of rows rather than one write per model per run.
+                if entry.id in retry_state.failed_model_ids:
+                    await self._clear_model_retry_state(entry)
+        if outcome.cooldown_model_ids:
+            log.info(
+                'Skipped %d Azur Lane model(s) resting out a retry cooldown, next due %s: %s',
+                len(outcome.cooldown_model_ids),
+                min(retry_state.cooldown_until[model_id] for model_id in outcome.cooldown_model_ids),
+                ', '.join(outcome.cooldown_model_ids[:5]),
+            )
+        return outcome
 
     async def update(self) -> None:
         async with database.advisory_lock('azurlane') as acquired:
@@ -2106,13 +2221,19 @@ class AzurLane:
                     self._write_source_artifacts(snapshots=snapshots, catalog=catalog)
                     await self._upsert_catalog_state(catalog)
                     log.info('Found %d Azur Lane model entries', len(catalog.entries))
-                    failed_model_ids = await self.download_models(catalog.entries, client=client)
+                    outcome = await self.download_models(catalog.entries, client=client)
                 finally:
                     self._active_origin_client = None
             await self._write_backend_manifests()
-            if failed_model_ids:
-                examples = ', '.join(failed_model_ids[:5])
-                msg = f'{len(failed_model_ids)} Azur Lane models failed'
+            # Only what this run actually attempted can fail it. A model the source has already
+            # refused stays failed in the database and is reported again the moment its cooldown
+            # lapses, but re-announcing it every six hours told nobody anything they did not
+            # know and buried the failures that were new.
+            if outcome.failed_model_ids:
+                examples = ', '.join(outcome.failed_model_ids[:5])
+                msg = f'{len(outcome.failed_model_ids)} Azur Lane models failed'
                 if examples:
                     msg = f'{msg}: {examples}'
+                if outcome.cooldown_model_ids:
+                    msg = f'{msg} ({len(outcome.cooldown_model_ids)} more still in retry cooldown)'
                 raise CrawlRunError(msg)

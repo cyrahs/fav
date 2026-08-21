@@ -85,12 +85,59 @@ class _RuntimeService:
         return None
 
 
-def _job(*, key: str, enabled: bool = True) -> ScheduledJob:
+class _AuthorService:
+    def __init__(self, authors: list[dict] | None = None) -> None:
+        self.authors = list(authors or [])
+        self.add_error: Exception | None = None
+        self.added: list[str] = []
+        self.deleted: list[str] = []
+
+    def list_authors(self) -> list[dict]:
+        return [dict(author) for author in self.authors]
+
+    def add_author(self, raw_author: str) -> dict:
+        self.added.append(raw_author)
+        if self.add_error is not None:
+            raise self.add_error
+        return {
+            'author_id': '202534',
+            'name': 'Maplestar',
+            'author_url': 'https://hanime1.me/user/202534/uploaded',
+        }
+
+    def delete_author(self, author_id: str) -> bool:
+        remaining = [author for author in self.authors if author['author_id'] != author_id]
+        deleted = len(remaining) != len(self.authors)
+        self.authors = remaining
+        self.deleted.append(author_id)
+        return deleted
+
+    def close(self) -> None:
+        return None
+
+
+class _KemonoResolver:
+    def __init__(self) -> None:
+        self.resolve_error: Exception | None = None
+        self.resolved: list[str] = []
+
+    def resolve(self, raw_creator: str) -> dict:
+        self.resolved.append(raw_creator)
+        if self.resolve_error is not None:
+            raise self.resolve_error
+        return {'service': 'fanbox', 'id': '70050825', 'name': 'Maplestar'}
+
+    def close(self) -> None:
+        return None
+
+
+def _job(*, key: str, enabled: bool = True, notify: bool = True) -> ScheduledJob:
     return ScheduledJob(
         key=key,
         name=key.title(),
         cron='*/30 * * * *',
         enabled=enabled,
+        notify=notify,
         required_commands=(),
         factory=object,
         section=f'web.{key}',
@@ -102,10 +149,11 @@ def _build_request(
     request_id: int = 99,
     target: str = 'bilibili',
     status: str = 'pending',
+    kind: str = 'trigger_job',
 ) -> ControlRequest:
     return ControlRequest(
         request_id=request_id,
-        kind='trigger_job',
+        kind=kind,
         target=target,
         payload='{}',
         status=status,
@@ -124,7 +172,10 @@ def _build_service(
     jobs: list[ScheduledJob] | None = None,
     request_creator=None,
     request_getter=None,
+    request_lister=None,
     runtime_service: _RuntimeService | None = None,
+    author_service: _AuthorService | None = None,
+    kemono_creator_resolver: _KemonoResolver | None = None,
     telegram_notification_tester=None,
 ) -> api_server.FavApiService:
     runtime = runtime_service or _RuntimeService()
@@ -138,7 +189,10 @@ def _build_service(
         job_provider=(lambda: list(jobs or [])),
         control_request_creator=request_creator,
         control_request_getter=request_getter,
+        control_request_lister=request_lister,
         runtime_service=runtime,
+        author_service=author_service or _AuthorService(),
+        kemono_creator_resolver=kemono_creator_resolver or _KemonoResolver(),
         telegram_notification_tester=telegram_notification_tester,
     )
 
@@ -321,6 +375,8 @@ def test_docs_and_openapi_are_public_and_v2_only() -> None:
     assert '/api/v2/hanime1/seeds' in payload['paths']
     assert set(payload['paths']['/api/v2/hanime1/seeds']) == {'get', 'post'}
     assert set(payload['paths']['/api/v2/hanime1/seeds/{canonical_video_id}']) == {'delete'}
+    assert set(payload['paths']['/api/v2/hanime1/authors']) == {'get', 'post'}
+    assert set(payload['paths']['/api/v2/hanime1/authors/{author_id}']) == {'delete'}
     assert '/api/v2/settings' in payload['paths']
     assert set(payload['paths']['/api/v2/settings/{section}']) == {'get', 'put'}
     assert set(payload['paths']['/api/v2/notifications/telegram/test']) == {'post'}
@@ -435,7 +491,7 @@ def test_jobs_endpoint_rejects_invalid_token() -> None:
 def test_jobs_endpoint_returns_registered_jobs() -> None:
     service = _build_service(
         token=_VALID_TOKEN,
-        jobs=[_job(key='bilibili', enabled=True), _job(key='telegram', enabled=False)],
+        jobs=[_job(key='bilibili', enabled=True), _job(key='telegram', enabled=False, notify=False)],
     )
 
     with TestClient(create_app(service=service)) as client:
@@ -448,6 +504,7 @@ def test_jobs_endpoint_returns_registered_jobs() -> None:
                 'key': 'bilibili',
                 'name': 'Bilibili',
                 'enabled': True,
+                'notify': True,
                 'cron': '*/30 * * * *',
                 'section': 'web.bilibili',
                 'missing_fields': [],
@@ -456,6 +513,7 @@ def test_jobs_endpoint_returns_registered_jobs() -> None:
                 'key': 'telegram',
                 'name': 'Telegram',
                 'enabled': False,
+                'notify': False,
                 'cron': '*/30 * * * *',
                 'section': 'web.telegram',
                 'missing_fields': [],
@@ -513,6 +571,62 @@ def test_create_job_request_rejects_invalid_target_as_validation_error() -> None
 
     assert response.status_code == 422
     assert response.json()['error']['code'] == 'validation_error'
+
+
+def test_list_job_requests_accepts_repeated_status_params() -> None:
+    lister_calls: list[tuple[list[str] | None, int]] = []
+
+    def _lister(statuses: list[str] | None, limit: int) -> list[ControlRequest]:
+        lister_calls.append((statuses, limit))
+        return [_build_request(status='failed')]
+
+    service = _build_service(token=_VALID_TOKEN, request_lister=_lister)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests?status=failed&status=rejected&limit=10', headers=_auth_headers())
+
+    assert response.status_code == 200
+    assert lister_calls == [(['failed', 'rejected'], 10)]
+    assert response.json()['items'][0]['status'] == 'failed'
+
+
+def test_list_job_requests_without_status_passes_none() -> None:
+    lister_calls: list[tuple[list[str] | None, int]] = []
+
+    def _lister(statuses: list[str] | None, limit: int) -> list[ControlRequest]:
+        lister_calls.append((statuses, limit))
+        return []
+
+    service = _build_service(token=_VALID_TOKEN, request_lister=_lister)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests', headers=_auth_headers())
+
+    assert response.status_code == 200
+    assert lister_calls == [(None, 50)]
+
+
+def test_list_job_requests_rejects_unknown_status() -> None:
+    service = _build_service(token=_VALID_TOKEN, request_lister=lambda statuses, limit: [])
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests?status=bogus', headers=_auth_headers())
+
+    assert response.status_code == 422
+    assert response.json()['error']['code'] == 'validation_error'
+
+
+def test_list_job_requests_serializes_scheduled_kind() -> None:
+    service = _build_service(
+        token=_VALID_TOKEN,
+        request_lister=lambda statuses, limit: [_build_request(status='succeeded', kind='scheduled_job')],
+    )
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.get('/api/v2/job-requests', headers=_auth_headers())
+
+    assert response.status_code == 200
+    assert response.json()['items'][0]['kind'] == 'scheduled_job'
 
 
 @pytest.mark.parametrize('status', ['pending', 'running', 'succeeded', 'failed', 'rejected'])
@@ -646,6 +760,136 @@ def test_add_hanime1_seed_returns_resolve_error() -> None:
         'error': {
             'code': 'seed_resolve_failed',
             'message': 'Unable to resolve Hanime1 seed.',
+            'details': None,
+        },
+    }
+
+
+def test_hanime1_author_list_and_delete_endpoints_are_available() -> None:
+    author_service = _AuthorService(
+        authors=[
+            {
+                'author_id': '202534',
+                'name': 'Maplestar',
+                'author_url': 'https://hanime1.me/user/202534/uploaded',
+                'video_count': 34,
+                'created_at': _FIXED_NOW,
+                'updated_at': _FIXED_NOW,
+                'last_scanned_at': None,
+                'last_scan_error': '',
+            },
+        ],
+    )
+    service = _build_service(token=_VALID_TOKEN, author_service=author_service)
+
+    with TestClient(create_app(service=service)) as client:
+        list_response = client.get('/api/v2/hanime1/authors', headers=_auth_headers())
+        delete_response = client.delete('/api/v2/hanime1/authors/202534', headers=_auth_headers())
+        missing_response = client.delete('/api/v2/hanime1/authors/99999', headers=_auth_headers())
+        invalid_response = client.delete('/api/v2/hanime1/authors/not-a-number', headers=_auth_headers())
+
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert payload['total'] == 1
+    assert payload['items'][0] == {
+        'author_id': '202534',
+        'name': 'Maplestar',
+        'author_url': 'https://hanime1.me/user/202534/uploaded',
+        'video_count': 34,
+        'created_at': '2026-03-02T00:00:00Z',
+        'updated_at': '2026-03-02T00:00:00Z',
+        'last_scanned_at': None,
+        'last_scan_error': '',
+    }
+    assert delete_response.status_code == 204
+    assert author_service.deleted == ['202534', '99999']
+    assert missing_response.status_code == 404
+    assert invalid_response.status_code == 422
+
+
+def test_add_hanime1_author_returns_created_author() -> None:
+    author_service = _AuthorService()
+    service = _build_service(token=_VALID_TOKEN, author_service=author_service)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post(
+            '/api/v2/hanime1/authors',
+            headers=_auth_headers(),
+            json={'author': 'https://hanime1.me/user/202534/uploaded'},
+        )
+
+    assert response.status_code == 201
+    assert author_service.added == ['https://hanime1.me/user/202534/uploaded']
+    assert response.json() == {
+        'author_id': '202534',
+        'name': 'Maplestar',
+        'author_url': 'https://hanime1.me/user/202534/uploaded',
+    }
+
+
+@pytest.mark.parametrize(
+    ('error', 'expected_status', 'expected_code', 'expected_message'),
+    [
+        (FileExistsError('duplicate_author'), 409, 'duplicate_author', 'Hanime1 author already exists.'),
+        (LookupError('author_resolve_failed'), 422, 'author_resolve_failed', 'Unable to resolve Hanime1 author.'),
+        (ValueError('invalid_author'), 422, 'invalid_author', 'Author id or URL is invalid.'),
+    ],
+)
+def test_add_hanime1_author_maps_errors(error, expected_status, expected_code, expected_message) -> None:
+    author_service = _AuthorService()
+    author_service.add_error = error
+    service = _build_service(token=_VALID_TOKEN, author_service=author_service)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post('/api/v2/hanime1/authors', headers=_auth_headers(), json={'author': '202534'})
+
+    assert response.status_code == expected_status
+    assert response.json() == {
+        'error': {
+            'code': expected_code,
+            'message': expected_message,
+            'details': None,
+        },
+    }
+
+
+def test_resolve_kemono_creator_returns_resolved_creator() -> None:
+    resolver = _KemonoResolver()
+    service = _build_service(token=_VALID_TOKEN, kemono_creator_resolver=resolver)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post(
+            '/api/v2/kemono/creators/resolve',
+            headers=_auth_headers(),
+            json={'creator': 'https://pawchive.pw/fanbox/user/70050825'},
+        )
+
+    assert response.status_code == 200
+    assert resolver.resolved == ['https://pawchive.pw/fanbox/user/70050825']
+    assert response.json() == {'service': 'fanbox', 'id': '70050825', 'name': 'Maplestar'}
+
+
+@pytest.mark.parametrize(
+    ('error', 'expected_status', 'expected_code', 'expected_message'),
+    [
+        (ValueError('invalid_creator'), 422, 'invalid_creator', 'Creator id or URL is invalid.'),
+        (LookupError('creator_not_found'), 404, 'creator_not_found', 'Creator not found upstream.'),
+        (ConnectionError('creator_resolve_failed'), 502, 'creator_resolve_failed', 'Unable to reach the Kemono site.'),
+    ],
+)
+def test_resolve_kemono_creator_maps_errors(error, expected_status, expected_code, expected_message) -> None:
+    resolver = _KemonoResolver()
+    resolver.resolve_error = error
+    service = _build_service(token=_VALID_TOKEN, kemono_creator_resolver=resolver)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post('/api/v2/kemono/creators/resolve', headers=_auth_headers(), json={'creator': '70050825'})
+
+    assert response.status_code == expected_status
+    assert response.json() == {
+        'error': {
+            'code': expected_code,
+            'message': expected_message,
             'details': None,
         },
     }

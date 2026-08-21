@@ -187,6 +187,33 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
     )
 
 
+def test_enqueue_notification_drops_a_muted_source(monkeypatch, pinned_settings) -> None:
+    _reset_schema_state()
+    pinned_settings.web.bilibili.notify = False
+
+    statements: list[str] = []
+
+    async def _record_query(sql, params=()):
+        statements.append(sql)
+        return []
+
+    monkeypatch.setattr(notifications_module.database, 'query_db_multi', _record_query)
+    monkeypatch.setattr(notifications_module.database, 'query_db', _record_query)
+
+    created = asyncio.run(
+        enqueue_notification(
+            kind='download_completed',
+            source='bilibili',
+            header='Bilibili',
+            title='Episode 1',
+        ),
+    )
+
+    assert created is None
+    # Not even the schema migration: a muted source never touches the outbox.
+    assert statements == []
+
+
 def test_enqueue_notification_with_dedupe_key_uses_upsert_action(monkeypatch) -> None:
     captured: dict[str, object] = {}
     _reset_schema_state()

@@ -78,7 +78,10 @@ Three moving parts, all coordinating through PostgreSQL rather than through memo
   name, so one source is never labelled two ways — and keep that name out of `title`. The immediate
   sends in `telegram_bot.py` (`send_text_now`, `send_photo_now`) take the same `header`. Rendering
   runs off the stored columns, and the worker re-renders at claim time, so anything the template
-  needs has to be a column rather than a call-time-only argument.
+  needs has to be a column rather than a call-time-only argument. `enqueue_notification` drops the
+  message and returns `None` when the source's `web.<source>.notify` toggle is off — `source` is the
+  job key, so pass it rather than a prettier label, or the toggle will not find its section. Call
+  sites that pass a `source` which is not a job key (`run.py` passes `worker`) gate themselves.
 
 A source is a duck type, not a base class. `JobSpec.factory()` must return an object with an
 `async update()`; an optional `async aclose()` is called afterwards if present.
@@ -142,6 +145,13 @@ match the existing sources.
 There is no migration framework. Each source owns its schema in an `_ensure_table()` coroutine:
 `CREATE TABLE IF NOT EXISTS`, then `PRAGMA table_info` plus `ALTER TABLE ADD COLUMN` for anything
 added later. Additive changes only — preserve backward compatibility.
+
+Statement order is the only migration there is, so keep the script in three blocks: tables, then
+every `ALTER TABLE ADD COLUMN`, then every `CREATE INDEX`. On an existing database the `CREATE TABLE`
+is a no-op, so a column added later arrives through its `ALTER` alone; an index naming that column
+ahead of the `ALTER` fails with `UndefinedColumn` and, because the connection is autocommit and
+`_ensure_table()` runs first, takes down the rest of the script — including the `ALTER` that would
+have repaired the table — on every run. `tests/test_database.py` enforces the ordering.
 
 ### Logging
 

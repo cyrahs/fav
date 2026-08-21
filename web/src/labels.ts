@@ -17,6 +17,7 @@ const SECTION_LABELS: Record<string, string> = {
   'web.jandan': '煎蛋',
   'web.kemono': 'Kemono',
   'web.twitter': 'X',
+  'web.pixiv': 'Pixiv',
   'web.rednote': '小红书',
   'notifications.telegram': 'Telegram 通知',
 };
@@ -29,4 +30,31 @@ export function sectionLabel(section: string, fallback = ''): string {
 /** Archive sources are keyed by bare source name (`jandan`), not by section. */
 export function sourceLabel(source: string, fallback = ''): string {
   return sectionLabel(`web.${source}`, fallback);
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: '排队中',
+  running: '运行中',
+  succeeded: '成功',
+  failed: '失败',
+  rejected: '已拒绝',
+};
+
+export function statusLabel(status: string): string {
+  return STATUS_LABELS[status] || status;
+}
+
+const KIND_LABELS: Record<string, string> = {
+  trigger_job: '手动',
+  scheduled_job: '定时',
+};
+
+export function kindLabel(kind: string): string {
+  return KIND_LABELS[kind] || kind;
+}
+
+/** Job-request targets are job keys, plus the special `all`. */
+export function targetLabel(target: string): string {
+  if (target === 'all') return '全部任务';
+  return sourceLabel(target, target);
 }

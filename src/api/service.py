@@ -22,7 +22,9 @@ from src.tool.control_queue import (
     get_control_request_sync,
     list_control_requests_sync,
 )
+from src.tool.hanime1_author import Hanime1AuthorService
 from src.tool.hanime1_series import Hanime1SeriesService
+from src.tool.kemono_creator import KemonoCreatorResolver
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
 from src.web.rednote_browser import probe_proxy as probe_rednote_proxy
@@ -52,12 +54,15 @@ from .schemas import (
     AzurLaneCharacterSummary,
     BD2CharacterDetail,
     BD2CharacterSummary,
+    Hanime1Author,
+    Hanime1AuthorDetail,
     Hanime1Seed,
     Hanime1SeedDetail,
     Hanime1Video,
     HealthResponse,
     JobRequest,
     JobSummary,
+    KemonoCreatorResolved,
     Live2DViewOverride,
     NikkeCharacterDetail,
     NikkeCharacterSummary,
@@ -74,7 +79,7 @@ type Hanime1VideoFetcher = Callable[[str], list[dict[str, str | None]]]
 type JobProvider = Callable[[], list[ScheduledJob]]
 type ControlRequestCreator = Callable[[str, str], ControlRequest]
 type ControlRequestGetter = Callable[[int], ControlRequest | None]
-type ControlRequestLister = Callable[[str | None, int], list[ControlRequest]]
+type ControlRequestLister = Callable[[list[str] | None, int], list[ControlRequest]]
 type SettingsSectionGetter = Callable[[str], BaseModel]
 type SettingsSectionSaver = Callable[[str, dict[str, Any]], BaseModel]
 type TelegramNotificationTester = Callable[[], Awaitable[TelegramDeliveryResult]]
@@ -118,6 +123,8 @@ class FavApiService:
         settings_section_saver: SettingsSectionSaver | None = None,
         telegram_notification_tester: TelegramNotificationTester | None = None,
         runtime_service: Hanime1SeriesService | None = None,
+        author_service: Hanime1AuthorService | None = None,
+        kemono_creator_resolver: KemonoCreatorResolver | None = None,
         archive_library: ArchiveLibrary | None = None,
         azurlane_library: AzurLaneLibrary | None = None,
         nikke_library: NikkeLibrary | None = None,
@@ -136,7 +143,7 @@ class FavApiService:
         )
         self._control_request_getter = control_request_getter or (lambda request_id: get_control_request_sync(self._dsn, request_id))
         self._control_request_lister = control_request_lister or (
-            lambda status, limit: list_control_requests_sync(self._dsn, status=status, limit=limit)
+            lambda statuses, limit: list_control_requests_sync(self._dsn, statuses=statuses, limit=limit)
         )
         self._settings_section_getter = settings_section_getter or settings.load_section
         self._settings_section_saver = settings_section_saver or settings.save_section
@@ -147,6 +154,12 @@ class FavApiService:
             host=settings.load().web.hanime1.host,
             user_lang=settings.load().web.hanime1.user_lang,
         )
+        self._author_service = author_service or Hanime1AuthorService(
+            dsn=self._dsn,
+            host=settings.load().web.hanime1.host,
+            user_lang=settings.load().web.hanime1.user_lang,
+        )
+        self._kemono_creator_resolver = kemono_creator_resolver or KemonoCreatorResolver()
         self._azurlane_library = azurlane_library or AzurLaneLibrary(settings.load().web.azurlane.path)
         self._nikke_library = nikke_library or NikkeLibrary(settings.load().web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(settings.load().web.bd2.path)
@@ -155,9 +168,10 @@ class FavApiService:
         self._readiness_lock = asyncio.Lock()
 
     def close(self) -> None:
-        close = getattr(self._runtime_service, 'close', None)
-        if callable(close):
-            close()
+        for service in (self._runtime_service, self._author_service, self._kemono_creator_resolver):
+            close = getattr(service, 'close', None)
+            if callable(close):
+                close()
 
     def authenticate(self, authorization: str | None) -> None:
         if not authorization:
@@ -334,9 +348,9 @@ class FavApiService:
             raise ApiError(status_code=404, code='not_found', message='Job request not found.')
         return serialize_control_request(request)
 
-    def list_job_requests(self, *, status: str | None = None, limit: int = 50) -> list[dict[str, object]]:
+    def list_job_requests(self, *, statuses: list[str] | None = None, limit: int = 50) -> list[dict[str, object]]:
         try:
-            requests = self._control_request_lister(status, limit)
+            requests = self._control_request_lister(statuses, limit)
         except ValueError as exc:
             raise ApiError(status_code=422, code='invalid_status', message=str(exc)) from None
         except Exception:
@@ -430,26 +444,13 @@ class FavApiService:
             'warnings': list(result.warnings),
         }
 
-    def _stored_azurlane_proxy(self) -> str:
-        try:
-            stored = json.loads(self._settings_section_getter('web.azurlane').model_dump_json())
-        except UnknownSectionError:
-            raise ApiError(status_code=404, code='unknown_section', message='Unknown settings section: web.azurlane') from None
-        except Exception:
-            log.exception('Failed to load web.azurlane for the proxy test')
-            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
-        return str(stored.get('origin_proxy') or '')
-
     def test_azurlane_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check that the l2d.su origin is reachable through a proxy, without saving it.
 
-        The draft from the form wins, except that a masked or omitted value is resolved
-        against what is already stored.
+        The draft from the form is probed as-is: proxies are shown to the UI in
+        plaintext, so there is no masked value to resolve.
         """
-        draft = {'origin_proxy': str(payload.get('origin_proxy') or '')}
-        keep_secret(draft, 'origin_proxy', self._stored_azurlane_proxy())
-
-        result = probe_l2d_su_origin(draft['origin_proxy'])
+        result = probe_l2d_su_origin(str(payload.get('origin_proxy') or ''))
         return {'ok': result.ok, 'code': result.code, 'message': result.message, 'exit_ip': result.exit_ip}
 
     def _stored_section(self, section: str) -> dict[str, Any]:
@@ -464,14 +465,10 @@ class FavApiService:
     def test_rednote_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check the egress the RedNote source would use, without saving it.
 
-        The draft from the form wins, except that a masked or omitted value is resolved
-        against what is already stored -- so the button works on a proxy the UI has
-        only ever shown masked.
+        The draft from the form is probed as-is: proxies are shown to the UI in
+        plaintext, so there is no masked value to resolve.
         """
-        draft = {'proxy': str(payload.get('proxy') or '')}
-        keep_secret(draft, 'proxy', str(self._stored_section('web.rednote').get('proxy') or ''))
-
-        result = probe_rednote_proxy(draft['proxy'])
+        result = probe_rednote_proxy(str(payload.get('proxy') or ''))
         return {
             'ok': result.ok,
             'code': result.code,
@@ -600,6 +597,59 @@ class FavApiService:
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
         if not deleted:
             raise ApiError(status_code=404, code='not_found', message='Hanime1 seed not found.')
+
+    def add_hanime1_author(self, author: str) -> dict[str, str]:
+        try:
+            return self._author_service.add_author(author)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_author', message='Author id or URL is invalid.') from None
+        except FileExistsError:
+            raise ApiError(status_code=409, code='duplicate_author', message='Hanime1 author already exists.') from None
+        except LookupError:
+            raise ApiError(status_code=422, code='author_resolve_failed', message='Unable to resolve Hanime1 author.') from None
+        except Exception:
+            log.exception('Failed to add Hanime1 author subscription')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+
+    def list_hanime1_authors(self) -> list[dict[str, Any]]:
+        try:
+            authors = self._author_service.list_authors()
+        except Exception:
+            log.exception('Failed to list Hanime1 author subscriptions')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        return [
+            {
+                **author,
+                'created_at': serialize_datetime(author.get('created_at')),
+                'updated_at': serialize_datetime(author.get('updated_at')),
+                'last_scanned_at': serialize_datetime(author.get('last_scanned_at')),
+            }
+            for author in authors
+        ]
+
+    def delete_hanime1_author(self, author_id: str) -> None:
+        try:
+            deleted = self._author_service.delete_author(author_id)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_author', message='Author id is invalid.') from None
+        except Exception:
+            log.exception('Failed to delete Hanime1 author subscription id=%s', author_id)
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
+        if not deleted:
+            raise ApiError(status_code=404, code='not_found', message='Hanime1 author not found.')
+
+    def resolve_kemono_creator(self, creator: str) -> dict[str, str]:
+        try:
+            return self._kemono_creator_resolver.resolve(creator)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_creator', message='Creator id or URL is invalid.') from None
+        except LookupError:
+            raise ApiError(status_code=404, code='creator_not_found', message='Creator not found upstream.') from None
+        except ConnectionError:
+            raise ApiError(status_code=502, code='creator_resolve_failed', message='Unable to reach the Kemono site.') from None
+        except Exception:
+            log.exception('Failed to resolve Kemono creator')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
     def list_azurlane_characters(self) -> list[dict[str, object]]:
         try:
@@ -865,6 +915,18 @@ class FavApiService:
     @staticmethod
     def model_hanime1_seed_detail(payload: dict[str, Any]) -> Hanime1SeedDetail:
         return Hanime1SeedDetail.model_validate(payload)
+
+    @staticmethod
+    def model_hanime1_author(payload: dict[str, str]) -> Hanime1Author:
+        return Hanime1Author.model_validate(payload)
+
+    @staticmethod
+    def model_hanime1_author_detail(payload: dict[str, Any]) -> Hanime1AuthorDetail:
+        return Hanime1AuthorDetail.model_validate(payload)
+
+    @staticmethod
+    def model_kemono_creator(payload: dict[str, str]) -> KemonoCreatorResolved:
+        return KemonoCreatorResolved.model_validate(payload)
 
     @staticmethod
     def model_settings_section(payload: dict[str, object]) -> SettingsSection:

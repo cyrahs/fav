@@ -225,6 +225,92 @@ def test_execute_control_request_marks_failed_cancelled_runner(monkeypatch) -> N
     assert updates == [{'request_id': '1', 'status': STATUS_FAILED, 'result': '', 'error': 'CancelledError'}]
 
 
+def test_scheduled_runner_records_success(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+    started: list[str] = []
+
+    async def _fake_record_start(target: str) -> int:
+        started.append(target)
+        return 42
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    async def _fake_runner() -> run_module.JobRunResult:
+        return run_module.JobRunResult(job_key='bilibili', job_name='Bilibili', success=True)
+
+    monkeypatch.setattr(run_module, 'record_scheduled_run_start', _fake_record_start)
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    scheduled = run_module._make_scheduled_runner(job=_job(key='bilibili'), runner=_fake_runner)
+    asyncio.run(scheduled())
+
+    assert started == ['bilibili']
+    assert updates == [{'request_id': '42', 'status': STATUS_SUCCEEDED, 'result': 'Completed bilibili.', 'error': ''}]
+
+
+def test_scheduled_runner_records_failure(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+
+    async def _fake_record_start(_target: str) -> int:
+        return 42
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    async def _fake_runner() -> run_module.JobRunResult:
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(run_module, 'record_scheduled_run_start', _fake_record_start)
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    scheduled = run_module._make_scheduled_runner(job=_job(key='bilibili'), runner=_fake_runner)
+    asyncio.run(scheduled())
+
+    assert updates == [{'request_id': '42', 'status': STATUS_FAILED, 'result': '', 'error': 'RuntimeError: boom'}]
+
+
+def test_scheduled_runner_still_runs_job_when_bookkeeping_insert_fails(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+    invoked: list[str] = []
+
+    async def _fake_record_start(_target: str) -> int:
+        raise RuntimeError('db down')
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    async def _fake_runner() -> run_module.JobRunResult:
+        invoked.append('bilibili')
+        return run_module.JobRunResult(job_key='bilibili', job_name='Bilibili', success=True)
+
+    monkeypatch.setattr(run_module, 'record_scheduled_run_start', _fake_record_start)
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    scheduled = run_module._make_scheduled_runner(job=_job(key='bilibili'), runner=_fake_runner)
+    asyncio.run(scheduled())
+
+    assert invoked == ['bilibili']
+    assert updates == []
+
+
+def test_scheduled_runner_swallows_result_update_failure(monkeypatch) -> None:
+    async def _fake_record_start(_target: str) -> int:
+        return 42
+
+    async def _fake_update(*_args, **_kwargs) -> None:
+        raise RuntimeError('db down')
+
+    async def _fake_runner() -> run_module.JobRunResult:
+        return run_module.JobRunResult(job_key='bilibili', job_name='Bilibili', success=True)
+
+    monkeypatch.setattr(run_module, 'record_scheduled_run_start', _fake_record_start)
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    scheduled = run_module._make_scheduled_runner(job=_job(key='bilibili'), runner=_fake_runner)
+    asyncio.run(scheduled())
+
+
 def test_execute_control_request_runs_all_enabled_jobs(monkeypatch) -> None:
     updates: list[dict[str, str]] = []
     invoked: list[str] = []
@@ -335,6 +421,39 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert captured['payload']['job'] == 'bilibili'
     assert captured['payload']['error_class'] == 'RuntimeError'
     assert captured['payload']['error_message'] == 'boom'
+
+
+def test_run_job_skips_job_failed_notification_for_a_muted_job(monkeypatch) -> None:
+    class _FailingWorker:
+        async def update(self) -> None:
+            msg = 'boom'
+            raise RuntimeError(msg)
+
+    enqueued: list[dict[str, object]] = []
+
+    async def _fake_enqueue_notification(**payload) -> None:
+        enqueued.append(payload)
+
+    monkeypatch.setattr(run_module, 'enqueue_notification', _fake_enqueue_notification)
+
+    result = asyncio.run(
+        run_module._run_job(
+            job=ScheduledJob(
+                key='bilibili',
+                name='Bilibili',
+                cron='*/30 * * * *',
+                enabled=True,
+                notify=False,
+                required_commands=(),
+                factory=_FailingWorker,
+            ),
+        ),
+    )
+
+    # Still a failed run, just an unannounced one.
+    assert result.success is False
+    assert result.error == 'RuntimeError: boom'
+    assert enqueued == []
 
 
 def test_run_job_uses_exception_notification_dedupe_key(monkeypatch) -> None:

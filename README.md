@@ -30,15 +30,22 @@ RedNote's is required rather than optional, see below.
 
 ### Database-backed settings
 
-Everything else — per-source `enabled`, `cron`, paths, Bilibili and Telegram accounts, Kemono
-creators, Hanime1 ranking, and notification delivery — is stored per section in `app_settings`:
+Everything else — per-source `enabled`, `notify`, `cron`, paths, Bilibili and Telegram accounts,
+Kemono creators, Hanime1 ranking, and notification delivery — is stored per section in
+`app_settings`:
 
 ```sql
 CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.rednote`, `notifications.telegram`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`,
+`notifications.telegram`.
+
+Every `web.*` section carries `cron`, `enabled` and `notify`, all three edited on the jobs page
+rather than the settings page. `notify` defaults to true and covers everything that source sends to
+Telegram — its per-item and per-run reports as well as its job-failure alerts — so a source that
+runs often can be kept running quietly. It is per source, not per notification kind.
 
 #### Bilibili accounts
 
@@ -117,8 +124,8 @@ uv lock --upgrade-package gallery-dl
 The session comes from the same CookieCloud vault Bilibili uses, read from `x.com` (or `twitter.com`,
 whichever the browser extension synced), and needs `auth_token` and `ct0`. It is re-fetched at the
 start of every run, so signing in again in the browser is all it takes to recover from an expired
-session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili` or `twitter`) and the
-settings page exposes it as the same 测试连接 button.
+session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili`, `twitter` or `pixiv`)
+and the settings page exposes it as the same 测试连接 button.
 
 Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
 covers both. Setting `video_path` keeps videos and GIFs on a different disk from the images; leave it
@@ -140,6 +147,38 @@ rather than assumed complete.
 Caveats worth knowing: this is an unofficial path, so keep `sleep_request_seconds` conservative; X
 truncates a deep likes timeline server-side, so the backfill reaches only as far back as X is willing
 to serve; and unliking a tweet does not delete what was already downloaded.
+
+#### pixiv public bookmarks
+
+`web.pixiv` archives your own public bookmarks (公開ブックマーク) through the `www.pixiv.net` ajax
+API: illustrations and manga as their original files (one file per page), and ugoira synthesized from
+their frame zip into a single animated webp with Pillow, honoring each frame's delay. Novels are not
+collected, and R-18 bookmarks arrive with the session like any other.
+
+```jsonc
+{
+  "cron": "0 */6 * * *",
+  "enabled": true,
+  "path": "collection/pixiv",
+  "user_id": "",                            // empty: derived from the PHPSESSID cookie
+  "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." },
+  "sleep_request_seconds": 1.0,             // spacing between ajax requests; CDN downloads are not paced
+  "proxy": ""                               // empty: direct (or the global HTTP_PROXY)
+}
+```
+
+The bookmarks listing refuses anonymous requests, so the session is the `PHPSESSID` cookie read from
+the CookieCloud vault under `pixiv.net`, re-fetched at the start of every run. The logged-in user's
+id is embedded in that cookie's value (`{user_id}_{hash}`), so `user_id` normally stays empty. Image
+originals on `i.pximg.net` need only the `Referer` header, never the cookie.
+
+Every output file is a row in the `pixiv` table keyed by `(illust_id, num)` with
+`downloaded`/`unavailable` flags, and files land in `path/<author>/[<author>]<title> [<id>_p<num>].<ext>`
+(ugoira: `[<id>_ugoira].webp`). A run walks the bookmarks newest-first and stops after two consecutive
+pages whose every work is already settled, so the first run backfills everything and later runs stay
+short. A bookmark whose work was deleted or made private shows up masked and is settled as
+unavailable — an already-downloaded file is left alone, which is what the archive is for. Works a
+previous run left pending are retried from the database at the end of every run.
 
 #### RedNote liked notes
 
@@ -257,7 +296,7 @@ them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete sour
 crashing.
 
 Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.twitter.cookiecloud.password`,
-`web.rednote.proxy`, `web.telegram.accounts[].api_hash`,
+`web.pixiv.cookiecloud.password`, `web.rednote.proxy`, `web.telegram.accounts[].api_hash`,
 `notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
@@ -265,7 +304,8 @@ UI cannot shuffle credentials between them; the same holds for Bilibili's per-ac
 password.
 
 The worker polls `app_settings` every 15 seconds and reschedules APScheduler jobs in place, so
-`enabled` and `cron` changes apply without a restart.
+`enabled` and `cron` changes apply without a restart. `notify` is read when a notification is
+queued, so it applies to the next message either way.
 
 **Known limitation:** the Telegram realtime listener is created at process start. Toggling
 `web.telegram.enabled` at runtime only affects its cron reconciliation job; the listener still needs
@@ -277,9 +317,10 @@ a worker restart.
 exists (API-only otherwise). Pages: overview, archive records, jobs, settings. Cron fields show a
 live natural-language description of the expression.
 
-The jobs page owns `cron` and `enabled` for every source, plus manual 立即运行. Sources with an
+The jobs page owns `cron`, `enabled` and `notify` for every source, plus manual 立即运行. Sources with an
 incomplete configuration cannot be enabled: the toggle is disabled and `PUT /api/v2/settings/{section}`
-answers `422 incomplete_settings` with the missing field names.
+answers `422 incomplete_settings` with the missing field names. 通知 has no such restriction — it is
+saved on an incomplete source like any other field.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels
@@ -332,6 +373,9 @@ Protected endpoints:
 - `POST /api/v2/hanime1/seeds`
 - `GET /api/v2/hanime1/seeds`
 - `DELETE /api/v2/hanime1/seeds/{canonical_video_id}`
+- `POST /api/v2/hanime1/authors`
+- `GET /api/v2/hanime1/authors`
+- `DELETE /api/v2/hanime1/authors/{author_id}`
 - `GET /api/v2/job-requests`
 - `GET /api/v2/settings`
 - `GET /api/v2/settings/{section}`
@@ -411,12 +455,24 @@ The test button sends through the **saved** credentials, not the form draft, so 
 If delivery is disabled or incomplete, notifications stay queued and an unconfigured deployment
 still boots.
 
+`enabled` here is the delivery switch for the whole outbox; `web.<source>.notify` on the jobs page
+is the per-source one. A muted source is dropped when the notification is queued rather than when it
+is delivered — nothing accumulates for it, and turning it back on does not replay what was silenced.
+The one thing that ignores the toggle is RedNote's login QR, which goes straight to Telegram
+(`send_photo_now`) because it is a prompt the source cannot run without, not a report on a run.
+
 
 ### Azur Lane
 
 Azur Lane crawler settings live in the `web.azurlane` section (`enabled`, `path`, `cron`). Set
 `enabled` to true to schedule archive updates. The API reads Azur Lane manifests from the configured
 path even when the scheduled job is disabled.
+
+The source advertises models whose files its CDN does not host, and no amount of crawling fixes
+that. A model whose required assets fail is put on an escalating retry cooldown — one day, then
+three, then a week — during which the run skips it entirely and does not count it as a failure.
+It is reported again the first run after the wait lapses, or immediately if the source moves the
+model's URL, so a permanent source-side gap is announced weekly rather than every six hours.
 
 ### Run
 
@@ -477,6 +533,30 @@ channel_cooldown_seconds = 1800
 history_wait_seconds = 1
 flood_sleep_threshold_seconds = 300
 ```
+
+## Hanime1 Archive Layout
+
+Every downloaded video lands under `{web.hanime1.path}/{genre}/{group}/{title} [id].mp4`. The genre is read from the video's own
+watch page (the link next to the artist name) and converted to Simplified Chinese, e.g. `里番`, `泡面番`, `2D动画`, `AI生成`, `MMD`.
+Videos whose watch page exposes no genre fall back to `未分类` with a warning log.
+
+- Series subscriptions archive as `{path}/里番/{series}/{title NN} [id].mp4` — point Emby libraries at the `里番` / `泡面番`
+  directories for TMDB scraping.
+- Author subscriptions archive as `{path}/2D动画/{author}/{title} [id].mp4` — point Stash libraries at the fan-work genre
+  directories (`2D动画`, `AI生成`, `MMD`, ...).
+
+Files downloaded before the genre layer existed sit directly under `{path}/{series}/` and are not migrated automatically; move them
+into the matching genre directory manually when repointing media libraries. Dedup is database-backed (the `hanime1` table), so
+files uploaded and removed from disk by clouddrive2 are never re-downloaded.
+
+## Hanime1 Author Subscriptions
+
+Author (circle) uploads can be subscribed by user id from the Settings page or the API. The worker scans each author's
+`/user/{id}/uploaded` listing on every run, downloads new videos through the regular pipeline, and archives them under the author's
+display name. Adding a subscription accepts either the numeric id (`202534`) or the profile URL
+(`https://hanime1.me/user/202534/uploaded`); the display name is resolved from the profile page at add time and refused if
+unavailable. Per-author scan state (`video_count`, `last_scanned_at`, `last_scan_error`) is kept on the `hanime1_author` table, and
+a failing author never blocks the series route or the other authors.
 
 ## Hanime1 Ranking Discovery
 

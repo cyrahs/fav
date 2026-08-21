@@ -10,6 +10,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from src.core import settings
+
 from . import database, telegram_bot
 
 STATUS_READ = 'read'
@@ -300,7 +302,17 @@ async def enqueue_notification(
     image_url: str = '',
     payload: Mapping[str, Any] | None = None,
     dedupe_key: str = '',
-) -> NotificationRecord:
+) -> NotificationRecord | None:
+    """Queue one notification, unless the source has its ``notify`` toggle off.
+
+    A muted source is dropped here rather than at delivery: the outbox exists to
+    get messages out, so a row nobody will ever send is not worth keeping. The
+    single gate also covers sources added later, which is why it lives here
+    instead of at each call site.
+    """
+    if not settings.notify_enabled(source):
+        return None
+
     await ensure_notifications_table()
     normalized_dedupe_key = dedupe_key.strip()
     webhook_action = WEBHOOK_ACTION_UPSERT if normalized_dedupe_key else WEBHOOK_ACTION_SEND
@@ -426,6 +438,12 @@ async def resolve_notification(
     image_url: str = '',
     payload: Mapping[str, Any] | None = None,
 ) -> NotificationRecord | None:
+    """Close out a failure this source queued earlier.
+
+    Deliberately not gated on ``notify``: this only ever updates a row that was
+    already queued, and leaving a pinned failure standing because the source was
+    muted in the meantime is worse than the one message it takes to clear it.
+    """
     normalized_dedupe_key = dedupe_key.strip()
     if not normalized_dedupe_key:
         return None

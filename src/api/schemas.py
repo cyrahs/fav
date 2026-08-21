@@ -48,6 +48,7 @@ class JobRequestTarget(StrEnum):
     JANDAN = 'jandan'
     KEMONO = 'kemono'
     NIKKE = 'nikke'
+    PIXIV = 'pixiv'
     REDNOTE = 'rednote'
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
@@ -66,8 +67,10 @@ class JobSummary(ApiSchema):
     key: str
     name: str
     enabled: bool
+    # Whether this source's notifications are queued for delivery at all.
+    notify: bool = True
     cron: str
-    # Settings section that owns this job's enabled/cron fields.
+    # Settings section that owns this job's enabled/notify/cron fields.
     section: str = ''
     # Non-empty when the source is switched on but still missing required values,
     # in which case the scheduler keeps it parked.
@@ -136,6 +139,39 @@ class Hanime1ListResponse(ApiSchema):
 
 class Hanime1SeedCreate(ApiSchema):
     seed: str = Field(min_length=1)
+
+
+class Hanime1Author(ApiSchema):
+    author_id: str
+    name: str
+    author_url: str
+
+
+class Hanime1AuthorDetail(Hanime1Author):
+    video_count: int
+    created_at: str | None = None
+    updated_at: str | None = None
+    last_scanned_at: str | None = None
+    last_scan_error: str = ''
+
+
+class Hanime1AuthorListResponse(ApiSchema):
+    items: list[Hanime1AuthorDetail]
+    total: int
+
+
+class Hanime1AuthorCreate(ApiSchema):
+    author: str = Field(min_length=1)
+
+
+class KemonoCreatorResolveRequest(ApiSchema):
+    creator: str = Field(min_length=1)
+
+
+class KemonoCreatorResolved(ApiSchema):
+    service: str
+    id: str
+    name: str
 
 
 class Live2DVector2(ApiSchema):

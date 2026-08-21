@@ -109,6 +109,16 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
             subtitle_columns=('author', 'published_at'),
         ),
         ArchiveSource(
+            key='pixiv',
+            name='Pixiv',
+            table='pixiv',
+            id_columns=('illust_id', 'num'),
+            title_column='title',
+            columns=('author', 'author_id', 'illust_type', 'local_path', 'downloaded', 'unavailable', 'last_error'),
+            search_columns=('title', 'author'),
+            subtitle_columns=('author',),
+        ),
+        ArchiveSource(
             key='kemono',
             name='Kemono',
             table='kemono',
@@ -133,13 +143,19 @@ def _hanime1_url(row: dict[str, Any]) -> str:
     return f'{host}/watch?v={row["id"]}'
 
 
+def _kemono_url(row: dict[str, Any]) -> str:
+    base = settings.load().web.kemono.base_url.rstrip('/')
+    return f'{base}/{row["service"]}/user/{row["user_id"]}/post/{row["id"]}'
+
+
 _EXTERNAL_URL_BUILDERS: dict[str, Callable[[dict[str, Any]], str | None]] = {
     'bilibili': lambda row: f'https://www.bilibili.com/video/{row["bvid"]}',
     'hanime1': _hanime1_url,
-    'kemono': lambda row: f'https://kemono.cr/{row["service"]}/user/{row["user_id"]}/post/{row["id"]}',
+    'kemono': _kemono_url,
     'jandan': lambda row: str(row['content_url']) if row.get('content_url') else None,
     # /i/status resolves without knowing the author's current handle.
     'twitter': lambda row: f'https://x.com/i/status/{row["tweet_id"]}',
+    'pixiv': lambda row: f'https://www.pixiv.net/artworks/{row["illust_id"]}',
     'rednote': lambda row: build_note_url(str(row['note_id']), str(row.get('xsec_token') or '')),
 }
 

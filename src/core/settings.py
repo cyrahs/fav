@@ -46,6 +46,9 @@ class ScheduleJob(BaseModel):
     # Defaults are off so an unconfigured deployment starts up idle instead of
     # crawling with placeholder credentials.
     enabled: bool = False
+    # Notifications default on: a source that runs is expected to report what it
+    # found, so staying quiet is the deliberate choice rather than the accident.
+    notify: bool = True
 
     @field_validator('cron')
     @classmethod
@@ -135,7 +138,18 @@ class BilibiliAccount(BaseModel):
 
 class Bilibili(ScheduleJob):
     cron: str = '*/30 * * * *'
+    # Egress for the yt-dlp downloads only; the favourites API stays direct. Bilibili
+    # assigns the CDN mirror by egress IP, and from a US address the playurl sometimes
+    # lands on the Akamai overseas mirror, which throttles each connection to ~1MB/s
+    # server-side. A Hong Kong exit consistently gets the fast Tencent COS mirror, so
+    # the point of this proxy is steering the mirror assignment, not a faster route.
+    proxy: str = ''
     accounts: list[BilibiliAccount] = Field(default_factory=list)
+
+    @field_validator('proxy')
+    @classmethod
+    def normalize_proxy(cls, value: str) -> str:
+        return value.strip()
 
     @model_validator(mode='after')
     def validate_accounts(self) -> Self:
@@ -449,7 +463,32 @@ class KemonoCreator(BaseModel):
 class Kemono(ScheduleJob):
     path: Path = Path('./collection/kemono')
     cron: str = '0 */6 * * *'
+    # kemono.party -> .su -> .cr -> dead; pawchive already advertises .st beside .pw.
+    # The next domain move should be a settings edit, not a deploy.
+    base_url: str = 'https://pawchive.pw'
+    # Attachments live on a separate host (the main domain 404s on /data paths).
+    file_base_url: str = 'https://file.pawchive.pw'
+    # Applied before every API and file request. Raise it via settings if the site
+    # starts throttling; no redeploy needed.
+    sleep_request_seconds: float = 1.0
     creators: list[KemonoCreator] = Field(default_factory=list)
+
+    @field_validator('base_url', 'file_base_url')
+    @classmethod
+    def normalize_base_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip('/')
+        if not normalized.startswith(('http://', 'https://')):
+            msg = 'base URLs must start with http:// or https://'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('sleep_request_seconds')
+    @classmethod
+    def validate_sleep_request_seconds(cls, value: float) -> float:
+        if value < 0:
+            msg = 'sleep_request_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
 
     def validate_runnable(self) -> list[str]:
         return [] if self.creators else ['creators']
@@ -531,6 +570,50 @@ class Twitter(ScheduleJob):
         missing = [] if self.username else ['username']
         missing.extend(f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable())
         return missing
+
+
+class Pixiv(ScheduleJob):
+    """Public pixiv bookmarks, crawled through the www.pixiv.net ajax API.
+
+    The session is a PHPSESSID cookie pulled from CookieCloud so it tracks the
+    browser. The logged-in user's id is normally derived from that cookie's value
+    (``{user_id}_{hash}``); ``user_id`` only overrides it for a vault whose cookie
+    does not carry that shape.
+    """
+
+    path: Path = Path('./collection/pixiv')
+    cron: str = '0 */6 * * *'
+    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+    # Optional override; empty means "derive from the PHPSESSID cookie".
+    user_id: str = ''
+    # Spacing between ajax API requests. Image downloads hit the CDN and are not paced.
+    sleep_request_seconds: float = 1.0
+    proxy: str = ''
+
+    @field_validator('user_id')
+    @classmethod
+    def normalize_user_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized and not normalized.isdigit():
+            msg = 'user_id must contain only digits'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('proxy')
+    @classmethod
+    def normalize_proxy(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('sleep_request_seconds')
+    @classmethod
+    def validate_sleep_request_seconds(cls, value: float) -> float:
+        if value < 0:
+            msg = 'sleep_request_seconds cannot be negative'
+            raise ValueError(msg)
+        return value
+
+    def validate_runnable(self) -> list[str]:
+        return [f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable()]
 
 
 class RedNote(ScheduleJob):
@@ -676,6 +759,7 @@ class Web(BaseModel):
     jandan: Jandan = Field(default_factory=Jandan)
     kemono: Kemono = Field(default_factory=Kemono)
     twitter: Twitter = Field(default_factory=Twitter)
+    pixiv: Pixiv = Field(default_factory=Pixiv)
     rednote: RedNote = Field(default_factory=RedNote)
 
 
@@ -695,17 +779,19 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.jandan': Jandan,
     'web.kemono': Kemono,
     'web.twitter': Twitter,
+    'web.pixiv': Pixiv,
     'web.rednote': RedNote,
     'notifications.telegram': TelegramNotification,
 }
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
+# Proxy URLs are deliberately not in here: this is a single-user deployment, the
+# UI needs to show and edit them as ordinary text, and masking them cost more in
+# round-trip machinery than the credential inside was worth.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
-    'web.azurlane': ('origin_proxy',),
     'web.bilibili': ('accounts[].cookiecloud.password',),
     'web.twitter': ('cookiecloud.password',),
-    # A proxy URL may carry credentials, and this one points at the user's own line.
-    'web.rednote': ('proxy',),
+    'web.pixiv': ('cookiecloud.password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
 }
@@ -812,6 +898,17 @@ def invalidate_cache() -> None:
     global _cache
     with _cache_lock:
         _cache = None
+
+
+def notify_enabled(source: str) -> bool:
+    """Whether ``source``'s notifications should be queued at all.
+
+    ``source`` is a job key from ``JOB_SPECS``, which is also its field name on
+    ``Web``. Anything else -- ``worker``, say -- is not a source toggle and is
+    left alone; those call sites gate themselves where they know the job.
+    """
+    job = getattr(load().web, source.strip().lower(), None)
+    return job.notify if isinstance(job, ScheduleJob) else True
 
 
 def load_section(section: str) -> BaseModel:

@@ -15,6 +15,7 @@ from .constants import (
     TAG_BD2,
     TAG_HANIME1,
     TAG_JOBS,
+    TAG_KEMONO,
     TAG_NIKKE,
     TAG_SETTINGS,
 )
@@ -35,6 +36,9 @@ from .schemas import (
     BD2SidebarCharacterListResponse,
     CookieCloudTestRequest,
     CookieCloudTestResult,
+    Hanime1Author,
+    Hanime1AuthorCreate,
+    Hanime1AuthorListResponse,
     Hanime1ListResponse,
     Hanime1Seed,
     Hanime1SeedCreate,
@@ -44,6 +48,8 @@ from .schemas import (
     JobRequestCreate,
     JobRequestListResponse,
     JobRequestStatus,
+    KemonoCreatorResolved,
+    KemonoCreatorResolveRequest,
     Live2DViewOverride,
     Live2DViewOverrideUpsert,
     NikkeCharacterDetail,
@@ -335,13 +341,13 @@ def get_job_request(
 )
 def list_job_requests(
     service: ApiServiceDep,
-    status_filter: Annotated[JobRequestStatus | None, Query(alias='status')] = None,
+    status_filter: Annotated[list[JobRequestStatus] | None, Query(alias='status')] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> JobRequestListResponse:
     items = [
         service.model_job_request(request)
         for request in service.list_job_requests(
-            status=status_filter.value if status_filter is not None else None,
+            statuses=[item.value for item in status_filter] if status_filter else None,
             limit=limit,
         )
     ]
@@ -507,6 +513,58 @@ def delete_hanime1_seed(
 ) -> Response:
     service.delete_hanime1_seed(canonical_video_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    '/hanime1/authors',
+    operation_id='createHanime1Author',
+    response_model=Hanime1Author,
+    status_code=status.HTTP_201_CREATED,
+    tags=[TAG_HANIME1],
+)
+def create_hanime1_author(
+    payload: Hanime1AuthorCreate,
+    service: ApiServiceDep,
+) -> Hanime1Author:
+    return service.model_hanime1_author(service.add_hanime1_author(payload.author))
+
+
+@router.get(
+    '/hanime1/authors',
+    operation_id='listHanime1Authors',
+    response_model=Hanime1AuthorListResponse,
+    tags=[TAG_HANIME1],
+)
+def list_hanime1_authors(service: ApiServiceDep) -> Hanime1AuthorListResponse:
+    items = [service.model_hanime1_author_detail(author) for author in service.list_hanime1_authors()]
+    return Hanime1AuthorListResponse(items=items, total=len(items))
+
+
+@router.delete(
+    '/hanime1/authors/{author_id}',
+    operation_id='deleteHanime1Author',
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=[TAG_HANIME1],
+)
+def delete_hanime1_author(
+    author_id: Annotated[str, Path(min_length=1, max_length=32, pattern=r'^[0-9]+$')],
+    service: ApiServiceDep,
+) -> Response:
+    service.delete_hanime1_author(author_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    '/kemono/creators/resolve',
+    operation_id='resolveKemonoCreator',
+    response_model=KemonoCreatorResolved,
+    tags=[TAG_KEMONO],
+)
+def resolve_kemono_creator(
+    payload: KemonoCreatorResolveRequest,
+    service: ApiServiceDep,
+) -> KemonoCreatorResolved:
+    return service.model_kemono_creator(service.resolve_kemono_creator(payload.creator))
 
 
 @router.get(
