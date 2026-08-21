@@ -108,6 +108,11 @@ _LOGIN_RELOAD_INTERVAL_SECONDS = 5.0
 # One photo per QR that RedNote actually mints. Past three the user is not
 # coming, and a fourth is just noise in their chat.
 _MAX_QR_MESSAGES = 3
+# How long a login QR from an earlier run can plausibly still be scanned. The app
+# answers older codes with an error, so a cross-run cooldown that suppresses past
+# this point is no longer sparing the user a duplicate -- it is refusing them a
+# working code while telling them to scan a dead one.
+_LOGIN_QR_LIFETIME_SECONDS = 300
 # How long to wait for the site to produce the next page of the likes list while
 # scrolling, before deciding it has stopped producing.
 _LIKE_PAGE_TIMEOUT_SECONDS = 25.0
@@ -712,12 +717,18 @@ class RedNote:
 
             await asyncio.sleep(_LOGIN_POLL_INTERVAL_SECONDS)
 
-        msg = (
-            'RedNote is signed out. A login QR was sent to Telegram; scan it with the app and run this source again.'
-            if sent
-            else 'RedNote is signed out and no login QR could be sent. Check the Telegram notification settings.'
-        )
-        raise RedNoteError(msg, notification_dedupe_key='rednote:login')
+        raise RedNoteError(self._signed_out_message(sent), notification_dedupe_key='rednote:login')
+
+    def _signed_out_message(self, sent: dict[str, set[str]]) -> str:
+        # `sent` gains an empty per-stage set the moment a QR is merely seen, so the
+        # question is whether any code actually went out, not whether the dict is empty.
+        if any(sent.values()):
+            return 'RedNote is signed out. A login QR was sent to Telegram; scan it with the app and run this source again.'
+        if self._may_prompt is False:
+            # The cooldown held, which after its cap means the last code is minutes
+            # old at most -- still scannable, so point at it rather than at settings.
+            return 'RedNote is signed out. The QR from a few minutes ago should still work; scan it, or rerun shortly for a fresh one.'
+        return 'RedNote is signed out and no login QR could be sent. Check the Telegram notification settings.'
 
     async def _offer_qr(self, *, qr_src: str, stage: str, sent: dict[str, set[str]]) -> bool:
         """Send this code if it is new and still allowed. False means stop waiting."""
@@ -760,12 +771,19 @@ class RedNote:
             log.info('RedNote login page reload was interrupted: %s', exc)
 
     async def _login_prompt_allowed(self) -> bool:
-        """A QR dies within minutes, so a 04:00 cron sending one is pure noise."""
-        if self.cfg.login_prompt_cooldown_seconds <= 0:
+        """A QR dies within minutes, so re-prompting inside that window is pure noise.
+
+        The configured cooldown is capped at the QR's lifetime for the same reason it
+        exists at all: once the last code has expired, suppressing the next one does
+        not spare the user a duplicate photo -- it fails the run while pointing them
+        at a code their app already rejects.
+        """
+        cooldown = min(self.cfg.login_prompt_cooldown_seconds, _LOGIN_QR_LIFETIME_SECONDS)
+        if cooldown <= 0:
             return True
         last = _to_int(await self._read_state(_LOGIN_PROMPT_STATE_KEY)) or 0
         now = int(datetime.now(tz=_DISPLAY_TIMEZONE).timestamp())
-        if now - last < self.cfg.login_prompt_cooldown_seconds:
+        if now - last < cooldown:
             log.info('RedNote is signed out, but a login QR was already sent %ss ago', now - last)
             return False
         await self._write_state(_LOGIN_PROMPT_STATE_KEY, str(now))

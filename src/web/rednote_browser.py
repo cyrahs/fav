@@ -66,6 +66,17 @@ _NOT_FOUND_PATH = '/404'
 _SHAPE_MAX_KEYS = 40
 # What Chromium puts in its own UA when it has no window, and what the site refuses.
 _HEADLESS_UA_TOKEN = 'HeadlessChrome'  # noqa: S105 - a User-Agent token, not a credential
+# The pod's real OS token, and what the app names as the device when a login QR is
+# scanned: "Linux 设备", which reads as somebody's server. The Mac token is the one
+# Chrome has frozen since 2021, identical on every real Mac regardless of OS or CPU
+# -- which is also why the client hints below say `arm` under an "Intel" UA: that
+# mismatch is exactly what genuine Chrome on Apple Silicon reports.
+_LINUX_UA_OS_TOKEN = '(X11; Linux x86_64)'  # noqa: S105 - a User-Agent token, not a credential
+_MAC_UA_OS_TOKEN = '(Macintosh; Intel Mac OS X 10_15_7)'  # noqa: S105 - a User-Agent token, not a credential
+_MAC_NAVIGATOR_PLATFORM = 'MacIntel'
+_MAC_HINT_PLATFORM = 'macOS'
+_MAC_HINT_PLATFORM_VERSION = '15.6.1'
+_MAC_HINT_ARCHITECTURE = 'arm'
 _ACCEPT_LANGUAGE = 'zh-CN,zh;q=0.9'
 _PROBE_LENGTH_ONLY_FIELDS = ('qr_src', 'user_id', 'profile_href')
 # The settings form's proxy test. Short, because an operator is watching it spin.
@@ -379,7 +390,7 @@ def build_launch_options(*, user_data_dir: Path, proxy: str, headless: bool) -> 
 
     * ``user_agent`` -- not because the UA is left alone, but because it cannot be
       corrected from here: the browser's own version is only readable once it is
-      running. ``_hide_headless_user_agent`` does it over CDP after launch, carrying
+      running. ``_present_mac_user_agent`` does it over CDP after launch, carrying
       the client hints with it. An earlier revision argued the default was safer than
       any override; measuring it said otherwise, and said so at the login endpoint.
     * ``--no-sandbox`` -- Playwright already runs Chromium unsandboxed
@@ -504,7 +515,7 @@ class PlaywrightNoteBrowser:
             await self._context.add_init_script(_WEBDRIVER_INIT_SCRIPT)
             self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
             self._page.on('response', self._on_response)
-            await self._hide_headless_user_agent()
+            await self._present_mac_user_agent()
         except Exception:
             await self.aclose()
             raise
@@ -574,39 +585,58 @@ class PlaywrightNoteBrowser:
                 return probe
             await asyncio.sleep(_LOGIN_RENDER_POLL_SECONDS)
 
-    async def _hide_headless_user_agent(self) -> None:
-        """Drop the `Headless` token Chromium puts in its own User-Agent.
+    async def _present_mac_user_agent(self) -> None:
+        """Present the browser as desktop Chrome on a Mac, at its real version.
 
-        Measured against the live site from a residential address, with everything
-        else held equal: the default headless UA is answered with HTTP 461 on the
-        login endpoints -- `login/qrcode/create` among them, so the site will not
-        even mint a QR. The same browser with that one token removed is served
-        normally. Headful behaves like the stripped UA, so it is the string being
-        judged rather than the absence of a window.
+        Two corrections folded into one override:
+
+        * The `Headless` token. Measured against the live site from a residential
+          address, with everything else held equal: the default headless UA is
+          answered with HTTP 461 on the login endpoints -- `login/qrcode/create`
+          among them, so the site will not even mint a QR. The same browser with that
+          one token removed is served normally. Headful behaves like the stripped UA,
+          so it is the string being judged rather than the absence of a window.
+        * The OS token. The pod's Chromium says `(X11; Linux x86_64)`, and that is
+          the device the app describes on the phone when a login QR is scanned. The
+          Mac token replaces it -- together with `navigator.platform` and the client
+          hints, so every readout the site has tells the same story.
 
         This overrides `Emulation.setUserAgentOverride` rather than the launch option
-        so the real version is read off the browser first and only that token changes
-        -- and so the client hints can be carried across with it, which the launch
-        option does not do.
+        so the real version is read off the browser first and only these tokens
+        change -- and so the client hints can be carried across with it, which the
+        launch option does not do.
         """
         user_agent = str(await self._page.evaluate('() => navigator.userAgent'))
-        if _HEADLESS_UA_TOKEN not in user_agent:
+        cleaned = user_agent.replace(_HEADLESS_UA_TOKEN, 'Chrome').replace(_LINUX_UA_OS_TOKEN, _MAC_UA_OS_TOKEN)
+        if cleaned == user_agent and _MAC_UA_OS_TOKEN in user_agent:
+            # A real Mac browser with a window: nothing to correct, and no override
+            # means nothing that can drift from the browser's own readouts.
             return
-        cleaned = user_agent.replace(_HEADLESS_UA_TOKEN, 'Chrome')
-        override: dict[str, Any] = {'userAgent': cleaned, 'acceptLanguage': _ACCEPT_LANGUAGE}
-        # Only when they can actually be read. The hints never carry the Headless
-        # token, so they need no correction -- but sending an empty `brands` blanks
+        override: dict[str, Any] = {
+            'userAgent': cleaned,
+            'acceptLanguage': _ACCEPT_LANGUAGE,
+            'platform': _MAC_NAVIGATOR_PLATFORM,
+        }
+        # Only when they can actually be read. The brands and version are the real
+        # browser's own -- but sending an empty `brands` blanks
         # `navigator.userAgentData`, and a browser with no brands at all is a stranger
         # signal than the one being fixed.
         metadata = await self._user_agent_metadata(cleaned)
         if metadata.get('brands'):
+            metadata.update(
+                platform=_MAC_HINT_PLATFORM,
+                platformVersion=_MAC_HINT_PLATFORM_VERSION,
+                architecture=_MAC_HINT_ARCHITECTURE,
+                model='',
+                mobile=False,
+            )
             override['userAgentMetadata'] = metadata
         # Held open for the life of the browser on purpose: detaching the session
         # reverts every emulation override applied through it, which is how the first
         # version of this set the UA and was still served the old one.
         self._cdp = await self._context.new_cdp_session(self._page)
         await self._cdp.send('Emulation.setUserAgentOverride', override)
-        log.info('RedNote hid the Headless token in the browser User-Agent')
+        log.info('RedNote presented the browser as Chrome on macOS')
 
     async def _user_agent_metadata(self, user_agent: str) -> dict[str, Any]:
         """The client hints as the browser reports them, with the version it reports.
