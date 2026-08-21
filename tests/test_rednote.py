@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 import tomllib
 from pathlib import Path
 
@@ -377,7 +378,7 @@ def test_the_launch_options_do_not_pin_a_user_agent() -> None:
 
     The browser's own version is only readable once it is running, and a guessed one
     would be the mismatch that overriding a UA is usually blamed for. See
-    `_hide_headless_user_agent`, which reads the real string and changes one token.
+    `_present_mac_user_agent`, which reads the real string and swaps two tokens.
     """
     assert 'user_agent' not in build_launch_options(user_data_dir=Path('/p'), proxy='', headless=True)
 
@@ -877,10 +878,40 @@ def test_a_second_run_inside_the_cooldown_does_not_send_another_qr(monkeypatch) 
     qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
     job = _job(login_wait_seconds=1, login_prompt_cooldown_seconds=3600)
 
-    for _ in range(2):
+    for attempt in range(2):
         browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
-        with pytest.raises(RedNoteError):
+        with pytest.raises(RedNoteError) as excinfo:
             asyncio.run(job._await_login(browser))
+        if attempt == 1:
+            # The suppressed run must not claim it just sent one, nor blame Telegram.
+            assert 'still work' in str(excinfo.value)
+    asyncio.run(job.client.aclose())
+
+    assert len(sent) == 1
+
+
+def test_a_rerun_after_the_qr_expired_sends_a_fresh_one_despite_the_cooldown(monkeypatch) -> None:
+    # The cooldown is capped at the QR's lifetime: past it the old code is dead, and
+    # suppression would fail the run while pointing at a code the app rejects.
+    sent: list[bytes] = []
+
+    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
+        sent.append(photo[1])
+        return 1
+
+    fake_db = _FakeDatabase()
+    monkeypatch.setattr(rednote_module, 'database', fake_db)
+    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
+    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    job = _job(login_wait_seconds=1, login_prompt_cooldown_seconds=3600)
+    expired = int(time.time()) - rednote_module._LOGIN_QR_LIFETIME_SECONDS - 60
+    fake_db.state['login_prompt_at'] = str(expired)
+
+    browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
+    with pytest.raises(RedNoteError):
+        asyncio.run(job._await_login(browser))
     asyncio.run(job.client.aclose())
 
     assert len(sent) == 1

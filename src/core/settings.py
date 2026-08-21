@@ -668,8 +668,10 @@ class RedNote(ScheduleJob):
     # control-request consumer runs one request at a time and a longer wait parks
     # every queued manual trigger behind it.
     login_wait_seconds: int = 300
-    # Quiet period between login prompts. A QR is dead within minutes, so a 04:00
-    # cron sending one is pure noise.
+    # Quiet period between login prompts, so back-to-back runs do not each drop a QR
+    # photo in the chat. Capped at the QR's lifetime (about five minutes) at the
+    # point of use: once the last code has expired, suppressing the next one would
+    # fail the run while telling the user to scan a code their app rejects.
     login_prompt_cooldown_seconds: int = 3600
     headless: bool = True
 
