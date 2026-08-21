@@ -60,6 +60,11 @@ export interface Hanime1Author {
   last_scanned_at: string | null;
   last_scan_error: string;
 }
+export interface KemonoCreatorResolved {
+  service: string;
+  id: string;
+  name: string;
+}
 export interface ListResponse<T> {
   items: T[];
   total: number;

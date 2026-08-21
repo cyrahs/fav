@@ -116,6 +116,21 @@ class _AuthorService:
         return None
 
 
+class _KemonoResolver:
+    def __init__(self) -> None:
+        self.resolve_error: Exception | None = None
+        self.resolved: list[str] = []
+
+    def resolve(self, raw_creator: str) -> dict:
+        self.resolved.append(raw_creator)
+        if self.resolve_error is not None:
+            raise self.resolve_error
+        return {'service': 'fanbox', 'id': '70050825', 'name': 'Maplestar'}
+
+    def close(self) -> None:
+        return None
+
+
 def _job(*, key: str, enabled: bool = True, notify: bool = True) -> ScheduledJob:
     return ScheduledJob(
         key=key,
@@ -160,6 +175,7 @@ def _build_service(
     request_lister=None,
     runtime_service: _RuntimeService | None = None,
     author_service: _AuthorService | None = None,
+    kemono_creator_resolver: _KemonoResolver | None = None,
     telegram_notification_tester=None,
 ) -> api_server.FavApiService:
     runtime = runtime_service or _RuntimeService()
@@ -176,6 +192,7 @@ def _build_service(
         control_request_lister=request_lister,
         runtime_service=runtime,
         author_service=author_service or _AuthorService(),
+        kemono_creator_resolver=kemono_creator_resolver or _KemonoResolver(),
         telegram_notification_tester=telegram_notification_tester,
     )
 
@@ -825,6 +842,48 @@ def test_add_hanime1_author_maps_errors(error, expected_status, expected_code, e
 
     with TestClient(create_app(service=service)) as client:
         response = client.post('/api/v2/hanime1/authors', headers=_auth_headers(), json={'author': '202534'})
+
+    assert response.status_code == expected_status
+    assert response.json() == {
+        'error': {
+            'code': expected_code,
+            'message': expected_message,
+            'details': None,
+        },
+    }
+
+
+def test_resolve_kemono_creator_returns_resolved_creator() -> None:
+    resolver = _KemonoResolver()
+    service = _build_service(token=_VALID_TOKEN, kemono_creator_resolver=resolver)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post(
+            '/api/v2/kemono/creators/resolve',
+            headers=_auth_headers(),
+            json={'creator': 'https://pawchive.pw/fanbox/user/70050825'},
+        )
+
+    assert response.status_code == 200
+    assert resolver.resolved == ['https://pawchive.pw/fanbox/user/70050825']
+    assert response.json() == {'service': 'fanbox', 'id': '70050825', 'name': 'Maplestar'}
+
+
+@pytest.mark.parametrize(
+    ('error', 'expected_status', 'expected_code', 'expected_message'),
+    [
+        (ValueError('invalid_creator'), 422, 'invalid_creator', 'Creator id or URL is invalid.'),
+        (LookupError('creator_not_found'), 404, 'creator_not_found', 'Creator not found upstream.'),
+        (ConnectionError('creator_resolve_failed'), 502, 'creator_resolve_failed', 'Unable to reach the Kemono site.'),
+    ],
+)
+def test_resolve_kemono_creator_maps_errors(error, expected_status, expected_code, expected_message) -> None:
+    resolver = _KemonoResolver()
+    resolver.resolve_error = error
+    service = _build_service(token=_VALID_TOKEN, kemono_creator_resolver=resolver)
+
+    with TestClient(create_app(service=service)) as client:
+        response = client.post('/api/v2/kemono/creators/resolve', headers=_auth_headers(), json={'creator': '70050825'})
 
     assert response.status_code == expected_status
     assert response.json() == {

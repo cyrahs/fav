@@ -24,6 +24,7 @@ from src.tool.control_queue import (
 )
 from src.tool.hanime1_author import Hanime1AuthorService
 from src.tool.hanime1_series import Hanime1SeriesService
+from src.tool.kemono_creator import KemonoCreatorResolver
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
 from src.web.rednote_browser import probe_proxy as probe_rednote_proxy
@@ -61,6 +62,7 @@ from .schemas import (
     HealthResponse,
     JobRequest,
     JobSummary,
+    KemonoCreatorResolved,
     Live2DViewOverride,
     NikkeCharacterDetail,
     NikkeCharacterSummary,
@@ -122,6 +124,7 @@ class FavApiService:
         telegram_notification_tester: TelegramNotificationTester | None = None,
         runtime_service: Hanime1SeriesService | None = None,
         author_service: Hanime1AuthorService | None = None,
+        kemono_creator_resolver: KemonoCreatorResolver | None = None,
         archive_library: ArchiveLibrary | None = None,
         azurlane_library: AzurLaneLibrary | None = None,
         nikke_library: NikkeLibrary | None = None,
@@ -156,6 +159,7 @@ class FavApiService:
             host=settings.load().web.hanime1.host,
             user_lang=settings.load().web.hanime1.user_lang,
         )
+        self._kemono_creator_resolver = kemono_creator_resolver or KemonoCreatorResolver()
         self._azurlane_library = azurlane_library or AzurLaneLibrary(settings.load().web.azurlane.path)
         self._nikke_library = nikke_library or NikkeLibrary(settings.load().web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(settings.load().web.bd2.path)
@@ -164,7 +168,7 @@ class FavApiService:
         self._readiness_lock = asyncio.Lock()
 
     def close(self) -> None:
-        for service in (self._runtime_service, self._author_service):
+        for service in (self._runtime_service, self._author_service, self._kemono_creator_resolver):
             close = getattr(service, 'close', None)
             if callable(close):
                 close()
@@ -440,26 +444,13 @@ class FavApiService:
             'warnings': list(result.warnings),
         }
 
-    def _stored_azurlane_proxy(self) -> str:
-        try:
-            stored = json.loads(self._settings_section_getter('web.azurlane').model_dump_json())
-        except UnknownSectionError:
-            raise ApiError(status_code=404, code='unknown_section', message='Unknown settings section: web.azurlane') from None
-        except Exception:
-            log.exception('Failed to load web.azurlane for the proxy test')
-            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
-        return str(stored.get('origin_proxy') or '')
-
     def test_azurlane_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check that the l2d.su origin is reachable through a proxy, without saving it.
 
-        The draft from the form wins, except that a masked or omitted value is resolved
-        against what is already stored.
+        The draft from the form is probed as-is: proxies are shown to the UI in
+        plaintext, so there is no masked value to resolve.
         """
-        draft = {'origin_proxy': str(payload.get('origin_proxy') or '')}
-        keep_secret(draft, 'origin_proxy', self._stored_azurlane_proxy())
-
-        result = probe_l2d_su_origin(draft['origin_proxy'])
+        result = probe_l2d_su_origin(str(payload.get('origin_proxy') or ''))
         return {'ok': result.ok, 'code': result.code, 'message': result.message, 'exit_ip': result.exit_ip}
 
     def _stored_section(self, section: str) -> dict[str, Any]:
@@ -474,14 +465,10 @@ class FavApiService:
     def test_rednote_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check the egress the RedNote source would use, without saving it.
 
-        The draft from the form wins, except that a masked or omitted value is resolved
-        against what is already stored -- so the button works on a proxy the UI has
-        only ever shown masked.
+        The draft from the form is probed as-is: proxies are shown to the UI in
+        plaintext, so there is no masked value to resolve.
         """
-        draft = {'proxy': str(payload.get('proxy') or '')}
-        keep_secret(draft, 'proxy', str(self._stored_section('web.rednote').get('proxy') or ''))
-
-        result = probe_rednote_proxy(draft['proxy'])
+        result = probe_rednote_proxy(str(payload.get('proxy') or ''))
         return {
             'ok': result.ok,
             'code': result.code,
@@ -650,6 +637,19 @@ class FavApiService:
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
         if not deleted:
             raise ApiError(status_code=404, code='not_found', message='Hanime1 author not found.')
+
+    def resolve_kemono_creator(self, creator: str) -> dict[str, str]:
+        try:
+            return self._kemono_creator_resolver.resolve(creator)
+        except ValueError:
+            raise ApiError(status_code=422, code='invalid_creator', message='Creator id or URL is invalid.') from None
+        except LookupError:
+            raise ApiError(status_code=404, code='creator_not_found', message='Creator not found upstream.') from None
+        except ConnectionError:
+            raise ApiError(status_code=502, code='creator_resolve_failed', message='Unable to reach the Kemono site.') from None
+        except Exception:
+            log.exception('Failed to resolve Kemono creator')
+            raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
     def list_azurlane_characters(self) -> list[dict[str, object]]:
         try:
@@ -923,6 +923,10 @@ class FavApiService:
     @staticmethod
     def model_hanime1_author_detail(payload: dict[str, Any]) -> Hanime1AuthorDetail:
         return Hanime1AuthorDetail.model_validate(payload)
+
+    @staticmethod
+    def model_kemono_creator(payload: dict[str, str]) -> KemonoCreatorResolved:
+        return KemonoCreatorResolved.model_validate(payload)
 
     @staticmethod
     def model_settings_section(payload: dict[str, object]) -> SettingsSection:
