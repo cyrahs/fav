@@ -444,6 +444,83 @@ function TwitterForm(props: SectionFormProps) {
   );
 }
 
+function PixivForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const userId = str(props.value, 'user_id');
+  const userIdOk = /^\d*$/.test(userId);
+  const cookiecloud = record(props.value, 'cookiecloud') as CookieCloudCredentials;
+  const setCookieCloud = (patch: Partial<CookieCloudCredentials>) =>
+    set('cookiecloud', { ...cookiecloud, ...patch });
+
+  return (
+    <div className="field-grid">
+      <PathField {...props} />
+      <TextField
+        label="用户 ID"
+        value={userId}
+        onChange={(next) => set('user_id', next)}
+        mono
+        placeholder="留空则自动推导"
+        invalid={!userIdOk}
+        hint="留空即可：会从 CookieCloud 里 PHPSESSID 的前缀自动推导登录账号的 ID。"
+        error={userId && !userIdOk ? '只能包含数字' : undefined}
+      />
+
+      <div className="subsection">
+        <h4>CookieCloud 凭据</h4>
+        <div className="field-grid">
+          <TextField
+            label="服务地址"
+            value={cookiecloud.server_url ?? ''}
+            onChange={(next) => setCookieCloud({ server_url: next })}
+            mono
+            placeholder="https://cookiecloud.example.com/"
+          />
+          <TextField
+            label="UUID"
+            value={cookiecloud.uuid ?? ''}
+            onChange={(next) => setCookieCloud({ uuid: next })}
+            mono
+          />
+          <SecretField
+            label="密码"
+            value={cookiecloud.password ?? ''}
+            onChange={(next) => setCookieCloud({ password: next })}
+            hint="浏览器插件需要同步 pixiv.net 的 PHPSESSID"
+          />
+          <CookieCloudTest
+            source="pixiv"
+            serverUrl={cookiecloud.server_url ?? ''}
+            uuid={cookiecloud.uuid ?? ''}
+            password={cookiecloud.password ?? ''}
+          />
+        </div>
+      </div>
+
+      <div className="subsection">
+        <h4>抓取节奏</h4>
+        <div className="field-grid">
+          <NumberField
+            label="请求间隔（秒）"
+            value={num(props.value, 'sleep_request_seconds', 1)}
+            onChange={(next) => set('sleep_request_seconds', next)}
+            step={0.5}
+            hint="只作用于 pixiv 的 ajax 接口；图片直接走 CDN，不受此限制。"
+          />
+          <TextField
+            label="代理"
+            value={str(props.value, 'proxy')}
+            onChange={(next) => set('proxy', next)}
+            mono
+            placeholder="http://host:port"
+            hint="留空则直连（或走全局 HTTP_PROXY）"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RedNoteForm(props: SectionFormProps) {
   const set = patcher(props);
   const allowDirect = bool(props.value, 'allow_direct_connection');
@@ -594,6 +671,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.jandan': JandanForm,
   'web.kemono': KemonoForm,
   'web.twitter': TwitterForm,
+  'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
   'notifications.telegram': TelegramNotificationForm,
 };
@@ -693,6 +771,16 @@ export function validateSection(section: string, value: Record<string, unknown>)
     }
     if (num(value, 'abort_after', 20) < 1) {
       issues.push('停止阈值至少为 1');
+    }
+  }
+
+  if (section === 'web.pixiv') {
+    const userId = str(value, 'user_id').trim();
+    if (userId && !/^\d+$/.test(userId)) {
+      issues.push('用户 ID 只能包含数字');
+    }
+    if (num(value, 'sleep_request_seconds', 1) < 0) {
+      issues.push('请求间隔不能为负数');
     }
   }
 

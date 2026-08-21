@@ -39,9 +39,17 @@ TWITTER_PROFILE = CookieProfile(
     domains=('x.com', 'twitter.com'),
     required_cookies=('auth_token', 'ct0'),
 )
+# The ajax API authenticates with the single session cookie; probe() lower-cases
+# cookie names before matching, so this is 'phpsessid'. Which hostname a vault
+# files it under depends on the browser, hence both.
+PIXIV_PROFILE = CookieProfile(
+    domains=('pixiv.net', 'www.pixiv.net'),
+    required_cookies=('phpsessid',),
+)
 PROFILES: dict[str, CookieProfile] = {
     'bilibili': BILIBILI_PROFILE,
     'twitter': TWITTER_PROFILE,
+    'pixiv': PIXIV_PROFILE,
 }
 
 

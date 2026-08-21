@@ -48,6 +48,7 @@ class JobRequestTarget(StrEnum):
     JANDAN = 'jandan'
     KEMONO = 'kemono'
     NIKKE = 'nikke'
+    PIXIV = 'pixiv'
     REDNOTE = 'rednote'
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'

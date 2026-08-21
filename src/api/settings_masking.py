@@ -71,7 +71,7 @@ def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
             if nested is not None:
                 account['cookiecloud'] = {**nested}
                 _mask_scalar(account['cookiecloud'], 'password')
-    elif section == 'web.twitter':
+    elif section in ('web.twitter', 'web.pixiv'):
         nested = _cookiecloud(masked)
         if nested is not None:
             masked['cookiecloud'] = {**nested}
@@ -102,7 +102,7 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
                 continue
             account['cookiecloud'] = {**nested}
             keep_secret(account['cookiecloud'], 'password', stored_passwords.get(str(account.get('name') or ''), ''))
-    elif section == 'web.twitter':
+    elif section in ('web.twitter', 'web.pixiv'):
         nested = _cookiecloud(merged)
         if nested is not None:
             merged['cookiecloud'] = {**nested}
