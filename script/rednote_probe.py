@@ -504,19 +504,15 @@ async def cmd_notes(args: argparse.Namespace) -> None:
 async def cmd_fetch(args: argparse.Namespace) -> None:
     """Take one real note of each kind all the way to the downloader.
 
-    The half of the run that happens after the browser closes: images off the CDN
-    over httpx, videos through yt-dlp carrying the account's cookies. Both are
-    checked without keeping anything -- the image is read and dropped, and yt-dlp is
-    asked to resolve rather than download.
+    The half of the run that happens after the browser closes: both kinds of media
+    come straight off the CDN over httpx, the way production downloads them, with no
+    cookies attached. Nothing is kept -- each URL is opened, the first bytes are read
+    to identify the file, and the connection is dropped.
     """
-    import subprocess  # noqa: PLC0415
-    import tempfile  # noqa: PLC0415
-
     import httpx  # noqa: PLC0415
 
     from src.web.rednote import (  # noqa: PLC0415
         build_note_url,
-        build_ytdlp_command,
         decide_login_state,
         extract_like_page,
         extract_note_media,
@@ -524,6 +520,19 @@ async def cmd_fetch(args: argparse.Namespace) -> None:
         parse_api_envelope,
         user_id_from_probe,
     )
+
+    async def peek(client: httpx.AsyncClient, url: str) -> dict[str, Any]:
+        async with client.stream('GET', url, headers={'Accept': 'image/*,video/*,*/*;q=0.8'}) as response:
+            head = b''
+            async for chunk in response.aiter_bytes(64):
+                head = chunk
+                break
+            return {
+                'status': response.status_code,
+                'content_type': response.headers.get('content-type'),
+                'content_length': response.headers.get('content-length'),
+                'magic': head[:4].hex(),
+            }
 
     browser, page, _recorder = await _open(args)
     try:
@@ -535,52 +544,28 @@ async def cmd_fetch(args: argparse.Namespace) -> None:
         captured = await browser.next_like_page(timeout_seconds=30)
         refs, _cursor, _more = extract_like_page(_matching(parse_api_envelope((captured or {}).get('body')), args.match))
 
-        user_agent = await browser.user_agent()
-        cookies = await browser.netscape_cookies()
         image_done = video_done = False
-        for ref in refs:
-            if image_done and video_done:
-                break
-            card = await browser.note_state(note_url=build_note_url(ref.note_id, ref.xsec_token), note_id=ref.note_id)
-            media = extract_note_media(card or {}, note_id=ref.note_id, xsec_token=ref.xsec_token)
-            for item in media:
-                if item.media_type == 'image' and not image_done:
-                    image_done = True
-                    async with httpx.AsyncClient(
-                        follow_redirects=True, timeout=30, headers={'Accept-Language': 'zh-CN,zh;q=0.9'}
-                    ) as client:
-                        response = await client.get(item.media_url)
-                    body = response.content
-                    print(
-                        json.dumps(
-                            {
-                                'image': {
-                                    'status': response.status_code,
-                                    'content_type': response.headers.get('content-type'),
-                                    'bytes': len(body),
-                                    'magic': body[:4].hex(),
-                                    'inferred_ext': infer_image_extension(item.media_url),
-                                },
-                            },
-                            indent=2,
-                        )
-                    )
-                if item.media_type == 'video' and not video_done:
-                    video_done = True
-                    with tempfile.TemporaryDirectory() as tmp:
-                        jar = Path(tmp) / 'cookies.txt'
-                        jar.write_text(cookies)
-                        command = build_ytdlp_command(
-                            note_url=build_note_url(ref.note_id, ref.xsec_token),
-                            cookie_path=jar,
-                            output_template=str(Path(tmp) / '%(id)s.%(ext)s'),
-                            proxy=args.proxy,
-                            user_agent=user_agent,
-                        )
-                        command.append('--simulate')
-                        done = await asyncio.to_thread(subprocess.run, command, capture_output=True, text=True, check=False)
-                    print(json.dumps({'ytdlp': {'exit': done.returncode, 'stderr_head': done.stderr.strip().splitlines()[:3]}}, indent=2))
-            await asyncio.sleep(args.pace)
+        async with httpx.AsyncClient(
+            headers={'Accept-Language': 'zh-CN,zh;q=0.9'},
+            timeout=60,
+            follow_redirects=True,
+            proxy=args.proxy or None,
+        ) as client:
+            for ref in refs:
+                if image_done and video_done:
+                    break
+                card = await browser.note_state(note_url=build_note_url(ref.note_id, ref.xsec_token), note_id=ref.note_id)
+                media = extract_note_media(card or {}, note_id=ref.note_id, xsec_token=ref.xsec_token)
+                for item in media:
+                    if item.media_type == 'image' and not image_done:
+                        image_done = True
+                        report = await peek(client, item.media_url)
+                        report['inferred_ext'] = infer_image_extension(item.media_url)
+                        print(json.dumps({'image': report}, indent=2))
+                    if item.media_type == 'video' and not video_done:
+                        video_done = True
+                        print(json.dumps({'video': await peek(client, item.media_url)}, indent=2))
+                await asyncio.sleep(args.pace)
     finally:
         await _close(browser, page)
 
