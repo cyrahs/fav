@@ -31,8 +31,9 @@ from src.web.rednote import (
     extract_note_media,
     infer_image_extension,
     normalize_media_url,
+    note_source_long_edge,
     parse_api_envelope,
-    pick_origin_video_url,
+    pick_video_url,
     user_id_from_probe,
 )
 from src.web.rednote_browser import (
@@ -206,7 +207,7 @@ def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -
     job.user_agent = 'Mozilla/5.0 (Test) Chrome/149.0.0.0'
     job._browser_factory = lambda: browser or _FakeBrowser()
     job._logged_card_shapes = set()
-    job._warned_transcoded = False
+    job._warned_downscaled = False
     return job
 
 
@@ -267,15 +268,49 @@ def _video_note_card(**updates) -> dict:
         'user': {'nickname': 'artist', 'user_id': '5ff0000000000000000fffff'},
         # A video note also carries a cover image; it is deliberately not archived.
         'image_list': [{'info_list': [{'image_scene': 'WB_DFT', 'url': 'https://sns-webpic.xhscdn.com/cover!nd_dft'}]}],
-        # The live shape: opaque bucket names, each variant naming its own codec.
+        # The live shape: opaque, versioned bucket names, each variant stating its own
+        # resolution. A signed-in note is offered every size up to the 4K source; a
+        # signed-out one is capped at 1080p and never sees the 1440p/2160p variants.
         'video': {
             'media': {
                 'stream': {
-                    'EF4': [{'videoCodec': 'h265', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h265.mp4'}],
+                    'EF4': [
+                        {
+                            'videoCodec': 'EF4',
+                            'width': 720,
+                            'height': 1280,
+                            'videoBitrate': 3_000_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/259_720p.mp4',
+                        },
+                        {
+                            'videoCodec': 'EF4',
+                            'width': 1080,
+                            'height': 1920,
+                            'videoBitrate': 5_000_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/261_1080p.mp4',
+                        },
+                    ],
                     'EF6': [],
-                    'EF5': [{'videoCodec': 'h264', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h264.mp4'}],
+                    'EF5': [
+                        {
+                            'videoCodec': 'EF5',
+                            'width': 1080,
+                            'height': 1920,
+                            'videoBitrate': 1_700_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/301_1080p.mp4',
+                        },
+                        {
+                            'videoCodec': 'EF5',
+                            'width': 2160,
+                            'height': 3840,
+                            'videoBitrate': 9_000_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/109_2160p.mp4',
+                        },
+                    ],
                 },
             },
+            # The upload's own resolution, stated as a JSON string as the page renders it.
+            'mediaV2': '{"video": {"width": 2160, "height": 3840}}',
         },
     }
     payload.update(updates)
@@ -1038,31 +1073,44 @@ def test_a_video_note_is_one_file_and_its_cover_is_not_archived() -> None:
     media = extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')
 
     assert [(item.media_index, item.media_type) for item in media] == [(1, 'video')]
-    assert media[0].media_url == 'https://sns-video.xhscdn.com/stream/h264.mp4'
+    # The 4K variant, not one of the smaller ones the web player streams.
+    assert media[0].media_url == 'https://sns-video.xhscdn.com/stream/109_2160p.mp4'
 
 
-def test_a_video_note_falls_back_to_the_next_codec() -> None:
-    card = _video_note_card(video={'media': {'stream': {'EF4': [{'videoCodec': 'h265', 'masterUrl': 'https://cdn/h265.mp4'}]}}})
+def test_the_highest_resolution_stream_is_picked_across_all_buckets() -> None:
+    """The buckets are opaque and versioned, and the codec name is no basis to rank on.
 
-    assert extract_note_media(card, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/h265.mp4'
-
-
-def test_a_stream_is_picked_by_its_stated_codec_not_by_the_bucket_it_sits_in() -> None:
-    """The buckets are opaque and versioned; the codec is a field on the variant.
-
-    This expected `h264`/`h265`/`av1` as keys and the live site answers with
-    `EF4`/`EF5`/`EF6`/`EF7`. Keying on the name yielded no URL at all, which is silent
-    data loss: every file is fetched straight from the URL picked here.
+    RedNote renamed the codec field from `h264`/`h265` to `EF4`/`EF5`, which a picker
+    keyed on codec name matched against nothing -- silently returning whatever URL it
+    saw first, a 720p transcode of a 4K upload. Resolution is the stable signal: the
+    largest pixel count wins wherever it sits.
     """
-    # h264 is preferred, and it is in the bucket that sorts last.
-    assert extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')[0].media_url.endswith('h264.mp4')
+    # The 2160p variant sits in EF5 beside a 1080p one, and EF4 carries only smaller
+    # sizes; the pick reaches across all of them for the largest.
+    assert pick_video_url(_video_note_card()['video']['media']['stream']).endswith('109_2160p.mp4')
 
-    # A variant that names no codec is still better than nothing.
-    unnamed = _video_note_card(video={'media': {'stream': {'EF7': [{'masterUrl': 'https://cdn/only.mp4'}]}}})
-    assert extract_note_media(unnamed, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/only.mp4'
 
-    # And the old shape still resolves, so a rollback of the site does not break it.
-    legacy = _video_note_card(video={'media': {'stream': {'h264': [{'master_url': 'https://cdn/legacy.mp4'}]}}})
+def test_a_stream_tie_on_resolution_breaks_to_the_higher_bitrate() -> None:
+    # Same frame size, so the less-compressed copy is the one worth keeping.
+    stream = {
+        'EF5': [
+            {'width': 1080, 'height': 1920, 'videoBitrate': 2_000_000, 'masterUrl': 'https://cdn/low.mp4'},
+            {'width': 1080, 'height': 1920, 'videoBitrate': 6_000_000, 'masterUrl': 'https://cdn/high.mp4'},
+        ],
+    }
+    assert pick_video_url(stream) == 'https://cdn/high.mp4'
+
+
+def test_a_stream_that_states_no_resolution_still_yields_a_url() -> None:
+    # A variant with no width/height must not be dropped: an unranked URL is still a
+    # file, and returning nothing would archive a note's cover without its video.
+    unsized = _video_note_card(video={'media': {'stream': {'EF7': [{'masterUrl': 'https://cdn/only.mp4'}]}}})
+    assert extract_note_media(unsized, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/only.mp4'
+
+    # And the pre-rename shape still resolves, so a rollback of the site does not break it.
+    legacy = _video_note_card(
+        video={'media': {'stream': {'h264': [{'width': 720, 'height': 1280, 'master_url': 'https://cdn/legacy.mp4'}]}}}
+    )
     assert extract_note_media(legacy, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/legacy.mp4'
 
 
@@ -1573,59 +1621,77 @@ def test_a_video_note_is_fetched_from_the_cdn_like_every_other_file(tmp_path) ->
 
     job = _job(_handler, path=tmp_path / 'images', video_path=tmp_path / 'videos')
 
-    dst_path = _run(job, job._download_file(_media(media_type='video', media_url='https://sns-video-bd.xhscdn.com/origin-key')))
+    dst_path = _run(
+        job, job._download_file(_media(media_type='video', media_url='https://sns-video-v28.xhscdn.com/stream/109_2160p.mp4?sign=abc'))
+    )
 
     assert dst_path == tmp_path / 'videos' / 'artist' / f'[artist]2025-08-12 [{NOTE_ID}_1].mp4'
     assert dst_path.read_bytes() == b'video-bytes'
 
 
-def test_the_original_upload_outranks_the_streams_beside_it() -> None:
-    """``originVideoKey`` is the file the author uploaded, before transcoding.
+def test_the_4k_stream_outranks_the_smaller_ones_beside_it() -> None:
+    """A signed-in note carries the full-resolution stream beside the web player's copies.
 
-    Observed live: the streams a note offers the web player are 720p h264, while the
-    key resolves to the 2160x3840 original. Preferring the streams would quietly
-    archive a quarter of the pixels.
+    Observed live: a 4K upload is offered as 720p/1080p/1440p/2160p variants, and the
+    2160p one matches the untranscoded original frame for frame. Taking any but the
+    largest would quietly archive a fraction of the pixels.
     """
-    card = _video_note_card(
+    media = extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')
+
+    assert media[0].media_url == 'https://sns-video.xhscdn.com/stream/109_2160p.mp4'
+
+
+def test_a_note_offered_only_smaller_streams_still_yields_its_best() -> None:
+    # A logged-out page (or a small upload) is served without the high-res variants;
+    # the largest present is still better than waiting for a re-resolve that cannot help.
+    capped = _video_note_card(
         video={
-            'consumer': {'originVideoKey': 'pre_post/1040g0k031abc'},
-            'media': {'stream': {'EF5': [{'videoCodec': 'h264', 'masterUrl': 'https://sns-video.xhscdn.com/stream/h264.mp4'}]}},
+            'media': {
+                'stream': {
+                    'EF4': [{'width': 720, 'height': 1280, 'masterUrl': 'https://cdn/720.mp4'}],
+                    'EF5': [{'width': 1080, 'height': 1920, 'masterUrl': 'https://cdn/1080.mp4'}],
+                },
+            },
         },
     )
-
-    media = extract_note_media(card, note_id=NOTE_ID, xsec_token='T')
-
-    assert media[0].media_url == 'https://sns-video-bd.xhscdn.com/pre_post/1040g0k031abc'
+    assert extract_note_media(capped, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/1080.mp4'
 
 
-def test_a_note_rendered_without_the_original_still_yields_its_stream() -> None:
-    # A logged-out page is served the same note with the whole `consumer` block
-    # missing, and a stream is better than waiting for a re-resolve that cannot help.
-    assert extract_note_media(_video_note_card(), note_id=NOTE_ID, xsec_token='T')[0].media_url.endswith('h264.mp4')
-    assert pick_origin_video_url({'consumer': {}}) == ''
-    assert pick_origin_video_url({}) == ''
-    # The API spelling, for the same reason every other field tolerates both.
-    assert pick_origin_video_url({'consumer': {'origin_video_key': 'k'}}) == 'https://sns-video-bd.xhscdn.com/k'
+def test_the_upload_resolution_is_read_off_mediav2_in_either_spelling() -> None:
+    # The page renders mediaV2 as a JSON string; the API sends it already parsed. Both
+    # carry the source's own dimensions, which is the yardstick for a downscale.
+    assert note_source_long_edge({'mediaV2': '{"video": {"width": 2160, "height": 3840}}'}) == 3840
+    assert note_source_long_edge({'media_v2': {'video': {'width': 1080, 'height': 1920}}}) == 1920
+    # Nothing to measure against is not an error; it just disables the check.
+    assert note_source_long_edge({}) == 0
+    assert note_source_long_edge({'mediaV2': 'not json'}) == 0
 
 
-def test_settling_for_a_transcoded_stream_is_said_out_loud_once(caplog) -> None:
-    """A run that quietly stops getting originals still succeeds; only the pixels drop."""
+def test_a_stream_short_of_the_upload_is_said_out_loud_once(caplog) -> None:
+    """A run that quietly stops getting the full resolution still succeeds; pixels drop."""
     job = _job()
-    without_key = _video_note_card()
-    media = extract_note_media(without_key, note_id=NOTE_ID, xsec_token='T')
+    downscaled = _video_note_card(
+        video={
+            # Only up to 1080p on offer, but the upload itself is 4K.
+            'media': {'stream': {'EF5': [{'width': 1080, 'height': 1920, 'masterUrl': 'https://cdn/1080.mp4'}]}},
+            'mediaV2': '{"video": {"width": 2160, "height": 3840}}',
+        },
+    )
+    media = extract_note_media(downscaled, note_id=NOTE_ID, xsec_token='T')
 
     with caplog.at_level(logging.WARNING):
-        job._warn_if_transcoded(without_key, media)
-        job._warn_if_transcoded(without_key, media)
+        job._warn_if_downscaled(downscaled, media)
+        job._warn_if_downscaled(downscaled, media)
 
-    assert sum('originVideoKey' in record.message for record in caplog.records) == 1
+    assert sum('high-res streams may be gone' in record.message for record in caplog.records) == 1
+    asyncio.run(job.client.aclose())
 
-    # And a note that does state its key says nothing at all.
+    # A note whose best stream matches its upload says nothing at all.
     job = _job()
-    with_key = _video_note_card(video={'consumer': {'originVideoKey': 'k'}, 'media': {'stream': {}}})
     caplog.clear()
+    full = _video_note_card()
     with caplog.at_level(logging.WARNING):
-        job._warn_if_transcoded(with_key, extract_note_media(with_key, note_id=NOTE_ID, xsec_token='T'))
+        job._warn_if_downscaled(full, extract_note_media(full, note_id=NOTE_ID, xsec_token='T'))
 
     assert caplog.records == []
     asyncio.run(job.client.aclose())
