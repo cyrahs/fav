@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -479,6 +480,102 @@ def test_azurlane_library_discovers_manifests_and_uses_summary_cache(
     monkeypatch.setattr(azurlane_module, '_read_json_object', _fail_manifest_read)
 
     assert AzurLaneLibrary(root).list_characters() == expected
+
+
+def _gate_summary_rebuild(monkeypatch: pytest.MonkeyPatch) -> threading.Event:
+    """Block background summary rebuilds until the returned event is set."""
+    gate = threading.Event()
+    original_build_records = AzurLaneLibrary._build_records
+
+    def _gated_build_records(self: AzurLaneLibrary, entries: Any, previous: Any) -> Any:
+        assert gate.wait(timeout=10)
+        return original_build_records(self, entries, previous)
+
+    monkeypatch.setattr(AzurLaneLibrary, '_build_records', _gated_build_records)
+    return gate
+
+
+def _join_refresh_thread(library: AzurLaneLibrary) -> None:
+    refresh_thread = library._refresh_thread
+    assert refresh_thread is not None
+    refresh_thread.join(timeout=10)
+    assert not refresh_thread.is_alive()
+
+
+def test_azurlane_summary_cache_serves_stale_data_while_refreshing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    library = AzurLaneLibrary(root)
+    assert [character['character_key'] for character in library.list_characters()] == ['javelin']
+
+    _add_minimal_azurlane_character(
+        root,
+        character_key='z23',
+        name_en='Z23',
+        completed_at='2026-05-19T00:01:00+00:00',
+        source_id=23,
+    )
+    gate = _gate_summary_rebuild(monkeypatch)
+
+    stale = library.list_characters()
+    assert [character['character_key'] for character in stale] == ['javelin']
+
+    gate.set()
+    _join_refresh_thread(library)
+
+    refreshed = library.list_characters()
+    assert [character['character_key'] for character in refreshed] == ['javelin', 'z23']
+
+
+def test_azurlane_summary_cache_incrementally_rebuilds_only_changed_manifests(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    _add_minimal_azurlane_character(
+        root,
+        character_key='z23',
+        name_en='Z23',
+        completed_at='2026-05-19T00:01:00+00:00',
+        source_id=23,
+    )
+    AzurLaneLibrary(root).list_characters()
+
+    manifest_path = root / 'z23 - Z23' / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    manifest['name_en'] = 'Z23 Kai'
+    _write_json(manifest_path, manifest)
+
+    manifest_reads: list[Path] = []
+    original_read_json_object = azurlane_module._read_json_object
+
+    def _tracking_read(path: Path) -> dict[str, Any]:
+        if path.name == 'manifest.json':
+            manifest_reads.append(path)
+        return original_read_json_object(path)
+
+    monkeypatch.setattr(azurlane_module, '_read_json_object', _tracking_read)
+    gate = _gate_summary_rebuild(monkeypatch)
+
+    library = AzurLaneLibrary(root)
+    stale = library.list_characters()
+    assert [character['display_name'] for character in stale] == ['Javelin', 'Z23']
+
+    gate.set()
+    _join_refresh_thread(library)
+
+    refreshed = library.list_characters()
+    assert [character['display_name'] for character in refreshed] == ['Javelin', 'Z23 Kai']
+    assert manifest_reads == [manifest_path]
+
+
+def test_azurlane_summary_cache_rebuilds_from_legacy_cache_format(tmp_path: Path) -> None:
+    root = _create_azurlane_fixture(tmp_path / 'azurlane')
+    _write_json(root / '_api' / 'summary-cache.json', {'version': 1, 'signature': [], 'records': [], 'summaries': []})
+
+    assert [character['character_key'] for character in AzurLaneLibrary(root).list_characters()] == ['javelin']
 
 
 def test_get_azurlane_character_shapes_models_and_asset_urls(tmp_path: Path) -> None:
