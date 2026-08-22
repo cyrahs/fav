@@ -275,13 +275,37 @@ def _video_note_card(**updates) -> dict:
             'media': {
                 'stream': {
                     'EF4': [
-                        {'videoCodec': 'EF4', 'width': 720, 'height': 1280, 'videoBitrate': 3_000_000, 'masterUrl': 'https://sns-video.xhscdn.com/stream/259_720p.mp4'},
-                        {'videoCodec': 'EF4', 'width': 1080, 'height': 1920, 'videoBitrate': 5_000_000, 'masterUrl': 'https://sns-video.xhscdn.com/stream/261_1080p.mp4'},
+                        {
+                            'videoCodec': 'EF4',
+                            'width': 720,
+                            'height': 1280,
+                            'videoBitrate': 3_000_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/259_720p.mp4',
+                        },
+                        {
+                            'videoCodec': 'EF4',
+                            'width': 1080,
+                            'height': 1920,
+                            'videoBitrate': 5_000_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/261_1080p.mp4',
+                        },
                     ],
                     'EF6': [],
                     'EF5': [
-                        {'videoCodec': 'EF5', 'width': 1080, 'height': 1920, 'videoBitrate': 1_700_000, 'masterUrl': 'https://sns-video.xhscdn.com/stream/301_1080p.mp4'},
-                        {'videoCodec': 'EF5', 'width': 2160, 'height': 3840, 'videoBitrate': 9_000_000, 'masterUrl': 'https://sns-video.xhscdn.com/stream/109_2160p.mp4'},
+                        {
+                            'videoCodec': 'EF5',
+                            'width': 1080,
+                            'height': 1920,
+                            'videoBitrate': 1_700_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/301_1080p.mp4',
+                        },
+                        {
+                            'videoCodec': 'EF5',
+                            'width': 2160,
+                            'height': 3840,
+                            'videoBitrate': 9_000_000,
+                            'masterUrl': 'https://sns-video.xhscdn.com/stream/109_2160p.mp4',
+                        },
                     ],
                 },
             },
@@ -1084,7 +1108,9 @@ def test_a_stream_that_states_no_resolution_still_yields_a_url() -> None:
     assert extract_note_media(unsized, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/only.mp4'
 
     # And the pre-rename shape still resolves, so a rollback of the site does not break it.
-    legacy = _video_note_card(video={'media': {'stream': {'h264': [{'width': 720, 'height': 1280, 'master_url': 'https://cdn/legacy.mp4'}]}}})
+    legacy = _video_note_card(
+        video={'media': {'stream': {'h264': [{'width': 720, 'height': 1280, 'master_url': 'https://cdn/legacy.mp4'}]}}}
+    )
     assert extract_note_media(legacy, note_id=NOTE_ID, xsec_token='T')[0].media_url == 'https://cdn/legacy.mp4'
 
 
@@ -1595,7 +1621,9 @@ def test_a_video_note_is_fetched_from_the_cdn_like_every_other_file(tmp_path) ->
 
     job = _job(_handler, path=tmp_path / 'images', video_path=tmp_path / 'videos')
 
-    dst_path = _run(job, job._download_file(_media(media_type='video', media_url='https://sns-video-v28.xhscdn.com/stream/109_2160p.mp4?sign=abc')))
+    dst_path = _run(
+        job, job._download_file(_media(media_type='video', media_url='https://sns-video-v28.xhscdn.com/stream/109_2160p.mp4?sign=abc'))
+    )
 
     assert dst_path == tmp_path / 'videos' / 'artist' / f'[artist]2025-08-12 [{NOTE_ID}_1].mp4'
     assert dst_path.read_bytes() == b'video-bytes'
@@ -1656,6 +1684,7 @@ def test_a_stream_short_of_the_upload_is_said_out_loud_once(caplog) -> None:
         job._warn_if_downscaled(downscaled, media)
 
     assert sum('high-res streams may be gone' in record.message for record in caplog.records) == 1
+    asyncio.run(job.client.aclose())
 
     # A note whose best stream matches its upload says nothing at all.
     job = _job()
@@ -1663,8 +1692,6 @@ def test_a_stream_short_of_the_upload_is_said_out_loud_once(caplog) -> None:
     full = _video_note_card()
     with caplog.at_level(logging.WARNING):
         job._warn_if_downscaled(full, extract_note_media(full, note_id=NOTE_ID, xsec_token='T'))
-
-    assert not caplog.records
 
     assert caplog.records == []
     asyncio.run(job.client.aclose())
