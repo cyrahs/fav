@@ -10,7 +10,15 @@ from urllib.parse import quote, unquote
 
 from src.core import logger
 
-from .summary_cache import ManifestEntry, ManifestSignature, SummaryCacheData, manifest_signature, read_summary_cache, write_summary_cache
+from .summary_cache import (
+    ManifestEntry,
+    ManifestSignature,
+    SummaryRecord,
+    SummaryRecordsData,
+    manifest_signature,
+    read_summary_records,
+    write_summary_records,
+)
 
 log = logger.get('fav-api.azurlane')
 
@@ -225,9 +233,12 @@ class AzurLaneLibrary:
     def __init__(self, root: Path) -> None:
         self._root = Path(root)
         self._signature: ManifestSignature | None = None
+        self._records: tuple[SummaryRecord, ...] = ()
         self._record_entries: dict[str, _AzurLaneRecordEntry] = {}
         self._summaries: list[dict[str, Any]] = []
         self._cache_lock = threading.Lock()
+        self._refresh_thread: threading.Thread | None = None
+        self._disk_cache_loaded = False
 
     def list_characters(self) -> list[dict[str, Any]]:
         self._ensure_summary_cache()
@@ -320,126 +331,136 @@ class AzurLaneLibrary:
             signature = manifest_signature(entries)
             if signature == self._signature:
                 return
-            if self._load_summary_cache(signature):
+
+            if not self._disk_cache_loaded:
+                self._disk_cache_loaded = True
+                cached = read_summary_records(self._summary_cache_path, log=log, label='Azur Lane')
+                if cached is not None:
+                    self._install_records(signature=cached.signature, records=cached.records)
+                    if cached.signature == signature:
+                        return
+
+            if self._signature is not None:
+                # Serve the (possibly stale) installed summaries and refresh in the
+                # background: a full rebuild parses every manifest and can take
+                # minutes on a large collection, which must not block requests.
+                self._spawn_refresh_locked()
                 return
 
-            record_entries, summaries = self._build_summary_cache(entries)
-            self._replace_summary_cache(signature=signature, record_entries=record_entries, summaries=summaries)
-            self._write_summary_cache()
+            # First load with no usable disk cache: nothing to serve yet, so build
+            # synchronously.
+            records = self._build_records(entries, previous=None)
+            self._install_records(signature=signature, records=records)
+            self._write_summary_cache_locked()
 
-    def _build_summary_cache(self, entries: list[ManifestEntry]) -> tuple[dict[str, _AzurLaneRecordEntry], list[dict[str, Any]]]:
-        record_entries: dict[str, _AzurLaneRecordEntry] = {}
-        summaries_by_character_key: dict[str, dict[str, Any]] = {}
-        freshness_by_character_key: dict[str, tuple[float, float, int]] = {}
-        for manifest_path, mtime_ns, _size in entries:
-            try:
-                manifest = _read_json_object(manifest_path)
-            except (OSError, TypeError, ValueError) as exc:
-                log.warning('Skipping unreadable Azur Lane manifest %s: %s', manifest_path, exc)
-                continue
+    def _spawn_refresh_locked(self) -> None:
+        if self._refresh_thread is not None and self._refresh_thread.is_alive():
+            return
+        thread = threading.Thread(target=self._refresh_summary_cache, name='azurlane-summary-refresh', daemon=True)
+        self._refresh_thread = thread
+        thread.start()
 
-            character_key = _manifest_character_key(manifest_path, manifest)
-            if not character_key:
-                log.warning('Skipping Azur Lane manifest without character key: %s', manifest_path)
-                continue
-            freshness = _record_freshness_key(manifest, mtime_ns=mtime_ns)
-            existing = record_entries.get(character_key)
+    def _refresh_summary_cache(self) -> None:
+        try:
+            entries = self._manifest_entries()
+            signature = manifest_signature(entries)
+            with self._cache_lock:
+                if signature == self._signature:
+                    return
+                previous = SummaryRecordsData(signature=self._signature or (), records=self._records)
+            records = self._build_records(entries, previous=previous)
+            with self._cache_lock:
+                self._install_records(signature=signature, records=records)
+                self._write_summary_cache_locked()
+        except Exception:
+            log.exception('Azur Lane summary cache refresh failed')
+
+    def _build_records(self, entries: list[ManifestEntry], previous: SummaryRecordsData | None) -> tuple[SummaryRecord, ...]:
+        previous_records: dict[str, SummaryRecord] = {}
+        previous_stats: dict[str, tuple[int, int]] = {}
+        if previous is not None:
+            previous_records = {record.manifest_path: record for record in previous.records}
+            previous_stats = {path: (mtime_ns, size) for path, mtime_ns, size in previous.signature}
+
+        winners: dict[str, SummaryRecord] = {}
+        for manifest_path, mtime_ns, size in entries:
+            path_posix = manifest_path.as_posix()
+            reusable = previous_records.get(path_posix)
+            if reusable is not None and previous_stats.get(path_posix) == (mtime_ns, size):
+                record = reusable
+            else:
+                record = self._read_summary_record(manifest_path, mtime_ns=mtime_ns)
+                if record is None:
+                    continue
+
+            existing = winners.get(record.key)
             if existing is not None:
-                if freshness <= freshness_by_character_key[character_key]:
-                    log.warning('Skipping stale duplicate Azur Lane manifest for character_key=%s: %s', character_key, manifest_path)
+                if record.freshness <= existing.freshness:
+                    log.warning('Skipping stale duplicate Azur Lane manifest for character_key=%s: %s', record.key, manifest_path)
                     continue
                 log.warning(
                     'Replacing stale duplicate Azur Lane manifest for character_key=%s: %s -> %s',
-                    character_key,
+                    record.key,
                     existing.manifest_path,
                     manifest_path,
                 )
+            winners[record.key] = record
+        return tuple(winners.values())
 
-            record = _AzurLaneRecord(
-                character_key=character_key,
+    def _read_summary_record(self, manifest_path: Path, *, mtime_ns: int) -> SummaryRecord | None:
+        try:
+            manifest = _read_json_object(manifest_path)
+        except (OSError, TypeError, ValueError) as exc:
+            log.warning('Skipping unreadable Azur Lane manifest %s: %s', manifest_path, exc)
+            return None
+
+        character_key = _manifest_character_key(manifest_path, manifest)
+        if not character_key:
+            log.warning('Skipping Azur Lane manifest without character key: %s', manifest_path)
+            return None
+        record = _AzurLaneRecord(
+            character_key=character_key,
+            root=manifest_path.parent,
+            manifest_path=manifest_path,
+            directory_name=manifest_path.parent.name,
+            manifest=manifest,
+        )
+        return SummaryRecord(
+            key=character_key,
+            manifest_path=manifest_path.as_posix(),
+            freshness=_record_freshness_key(manifest, mtime_ns=mtime_ns),
+            summary=self._summary_payload(record),
+        )
+
+    def _install_records(self, *, signature: ManifestSignature, records: tuple[SummaryRecord, ...]) -> None:
+        record_entries: dict[str, _AzurLaneRecordEntry] = {}
+        for record in records:
+            manifest_path = Path(record.manifest_path)
+            record_entries[record.key] = _AzurLaneRecordEntry(
+                character_key=record.key,
                 root=manifest_path.parent,
                 manifest_path=manifest_path,
                 directory_name=manifest_path.parent.name,
-                manifest=manifest,
             )
-            record_entries[character_key] = _AzurLaneRecordEntry(
-                character_key=character_key,
-                root=manifest_path.parent,
-                manifest_path=manifest_path,
-                directory_name=manifest_path.parent.name,
-            )
-            summaries_by_character_key[character_key] = self._summary_payload(record)
-            freshness_by_character_key[character_key] = freshness
-
-        summaries = sorted(
-            summaries_by_character_key.values(),
+        self._signature = signature
+        self._records = records
+        self._record_entries = record_entries
+        self._summaries = sorted(
+            (record.summary for record in records),
             key=lambda item: (str(item.get('display_name') or '').casefold(), str(item.get('character_key') or '')),
         )
-        return record_entries, summaries
-
-    def _load_summary_cache(self, signature: ManifestSignature) -> bool:
-        cached = read_summary_cache(
-            self._summary_cache_path,
-            expected_signature=signature,
-            log=log,
-            label='Azur Lane',
-        )
-        if cached is None:
-            return False
-
-        record_entries = self._record_entries_from_cache(cached.records, signature=signature)
-        if record_entries is None:
-            return False
-        self._replace_summary_cache(signature=signature, record_entries=record_entries, summaries=cached.summaries)
-        return True
-
-    def _record_entries_from_cache(
-        self,
-        records: list[dict[str, Any]],
-        *,
-        signature: ManifestSignature,
-    ) -> dict[str, _AzurLaneRecordEntry] | None:
-        current_paths = {path for path, _mtime_ns, _size in signature}
-        record_entries: dict[str, _AzurLaneRecordEntry] = {}
-        for item in records:
-            character_key = _clean_text(item.get('character_key'))
-            manifest_path_value = item.get('manifest_path')
-            if not character_key or not isinstance(manifest_path_value, str) or manifest_path_value not in current_paths:
-                return None
-            manifest_path = Path(manifest_path_value)
-            record_entries[character_key] = _AzurLaneRecordEntry(
-                character_key=character_key,
-                root=manifest_path.parent,
-                manifest_path=manifest_path,
-                directory_name=manifest_path.parent.name,
-            )
-        return record_entries
-
-    def _replace_summary_cache(
-        self,
-        *,
-        signature: ManifestSignature,
-        record_entries: dict[str, _AzurLaneRecordEntry],
-        summaries: list[dict[str, Any]],
-    ) -> None:
-        self._signature = signature
-        self._record_entries = record_entries
-        self._summaries = summaries
 
     @property
     def _summary_cache_path(self) -> Path:
         return self._root / '_api' / 'summary-cache.json'
 
-    def _write_summary_cache(self) -> None:
+    def _write_summary_cache_locked(self) -> None:
         if not self._root.is_dir():
             return
-        records = [
-            {'character_key': entry.character_key, 'manifest_path': entry.manifest_path.as_posix()}
-            for entry in sorted(self._record_entries.values(), key=lambda item: item.character_key)
-        ]
-        write_summary_cache(
+        records = tuple(sorted(self._records, key=lambda record: record.key))
+        write_summary_records(
             self._summary_cache_path,
-            data=SummaryCacheData(signature=self._signature or (), records=records, summaries=self._summaries),
+            data=SummaryRecordsData(signature=self._signature or (), records=records),
             log=log,
             label='Azur Lane',
         )
