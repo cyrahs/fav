@@ -34,19 +34,21 @@ fetched straight from the CDN with the browser closed and no cookies attached. T
 account is only ever presented to xiaohongshu.com, and only from inside the browser.
 
 Video notes used to be handed to yt-dlp instead, which re-read the note page from
-xiaohongshu.com carrying an exported copy of the session. That reached the
-untranscoded original, but it also put the account's cookies on a second client with
-its own TLS fingerprint and request rhythm, which is the shape of automation risk
-control looks for. It is not needed: the original is addressed by ``originVideoKey``,
-which the signed-in page states outright and which the CDN serves unsigned to anyone.
-So the key is read during the crawl, while the browser is open and signed in anyway,
-and the download itself carries no identity at all.
+xiaohongshu.com carrying an exported copy of the session. That put the account's
+cookies on a second client with its own TLS fingerprint and request rhythm, which is
+the shape of automation risk control looks for. It is not needed: the note the crawl
+already reads, while signed in, lists every size the upload was transcoded into --
+including the full 4K, which only a signed-in session is shown. The largest of those
+is picked here and fetched by its plain signed CDN URL, and the download carries no
+identity at all. (The site once also exposed the raw upload under an ``originVideoKey``
+served unsigned; it stopped in 2026, and the top transcode matches it frame for frame.)
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import secrets
 import time
 from dataclasses import dataclass
@@ -82,10 +84,6 @@ _WEB_ORIGIN = 'https://www.xiaohongshu.com'
 # Where a note reached from a likes list is declared to have come from. It travels
 # with the token in the archive's outgoing links.
 _XSEC_SOURCE = 'pc_user'
-# The original upload, before RedNote transcoded it into the streams the web player
-# offers. ``originVideoKey`` is a whole object key rather than a path, and the host
-# serves it unsigned, so this URL neither expires nor carries any identity.
-_ORIGIN_VIDEO_ORIGIN = 'https://sns-video-bd.xhscdn.com'
 _BACKFILL_STATE_KEY = 'backfill_complete'
 _LOGIN_PROMPT_STATE_KEY = 'login_prompt_at'
 _USER_ID_STATE_KEY = 'user_id'
@@ -139,7 +137,6 @@ _VIDEO_MEDIA_TYPE = 'video'
 _VIDEO_MEDIA_TYPES = frozenset({_LIVE_MEDIA_TYPE, _VIDEO_MEDIA_TYPE})
 
 _PREFERRED_IMAGE_SCENE = 'WB_DFT'
-_VIDEO_CODEC_PREFERENCE = ('h264', 'h265', 'av1')
 _IMAGE_EXT_ALIASES = {
     'jpeg': 'jpg',
     'jpg': 'jpg',
@@ -270,48 +267,65 @@ def pick_image_url(entry: Any) -> str:
     return ''
 
 
-def pick_video_url(stream: Any) -> str:
-    """The best playable stream in a note's ``stream`` block, by codec preference.
+def _best_video_stream(stream: Any) -> tuple[str, int]:
+    """``(url, long_edge)`` of the highest-resolution variant in a ``stream`` block.
 
-    The keys under ``stream`` are opaque and versioned: this expected ``h264`` /
-    ``h265`` / ``av1`` and the live site answers with ``EF4`` / ``EF5`` / ``EF6`` /
-    ``EF7``, each holding variants that name their own codec in a ``videoCodec``
-    field. So the bucket name is ignored and the codec is read off the variant.
+    The buckets are opaque and versioned -- ``h264``/``h265``/``av1`` once, ``EF4`` ..
+    ``EF7`` now -- and the variants inside them name their own codec, so neither the
+    bucket nor the codec is a stable thing to rank on. Resolution is: a signed-in note
+    carries every size the upload was transcoded into, up to the untranscoded original
+    (RedNote stopped serving the raw ``originVideoKey`` object in 2026, but the top
+    stream matches it frame for frame); a signed-out session is capped at 1080p and
+    never sees the larger ones. So the largest is what is worth keeping, ties broken by
+    the higher bitrate -- the less-compressed copy of the same frame.
 
-    Getting this wrong is quiet: every file is fetched straight from the URL picked
-    here, so an empty one means a live photo's still is archived while its moving half
-    is dropped, or a video note waits for a re-resolve it did not need.
+    Returns the long edge alongside the URL so a caller can tell how much of the
+    upload's resolution this stream actually is. ``('', 0)`` when nothing is playable.
     """
-    if not isinstance(stream, dict):
-        return ''
-    ranked: dict[str, str] = {}
-    fallback = ''
-    for bucket in stream.values():
+    best_url = ''
+    best_edge = 0
+    best_key = (-1, -1)
+    for bucket in stream.values() if isinstance(stream, dict) else []:
         for variant in bucket if isinstance(bucket, list) else []:
             if not isinstance(variant, dict):
                 continue
             url = normalize_media_url(str(_field(variant, 'masterUrl', 'master_url') or ''))
             if not url:
                 continue
-            fallback = fallback or url
-            ranked.setdefault(str(_field(variant, 'videoCodec', 'video_codec') or '').lower(), url)
-    # A named preference when the codec is stated, and anything playable when it is not.
-    return next((ranked[codec] for codec in _VIDEO_CODEC_PREFERENCE if codec in ranked), fallback)
+            width = _to_int(_field(variant, 'width')) or 0
+            height = _to_int(_field(variant, 'height')) or 0
+            bitrate = _to_int(_field(variant, 'videoBitrate', 'video_bitrate')) or 0
+            key = (width * height, bitrate)
+            if key > best_key:
+                best_key, best_url, best_edge = key, url, max(width, height)
+    return best_url, best_edge
 
 
-def pick_origin_video_url(video_block: Any) -> str:
-    """The untranscoded upload, if the note admits to having one.
+def pick_video_url(stream: Any) -> str:
+    """The highest-resolution playable stream in a note's ``stream`` block.
 
-    ``consumer.originVideoKey`` is only in the page a signed-in session renders; a
-    logged-out one is served the same note with the whole ``consumer`` block missing.
-    That is the one thing here that needs the account, and the crawl is signed in
-    anyway -- what the key buys is a download that does not need it.
+    Getting this wrong is quiet: every file is fetched straight from the URL picked
+    here, so an empty one means a live photo's still is archived while its moving half
+    is dropped, or a video note waits for a re-resolve it did not need.
     """
-    consumer = _field(video_block, 'consumer')
-    key = str(_field(consumer, 'originVideoKey', 'origin_video_key') or '').strip()
-    if not key:
-        return ''
-    return f'{_ORIGIN_VIDEO_ORIGIN}/{key.lstrip("/")}'
+    return _best_video_stream(stream)[0]
+
+
+def note_source_long_edge(video_block: Any) -> int:
+    """The long edge of the upload itself, as ``mediaV2`` states it, or 0 if it doesn't.
+
+    ``mediaV2.video.{width,height}`` is the source resolution, distinct from any
+    transcoded stream. The page renders it as a JSON string; the API sends it parsed.
+    This is the measuring stick for whether the streams on offer still reach 4K.
+    """
+    media_v2 = _field(video_block, 'mediaV2', 'media_v2')
+    if isinstance(media_v2, str):
+        try:
+            media_v2 = json.loads(media_v2)
+        except (ValueError, TypeError):
+            return 0
+    inner = _field(media_v2, 'video')
+    return max(_to_int(_field(inner, 'height')) or 0, _to_int(_field(inner, 'width')) or 0)
 
 
 def build_note_url(note_id: str, xsec_token: str = '') -> str:
@@ -438,9 +452,9 @@ def extract_note_media(note_card: dict[str, Any], *, note_id: str, xsec_token: s
 
     if note_type == _VIDEO_NOTE_TYPE:
         video_block = note_card.get('video')
-        # The original first: the streams beside it are what the web player was given,
-        # re-encoded smaller and, on a phone-shot note, at a fraction of the pixels.
-        media_url = pick_origin_video_url(video_block) or pick_video_url(_field(_field(video_block, 'media'), 'stream'))
+        # The largest stream the note offers. For a signed-in crawl that is every size
+        # up to the 4K source; the smaller ones are only what a logged-out player gets.
+        media_url = pick_video_url(_field(_field(video_block, 'media'), 'stream'))
         return [RedNoteMedia(media_index=1, media_type=_VIDEO_MEDIA_TYPE, media_url=media_url, **shared)]
 
     image_list = _field(note_card, 'imageList', 'image_list')
@@ -476,7 +490,7 @@ class RedNote:
         self.user_agent = ''
         self._browser_factory = self._new_browser
         self._logged_card_shapes: set[str] = set()
-        self._warned_transcoded = False
+        self._warned_downscaled = False
 
     def _new_browser(self) -> PlaywrightNoteBrowser:
         return PlaywrightNoteBrowser(
@@ -1148,29 +1162,38 @@ class RedNote:
                 # Read fine, carries nothing this source handles. Not a deletion.
                 log.warning('Note %s carries no files, skipping', note.note_id)
                 continue
-            self._warn_if_transcoded(note_card, media)
+            self._warn_if_downscaled(note_card, media)
             await self._upsert_media(media)
             await self._clear_missing(note.note_id)
             resolved += len(media)
         return resolved
 
-    def _warn_if_transcoded(self, note_card: dict[str, Any], media: Sequence[RedNoteMedia]) -> None:
-        """Say so, once per run, when a video row settled for the web player's copy.
+    def _warn_if_downscaled(self, note_card: dict[str, Any], media: Sequence[RedNoteMedia]) -> None:
+        """Say so, once per run, when the best stream falls short of the upload's size.
 
-        The original is what makes this source worth pointing at a video note at all,
-        and losing access to it would otherwise be invisible: the run still succeeds,
-        the files still land, and only their resolution gives it away. If this starts
-        firing for every note, the signed-in page has stopped stating the key and the
-        crawl is reading notes as a stranger would.
+        The full-resolution stream is what makes this source worth pointing at a video
+        note at all, and losing access to it would otherwise be invisible: the run
+        still succeeds, the files still land, and only their resolution gives it away.
+        A signed-in crawl is offered every size up to the 4K source; if this starts
+        firing, the streams have been capped -- the likeliest cause being a session
+        that has quietly dropped to what a logged-out stranger is served (1080p).
+
+        Notes whose upload is itself small are not downscaled and never fire this: the
+        test is the best stream against the note's own source, not against 4K.
         """
-        if self._warned_transcoded or not any(item.media_type == _VIDEO_MEDIA_TYPE for item in media):
+        if self._warned_downscaled or not any(item.media_type == _VIDEO_MEDIA_TYPE for item in media):
             return
-        if pick_origin_video_url(note_card.get('video')):
+        video_block = note_card.get('video')
+        _, best_edge = _best_video_stream(_field(_field(video_block, 'media'), 'stream'))
+        source_edge = note_source_long_edge(video_block)
+        if not best_edge or not source_edge or best_edge >= source_edge:
             return
-        self._warned_transcoded = True
+        self._warned_downscaled = True
         log.warning(
-            'RedNote note %s offers no originVideoKey; archiving the transcoded stream instead of the original',
+            'RedNote note %s: best stream is %dp of a %dp upload; the signed-in high-res streams may be gone',
             str(note_card.get('noteId') or note_card.get('note_id') or ''),
+            best_edge,
+            source_edge,
         )
 
     async def _record_missing(self, note_id: str, *, run_id: str) -> None:
