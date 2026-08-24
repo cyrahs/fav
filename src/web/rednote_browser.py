@@ -61,6 +61,10 @@ _QR_DATA_URL_MARKER = ';base64,'
 _LOGIN_RENDER_TIMEOUT_SECONDS = 20.0
 _LOGIN_RENDER_POLL_SECONDS = 0.5
 _LIKED_TAB_TIMEOUT_MS = 15_000
+# Attempts per navigation. Each one is a 30-second bet on a single response, and a
+# lone slow answer has taken down a whole scheduled run before (2026-08-24); one
+# more attempt absorbs that without stretching a genuinely unreachable site much.
+_GOTO_ATTEMPTS = 2
 # Where the site sends a note that no longer exists.
 _NOT_FOUND_PATH = '/404'
 _SHAPE_MAX_KEYS = 40
@@ -573,7 +577,7 @@ class PlaywrightNoteBrowser:
         immediate re-navigation, throwing away the modal that was about to appear.
         """
         if not self._on_site():
-            await self._page.goto(WEB_ORIGIN, wait_until='domcontentloaded')
+            await self._goto(WEB_ORIGIN)
 
         deadline = time.monotonic() + _LOGIN_RENDER_TIMEOUT_SECONDS
         probe: dict[str, Any] = {}
@@ -663,6 +667,26 @@ class PlaywrightNoteBrowser:
             'majorVersion': version,
         }
 
+    async def _goto(self, url: str) -> None:
+        """Navigate, giving a transient stall a second chance.
+
+        Only the timeout is retried: it is the one failure that says nothing beyond
+        "this particular response was slow". Anything else -- DNS, refused
+        connections, aborted navigations -- keeps its meaning and its handling at
+        the call site.
+        """
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError  # noqa: PLC0415
+
+        for attempt in range(1, _GOTO_ATTEMPTS + 1):
+            try:
+                await self._page.goto(url, wait_until='domcontentloaded')
+            except PlaywrightTimeoutError:
+                if attempt >= _GOTO_ATTEMPTS:
+                    raise
+                log.warning('RedNote navigation to %s timed out (attempt %s); retrying', url, attempt)
+            else:
+                return
+
     def _on_site(self) -> bool:
         """Whether the page is somewhere this module's selectors mean anything.
 
@@ -702,7 +726,7 @@ class PlaywrightNoteBrowser:
         # the SPA is still bootstrapping is answered with net::ERR_ABORTED, which used
         # to end the run on the second poll of every signed-out wait.
         if not self._on_site():
-            await self._page.goto(WEB_ORIGIN, wait_until='domcontentloaded')
+            await self._goto(WEB_ORIGIN)
             return
         await self._page.reload(wait_until='domcontentloaded')
 
@@ -718,7 +742,7 @@ class PlaywrightNoteBrowser:
         # clicked, so ask for it directly and leave the click as the belt to its
         # braces -- a label can be renamed, a query parameter is the site's own API
         # to itself.
-        await self._page.goto(f'{WEB_ORIGIN}/user/profile/{user_id}?tab=liked', wait_until='domcontentloaded')
+        await self._goto(f'{WEB_ORIGIN}/user/profile/{user_id}?tab=liked')
         for label in LIKED_TAB_LABELS:
             tab = self._page.locator('.reds-tab-item', has_text=label).first
             try:
