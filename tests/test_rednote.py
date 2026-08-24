@@ -712,6 +712,54 @@ def test_the_login_probe_gives_up_rather_than_waiting_out_the_whole_run(monkeypa
     assert (probe, page.calls) == ({'has_login_modal': False, 'qr_src': ''}, 1)
 
 
+class _TimingOutPage(_FakePage):
+    """A page whose first navigations stall past the timeout, like the live site once did."""
+
+    def __init__(self, samples: list[dict], *, failures: int) -> None:
+        super().__init__(samples)
+        self.url = 'about:blank'
+        self.failures = failures
+        self.gotos: list[str] = []
+
+    async def goto(self, url: str, wait_until: str = '') -> None:
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError  # noqa: PLC0415
+
+        self.gotos.append(url)
+        if len(self.gotos) <= self.failures:
+            msg = 'Page.goto: Timeout 30000ms exceeded.'
+            raise PlaywrightTimeoutError(msg)
+        self.url = url
+
+
+def test_a_navigation_that_times_out_once_is_retried_rather_than_failing_the_run(monkeypatch) -> None:
+    """The 2026-08-24 scheduled run: one slow homepage response cost the whole job.
+
+    A navigation timeout says only that this particular response was slow, so the
+    first one buys a retry; the probe then proceeds against the page it reached.
+    """
+    monkeypatch.setattr(rednote_browser_module, '_LOGIN_RENDER_POLL_SECONDS', 0)
+    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
+    page = _TimingOutPage([{'logged_in': True, 'user_id': '5ff'}], failures=1)
+    browser._page = page
+
+    probe = asyncio.run(browser.probe_login())
+
+    assert (probe['logged_in'], len(page.gotos)) == (True, 2)
+
+
+def test_a_navigation_that_keeps_timing_out_still_fails(monkeypatch) -> None:
+    # A site that is actually unreachable must still be reported, not retried forever.
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError  # noqa: PLC0415
+
+    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
+    page = _TimingOutPage([], failures=rednote_browser_module._GOTO_ATTEMPTS)
+    browser._page = page
+
+    with pytest.raises(PlaywrightTimeoutError):
+        asyncio.run(browser.probe_login())
+    assert len(page.gotos) == rednote_browser_module._GOTO_ATTEMPTS
+
+
 def test_a_navigation_the_scan_interrupts_does_not_end_the_run(monkeypatch) -> None:
     """Scanning the QR makes the site navigate itself, aborting whatever we had in flight.
 
