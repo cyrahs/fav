@@ -14,12 +14,14 @@ interface FieldShellProps {
   htmlFor?: string;
   hint?: ReactNode;
   error?: ReactNode;
+  /** Span the whole field grid — for fields whose hint is a paragraph, not a phrase. */
+  wide?: boolean;
   children: ReactNode;
 }
 
-export function FieldShell({ label, htmlFor, hint, error, children }: FieldShellProps) {
+export function FieldShell({ label, htmlFor, hint, error, wide, children }: FieldShellProps) {
   return (
-    <div className="field">
+    <div className={wide ? 'field field-wide' : 'field'}>
       <label htmlFor={htmlFor}>{label}</label>
       {children}
       {hint && <p className="field-hint">{hint}</p>}
@@ -37,12 +39,13 @@ interface TextFieldProps {
   error?: ReactNode;
   mono?: boolean;
   invalid?: boolean;
+  wide?: boolean;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint, error, mono, invalid }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint, error, mono, invalid, wide }: TextFieldProps) {
   const id = useId();
   return (
-    <FieldShell label={label} htmlFor={id} hint={hint} error={error}>
+    <FieldShell label={label} htmlFor={id} hint={hint} error={error} wide={wide}>
       <input
         id={id}
         type="text"
@@ -65,9 +68,11 @@ interface NumberFieldProps {
   hint?: ReactNode;
   step?: number;
   invalid?: boolean;
+  /** Accessible name for table cells that render the field with an empty label. */
+  ariaLabel?: string;
 }
 
-export function NumberField({ label, value, onChange, placeholder, hint, step, invalid }: NumberFieldProps) {
+export function NumberField({ label, value, onChange, placeholder, hint, step, invalid, ariaLabel }: NumberFieldProps) {
   const id = useId();
   const [text, setText] = useState(() => (Number.isFinite(value) ? String(value) : ''));
 
@@ -96,6 +101,7 @@ export function NumberField({ label, value, onChange, placeholder, hint, step, i
         value={text}
         placeholder={placeholder}
         spellCheck={false}
+        aria-label={ariaLabel}
         aria-invalid={!Number.isFinite(value) || invalid || undefined}
         onChange={(event) => {
           const next = event.target.value;

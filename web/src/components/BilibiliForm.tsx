@@ -60,6 +60,7 @@ function FavoritesEditor({ favorites, accountName, onChange }: FavoritesEditorPr
                 <td className="cell-id">
                   <NumberField
                     label=""
+                    ariaLabel="收藏夹 ID"
                     value={favorite.fav_id ?? Number.NaN}
                     onChange={(next) => update(index, { fav_id: next })}
                     invalid={!idOk}
@@ -112,6 +113,7 @@ export function BilibiliForm(props: SectionFormProps) {
         value={str(props.value, 'proxy')}
         onChange={(next) => set('proxy', next)}
         mono
+        wide
         placeholder="http://host:port"
         hint="仅用于 yt-dlp 视频下载，收藏夹 API 仍然直连。B 站按出口 IP 分配 CDN 镜像，海外机房直连有概率被分到单连接限速约 1MB/s 的 Akamai 镜像；走香港出口可稳定分到快的腾讯云镜像。留空直连。"
       />
