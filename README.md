@@ -39,8 +39,10 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`,
-`notifications.telegram`.
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `cookiecloud`,
+`notifications.telegram`. The settings page groups them into three partitions — sources (`web.*`),
+credentials (`cookiecloud`) and notifications (`notifications.*`) — and shows only display names,
+never these internal keys.
 
 Every `web.*` section carries `cron`, `enabled` and `notify`, all three edited on the jobs page
 rather than the settings page. `notify` defaults to true and covers everything that source sends to
@@ -77,7 +79,7 @@ the watch-later list is always the logged-in user's. Watch-later is still cleare
 pass, so only enable it for accounts whose list you want consumed.
 
 CookieCloud credentials themselves live in the shared `cookiecloud` section — a named list of
-`{name, server_url, uuid, password}` entries edited at the bottom of the settings page — and every
+`{name, server_url, uuid, password}` entries edited in the settings page's credentials partition — and every
 consumer (each Bilibili account, X, pixiv) references one by name, so a vault used by several sources
 is configured once. Legacy rows that still carry inline credentials are hoisted into the shared
 section automatically on the first load after upgrading (identical credentials collapse into a single
