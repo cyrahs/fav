@@ -10,7 +10,6 @@ from src.core.settings import (
     Hanime1RankingDeepScan,
     ScheduleJob,
     Settings,
-    SharedCookieCloud,
     Telegram,
     TelegramAccount,
     TelegramChannel,
@@ -297,85 +296,3 @@ def test_telegram_account_checks_routes_after_bot_api_id_normalization() -> None
             api_hash='hash',
             session_path=Path('./data/main'),
         )
-
-
-# ---------- shared CookieCloud credential ----------
-
-
-_SHARED_CC = {'server_url': 'https://cc.shared', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
-
-
-def test_shared_cookiecloud_fills_unconfigured_sources() -> None:
-    cfg = Settings.model_validate({'credentials': {'cookiecloud': _SHARED_CC}})
-
-    assert cfg.web.twitter.cookiecloud.server_url == 'https://cc.shared'
-    assert cfg.web.pixiv.cookiecloud.password == 'shared-pw'
-    # The credential requirement is satisfied; only the username is still missing.
-    assert cfg.web.twitter.validate_runnable() == ['username']
-    assert cfg.web.pixiv.validate_runnable() == []
-
-
-def test_a_fully_configured_source_credential_wins_over_the_shared_one() -> None:
-    cfg = Settings.model_validate(
-        {
-            'credentials': {'cookiecloud': _SHARED_CC},
-            'web': {'pixiv': {'cookiecloud': {'server_url': 'https://cc.own', 'uuid': 'own-uuid', 'password': 'own-pw'}}},
-        },
-    )
-
-    assert cfg.web.pixiv.cookiecloud.server_url == 'https://cc.own'
-
-
-def test_a_partial_source_credential_is_replaced_rather_than_merged() -> None:
-    cfg = Settings.model_validate(
-        {
-            'credentials': {'cookiecloud': _SHARED_CC},
-            'web': {'pixiv': {'cookiecloud': {'server_url': 'https://cc.own'}}},
-        },
-    )
-
-    assert cfg.web.pixiv.cookiecloud.server_url == 'https://cc.shared'
-
-
-def test_shared_cookiecloud_fills_unconfigured_bilibili_accounts() -> None:
-    cfg = Settings.model_validate(
-        {
-            'credentials': {'cookiecloud': _SHARED_CC},
-            'web': {
-                'bilibili': {
-                    'accounts': [
-                        {'name': 'main', 'toview_enabled': True},
-                        {
-                            'name': 'alt',
-                            'toview_enabled': True,
-                            'cookiecloud': {'server_url': 'https://cc.alt', 'uuid': 'alt-uuid', 'password': 'alt-pw'},
-                        },
-                    ],
-                },
-            },
-        },
-    )
-
-    assert cfg.web.bilibili.accounts[0].cookiecloud.uuid == 'shared-uuid'
-    assert cfg.web.bilibili.accounts[1].cookiecloud.uuid == 'alt-uuid'
-    assert cfg.web.bilibili.validate_runnable() == []
-
-
-def test_an_unconfigured_shared_credential_changes_nothing() -> None:
-    cfg = Settings.model_validate({'web': {'pixiv': {}}})
-
-    assert cfg.web.pixiv.cookiecloud.configured is False
-    assert cfg.web.pixiv.validate_runnable() == [
-        'cookiecloud.server_url',
-        'cookiecloud.uuid',
-        'cookiecloud.password',
-    ]
-
-
-def test_an_empty_shared_credential_is_a_valid_state() -> None:
-    assert SharedCookieCloud().validate_runnable() == []
-    assert SharedCookieCloud().configured is False
-
-
-def test_a_half_filled_shared_credential_reports_its_missing_fields() -> None:
-    assert SharedCookieCloud(server_url='https://cc.shared').validate_runnable() == ['uuid', 'password']

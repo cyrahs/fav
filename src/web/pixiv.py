@@ -277,11 +277,8 @@ class Pixiv:
 
     def _fetch_phpsessid(self) -> str:
         """Refresh the pixiv session from CookieCloud, so it tracks the browser."""
-        client = CookieCloudClient(
-            self.cfg.cookiecloud.server_url,
-            self.cfg.cookiecloud.uuid,
-            self.cfg.cookiecloud.password,
-        )
+        cc_cfg = settings.resolve_cookiecloud(self.cfg.cookiecloud)
+        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password)
         try:
             cookies = client.get_cookies()
         finally:

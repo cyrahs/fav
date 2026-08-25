@@ -374,28 +374,8 @@ class FavApiService:
         return {
             'section': section,
             'value': mask_section(section, payload),
-            'missing_fields': self._missing_fields_after_fallback(model),
+            'missing_fields': _missing_fields(model),
         }
-
-    def _shared_cookiecloud_configured(self) -> bool:
-        """Whether the deployment-wide CookieCloud credential is fully filled in."""
-        try:
-            shared = self._settings_section_getter('credentials.cookiecloud')
-        except Exception:  # noqa: BLE001 - an unreadable shared credential just means no fallback
-            return False
-        return bool(getattr(shared, 'configured', False))
-
-    def _missing_fields_after_fallback(self, model: BaseModel) -> list[str]:
-        """A section's missing fields, minus the CookieCloud ones the shared credential covers.
-
-        Mirrors ``Settings.apply_shared_cookiecloud``: at run time an unconfigured
-        per-source CookieCloud block is filled from ``credentials.cookiecloud``, so
-        reporting it as missing here would block enabling a source that can run.
-        """
-        missing = _missing_fields(model)
-        if any('cookiecloud.' in name for name in missing) and self._shared_cookiecloud_configured():
-            missing = [name for name in missing if 'cookiecloud.' not in name]
-        return missing
 
     def update_settings_section(self, section: str, payload: dict[str, Any]) -> dict[str, object]:
         if section not in SECTION_MODELS:
@@ -423,7 +403,7 @@ class FavApiService:
         except ValueError as exc:
             raise ApiError(status_code=422, code='invalid_settings', message=str(exc)) from None
 
-        candidate_missing = self._missing_fields_after_fallback(candidate)
+        candidate_missing = _missing_fields(candidate)
         if getattr(candidate, 'enabled', False) and candidate_missing:
             raise ApiError(
                 status_code=422,
@@ -439,7 +419,7 @@ class FavApiService:
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
         saved_payload = json.loads(saved.model_dump_json())
-        missing = self._missing_fields_after_fallback(saved)
+        missing = _missing_fields(saved)
         return {
             'section': section,
             'value': mask_section(section, saved_payload),
@@ -497,52 +477,29 @@ class FavApiService:
             'direct': result.direct,
         }
 
-    def _stored_account_password(self, account: str) -> str:
-        """The CookieCloud password stored for one bilibili account, matched by name."""
-        stored = self._stored_section('web.bilibili')
-        accounts = stored.get('accounts')
-        for candidate in accounts if isinstance(accounts, list) else []:
-            if isinstance(candidate, dict) and str(candidate.get('name') or '') == account:
-                nested = candidate.get('cookiecloud')
-                nested = nested if isinstance(nested, dict) else {}
-                return str(nested.get('password') or '')
+    def _stored_cookiecloud_password(self, name: str) -> str:
+        """The password stored for one shared CookieCloud config, matched by name."""
+        configs = self._stored_section('cookiecloud').get('configs')
+        for candidate in configs if isinstance(configs, list) else []:
+            if isinstance(candidate, dict) and str(candidate.get('name') or '') == name:
+                return str(candidate.get('password') or '')
         return ''
 
-    def _stored_section_password(self, section: str) -> str:
-        """The CookieCloud password of a source that holds a single vault."""
-        nested = self._stored_section(section).get('cookiecloud')
-        return str((nested if isinstance(nested, dict) else {}).get('password') or '')
-
-    def _stored_cookiecloud_password(self, *, source: str, account: str) -> str:
-        """Resolve a masked password against whatever the source stores it under.
-
-        Bilibili keys its vaults by account name; the shared credential is its own
-        section; every other source has exactly one, so it is read straight from
-        that source's section.
-        """
-        if source == 'shared':
-            return str(self._stored_section('credentials.cookiecloud').get('password') or '')
-        if source == 'bilibili':
-            if not account:
-                raise ApiError(status_code=422, code='invalid_settings', message='account is required.')
-            return self._stored_account_password(account)
-        return self._stored_section_password(f'web.{source}')
-
     def test_cookiecloud(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Check a source's CookieCloud credentials without saving them.
+        """Check CookieCloud credentials without saving them.
 
         The draft from the form wins, except that a masked or omitted password is
-        resolved against what is already stored for that source. ``source='shared'``
-        tests the deployment-wide credential: reachability and decryption only,
-        since it is not tied to any one source's cookies.
+        resolved against the shared config named by ``name``. An empty ``source``
+        checks connectivity and decryption only; a known source also checks that
+        the vault carries the cookies that source needs.
         """
-        source = str(payload.get('source') or 'bilibili')
-        profile = None if source == 'shared' else cookiecloud_tool.PROFILES.get(source)
-        if profile is None and source != 'shared':
+        source = str(payload.get('source') or '')
+        profile = cookiecloud_tool.PROFILES.get(source) if source else None
+        if source and profile is None:
             raise ApiError(status_code=422, code='invalid_settings', message=f'Unknown cookiecloud source: {source}')
 
         draft = {key: str(payload.get(key) or '') for key in ('server_url', 'uuid', 'password')}
-        keep_secret(draft, 'password', self._stored_cookiecloud_password(source=source, account=str(payload.get('account') or '')))
+        keep_secret(draft, 'password', self._stored_cookiecloud_password(str(payload.get('name') or '')))
 
         result = cookiecloud_tool.probe(draft['server_url'], draft['uuid'], draft['password'], profile=profile)
         return {

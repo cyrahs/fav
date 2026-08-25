@@ -39,26 +39,15 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`,
-`credentials.cookiecloud`, `notifications.telegram`. The settings page groups them into three
-partitions: sources (`web.*`), credentials (`credentials.*`) and notifications (`notifications.*`).
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `cookiecloud`,
+`notifications.telegram`. The settings page groups them into three partitions — sources (`web.*`),
+credentials (`cookiecloud`) and notifications (`notifications.*`) — and shows only display names,
+never these internal keys.
 
 Every `web.*` section carries `cron`, `enabled` and `notify`, all three edited on the jobs page
 rather than the settings page. `notify` defaults to true and covers everything that source sends to
 Telegram — its per-item and per-run reports as well as its job-failure alerts — so a source that
 runs often can be kept running quietly. It is per source, not per notification kind.
-
-#### Shared CookieCloud credential
-
-`credentials.cookiecloud` holds one `{server_url, uuid, password}` triple for the whole deployment.
-Every cookie-based consumer — each Bilibili account, `web.twitter`, `web.pixiv` — still carries its
-own `cookiecloud` block, but a block that is not fully filled in falls back to the shared credential
-at load time (a complete per-source block always wins, and a partial one counts as absent rather
-than being merged field by field). The stored sections keep only what was actually typed; the
-substitution happens when the settings snapshot is built. Leaving the shared credential empty is
-fine as long as each source carries its own — the section only reports `missing_fields` when it is
-half-filled. `POST /api/v2/cookiecloud/test` with `source: "shared"` checks reachability and
-decryption of the shared vault without tying it to any one source's cookies.
 
 #### Bilibili accounts
 
@@ -77,29 +66,33 @@ decryption of the shared vault without tying it to any one source's cookies.
       ],
       "toview_enabled": true,                          // watch-later is opt-in per account
       "toview_path": "collection/bilibili/main/later",  // its own directory, not a subdir of the favourites
-      "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." }  // this account's login
+      "cookiecloud": "main"                            // name of an entry in the shared `cookiecloud` section
     }
   ]
 }
 ```
 
 Each favourite list names its own directory, and watch-later has a separate one, so the two no longer
-share a parent. An account needs CookieCloud credentials plus either a favourite list or
-`toview_enabled` before it is runnable; the credentials *are* the account identity, since the
-watch-later list is always the logged-in user's. An account whose `cookiecloud` block is left empty
-falls back to the shared `credentials.cookiecloud` — sensible only for a single-account deployment,
-because two accounts on the same vault are the same login. Watch-later is still cleared after a
-successful pass, so only enable it for accounts whose list you want consumed.
+share a parent. An account needs a reference to a complete CookieCloud config plus either a favourite
+list or `toview_enabled` before it is runnable; the referenced vault *is* the account identity, since
+the watch-later list is always the logged-in user's. Watch-later is still cleared after a successful
+pass, so only enable it for accounts whose list you want consumed.
+
+CookieCloud credentials themselves live in the shared `cookiecloud` section — a named list of
+`{name, server_url, uuid, password}` entries edited in the settings page's credentials partition — and every
+consumer (each Bilibili account, X, pixiv) references one by name, so a vault used by several sources
+is configured once. Legacy rows that still carry inline credentials are hoisted into the shared
+section automatically on the first load after upgrading (identical credentials collapse into a single
+entry).
 
 Deduplication is by `bvid` across the whole `bilibili` table, so a video favourited by two accounts
 downloads once, into whichever directory is reached first.
 
-`POST /api/v2/cookiecloud/test` checks one account's credentials without saving them, and the settings
-page exposes it as a 测试连接 button inside each account. It fetches and
-decrypts the vault and reports which failure it hit — server unreachable, decrypt failed (wrong UUID
-or password), no `bilibili.com` cookies, or a vault missing some of `sessdata` / `bili_jct` /
-`buvid3` / `dedeuserid`. A masked password in the request resolves to the one stored under that
-account name, so what is checked is what the crawler would actually use.
+`POST /api/v2/cookiecloud/test` checks a config's credentials without saving them, and the settings
+page exposes it as a 测试连接 button — inside the shared section (connectivity and decryption only)
+and next to each reference (also checks the vault carries that source's cookies, e.g. `bilibili.com`'s
+`sessdata` / `bili_jct` / `buvid3` / `dedeuserid`). A masked password in the request resolves to the
+one stored under that config name, so what is checked is what the crawler would actually use.
 
 #### X liked tweets
 
@@ -126,7 +119,7 @@ uv lock --upgrade-package gallery-dl
   "username": "yourhandle",                 // your own screen name, without the @
   "path": "collection/twitter",
   "video_path": null,                       // null keeps videos with the images
-  "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." },
+  "cookiecloud": "main",                    // name of an entry in the shared `cookiecloud` section
   "sleep_request_seconds": 2.0,             // spacing between X requests
   "abort_after": 20,                        // consecutive known files that end an incremental run
   "include_retweets": true,                 // liked retweets, filed under the original author
@@ -135,11 +128,12 @@ uv lock --upgrade-package gallery-dl
 }
 ```
 
-The session comes from the same CookieCloud vault Bilibili uses, read from `x.com` (or `twitter.com`,
-whichever the browser extension synced), and needs `auth_token` and `ct0`. It is re-fetched at the
-start of every run, so signing in again in the browser is all it takes to recover from an expired
-session. `POST /api/v2/cookiecloud/test` takes a `source` field (`bilibili`, `twitter`, `pixiv` or
-`shared`) and the settings page exposes it as the same 测试连接 button.
+The session comes from the referenced entry of the shared `cookiecloud` section (typically the same
+vault Bilibili uses), read from `x.com` (or `twitter.com`, whichever the browser extension synced),
+and needs `auth_token` and `ct0`. It is re-fetched at the start of every run, so signing in again in
+the browser is all it takes to recover from an expired session. `POST /api/v2/cookiecloud/test`
+takes a `source` field (`bilibili`, `twitter`, `pixiv`, or empty for connectivity only) and the
+settings page exposes it as the same 测试连接 button.
 
 Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
 covers both. Setting `video_path` keeps videos and GIFs on a different disk from the images; leave it
@@ -175,14 +169,14 @@ collected, and R-18 bookmarks arrive with the session like any other.
   "enabled": true,
   "path": "collection/pixiv",
   "user_id": "",                            // empty: derived from the PHPSESSID cookie
-  "cookiecloud": { "server_url": "...", "uuid": "...", "password": "..." },
+  "cookiecloud": "main",                    // name of an entry in the shared `cookiecloud` section
   "sleep_request_seconds": 1.0,             // spacing between ajax requests; CDN downloads are not paced
   "proxy": ""                               // empty: direct (or the global HTTP_PROXY)
 }
 ```
 
 The bookmarks listing refuses anonymous requests, so the session is the `PHPSESSID` cookie read from
-the CookieCloud vault under `pixiv.net`, re-fetched at the start of every run. The logged-in user's
+the referenced CookieCloud vault under `pixiv.net`, re-fetched at the start of every run. The logged-in user's
 id is embedded in that cookie's value (`{user_id}_{hash}`), so `user_id` normally stays empty. Image
 originals on `i.pximg.net` need only the `Referer` header, never the cookie.
 
@@ -309,13 +303,13 @@ Required fields are enforced by `validate_runnable()` only when a source is enab
 them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
 crashing.
 
-Secrets (`web.bilibili.accounts[].cookiecloud.password`, `web.twitter.cookiecloud.password`,
-`web.pixiv.cookiecloud.password`, `credentials.cookiecloud.password`, `web.rednote.proxy`,
-`web.telegram.accounts[].api_hash`, `notifications.telegram.bot_token`) are stored in
+Secrets (`cookiecloud.configs[].password`, `web.telegram.accounts[].api_hash`,
+`notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
-UI cannot shuffle credentials between them; the same holds for Bilibili's per-account CookieCloud
-password.
+UI cannot shuffle credentials between them; the same holds for the shared CookieCloud passwords,
+matched by config name. (`web.rednote.proxy` and the other proxy URLs are deliberately shown in
+plain text.)
 
 The worker polls `app_settings` every 15 seconds and reschedules APScheduler jobs in place, so
 `enabled` and `cron` changes apply without a restart. `notify` is read when a notification is
@@ -337,9 +331,10 @@ answers `422 incomplete_settings` with the missing field names. 通知 has no su
 saved on an incomplete source like any other field.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
-and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels
-and Kemono creators, credential blocks with a live connection test for Bilibili and X — validated
-locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
+and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels,
+Kemono creators and shared CookieCloud configs (the `CookieCloud` block at the bottom of the page,
+with a live connection test; Bilibili accounts, X and pixiv reference its entries by name from a
+dropdown) — validated locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
 do not appear there at all; their `path` keeps its default and can be changed through the API if a
 deployment needs to. Every listed section also has a `JSON 编辑` toggle for raw editing, which is what
 a section gets if this build predates it. Secret fields (`api_hash`, CookieCloud password, Telegram

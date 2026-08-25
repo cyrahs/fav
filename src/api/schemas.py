@@ -733,11 +733,12 @@ class RedNoteProxyTestResult(ApiSchema):
 
 
 class CookieCloudTestRequest(ApiSchema):
-    # Which source's cookies to look for; picks the domains and required cookie names.
-    source: str = 'bilibili'
-    # Names the bilibili account a masked password resolves against. Unused by
-    # sources that hold a single vault.
-    account: str = ''
+    # Which source's cookies to look for; picks the domains and required cookie
+    # names. Empty checks connectivity and decryption only, for testing a shared
+    # config without a particular consumer in mind.
+    source: str = ''
+    # Names the shared config a masked password resolves against.
+    name: str = ''
     server_url: str = ''
     uuid: str = ''
     # A masked value (or an omitted one) means "test what is already stored".

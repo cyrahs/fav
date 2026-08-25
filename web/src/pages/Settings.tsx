@@ -352,21 +352,21 @@ function Hanime1Authors() {
  * them, then how results are announced. Sections a newer backend adds land in a
  * trailing group instead of disappearing.
  */
-const SECTION_GROUPS: { title: string; hint: string; prefix: string }[] = [
+const SECTION_GROUPS: { title: string; hint: string; matches: (section: string) => boolean }[] = [
   {
     title: '源',
     hint: '抓取的站点。所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。Telegram 的实时监听在进程启动时建立，改动其账号后需重启 worker。',
-    prefix: 'web.',
+    matches: (section) => section.startsWith('web.'),
   },
   {
     title: '凭证',
-    hint: '多个源共用的登录凭据。源里未单独填写 CookieCloud 时，使用这里的共享凭据。',
-    prefix: 'credentials.',
+    hint: '多个源共用的登录凭据。Bilibili 账号、X、Pixiv 按名称引用这里的 CookieCloud 配置。',
+    matches: (section) => section === 'cookiecloud',
   },
   {
     title: '通知',
     hint: '任务运行结果的推送渠道。',
-    prefix: 'notifications.',
+    matches: (section) => section.startsWith('notifications.'),
   },
 ];
 
@@ -379,9 +379,9 @@ export function SettingsPage() {
   const sections = (settings.data?.items ?? []).filter((section) => !JOBS_PAGE_ONLY_SECTIONS.has(section.section));
   const grouped = SECTION_GROUPS.map((group) => ({
     ...group,
-    sections: sections.filter((section) => section.section.startsWith(group.prefix)),
+    sections: sections.filter((section) => group.matches(section.section)),
   }));
-  const leftover = sections.filter((section) => !SECTION_GROUPS.some((group) => section.section.startsWith(group.prefix)));
+  const leftover = sections.filter((section) => !SECTION_GROUPS.some((group) => group.matches(section.section)));
 
   return (
     <div className="stack">

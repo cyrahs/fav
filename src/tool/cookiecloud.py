@@ -216,8 +216,8 @@ def probe(server_url: str, uuid: str, password: str, *, profile: CookieProfile |
     Distinguishes the failure modes an operator actually needs to tell apart: the
     server being unreachable, the password being wrong (decryption fails), and the
     vault simply not carrying the cookies this deployment needs. ``profile=None``
-    checks reachability and decryption only -- used for the shared credential,
-    which is not tied to any one source's cookies.
+    stops after decryption -- the check for a shared config that no particular
+    source is being tested against.
     """
     missing_config = [name for name, value in (('server_url', server_url), ('uuid', uuid), ('password', password)) if not value.strip()]
     if missing_config:

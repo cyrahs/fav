@@ -19,8 +19,8 @@ const SECTION_LABELS: Record<string, string> = {
   'web.twitter': 'X',
   'web.pixiv': 'Pixiv',
   'web.rednote': '小红书',
-  'credentials.cookiecloud': 'CookieCloud',
   'notifications.telegram': 'Telegram 通知',
+  cookiecloud: 'CookieCloud',
 };
 
 /** `fallback` is the backend name, used for a section this build predates. */

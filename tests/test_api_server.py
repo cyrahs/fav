@@ -1008,6 +1008,9 @@ def test_update_settings_section_accepts_enabling_a_complete_source() -> None:
     saved: list[tuple[str, dict]] = []
     service = _settings_service(saved=saved)
 
+    settings.load().cookiecloud.configs.append(
+        settings.CookieCloudEntry(name='main-vault', server_url='https://cc.example', uuid='u', password='pw'),
+    )
     result = service.update_settings_section(
         'web.bilibili',
         {
@@ -1017,7 +1020,7 @@ def test_update_settings_section_accepts_enabling_a_complete_source() -> None:
                 {
                     'name': 'main',
                     'favorites': [{'fav_id': 99, 'path': 'collection/bilibili/fav'}],
-                    'cookiecloud': {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'pw'},
+                    'cookiecloud': 'main-vault',
                 },
             ],
         },
@@ -1051,23 +1054,20 @@ def _stub_probe(monkeypatch, probed: list[tuple[str, str, str]]) -> None:
     monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
 
 
-_BILIBILI_WITH_CC = {
-    'accounts': [
-        {
-            'name': 'main',
-            'toview_enabled': True,
-            'cookiecloud': {'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main-pw'},
-        },
+_SHARED_CC = {
+    'configs': [
+        {'name': 'main', 'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main-pw'},
+        {'name': 'alt', 'server_url': 'https://cc.alt', 'uuid': 'alt-uuid', 'password': 'alt-pw'},
     ],
 }
 
 
 def test_test_cookiecloud_resolves_a_masked_password_from_storage(monkeypatch) -> None:
-    service, probed = _cookiecloud_service(sections={'web.bilibili': _BILIBILI_WITH_CC})
+    service, probed = _cookiecloud_service(sections={'cookiecloud': _SHARED_CC})
     _stub_probe(monkeypatch, probed)
 
     result = service.test_cookiecloud(
-        {'account': 'main', 'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main••••'},
+        {'name': 'main', 'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main••••'},
     )
 
     assert result['ok'] is True
@@ -1075,38 +1075,22 @@ def test_test_cookiecloud_resolves_a_masked_password_from_storage(monkeypatch) -
 
 
 def test_test_cookiecloud_uses_an_unsaved_draft_password(monkeypatch) -> None:
-    service, probed = _cookiecloud_service(sections={'web.bilibili': _BILIBILI_WITH_CC})
+    service, probed = _cookiecloud_service(sections={'cookiecloud': _SHARED_CC})
     _stub_probe(monkeypatch, probed)
 
-    service.test_cookiecloud({'account': 'main', 'server_url': 'https://cc.new', 'uuid': 'new-uuid', 'password': 'typed-pw'})
+    service.test_cookiecloud({'name': 'main', 'server_url': 'https://cc.new', 'uuid': 'new-uuid', 'password': 'typed-pw'})
 
     assert probed == [('https://cc.new', 'new-uuid', 'typed-pw')]
 
 
-def test_test_cookiecloud_matches_the_stored_password_by_account_name(monkeypatch) -> None:
-    sections = {
-        'web.bilibili': {
-            'accounts': [
-                {
-                    'name': 'main',
-                    'toview_enabled': True,
-                    'cookiecloud': {'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main-pw'},
-                },
-                {
-                    'name': 'alt',
-                    'toview_enabled': True,
-                    'cookiecloud': {'server_url': 'https://cc.alt', 'uuid': 'alt-uuid', 'password': 'alt-pw'},
-                },
-            ],
-        },
-    }
-    service, probed = _cookiecloud_service(sections=sections)
+def test_test_cookiecloud_matches_the_stored_password_by_config_name(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'cookiecloud': _SHARED_CC})
     _stub_probe(monkeypatch, probed)
 
-    # The second account's mask must resolve to the second account's password.
+    # The second config's mask must resolve to the second config's password.
     service.test_cookiecloud(
         {
-            'account': 'alt',
+            'name': 'alt',
             'server_url': 'https://cc.alt',
             'uuid': 'alt-uuid',
             'password': 'alt-••••',
@@ -1116,33 +1100,17 @@ def test_test_cookiecloud_matches_the_stored_password_by_account_name(monkeypatc
     assert probed == [('https://cc.alt', 'alt-uuid', 'alt-pw')]
 
 
-def test_test_cookiecloud_requires_an_account() -> None:
-    service, _ = _cookiecloud_service(sections={})
-
-    with pytest.raises(api_service_module.ApiError) as excinfo:
-        service.test_cookiecloud({'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'p'})
-
-    assert excinfo.value.status_code == 422
-    assert 'account' in excinfo.value.message
-
-
-def test_test_cookiecloud_for_an_unknown_account_has_no_stored_password_to_fall_back_on(monkeypatch) -> None:
-    service, probed = _cookiecloud_service(sections={'web.bilibili': _BILIBILI_WITH_CC})
+def test_test_cookiecloud_for_an_unknown_config_has_no_stored_password_to_fall_back_on(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'cookiecloud': _SHARED_CC})
     _stub_probe(monkeypatch, probed)
 
-    service.test_cookiecloud({'account': 'ghost', 'server_url': 'https://cc.x', 'uuid': 'x', 'password': 'shor••••'})
+    service.test_cookiecloud({'name': 'ghost', 'server_url': 'https://cc.x', 'uuid': 'x', 'password': 'shor••••'})
 
     assert probed == [('https://cc.x', 'x', '')]
 
 
-_TWITTER_WITH_CC = {
-    'username': 'me',
-    'cookiecloud': {'server_url': 'https://cc.x', 'uuid': 'x-uuid', 'password': 'x-pw'},
-}
-
-
-def test_test_cookiecloud_checks_x_cookies_when_the_source_says_twitter(monkeypatch) -> None:
-    service, probed = _cookiecloud_service(sections={'web.twitter': _TWITTER_WITH_CC})
+def test_test_cookiecloud_without_a_source_probes_generically(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'cookiecloud': _SHARED_CC})
     profiles: list[object] = []
 
     def _fake_probe(server_url: str, uuid: str, password: str, **kwargs: object) -> api_service_module.cookiecloud_tool.CookieCloudProbe:
@@ -1152,13 +1120,30 @@ def test_test_cookiecloud_checks_x_cookies_when_the_source_says_twitter(monkeypa
 
     monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
 
-    # No account: a twitter deployment holds exactly one vault, in its own section.
+    result = service.test_cookiecloud({'name': 'main', 'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main••••'})
+
+    assert result['ok'] is True
+    # No source: only connectivity and decryption are checked.
+    assert profiles == [None]
+
+
+def test_test_cookiecloud_checks_x_cookies_when_the_source_says_twitter(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'cookiecloud': _SHARED_CC})
+    profiles: list[object] = []
+
+    def _fake_probe(server_url: str, uuid: str, password: str, **kwargs: object) -> api_service_module.cookiecloud_tool.CookieCloudProbe:
+        probed.append((server_url, uuid, password))
+        profiles.append(kwargs.get('profile'))
+        return api_service_module.cookiecloud_tool.CookieCloudProbe(ok=True, code='ok', message='OK')
+
+    monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
+
     result = service.test_cookiecloud(
-        {'source': 'twitter', 'server_url': 'https://cc.x', 'uuid': 'x-uuid', 'password': 'x-pw••••'},
+        {'source': 'twitter', 'name': 'main', 'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main••••'},
     )
 
     assert result['ok'] is True
-    assert probed == [('https://cc.x', 'x-uuid', 'x-pw')]
+    assert probed == [('https://cc.main', 'main-uuid', 'main-pw')]
     assert profiles == [api_service_module.cookiecloud_tool.TWITTER_PROFILE]
 
 
@@ -1170,91 +1155,3 @@ def test_test_cookiecloud_rejects_a_source_it_has_no_profile_for() -> None:
 
     assert excinfo.value.status_code == 422
     assert 'myspace' in excinfo.value.message
-
-
-_SHARED_CC_SECTION = {'server_url': 'https://cc.shared', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
-
-
-def test_test_cookiecloud_probes_the_shared_credential_without_a_profile(monkeypatch) -> None:
-    service, probed = _cookiecloud_service(sections={'credentials.cookiecloud': _SHARED_CC_SECTION})
-    profiles: list[object] = []
-
-    def _fake_probe(server_url: str, uuid: str, password: str, **kwargs: object) -> api_service_module.cookiecloud_tool.CookieCloudProbe:
-        probed.append((server_url, uuid, password))
-        profiles.append(kwargs.get('profile'))
-        return api_service_module.cookiecloud_tool.CookieCloudProbe(ok=True, code='ok', message='OK')
-
-    monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
-
-    result = service.test_cookiecloud(
-        {'source': 'shared', 'server_url': 'https://cc.shared', 'uuid': 'shared-uuid', 'password': 'shar••••'},
-    )
-
-    assert result['ok'] is True
-    # The masked password resolves against the credentials.cookiecloud section.
-    assert probed == [('https://cc.shared', 'shared-uuid', 'shared-pw')]
-    # No profile: the shared vault is not tied to any one source's cookies.
-    assert profiles == [None]
-
-
-def _settings_service_with_sections(*, sections: dict, saved: list[tuple[str, dict]]) -> api_server.FavApiService:
-    """Like _settings_service, but with per-section stored values."""
-
-    def getter(section: str) -> BaseModel:
-        return settings.SECTION_MODELS[section].model_validate(sections.get(section, {}))
-
-    def saver(section: str, payload: dict) -> BaseModel:
-        saved.append((section, payload))
-        return settings.SECTION_MODELS[section].model_validate(payload)
-
-    return api_server.FavApiService(
-        dsn='postgresql://db.local/fav',
-        token=_VALID_TOKEN,
-        now_provider=lambda: _FIXED_NOW,
-        settings_section_getter=getter,
-        settings_section_saver=saver,
-    )
-
-
-def test_update_settings_section_lets_the_shared_credential_stand_in_for_a_source_vault() -> None:
-    saved: list[tuple[str, dict]] = []
-    service = _settings_service_with_sections(sections={'credentials.cookiecloud': _SHARED_CC_SECTION}, saved=saved)
-
-    result = service.update_settings_section(
-        'web.pixiv',
-        {'cron': '0 * * * *', 'enabled': True},
-    )
-
-    assert result['missing_fields'] == []
-    assert saved[0][1]['enabled'] is True
-
-
-def test_update_settings_section_still_rejects_enabling_without_any_credential() -> None:
-    saved: list[tuple[str, dict]] = []
-    service = _settings_service_with_sections(sections={}, saved=saved)
-
-    with pytest.raises(api_service_module.ApiError) as excinfo:
-        service.update_settings_section('web.pixiv', {'cron': '0 * * * *', 'enabled': True})
-
-    assert excinfo.value.status_code == 422
-    assert excinfo.value.code == 'incomplete_settings'
-    assert saved == []
-
-
-def test_settings_section_report_hides_cookiecloud_gaps_the_shared_credential_covers() -> None:
-    service = _settings_service_with_sections(sections={'credentials.cookiecloud': _SHARED_CC_SECTION}, saved=[])
-
-    section = service.get_settings_section('web.twitter')
-
-    assert section['missing_fields'] == ['username']
-
-
-def test_the_shared_credential_section_reports_only_a_half_filled_state() -> None:
-    empty = _settings_service_with_sections(sections={}, saved=[])
-    partial = _settings_service_with_sections(
-        sections={'credentials.cookiecloud': {'server_url': 'https://cc.shared'}},
-        saved=[],
-    )
-
-    assert empty.get_settings_section('credentials.cookiecloud')['missing_fields'] == []
-    assert partial.get_settings_section('credentials.cookiecloud')['missing_fields'] == ['uuid', 'password']
