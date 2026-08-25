@@ -3,10 +3,14 @@ import { api } from '../api/client';
 import type { CookieCloudTestResult } from '../api/types';
 
 interface CookieCloudTestProps {
-  /** Picks the domains and cookie names to check for. Defaults to bilibili. */
+  /**
+   * Picks the domains and cookie names to check for. Empty checks connectivity
+   * and decryption only — the right test for a shared config with no particular
+   * consumer in mind.
+   */
   source?: string;
-  /** Names the account a masked password resolves against; bilibili only. */
-  account?: string;
+  /** Names the shared config a masked password resolves against. */
+  name?: string;
   serverUrl: string;
   uuid: string;
   password: string;
@@ -26,12 +30,12 @@ const CODE_LABELS: Record<string, string> = {
  * Tests the credentials as currently typed, without saving them. The draft is sent
  * as-is; the backend swaps a masked password for the one it has stored.
  */
-export function CookieCloudTest({ source = 'bilibili', account = '', serverUrl, uuid, password }: CookieCloudTestProps) {
+export function CookieCloudTest({ source = '', name = '', serverUrl, uuid, password }: CookieCloudTestProps) {
   const test = useMutation({
     mutationFn: () =>
       api.post<CookieCloudTestResult>('/api/v2/cookiecloud/test', {
         source,
-        account,
+        name,
         server_url: serverUrl,
         uuid,
         password,

@@ -77,6 +77,72 @@ class CookieCloud(BaseModel):
         return not self.validate_runnable()
 
 
+class CookieCloudEntry(CookieCloud):
+    """One named vault in the shared ``cookiecloud`` section."""
+
+    name: str
+
+    @field_validator('name')
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'cookiecloud config name cannot be empty'
+            raise ValueError(msg)
+        if not _ACCOUNT_NAME_RE.fullmatch(normalized):
+            msg = 'cookiecloud config name must contain only ASCII letters, digits, underscores, or hyphens'
+            raise ValueError(msg)
+        return normalized
+
+
+class CookieCloudConfigs(BaseModel):
+    """The shared registry of named CookieCloud vaults.
+
+    Sources reference an entry by name instead of carrying their own copy of the
+    credentials, so one browser vault is configured once and shared.
+    """
+
+    configs: list[CookieCloudEntry] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def validate_unique_names(self) -> Self:
+        seen: set[str] = set()
+        for entry in self.configs:
+            normalized = entry.name.casefold()
+            if normalized in seen:
+                msg = f'duplicate cookiecloud config name: {entry.name}'
+                raise ValueError(msg)
+            seen.add(normalized)
+        return self
+
+    def get(self, name: str) -> CookieCloudEntry | None:
+        normalized = name.strip().casefold()
+        return next((entry for entry in self.configs if entry.name.casefold() == normalized), None)
+
+
+def _cookiecloud_reference_issues(name: str) -> list[str]:
+    """Why a source's reference to a shared CookieCloud config cannot run yet.
+
+    The registry lives in its own section, so this resolves against the current
+    snapshot rather than against the referencing section's own fields.
+    """
+    if not name.strip():
+        return ['cookiecloud']
+    entry = load().cookiecloud.get(name)
+    if entry is None:
+        return [f'cookiecloud (no config named {name!r})']
+    return [f'cookiecloud.{field_name}' for field_name in entry.validate_runnable()]
+
+
+def resolve_cookiecloud(name: str) -> CookieCloudEntry:
+    """The shared CookieCloud config a source references, or a clear error."""
+    entry = load().cookiecloud.get(name)
+    if entry is None:
+        msg = f'CookieCloud config {name!r} is not defined; add it in the CookieCloud block on the settings page.'
+        raise ValueError(msg)
+    return entry
+
+
 class BilibiliFavorite(BaseModel):
     """One favourite list and the directory its videos land in."""
 
@@ -95,15 +161,17 @@ class BilibiliFavorite(BaseModel):
 class BilibiliAccount(BaseModel):
     """One logged-in Bilibili account, its favourite lists, and its watch-later list.
 
-    Each account carries its own CookieCloud credentials -- they are what identifies
-    the account, since Bilibili's watch-later list is always the logged-in user's.
+    Each account names the shared CookieCloud config it signs in with -- that vault
+    is what identifies the account, since Bilibili's watch-later list is always the
+    logged-in user's.
     """
 
     name: str
     favorites: list[BilibiliFavorite] = Field(default_factory=list)
     toview_enabled: bool = False
     toview_path: Path = Path('./collection/bilibili/toview')
-    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+    # Name of an entry in the shared `cookiecloud` section.
+    cookiecloud: str = ''
 
     @field_validator('name')
     @classmethod
@@ -129,7 +197,7 @@ class BilibiliAccount(BaseModel):
         return value
 
     def validate_runnable(self) -> list[str]:
-        missing = [f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable()]
+        missing = _cookiecloud_reference_issues(self.cookiecloud)
         # An account that collects neither favourites nor watch-later has nothing to do.
         if not self.favorites and not self.toview_enabled:
             missing.append('favorites')
@@ -512,7 +580,8 @@ class Twitter(ScheduleJob):
     # Own screen name, without the leading @. The likes timeline is only readable
     # for the logged-in user, so this has to match the CookieCloud session.
     username: str = ''
-    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+    # Name of an entry in the shared `cookiecloud` section.
+    cookiecloud: str = ''
     # Spacing between X API requests. X throttles hard on the likes timeline; below
     # about a second a large backfill starts collecting 429s.
     sleep_request_seconds: float = 2.0
@@ -568,7 +637,7 @@ class Twitter(ScheduleJob):
 
     def validate_runnable(self) -> list[str]:
         missing = [] if self.username else ['username']
-        missing.extend(f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable())
+        missing.extend(_cookiecloud_reference_issues(self.cookiecloud))
         return missing
 
 
@@ -583,7 +652,8 @@ class Pixiv(ScheduleJob):
 
     path: Path = Path('./collection/pixiv')
     cron: str = '0 */6 * * *'
-    cookiecloud: CookieCloud = Field(default_factory=CookieCloud)
+    # Name of an entry in the shared `cookiecloud` section.
+    cookiecloud: str = ''
     # Optional override; empty means "derive from the PHPSESSID cookie".
     user_id: str = ''
     # Spacing between ajax API requests. Image downloads hit the CDN and are not paced.
@@ -613,7 +683,7 @@ class Pixiv(ScheduleJob):
         return value
 
     def validate_runnable(self) -> list[str]:
-        return [f'cookiecloud.{name}' for name in self.cookiecloud.validate_runnable()]
+        return _cookiecloud_reference_issues(self.cookiecloud)
 
 
 class RedNote(ScheduleJob):
@@ -768,8 +838,11 @@ class Web(BaseModel):
 class Settings(BaseModel):
     web: Web = Field(default_factory=Web)
     notifications: Notifications = Field(default_factory=Notifications)
+    cookiecloud: CookieCloudConfigs = Field(default_factory=CookieCloudConfigs)
 
 
+# The UI renders sections in this order; `cookiecloud` is deliberately last so the
+# shared registry sits below the sources that reference it.
 SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.bilibili': Bilibili,
     'web.telegram': Telegram,
@@ -784,6 +857,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.pixiv': Pixiv,
     'web.rednote': RedNote,
     'notifications.telegram': TelegramNotification,
+    'cookiecloud': CookieCloudConfigs,
 }
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
@@ -791,9 +865,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 # UI needs to show and edit them as ordinary text, and masking them cost more in
 # round-trip machinery than the credential inside was worth.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
-    'web.bilibili': ('accounts[].cookiecloud.password',),
-    'web.twitter': ('cookiecloud.password',),
-    'web.pixiv': ('cookiecloud.password',),
+    'cookiecloud': ('configs[].password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
 }
@@ -812,6 +884,78 @@ def _section_container(payload: dict[str, Any], section: str) -> dict[str, Any]:
     for part in parts[:-1]:
         cursor = cursor.setdefault(part, {})
     return cursor
+
+
+def _register_migrated_vault(creds: dict[str, Any], label: str, registry: list[dict[str, Any]]) -> str:
+    """Return the registry name for one legacy inline credentials dict.
+
+    Identical credentials collapse into one entry, so sources that shared a vault
+    by copy-paste end up referencing the same config. Blank credentials map to an
+    empty reference instead of a useless entry.
+    """
+    server_url = str(creds.get('server_url') or '')
+    uuid = str(creds.get('uuid') or '')
+    password = str(creds.get('password') or '')
+    if not (server_url.strip() or uuid.strip() or password.strip()):
+        return ''
+    for entry in registry:
+        if (entry.get('server_url'), entry.get('uuid'), entry.get('password')) == (server_url, uuid, password):
+            return str(entry.get('name') or '')
+    base = label if _ACCOUNT_NAME_RE.fullmatch(label) else 'cookiecloud'
+    taken = {str(entry.get('name') or '').casefold() for entry in registry}
+    name = base
+    suffix = 2
+    while name.casefold() in taken:
+        name = f'{base}-{suffix}'
+        suffix += 1
+    registry.append({'name': name, 'server_url': server_url, 'uuid': uuid, 'password': password})
+    return name
+
+
+def migrate_legacy_cookiecloud(rows: dict[str, Any]) -> set[str]:
+    """Hoist inline CookieCloud credentials into the shared ``cookiecloud`` section.
+
+    Older versions stored one copy of the credentials inside each consumer
+    (``web.bilibili`` accounts, ``web.twitter``, ``web.pixiv``); now consumers
+    reference a named entry in the shared registry. Rewrites ``rows`` in place
+    into the referencing shape and returns the sections that changed. The output
+    is deterministic, so concurrent processes migrating the same rows converge on
+    the same result.
+    """
+    changed: set[str] = set()
+    shared = rows.get('cookiecloud')
+    shared = dict(shared) if isinstance(shared, dict) else {}
+    stored_registry = shared.get('configs')
+    registry = [dict(entry) for entry in stored_registry if isinstance(entry, dict)] if isinstance(stored_registry, list) else []
+    initial_count = len(registry)
+
+    for section, label in (('web.twitter', 'twitter'), ('web.pixiv', 'pixiv')):
+        value = rows.get(section)
+        if not isinstance(value, dict) or not isinstance(value.get('cookiecloud'), dict):
+            continue
+        rows[section] = {**value, 'cookiecloud': _register_migrated_vault(value['cookiecloud'], label, registry)}
+        changed.add(section)
+
+    bilibili = rows.get('web.bilibili')
+    accounts = bilibili.get('accounts') if isinstance(bilibili, dict) else None
+    if isinstance(bilibili, dict) and isinstance(accounts, list):
+        migrated_accounts: list[Any] = []
+        section_changed = False
+        for account in accounts:
+            if not isinstance(account, dict) or not isinstance(account.get('cookiecloud'), dict):
+                migrated_accounts.append(account)
+                continue
+            reference = _register_migrated_vault(account['cookiecloud'], str(account.get('name') or 'bilibili'), registry)
+            migrated_accounts.append({**account, 'cookiecloud': reference})
+            section_changed = True
+        if section_changed:
+            rows['web.bilibili'] = {**bilibili, 'accounts': migrated_accounts}
+            changed.add('web.bilibili')
+
+    if len(registry) != initial_count:
+        rows['cookiecloud'] = {**shared, 'configs': registry}
+        changed.add('cookiecloud')
+    return changed
 
 
 def build_settings(rows: dict[str, Any]) -> Settings:
@@ -858,7 +1002,15 @@ def _fetch_rows_sync() -> dict[str, Any]:
     with _connect() as conn, conn.cursor() as cursor:
         cursor.execute('SELECT section, value FROM app_settings;')
         rows = cursor.fetchall()
-    return {str(row['section']): row['value'] for row in rows}
+    result = {str(row['section']): row['value'] for row in rows}
+    for section in sorted(migrate_legacy_cookiecloud(result)):
+        # Persistence is best effort: even if the write fails, the in-memory rows
+        # are already in the new shape and the migration reruns on the next load.
+        try:
+            save_section(section, result[section])
+        except Exception:
+            log.exception('Failed to persist the cookiecloud migration for section=%s', section)
+    return result
 
 
 _cache_lock = threading.Lock()
@@ -917,11 +1069,9 @@ def load_section(section: str) -> BaseModel:
     model = SECTION_MODELS.get(section)
     if model is None:
         raise UnknownSectionError(section)
-    ensure_table_sync()
-    with _connect() as conn, conn.cursor() as cursor:
-        cursor.execute('SELECT value FROM app_settings WHERE section = %s;', (section,))
-        row = cursor.fetchone()
-    return model.model_validate(row['value'] if row else {})
+    # Fetched through the same path as load() so a legacy row is migrated before
+    # validation; the table is a handful of rows, so reading it whole is cheap.
+    return model.model_validate(_fetch_rows_sync().get(section, {}))
 
 
 def save_section(section: str, payload: dict[str, Any]) -> BaseModel:

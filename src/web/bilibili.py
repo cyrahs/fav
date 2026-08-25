@@ -348,7 +348,7 @@ class Bilibili:
         because visibility of a video depends on who is logged in.
         """
         self.cookie_path = self.cache_dir / f'bilibili-{account.name}.txt'
-        self.update_cookie_from_cookiecloud(self.cookie_path, account.cookiecloud)
+        self.update_cookie_from_cookiecloud(self.cookie_path, settings.resolve_cookiecloud(account.cookiecloud))
         self.credential = self.create_credential(self.cookie_path)
         self.info_cache = {}
 

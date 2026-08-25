@@ -187,6 +187,9 @@ across several hand-maintained registries, and missing one fails in a way that i
 6. `src/api/settings_masking.py`: a branch per section that holds a secret.
 7. `src/tool/cookiecloud.py`: for a cookie-based source, a `CookieProfile` in `PROFILES`. That dict
    is what backs the settings page's 测试连接 button; without an entry the endpoint rejects the source.
+   Credentials themselves live in the shared `cookiecloud` section: give the source a
+   `cookiecloud: str = ''` reference field, gate it with `_cookiecloud_reference_issues()` in
+   `validate_runnable()`, and resolve it at crawl time with `settings.resolve_cookiecloud(name)`.
 8. `web/src/labels.ts`: the display name — this is the single place a source is named for the UI.
    Then either a form in `web/src/components/sectionForms.tsx` (registered in `SECTION_FORMS`, with
    any client-side rules in `validateSection`) or an entry in `JOBS_PAGE_ONLY_SECTIONS` if cron and

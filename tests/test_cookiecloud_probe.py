@@ -45,6 +45,18 @@ def test_probe_succeeds_when_every_required_cookie_is_present(monkeypatch) -> No
     assert result.domain_cookie_count == 4
 
 
+def test_probe_without_a_profile_stops_after_decryption(monkeypatch) -> None:
+    # The check for a shared config with no particular consumer: any decryptable
+    # vault passes, whatever domains it carries.
+    _install_cookies(monkeypatch, {'example.com': [{'name': 'a', 'value': 'b'}]})
+
+    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=None)
+
+    assert result.ok is True
+    assert result.code == 'ok'
+    assert result.domain_count == 1
+
+
 def test_probe_matches_required_cookie_names_case_insensitively(monkeypatch) -> None:
     _install_cookies(monkeypatch, _bilibili_cookies(['SESSDATA', 'bili_jct', 'buvid3', 'DedeUserID']))
 

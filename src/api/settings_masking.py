@@ -6,9 +6,9 @@ secret values with a short masked preview; writes treat a masked (or absent)
 value as "keep what is already stored".
 
 The rules are spelled out per section rather than derived from a path DSL: there
-are only a handful of secrets, and the per-account ones have to be matched by
-account name so that reordering or inserting accounts in the UI cannot shuffle
-credentials between them.
+are only a handful of secrets, and the per-entry ones have to be matched by name
+so that reordering or inserting entries in the UI cannot shuffle credentials
+between them.
 """
 
 from __future__ import annotations
@@ -50,10 +50,11 @@ def _accounts(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [account for account in accounts if isinstance(account, dict)]
 
 
-def _cookiecloud(payload: dict[str, Any]) -> dict[str, Any] | None:
-    """The nested CookieCloud block of an account or of a whole section."""
-    nested = payload.get('cookiecloud')
-    return nested if isinstance(nested, dict) else None
+def _configs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    configs = payload.get('configs')
+    if not isinstance(configs, list):
+        return []
+    return [config for config in configs if isinstance(config, dict)]
 
 
 def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -64,18 +65,10 @@ def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
         masked['accounts'] = [{**account} for account in _accounts(masked)]
         for account in _accounts(masked):
             _mask_scalar(account, 'api_hash')
-    elif section == 'web.bilibili':
-        masked['accounts'] = [{**account} for account in _accounts(masked)]
-        for account in _accounts(masked):
-            nested = _cookiecloud(account)
-            if nested is not None:
-                account['cookiecloud'] = {**nested}
-                _mask_scalar(account['cookiecloud'], 'password')
-    elif section in ('web.twitter', 'web.pixiv'):
-        nested = _cookiecloud(masked)
-        if nested is not None:
-            masked['cookiecloud'] = {**nested}
-            _mask_scalar(masked['cookiecloud'], 'password')
+    elif section == 'cookiecloud':
+        masked['configs'] = [{**config} for config in _configs(masked)]
+        for config in _configs(masked):
+            _mask_scalar(config, 'password')
     return masked
 
 
@@ -91,20 +84,9 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
         merged['accounts'] = [{**account} for account in _accounts(merged)]
         for account in _accounts(merged):
             keep_secret(account, 'api_hash', stored_hashes.get(str(account.get('name') or ''), ''))
-    elif section == 'web.bilibili':
-        stored_passwords = {
-            str(account.get('name') or ''): str((_cookiecloud(account) or {}).get('password') or '') for account in _accounts(stored)
-        }
-        merged['accounts'] = [{**account} for account in _accounts(merged)]
-        for account in _accounts(merged):
-            nested = _cookiecloud(account)
-            if nested is None:
-                continue
-            account['cookiecloud'] = {**nested}
-            keep_secret(account['cookiecloud'], 'password', stored_passwords.get(str(account.get('name') or ''), ''))
-    elif section in ('web.twitter', 'web.pixiv'):
-        nested = _cookiecloud(merged)
-        if nested is not None:
-            merged['cookiecloud'] = {**nested}
-            keep_secret(merged['cookiecloud'], 'password', str((_cookiecloud(stored) or {}).get('password') or ''))
+    elif section == 'cookiecloud':
+        stored_passwords = {str(config.get('name') or ''): str(config.get('password') or '') for config in _configs(stored)}
+        merged['configs'] = [{**config} for config in _configs(merged)]
+        for config in _configs(merged):
+            keep_secret(config, 'password', stored_passwords.get(str(config.get('name') or ''), ''))
     return merged

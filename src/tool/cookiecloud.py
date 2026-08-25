@@ -210,12 +210,14 @@ def _fetch_for_probe(server_url: str, uuid: str, password: str) -> tuple[dict[st
         client.client.close()
 
 
-def probe(server_url: str, uuid: str, password: str, *, profile: CookieProfile = BILIBILI_PROFILE) -> CookieCloudProbe:
+def probe(server_url: str, uuid: str, password: str, *, profile: CookieProfile | None = BILIBILI_PROFILE) -> CookieCloudProbe:
     """Fetch and decrypt a CookieCloud vault, reporting why it is unusable if it is.
 
     Distinguishes the failure modes an operator actually needs to tell apart: the
     server being unreachable, the password being wrong (decryption fails), and the
-    vault simply not carrying the cookies this deployment needs.
+    vault simply not carrying the cookies this deployment needs. ``profile=None``
+    stops after decryption -- the check for a shared config that no particular
+    source is being tested against.
     """
     missing_config = [name for name, value in (('server_url', server_url), ('uuid', uuid), ('password', password)) if not value.strip()]
     if missing_config:
@@ -231,6 +233,14 @@ def probe(server_url: str, uuid: str, password: str, *, profile: CookieProfile =
     assert cookies is not None  # noqa: S101 - _fetch_for_probe returns one or the other
 
     domain_count = len(cookies)
+    if profile is None:
+        return CookieCloudProbe(
+            ok=True,
+            code='ok',
+            message=f'OK — vault decrypted, {domain_count} domains.',
+            domain_count=domain_count,
+        )
+
     domain_label = ' / '.join(profile.domains)
     # A profile may list several hostnames for the same session; take every one the vault has.
     domain_cookies = [cookie for name in profile.domains for cookie in (cookies.get(name) or [])]

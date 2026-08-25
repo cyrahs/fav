@@ -1,4 +1,4 @@
-# ruff: noqa: ANN001, ANN002, ANN003, ANN202, EM101, INP001, PLR2004, S101, S106, SLF001, TRY003
+# ruff: noqa: ANN001, ANN002, ANN003, ANN202, EM101, INP001, PLR2004, S101, SLF001, TRY003
 
 import asyncio
 import json
@@ -24,9 +24,16 @@ def _configure_twitter(**updates: object) -> settings.Twitter:
     return cfg
 
 
+def _register_cookiecloud(name: str = 'cc', **overrides: str) -> str:
+    """Add a shared CookieCloud config to the pinned snapshot; returns its name."""
+    fields = {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'pw'}
+    fields.update(overrides)
+    settings.load().cookiecloud.configs.append(settings.CookieCloudEntry(name=name, **fields))
+    return name
+
+
 def _runnable_cfg(**updates: object) -> settings.Twitter:
-    cookiecloud = settings.CookieCloud(server_url='https://cc.example', uuid='u', password='pw')
-    return _configure_twitter(username='me', cookiecloud=cookiecloud, **updates)
+    return _configure_twitter(username='me', cookiecloud=_register_cookiecloud(), **updates)
 
 
 def _option(command: list[str], key: str) -> str | None:
@@ -65,13 +72,19 @@ class _FakeDatabase:
 
 
 def test_a_source_without_a_username_is_not_runnable() -> None:
-    cfg = _configure_twitter(cookiecloud=settings.CookieCloud(server_url='https://cc.example', uuid='u', password='pw'))
+    cfg = _configure_twitter(cookiecloud=_register_cookiecloud())
 
     assert cfg.validate_runnable() == ['username']
 
 
-def test_missing_cookiecloud_fields_are_named_individually() -> None:
-    cfg = _configure_twitter(username='me', cookiecloud=settings.CookieCloud(server_url='https://cc.example'))
+def test_a_reference_to_a_missing_shared_config_is_reported() -> None:
+    cfg = _configure_twitter(username='me', cookiecloud='ghost')
+
+    assert cfg.validate_runnable() == ["cookiecloud (no config named 'ghost')"]
+
+
+def test_missing_fields_of_the_referenced_config_are_named_individually() -> None:
+    cfg = _configure_twitter(username='me', cookiecloud=_register_cookiecloud(uuid='', password=''))
 
     assert cfg.validate_runnable() == ['cookiecloud.uuid', 'cookiecloud.password']
 
@@ -383,7 +396,7 @@ def test_ingest_leaves_an_unparseable_sidecar_alone_instead_of_losing_it(monkeyp
 
 
 def test_an_unconfigured_source_does_nothing_rather_than_launching_gallery_dl(monkeypatch) -> None:
-    _configure_twitter(username='', cookiecloud=settings.CookieCloud())
+    _configure_twitter(username='', cookiecloud='')
 
     def _explode(*_args, **_kwargs):
         raise AssertionError('should not touch the database or the network')

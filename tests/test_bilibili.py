@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, ARG001, PLR2004
+# ruff: noqa: INP001, S101, S106, SLF001, ANN001, ANN002, ANN003, ANN202, ARG001, PLR2004
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -773,10 +773,16 @@ def test_update_activates_each_account_before_its_favourites(tmp_path, monkeypat
 
 def test_each_account_uses_its_own_credentials(tmp_path, monkeypatch) -> None:
     crawler = _make_bilibili(tmp_path)
+    settings.load().cookiecloud.configs.extend(
+        [
+            settings.CookieCloudEntry(name='vault-a', server_url='https://cc.a', uuid='uuid-A', password='pw-A'),
+            settings.CookieCloudEntry(name='vault-b', server_url='https://cc.b', uuid='uuid-B', password='pw-B'),
+        ],
+    )
     crawler.cfg = settings.Bilibili(
         accounts=[
-            _account('main', cookiecloud={'server_url': 'https://cc.a', 'uuid': 'uuid-A', 'password': 'pw-A'}),
-            _account('alt', cookiecloud={'server_url': 'https://cc.b', 'uuid': 'uuid-B', 'password': 'pw-B'}),
+            _account('main', cookiecloud='vault-a'),
+            _account('alt', cookiecloud='vault-b'),
         ],
     )
     used: list[tuple[str, str]] = []
@@ -802,11 +808,13 @@ def test_each_account_uses_its_own_credentials(tmp_path, monkeypatch) -> None:
     assert used == [('bilibili-main.txt', 'uuid-A'), ('bilibili-alt.txt', 'uuid-B')]
 
 
-def test_an_account_without_credentials_is_reported_as_not_runnable() -> None:
-    cfg = settings.Bilibili(accounts=[_account('main', cookiecloud={})])
+def test_an_account_without_a_cookiecloud_reference_is_reported_as_not_runnable() -> None:
+    cfg = settings.Bilibili(accounts=[_account('main')])
 
-    assert cfg.validate_runnable() == [
-        'accounts[0].cookiecloud.server_url',
-        'accounts[0].cookiecloud.uuid',
-        'accounts[0].cookiecloud.password',
-    ]
+    assert cfg.validate_runnable() == ['accounts[0].cookiecloud']
+
+
+def test_an_account_referencing_a_missing_shared_config_is_reported() -> None:
+    cfg = settings.Bilibili(accounts=[_account('main', cookiecloud='ghost')])
+
+    assert cfg.validate_runnable() == ["accounts[0].cookiecloud (no config named 'ghost')"]
