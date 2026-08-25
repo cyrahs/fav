@@ -1,9 +1,9 @@
 name: Dependabot auto-merge
 
 # Unattended gallery-dl and yt-dlp upgrades. Dependabot opens the pull request,
-# main's branch protection holds it until the `test` check passes, and this enables
-# auto-merge so no human has to be awake for it. Nothing here bypasses a check: if
-# `test` fails the pull request simply stays open.
+# main's branch protection holds it until the `CI passed` check passes, and this
+# enables auto-merge so no human has to be awake for it. Nothing here bypasses a
+# check: if `CI passed` fails the pull request simply stays open.
 
 on:
   pull_request:
@@ -43,10 +43,10 @@ jobs:
 
   rebuild-image:
     # A push made with GITHUB_TOKEN does not start new workflow runs, so the merge
-    # commit may never reach the `push` trigger in docker-build.yml. Dispatching the
-    # build explicitly is what actually gets the new downloader into the image. If
-    # GitHub does deliver the push event, the cost is one redundant build rather than
-    # a stale image.
+    # commit may never reach the `push` trigger in ci.yml. Dispatching the build
+    # explicitly is what actually gets the new downloader into the image. If GitHub
+    # does deliver the push event, the cost is one redundant build rather than a
+    # stale image.
     if: >-
       github.event.action == 'closed'
       && github.event.pull_request.merged == true
@@ -55,7 +55,7 @@ jobs:
     steps:
       - name: Rebuild the image on main
         run: |
-          gh workflow run docker-build.yml \
+          gh workflow run ci.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f trigger-reason="dependabot: $PR_TITLE"
