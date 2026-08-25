@@ -177,11 +177,8 @@ class Twitter:
 
     def _write_cookie_file(self, cookie_path: Path) -> None:
         """Refresh the X session from CookieCloud, so it tracks the browser."""
-        client = CookieCloudClient(
-            self.cfg.cookiecloud.server_url,
-            self.cfg.cookiecloud.uuid,
-            self.cfg.cookiecloud.password,
-        )
+        cc_cfg = settings.resolve_cookiecloud(self.cfg.cookiecloud)
+        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password)
         try:
             client.save_to_netscape_format(TWITTER_PROFILE.domains, cookie_path)
         finally:

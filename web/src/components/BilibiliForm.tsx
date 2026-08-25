@@ -1,5 +1,5 @@
-import { CheckboxField, NumberField, Repeater, SecretField, TextField } from './Field';
-import { CookieCloudTest } from './CookieCloudTest';
+import { CheckboxField, NumberField, Repeater, TextField } from './Field';
+import { CookieCloudPicker } from './CookieCloudPicker';
 import { list, patcher, str, type SectionFormProps } from './sectionFields';
 
 export interface BilibiliFavorite {
@@ -7,18 +7,13 @@ export interface BilibiliFavorite {
   path?: string;
 }
 
-export interface BilibiliCookieCloud {
-  server_url?: string;
-  uuid?: string;
-  password?: string;
-}
-
 export interface BilibiliAccount {
   name?: string;
   favorites?: BilibiliFavorite[];
   toview_enabled?: boolean;
   toview_path?: string;
-  cookiecloud?: BilibiliCookieCloud;
+  /** Name of an entry in the shared `cookiecloud` section. */
+  cookiecloud?: string;
 }
 
 const ACCOUNT_NAME_RE = /^[A-Za-z0-9_-]+$/;
@@ -125,7 +120,7 @@ export function BilibiliForm(props: SectionFormProps) {
         count={accounts.length}
         addLabel="添加账号"
         empty="还没有账号，Bilibili 任务会保持未就绪。"
-        hint="每个账号都要填自己的 CookieCloud 凭据——它就是这个账号的身份。"
+        hint="每个账号引用一个 CookieCloud 配置——那个 vault 就是这个账号的身份。"
         onAdd={() =>
           set('accounts', [
             ...accounts,
@@ -134,7 +129,7 @@ export function BilibiliForm(props: SectionFormProps) {
               favorites: [],
               toview_enabled: false,
               toview_path: 'collection/bilibili/toview',
-              cookiecloud: { server_url: '', uuid: '', password: '' },
+              cookiecloud: '',
             },
           ])
         }
@@ -143,9 +138,6 @@ export function BilibiliForm(props: SectionFormProps) {
           {accounts.map((account, index) => {
             const name = account.name ?? '';
             const nameOk = ACCOUNT_NAME_RE.test(name);
-            const cookiecloud = account.cookiecloud ?? {};
-            const setCookieCloud = (patch: Partial<BilibiliCookieCloud>) =>
-              update(index, { cookiecloud: { ...cookiecloud, ...patch } });
             return (
               // eslint-disable-next-line react/no-array-index-key -- accounts are reorderable and unsaved rows have no id
               <div key={index} className="account-card">
@@ -203,31 +195,13 @@ export function BilibiliForm(props: SectionFormProps) {
                 />
 
                 <div className="subsection">
-                  <h4>CookieCloud 凭据</h4>
+                  <h4>登录会话</h4>
                   <div className="field-grid">
-                    <TextField
-                      label="服务地址"
-                      value={cookiecloud.server_url ?? ''}
-                      onChange={(next) => setCookieCloud({ server_url: next })}
-                      mono
-                      placeholder="https://cookiecloud.example.com/"
-                    />
-                    <TextField
-                      label="UUID"
-                      value={cookiecloud.uuid ?? ''}
-                      onChange={(next) => setCookieCloud({ uuid: next })}
-                      mono
-                    />
-                    <SecretField
-                      label="密码"
-                      value={cookiecloud.password ?? ''}
-                      onChange={(next) => setCookieCloud({ password: next })}
-                    />
-                    <CookieCloudTest
-                      account={name}
-                      serverUrl={cookiecloud.server_url ?? ''}
-                      uuid={cookiecloud.uuid ?? ''}
-                      password={cookiecloud.password ?? ''}
+                    <CookieCloudPicker
+                      source="bilibili"
+                      value={account.cookiecloud ?? ''}
+                      onChange={(next) => update(index, { cookiecloud: next })}
+                      hint="浏览器插件需要同步 bilibili.com 的登录 cookie。"
                     />
                   </div>
                 </div>

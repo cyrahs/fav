@@ -4,9 +4,9 @@ from src.api.settings_masking import MASK_SUFFIX, mask_section, unmask_section
 
 
 def test_a_nonsecret_field_is_left_alone() -> None:
-    masked = mask_section('web.bilibili', {'accounts': [{'name': 'main', 'cookiecloud': {'uuid': 'u', 'password': 'p'}}]})
+    masked = mask_section('cookiecloud', {'configs': [{'name': 'main', 'uuid': 'u', 'password': 'p'}]})
 
-    assert masked['accounts'][0]['cookiecloud']['uuid'] == 'u'
+    assert masked['configs'][0]['uuid'] == 'u'
 
 
 def test_telegram_bot_token_is_masked() -> None:
@@ -81,58 +81,53 @@ def test_telegram_secrets_follow_the_account_name_across_a_reorder() -> None:
     assert by_name == {'alice': 'hash-ALICE', 'bob': 'hash-BOB'}
 
 
-def test_bilibili_per_account_cookiecloud_password_is_masked() -> None:
-    payload = {'accounts': [{'name': 'main', 'cookiecloud': {'uuid': 'u', 'password': 'super-secret'}}]}
+def test_shared_cookiecloud_password_is_masked() -> None:
+    payload = {'configs': [{'name': 'main', 'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'super-secret'}]}
 
-    masked = mask_section('web.bilibili', payload)
+    masked = mask_section('cookiecloud', payload)
 
-    assert masked['accounts'][0]['cookiecloud']['password'] == f'supe{MASK_SUFFIX}'
-    assert payload['accounts'][0]['cookiecloud']['password'] == 'super-secret'
+    assert masked['configs'][0]['password'] == f'supe{MASK_SUFFIX}'
+    assert masked['configs'][0]['uuid'] == 'u'
+    assert payload['configs'][0]['password'] == 'super-secret'
 
 
-def test_bilibili_secrets_follow_the_account_name_across_a_reorder() -> None:
+def test_shared_cookiecloud_secrets_follow_the_config_name_across_a_reorder() -> None:
     stored = {
-        'accounts': [
-            {'name': 'main', 'cookiecloud': {'uuid': 'u1', 'password': 'pw-MAIN'}},
-            {'name': 'alt', 'cookiecloud': {'uuid': 'u2', 'password': 'pw-ALT'}},
+        'configs': [
+            {'name': 'main', 'uuid': 'u1', 'password': 'pw-MAIN'},
+            {'name': 'alt', 'uuid': 'u2', 'password': 'pw-ALT'},
         ],
     }
-    masked = mask_section('web.bilibili', stored)
-    reordered = {'accounts': list(reversed(masked['accounts']))}
+    masked = mask_section('cookiecloud', stored)
+    reordered = {'configs': list(reversed(masked['configs']))}
 
-    merged = unmask_section('web.bilibili', reordered, stored)
+    merged = unmask_section('cookiecloud', reordered, stored)
 
-    by_name = {account['name']: account['cookiecloud']['password'] for account in merged['accounts']}
+    by_name = {config['name']: config['password'] for config in merged['configs']}
     assert by_name == {'main': 'pw-MAIN', 'alt': 'pw-ALT'}
 
 
-def test_bilibili_account_without_a_cookiecloud_override_is_left_alone() -> None:
-    payload = {'accounts': [{'name': 'main', 'favorites': []}]}
+def test_saving_a_shared_config_with_a_masked_password_keeps_the_stored_one() -> None:
+    stored = {'configs': [{'name': 'main', 'uuid': 'u', 'password': 'pw-REAL'}]}
+    edited = mask_section('cookiecloud', stored)
+    edited['configs'][0]['uuid'] = 'new-uuid'
 
-    assert mask_section('web.bilibili', payload) == payload
-    assert unmask_section('web.bilibili', payload, {}) == payload
+    merged = unmask_section('cookiecloud', edited, stored)
 
-
-def test_twitter_cookiecloud_password_is_masked() -> None:
-    payload = {'username': 'me', 'cookiecloud': {'uuid': 'u', 'password': 'super-secret'}}
-
-    masked = mask_section('web.twitter', payload)
-
-    assert masked['cookiecloud']['password'] == f'supe{MASK_SUFFIX}'
-    assert masked['cookiecloud']['uuid'] == 'u'
-    assert masked['username'] == 'me'
-    assert payload['cookiecloud']['password'] == 'super-secret'
+    assert merged['configs'][0]['password'] == 'pw-REAL'
+    assert merged['configs'][0]['uuid'] == 'new-uuid'
 
 
-def test_saving_twitter_with_a_masked_password_keeps_the_stored_one() -> None:
-    stored = {'username': 'me', 'cookiecloud': {'uuid': 'u', 'password': 'pw-REAL'}}
-    edited = mask_section('web.twitter', stored)
-    edited['username'] = 'someone-else'
+def test_the_consumer_sections_hold_only_a_reference_and_stay_plaintext() -> None:
+    # The bilibili/twitter/pixiv sections now carry only the name of a shared
+    # config, so nothing in them is masked.
+    bilibili = {'accounts': [{'name': 'main', 'cookiecloud': 'main-vault'}]}
+    twitter = {'username': 'me', 'cookiecloud': 'main-vault'}
 
-    merged = unmask_section('web.twitter', edited, stored)
-
-    assert merged['cookiecloud']['password'] == 'pw-REAL'
-    assert merged['username'] == 'someone-else'
+    assert mask_section('web.bilibili', bilibili) == bilibili
+    assert unmask_section('web.bilibili', bilibili, {}) == bilibili
+    assert mask_section('web.twitter', twitter) == twitter
+    assert unmask_section('web.twitter', twitter, {}) == twitter
 
 
 def test_the_rednote_proxy_is_shown_and_saved_in_plaintext() -> None:
@@ -149,8 +144,9 @@ def test_the_rednote_proxy_is_shown_and_saved_in_plaintext() -> None:
     assert merged['proxy'] == 'http://other.example:3128'
 
 
-def test_twitter_section_without_a_cookiecloud_block_is_left_alone() -> None:
-    payload = {'username': 'me'}
+def test_cookiecloud_section_without_configs_normalizes_to_an_empty_list() -> None:
+    payload: dict = {}
 
-    assert mask_section('web.twitter', payload) == payload
-    assert unmask_section('web.twitter', payload, {}) == payload
+    assert mask_section('cookiecloud', payload) == {'configs': []}
+    assert unmask_section('cookiecloud', payload, {}) == {'configs': []}
+    assert payload == {}

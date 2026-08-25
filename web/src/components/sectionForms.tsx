@@ -7,6 +7,7 @@ import {
   CheckboxField,
   CheckboxGroup,
   NumberField,
+  Repeater,
   SecretField,
   SelectField,
   TextField,
@@ -14,6 +15,7 @@ import {
 } from './Field';
 import { AzurLaneProxyTest } from './AzurLaneProxyTest';
 import { BilibiliForm, validateBilibili } from './BilibiliForm';
+import { CookieCloudPicker, type SharedCookieCloudConfig } from './CookieCloudPicker';
 import { CookieCloudTest } from './CookieCloudTest';
 import { RedNoteProxyTest } from './RedNoteProxyTest';
 import { TelegramForm, validateTelegram } from './TelegramForm';
@@ -331,21 +333,12 @@ function KemonoForm(props: SectionFormProps) {
   );
 }
 
-interface CookieCloudCredentials {
-  server_url?: string;
-  uuid?: string;
-  password?: string;
-}
-
 const TWITTER_USERNAME_RE = /^[A-Za-z0-9_]+$/;
 
 function TwitterForm(props: SectionFormProps) {
   const set = patcher(props);
   const username = str(props.value, 'username');
   const usernameOk = TWITTER_USERNAME_RE.test(username);
-  const cookiecloud = record(props.value, 'cookiecloud') as CookieCloudCredentials;
-  const setCookieCloud = (patch: Partial<CookieCloudCredentials>) =>
-    set('cookiecloud', { ...cookiecloud, ...patch });
 
   return (
     <div className="field-grid">
@@ -370,32 +363,13 @@ function TwitterForm(props: SectionFormProps) {
       />
 
       <div className="subsection">
-        <h4>CookieCloud 凭据</h4>
+        <h4>登录会话</h4>
         <div className="field-grid">
-          <TextField
-            label="服务地址"
-            value={cookiecloud.server_url ?? ''}
-            onChange={(next) => setCookieCloud({ server_url: next })}
-            mono
-            placeholder="https://cookiecloud.example.com/"
-          />
-          <TextField
-            label="UUID"
-            value={cookiecloud.uuid ?? ''}
-            onChange={(next) => setCookieCloud({ uuid: next })}
-            mono
-          />
-          <SecretField
-            label="密码"
-            value={cookiecloud.password ?? ''}
-            onChange={(next) => setCookieCloud({ password: next })}
-            hint="浏览器插件需要同步 x.com 的 auth_token 和 ct0"
-          />
-          <CookieCloudTest
+          <CookieCloudPicker
             source="twitter"
-            serverUrl={cookiecloud.server_url ?? ''}
-            uuid={cookiecloud.uuid ?? ''}
-            password={cookiecloud.password ?? ''}
+            value={str(props.value, 'cookiecloud')}
+            onChange={(next) => set('cookiecloud', next)}
+            hint="浏览器插件需要同步 x.com 的 auth_token 和 ct0。"
           />
         </div>
       </div>
@@ -448,9 +422,6 @@ function PixivForm(props: SectionFormProps) {
   const set = patcher(props);
   const userId = str(props.value, 'user_id');
   const userIdOk = /^\d*$/.test(userId);
-  const cookiecloud = record(props.value, 'cookiecloud') as CookieCloudCredentials;
-  const setCookieCloud = (patch: Partial<CookieCloudCredentials>) =>
-    set('cookiecloud', { ...cookiecloud, ...patch });
 
   return (
     <div className="field-grid">
@@ -467,32 +438,13 @@ function PixivForm(props: SectionFormProps) {
       />
 
       <div className="subsection">
-        <h4>CookieCloud 凭据</h4>
+        <h4>登录会话</h4>
         <div className="field-grid">
-          <TextField
-            label="服务地址"
-            value={cookiecloud.server_url ?? ''}
-            onChange={(next) => setCookieCloud({ server_url: next })}
-            mono
-            placeholder="https://cookiecloud.example.com/"
-          />
-          <TextField
-            label="UUID"
-            value={cookiecloud.uuid ?? ''}
-            onChange={(next) => setCookieCloud({ uuid: next })}
-            mono
-          />
-          <SecretField
-            label="密码"
-            value={cookiecloud.password ?? ''}
-            onChange={(next) => setCookieCloud({ password: next })}
-            hint="浏览器插件需要同步 pixiv.net 的 PHPSESSID"
-          />
-          <CookieCloudTest
+          <CookieCloudPicker
             source="pixiv"
-            serverUrl={cookiecloud.server_url ?? ''}
-            uuid={cookiecloud.uuid ?? ''}
-            password={cookiecloud.password ?? ''}
+            value={str(props.value, 'cookiecloud')}
+            onChange={(next) => set('cookiecloud', next)}
+            hint="浏览器插件需要同步 pixiv.net 的 PHPSESSID。"
           />
         </div>
       </div>
@@ -616,6 +568,101 @@ function RedNoteForm(props: SectionFormProps) {
   );
 }
 
+const COOKIECLOUD_NAME_RE = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * The shared CookieCloud registry. Sources (Bilibili 账号、X、Pixiv) reference an
+ * entry here by name, so one browser vault is configured once and shared.
+ */
+function CookieCloudForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const configs = list<SharedCookieCloudConfig>(props.value, 'configs');
+
+  const update = (index: number, patch: Partial<SharedCookieCloudConfig>) => {
+    set(
+      'configs',
+      configs.map((config, position) => (position === index ? { ...config, ...patch } : config)),
+    );
+  };
+
+  return (
+    <div className="field-grid">
+      <Repeater
+        label="配置"
+        count={configs.length}
+        addLabel="添加配置"
+        empty="还没有 CookieCloud 配置；需要登录会话的来源（Bilibili、X、Pixiv）会保持未就绪。"
+        hint="各来源在自己的设置里按名称引用这里的条目，同一个浏览器 vault 只需配置一次。"
+        onAdd={() => set('configs', [...configs, { name: '', server_url: '', uuid: '', password: '' }])}
+      >
+        <div className="stack">
+          {configs.map((config, index) => {
+            const name = config.name ?? '';
+            const nameOk = COOKIECLOUD_NAME_RE.test(name);
+            return (
+              // eslint-disable-next-line react/no-array-index-key -- entries are reorderable and unsaved rows have no id
+              <div key={index} className="account-card">
+                <div className="account-head">
+                  <strong>{name || `配置 #${index + 1}`}</strong>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => {
+                      if (window.confirm(`删除 CookieCloud 配置「${name || index + 1}」？引用它的来源会变为未就绪。`)) {
+                        set(
+                          'configs',
+                          configs.filter((_, position) => position !== index),
+                        );
+                      }
+                    }}
+                  >
+                    删除
+                  </button>
+                </div>
+                <div className="field-grid">
+                  <TextField
+                    label="名称"
+                    value={name}
+                    onChange={(next) => update(index, { name: next })}
+                    mono
+                    invalid={!nameOk}
+                    hint="其他配置用这个名称引用它；仅限字母、数字、下划线、连字符"
+                    error={name && !nameOk ? '名称含非法字符' : undefined}
+                  />
+                  <TextField
+                    label="服务地址"
+                    value={config.server_url ?? ''}
+                    onChange={(next) => update(index, { server_url: next })}
+                    mono
+                    placeholder="https://cookiecloud.example.com/"
+                  />
+                  <TextField
+                    label="UUID"
+                    value={config.uuid ?? ''}
+                    onChange={(next) => update(index, { uuid: next })}
+                    mono
+                  />
+                  <SecretField
+                    label="密码"
+                    value={config.password ?? ''}
+                    onChange={(next) => update(index, { password: next })}
+                  />
+                  <CookieCloudTest
+                    name={name}
+                    serverUrl={config.server_url ?? ''}
+                    uuid={config.uuid ?? ''}
+                    password={config.password ?? ''}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Repeater>
+    </div>
+  );
+}
+
 function TelegramNotificationForm(props: SectionFormProps) {
   const set = patcher(props);
   const threadId = props.value.message_thread_id;
@@ -674,6 +721,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
   'notifications.telegram': TelegramNotificationForm,
+  cookiecloud: CookieCloudForm,
 };
 
 /**
@@ -782,6 +830,24 @@ export function validateSection(section: string, value: Record<string, unknown>)
     if (num(value, 'sleep_request_seconds', 1) < 0) {
       issues.push('请求间隔不能为负数');
     }
+  }
+
+  if (section === 'cookiecloud') {
+    const configs = list<SharedCookieCloudConfig>(value, 'configs');
+    const seenNames = new Set<string>();
+    configs.forEach((config, index) => {
+      const label = config.name || `#${index + 1}`;
+      const name = config.name ?? '';
+      if (!COOKIECLOUD_NAME_RE.test(name)) {
+        issues.push(`配置 ${label}：名称只能包含字母、数字、下划线、连字符`);
+      } else {
+        const folded = name.toLowerCase();
+        if (seenNames.has(folded)) {
+          issues.push(`配置名重复：${name}`);
+        }
+        seenNames.add(folded);
+      }
+    });
   }
 
   if (section === 'web.kemono') {

@@ -477,47 +477,29 @@ class FavApiService:
             'direct': result.direct,
         }
 
-    def _stored_account_password(self, account: str) -> str:
-        """The CookieCloud password stored for one bilibili account, matched by name."""
-        stored = self._stored_section('web.bilibili')
-        accounts = stored.get('accounts')
-        for candidate in accounts if isinstance(accounts, list) else []:
-            if isinstance(candidate, dict) and str(candidate.get('name') or '') == account:
-                nested = candidate.get('cookiecloud')
-                nested = nested if isinstance(nested, dict) else {}
-                return str(nested.get('password') or '')
+    def _stored_cookiecloud_password(self, name: str) -> str:
+        """The password stored for one shared CookieCloud config, matched by name."""
+        configs = self._stored_section('cookiecloud').get('configs')
+        for candidate in configs if isinstance(configs, list) else []:
+            if isinstance(candidate, dict) and str(candidate.get('name') or '') == name:
+                return str(candidate.get('password') or '')
         return ''
 
-    def _stored_section_password(self, section: str) -> str:
-        """The CookieCloud password of a source that holds a single vault."""
-        nested = self._stored_section(section).get('cookiecloud')
-        return str((nested if isinstance(nested, dict) else {}).get('password') or '')
-
-    def _stored_cookiecloud_password(self, *, source: str, account: str) -> str:
-        """Resolve a masked password against whatever the source stores it under.
-
-        Bilibili keys its vaults by account name; every other source has exactly one,
-        so it is read straight from that source's section.
-        """
-        if source == 'bilibili':
-            if not account:
-                raise ApiError(status_code=422, code='invalid_settings', message='account is required.')
-            return self._stored_account_password(account)
-        return self._stored_section_password(f'web.{source}')
-
     def test_cookiecloud(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Check a source's CookieCloud credentials without saving them.
+        """Check CookieCloud credentials without saving them.
 
         The draft from the form wins, except that a masked or omitted password is
-        resolved against what is already stored for that source.
+        resolved against the shared config named by ``name``. An empty ``source``
+        checks connectivity and decryption only; a known source also checks that
+        the vault carries the cookies that source needs.
         """
-        source = str(payload.get('source') or 'bilibili')
-        profile = cookiecloud_tool.PROFILES.get(source)
-        if profile is None:
+        source = str(payload.get('source') or '')
+        profile = cookiecloud_tool.PROFILES.get(source) if source else None
+        if source and profile is None:
             raise ApiError(status_code=422, code='invalid_settings', message=f'Unknown cookiecloud source: {source}')
 
         draft = {key: str(payload.get(key) or '') for key in ('server_url', 'uuid', 'password')}
-        keep_secret(draft, 'password', self._stored_cookiecloud_password(source=source, account=str(payload.get('account') or '')))
+        keep_secret(draft, 'password', self._stored_cookiecloud_password(str(payload.get('name') or '')))
 
         result = cookiecloud_tool.probe(draft['server_url'], draft['uuid'], draft['password'], profile=profile)
         return {

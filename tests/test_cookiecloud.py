@@ -196,10 +196,11 @@ def test_save_to_netscape_format_live_bilibili(tmp_path: Path) -> None:
     # tests/conftest.py, which pins defaults-only settings by default).
     settings.use(None)
     try:
-        accounts = settings.load(force=True).web.bilibili.accounts
+        snapshot = settings.load(force=True)
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f'Settings database unavailable: {exc}')
-    configured = [account.cookiecloud for account in accounts if account.cookiecloud.configured]
+    references = (snapshot.cookiecloud.get(account.cookiecloud) for account in snapshot.web.bilibili.accounts)
+    configured = [entry for entry in references if entry is not None and entry.configured]
     if not configured:
         pytest.skip('No bilibili account has CookieCloud configured')
     cfg = configured[0]

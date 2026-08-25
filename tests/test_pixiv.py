@@ -1,4 +1,4 @@
-# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG002, EM101, INP001, PLR2004, S101, S105, S106, SLF001, TRY003
+# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG002, EM101, INP001, PLR2004, S101, S105, SLF001, TRY003
 
 import asyncio
 import zipfile
@@ -38,9 +38,16 @@ def _configure_pixiv(**updates: object) -> settings.Pixiv:
     return cfg
 
 
+def _register_cookiecloud(name: str = 'cc', **overrides: str) -> str:
+    """Add a shared CookieCloud config to the pinned snapshot; returns its name."""
+    fields = {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'pw'}
+    fields.update(overrides)
+    settings.load().cookiecloud.configs.append(settings.CookieCloudEntry(name=name, **fields))
+    return name
+
+
 def _runnable_cfg(**updates: object) -> settings.Pixiv:
-    cookiecloud = settings.CookieCloud(server_url='https://cc.example', uuid='u', password='pw')
-    return _configure_pixiv(cookiecloud=cookiecloud, sleep_request_seconds=0.0, **updates)
+    return _configure_pixiv(cookiecloud=_register_cookiecloud(), sleep_request_seconds=0.0, **updates)
 
 
 def _work(**updates) -> PixivWork:
@@ -105,10 +112,15 @@ def _with_mock_media(source: Pixiv, handler) -> None:
 # ---------- configuration ----------
 
 
-def test_only_the_cookiecloud_fields_gate_runnability() -> None:
-    cfg = _configure_pixiv(cookiecloud=settings.CookieCloud(server_url='https://cc.example'))
+def test_only_the_cookiecloud_reference_gates_runnability() -> None:
+    cfg = _configure_pixiv(cookiecloud=_register_cookiecloud(uuid='', password=''))
 
     assert cfg.validate_runnable() == ['cookiecloud.uuid', 'cookiecloud.password']
+
+    cfg.cookiecloud = 'ghost'
+    assert cfg.validate_runnable() == ["cookiecloud (no config named 'ghost')"]
+
+    settings.load().cookiecloud.configs.clear()
     assert _runnable_cfg().validate_runnable() == []
 
 
@@ -426,7 +438,7 @@ def test_a_masked_bookmark_is_settled_as_unavailable_during_the_walk(monkeypatch
 
 
 def test_an_unconfigured_source_does_nothing_rather_than_touching_the_network(monkeypatch) -> None:
-    _configure_pixiv(cookiecloud=settings.CookieCloud())
+    _configure_pixiv(cookiecloud='')
 
     def _explode(*_args, **_kwargs):
         raise AssertionError('should not touch the database or the network')
@@ -463,7 +475,7 @@ def test_the_job_is_registered_and_parked_until_configured() -> None:
     assert job.factory is jobs_module.Pixiv
     # Enabled in the UI but with no credentials, so it stays out of the scheduler.
     assert job.enabled is False
-    assert 'cookiecloud.server_url' in job.missing_fields
+    assert 'cookiecloud' in job.missing_fields
 
 
 def test_api_job_enum_includes_pixiv() -> None:
@@ -486,13 +498,18 @@ def test_the_archive_links_a_row_back_to_the_artwork() -> None:
 # ---------- masking ----------
 
 
-def test_the_cookiecloud_password_survives_the_masking_round_trip() -> None:
-    stored = {'cookiecloud': {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'secret-password'}}
+def test_the_shared_cookiecloud_password_survives_the_masking_round_trip() -> None:
+    # The credentials live in the shared `cookiecloud` section now; the pixiv
+    # section carries only a plaintext reference to one of its entries.
+    stored = {'configs': [{'name': 'cc', 'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'secret-password'}]}
 
-    masked = mask_section('web.pixiv', stored)
-    assert masked['cookiecloud']['password'] == 'secr••••'
+    masked = mask_section('cookiecloud', stored)
+    assert masked['configs'][0]['password'] == 'secr••••'
     # Masking never mutates what is stored.
-    assert stored['cookiecloud']['password'] == 'secret-password'
+    assert stored['configs'][0]['password'] == 'secret-password'
 
-    merged = unmask_section('web.pixiv', masked, stored)
-    assert merged['cookiecloud']['password'] == 'secret-password'
+    merged = unmask_section('cookiecloud', masked, stored)
+    assert merged['configs'][0]['password'] == 'secret-password'
+
+    section = {'cookiecloud': 'cc'}
+    assert mask_section('web.pixiv', section) == section
