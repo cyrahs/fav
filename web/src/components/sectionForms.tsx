@@ -371,6 +371,7 @@ function TwitterForm(props: SectionFormProps) {
 
       <div className="subsection">
         <h4>CookieCloud 凭据</h4>
+        <p className="field-hint">留空则使用「凭证」分区的共享 CookieCloud；填写完整则以这里的为准。</p>
         <div className="field-grid">
           <TextField
             label="服务地址"
@@ -468,6 +469,7 @@ function PixivForm(props: SectionFormProps) {
 
       <div className="subsection">
         <h4>CookieCloud 凭据</h4>
+        <p className="field-hint">留空则使用「凭证」分区的共享 CookieCloud；填写完整则以这里的为准。</p>
         <div className="field-grid">
           <TextField
             label="服务地址"
@@ -616,6 +618,38 @@ function RedNoteForm(props: SectionFormProps) {
   );
 }
 
+function SharedCookieCloudForm(props: SectionFormProps) {
+  const set = patcher(props);
+  return (
+    <div className="field-grid">
+      <p className="field-hint">
+        整个部署共用的 CookieCloud 凭据。Bilibili 账号、X、Pixiv 里没填自己的 CookieCloud 时都会用这里的；
+        某个源单独填了完整凭据则以它为准。留空也可以——那就每个源各填各的。
+      </p>
+      <TextField
+        label="服务地址"
+        value={str(props.value, 'server_url')}
+        onChange={(next) => set('server_url', next)}
+        mono
+        placeholder="https://cookiecloud.example.com/"
+      />
+      <TextField label="UUID" value={str(props.value, 'uuid')} onChange={(next) => set('uuid', next)} mono />
+      <SecretField
+        label="密码"
+        value={str(props.value, 'password')}
+        onChange={(next) => set('password', next)}
+        hint="浏览器插件需要同步各个源要用的站点 cookie"
+      />
+      <CookieCloudTest
+        source="shared"
+        serverUrl={str(props.value, 'server_url')}
+        uuid={str(props.value, 'uuid')}
+        password={str(props.value, 'password')}
+      />
+    </div>
+  );
+}
+
 function TelegramNotificationForm(props: SectionFormProps) {
   const set = patcher(props);
   const threadId = props.value.message_thread_id;
@@ -673,6 +707,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.twitter': TwitterForm,
   'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
+  'credentials.cookiecloud': SharedCookieCloudForm,
   'notifications.telegram': TelegramNotificationForm,
 };
 

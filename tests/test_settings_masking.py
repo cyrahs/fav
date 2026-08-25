@@ -154,3 +154,24 @@ def test_twitter_section_without_a_cookiecloud_block_is_left_alone() -> None:
 
     assert mask_section('web.twitter', payload) == payload
     assert unmask_section('web.twitter', payload, {}) == payload
+
+
+def test_shared_cookiecloud_password_is_masked() -> None:
+    payload = {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'super-secret'}
+
+    masked = mask_section('credentials.cookiecloud', payload)
+
+    assert masked['password'] == f'supe{MASK_SUFFIX}'
+    assert masked['server_url'] == 'https://cc.example'
+    assert payload['password'] == 'super-secret'
+
+
+def test_saving_shared_cookiecloud_with_a_masked_password_keeps_the_stored_one() -> None:
+    stored = {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'pw-REAL'}
+    edited = mask_section('credentials.cookiecloud', stored)
+    edited['uuid'] = 'new-uuid'
+
+    merged = unmask_section('credentials.cookiecloud', edited, stored)
+
+    assert merged['password'] == 'pw-REAL'
+    assert merged['uuid'] == 'new-uuid'

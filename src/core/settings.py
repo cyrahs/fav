@@ -74,7 +74,24 @@ class CookieCloud(BaseModel):
 
     @property
     def configured(self) -> bool:
-        return not self.validate_runnable()
+        # An explicit field check rather than validate_runnable(), which
+        # SharedCookieCloud overrides to tolerate a fully empty credential.
+        return all(getattr(self, name).strip() for name in ('server_url', 'uuid', 'password'))
+
+
+class SharedCookieCloud(CookieCloud):
+    """The deployment-wide CookieCloud credential every cookie-based source falls back to.
+
+    A source (or bilibili account) whose own CookieCloud block is fully filled in keeps
+    it; anything less falls back to this one -- see ``Settings.apply_shared_cookiecloud``.
+    Leaving the shared credential empty is a valid state as long as each source carries
+    its own, so only a half-filled credential is reported as missing fields.
+    """
+
+    def validate_runnable(self) -> list[str]:
+        if not (self.server_url.strip() or self.uuid.strip() or self.password.strip()):
+            return []
+        return super().validate_runnable()
 
 
 class BilibiliFavorite(BaseModel):
@@ -97,6 +114,8 @@ class BilibiliAccount(BaseModel):
 
     Each account carries its own CookieCloud credentials -- they are what identifies
     the account, since Bilibili's watch-later list is always the logged-in user's.
+    An account left unconfigured falls back to the shared ``credentials.cookiecloud``,
+    which only makes sense for a single-account deployment.
     """
 
     name: str
@@ -750,6 +769,10 @@ class Notifications(BaseModel):
     telegram: TelegramNotification = Field(default_factory=TelegramNotification)
 
 
+class Credentials(BaseModel):
+    cookiecloud: SharedCookieCloud = Field(default_factory=SharedCookieCloud)
+
+
 class Web(BaseModel):
     bilibili: Bilibili = Field(default_factory=Bilibili)
     telegram: Telegram = Field(default_factory=Telegram)
@@ -767,7 +790,28 @@ class Web(BaseModel):
 
 class Settings(BaseModel):
     web: Web = Field(default_factory=Web)
+    credentials: Credentials = Field(default_factory=Credentials)
     notifications: Notifications = Field(default_factory=Notifications)
+
+    @model_validator(mode='after')
+    def apply_shared_cookiecloud(self) -> Self:
+        """Fill every unconfigured per-source CookieCloud block from the shared credential.
+
+        Runs at construction time, so ``load()`` hands the crawlers and the scheduler
+        resolved credentials while the stored sections keep only what the operator
+        actually typed. A fully configured per-source block always wins; a partial one
+        is treated as absent rather than merged field by field.
+        """
+        shared = self.credentials.cookiecloud
+        if not shared.configured:
+            return self
+        for account in self.web.bilibili.accounts:
+            if not account.cookiecloud.configured:
+                account.cookiecloud = shared.model_copy()
+        for source in (self.web.twitter, self.web.pixiv):
+            if not source.cookiecloud.configured:
+                source.cookiecloud = shared.model_copy()
+        return self
 
 
 SECTION_MODELS: dict[str, type[BaseModel]] = {
@@ -783,6 +827,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.twitter': Twitter,
     'web.pixiv': Pixiv,
     'web.rednote': RedNote,
+    'credentials.cookiecloud': SharedCookieCloud,
     'notifications.telegram': TelegramNotification,
 }
 
@@ -795,6 +840,7 @@ SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.twitter': ('cookiecloud.password',),
     'web.pixiv': ('cookiecloud.password',),
     'web.telegram': ('accounts[].api_hash',),
+    'credentials.cookiecloud': ('password',),
     'notifications.telegram': ('bot_token',),
 }
 

@@ -1170,3 +1170,91 @@ def test_test_cookiecloud_rejects_a_source_it_has_no_profile_for() -> None:
 
     assert excinfo.value.status_code == 422
     assert 'myspace' in excinfo.value.message
+
+
+_SHARED_CC_SECTION = {'server_url': 'https://cc.shared', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
+
+
+def test_test_cookiecloud_probes_the_shared_credential_without_a_profile(monkeypatch) -> None:
+    service, probed = _cookiecloud_service(sections={'credentials.cookiecloud': _SHARED_CC_SECTION})
+    profiles: list[object] = []
+
+    def _fake_probe(server_url: str, uuid: str, password: str, **kwargs: object) -> api_service_module.cookiecloud_tool.CookieCloudProbe:
+        probed.append((server_url, uuid, password))
+        profiles.append(kwargs.get('profile'))
+        return api_service_module.cookiecloud_tool.CookieCloudProbe(ok=True, code='ok', message='OK')
+
+    monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
+
+    result = service.test_cookiecloud(
+        {'source': 'shared', 'server_url': 'https://cc.shared', 'uuid': 'shared-uuid', 'password': 'shar••••'},
+    )
+
+    assert result['ok'] is True
+    # The masked password resolves against the credentials.cookiecloud section.
+    assert probed == [('https://cc.shared', 'shared-uuid', 'shared-pw')]
+    # No profile: the shared vault is not tied to any one source's cookies.
+    assert profiles == [None]
+
+
+def _settings_service_with_sections(*, sections: dict, saved: list[tuple[str, dict]]) -> api_server.FavApiService:
+    """Like _settings_service, but with per-section stored values."""
+
+    def getter(section: str) -> BaseModel:
+        return settings.SECTION_MODELS[section].model_validate(sections.get(section, {}))
+
+    def saver(section: str, payload: dict) -> BaseModel:
+        saved.append((section, payload))
+        return settings.SECTION_MODELS[section].model_validate(payload)
+
+    return api_server.FavApiService(
+        dsn='postgresql://db.local/fav',
+        token=_VALID_TOKEN,
+        now_provider=lambda: _FIXED_NOW,
+        settings_section_getter=getter,
+        settings_section_saver=saver,
+    )
+
+
+def test_update_settings_section_lets_the_shared_credential_stand_in_for_a_source_vault() -> None:
+    saved: list[tuple[str, dict]] = []
+    service = _settings_service_with_sections(sections={'credentials.cookiecloud': _SHARED_CC_SECTION}, saved=saved)
+
+    result = service.update_settings_section(
+        'web.pixiv',
+        {'cron': '0 * * * *', 'enabled': True},
+    )
+
+    assert result['missing_fields'] == []
+    assert saved[0][1]['enabled'] is True
+
+
+def test_update_settings_section_still_rejects_enabling_without_any_credential() -> None:
+    saved: list[tuple[str, dict]] = []
+    service = _settings_service_with_sections(sections={}, saved=saved)
+
+    with pytest.raises(api_service_module.ApiError) as excinfo:
+        service.update_settings_section('web.pixiv', {'cron': '0 * * * *', 'enabled': True})
+
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.code == 'incomplete_settings'
+    assert saved == []
+
+
+def test_settings_section_report_hides_cookiecloud_gaps_the_shared_credential_covers() -> None:
+    service = _settings_service_with_sections(sections={'credentials.cookiecloud': _SHARED_CC_SECTION}, saved=[])
+
+    section = service.get_settings_section('web.twitter')
+
+    assert section['missing_fields'] == ['username']
+
+
+def test_the_shared_credential_section_reports_only_a_half_filled_state() -> None:
+    empty = _settings_service_with_sections(sections={}, saved=[])
+    partial = _settings_service_with_sections(
+        sections={'credentials.cookiecloud': {'server_url': 'https://cc.shared'}},
+        saved=[],
+    )
+
+    assert empty.get_settings_section('credentials.cookiecloud')['missing_fields'] == []
+    assert partial.get_settings_section('credentials.cookiecloud')['missing_fields'] == ['uuid', 'password']

@@ -76,7 +76,6 @@ function SectionEditor({ section }: { section: SettingsSection }) {
     <details className="section-editor">
       <summary>
         <span>{sectionLabel(section.section)}</span>
-        <code className="muted">{section.section}</code>
         {dirty && <span className="badge-dirty">未保存</span>}
         {section.missing_fields.length > 0 && <span className="warn">缺少 {section.missing_fields.join(', ')}</span>}
       </summary>
@@ -347,28 +346,74 @@ function Hanime1Authors() {
   );
 }
 
+/**
+ * The settings page is partitioned by what a section configures, not by where it
+ * lives in the backend: crawled sources first, then credentials shared between
+ * them, then how results are announced. Sections a newer backend adds land in a
+ * trailing group instead of disappearing.
+ */
+const SECTION_GROUPS: { title: string; hint: string; prefix: string }[] = [
+  {
+    title: '源',
+    hint: '抓取的站点。所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。Telegram 的实时监听在进程启动时建立，改动其账号后需重启 worker。',
+    prefix: 'web.',
+  },
+  {
+    title: '凭证',
+    hint: '多个源共用的登录凭据。源里未单独填写 CookieCloud 时，使用这里的共享凭据。',
+    prefix: 'credentials.',
+  },
+  {
+    title: '通知',
+    hint: '任务运行结果的推送渠道。',
+    prefix: 'notifications.',
+  },
+];
+
 export function SettingsPage() {
   const settings = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get<ListResponse<SettingsSection>>('/api/v2/settings'),
   });
 
+  const sections = (settings.data?.items ?? []).filter((section) => !JOBS_PAGE_ONLY_SECTIONS.has(section.section));
+  const grouped = SECTION_GROUPS.map((group) => ({
+    ...group,
+    sections: sections.filter((section) => section.section.startsWith(group.prefix)),
+  }));
+  const leftover = sections.filter((section) => !SECTION_GROUPS.some((group) => section.section.startsWith(group.prefix)));
+
   return (
     <div className="stack">
-      <section className="card">
-        <h2>配置</h2>
-        <p className="muted">
-          所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。
-          Telegram 的实时监听在进程启动时建立，改动其账号后需重启 worker。
-        </p>
-        {settings.isLoading && <p>加载中…</p>}
-        {settings.error && <p className="warn">{(settings.error as Error).message}</p>}
-        {settings.data?.items
-          .filter((section) => !JOBS_PAGE_ONLY_SECTIONS.has(section.section))
-          .map((section) => (
+      {settings.isLoading && (
+        <section className="card">
+          <p>加载中…</p>
+        </section>
+      )}
+      {settings.error && (
+        <section className="card">
+          <p className="warn">{(settings.error as Error).message}</p>
+        </section>
+      )}
+      {settings.data &&
+        grouped.map((group) => (
+          <section key={group.title} className="card">
+            <h2>{group.title}</h2>
+            <p className="muted">{group.hint}</p>
+            {group.sections.map((section) => (
+              <SectionEditor key={section.section} section={section} />
+            ))}
+          </section>
+        ))}
+      {leftover.length > 0 && (
+        <section className="card">
+          <h2>其他</h2>
+          <p className="muted">这个界面版本还不认识的配置，使用 JSON 编辑。</p>
+          {leftover.map((section) => (
             <SectionEditor key={section.section} section={section} />
           ))}
-      </section>
+        </section>
+      )}
     </div>
   );
 }

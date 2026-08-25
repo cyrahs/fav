@@ -374,8 +374,28 @@ class FavApiService:
         return {
             'section': section,
             'value': mask_section(section, payload),
-            'missing_fields': _missing_fields(model),
+            'missing_fields': self._missing_fields_after_fallback(model),
         }
+
+    def _shared_cookiecloud_configured(self) -> bool:
+        """Whether the deployment-wide CookieCloud credential is fully filled in."""
+        try:
+            shared = self._settings_section_getter('credentials.cookiecloud')
+        except Exception:  # noqa: BLE001 - an unreadable shared credential just means no fallback
+            return False
+        return bool(getattr(shared, 'configured', False))
+
+    def _missing_fields_after_fallback(self, model: BaseModel) -> list[str]:
+        """A section's missing fields, minus the CookieCloud ones the shared credential covers.
+
+        Mirrors ``Settings.apply_shared_cookiecloud``: at run time an unconfigured
+        per-source CookieCloud block is filled from ``credentials.cookiecloud``, so
+        reporting it as missing here would block enabling a source that can run.
+        """
+        missing = _missing_fields(model)
+        if any('cookiecloud.' in name for name in missing) and self._shared_cookiecloud_configured():
+            missing = [name for name in missing if 'cookiecloud.' not in name]
+        return missing
 
     def update_settings_section(self, section: str, payload: dict[str, Any]) -> dict[str, object]:
         if section not in SECTION_MODELS:
@@ -403,7 +423,7 @@ class FavApiService:
         except ValueError as exc:
             raise ApiError(status_code=422, code='invalid_settings', message=str(exc)) from None
 
-        candidate_missing = _missing_fields(candidate)
+        candidate_missing = self._missing_fields_after_fallback(candidate)
         if getattr(candidate, 'enabled', False) and candidate_missing:
             raise ApiError(
                 status_code=422,
@@ -419,7 +439,7 @@ class FavApiService:
             raise ApiError(status_code=500, code='internal_server_error', message='Internal server error.') from None
 
         saved_payload = json.loads(saved.model_dump_json())
-        missing = _missing_fields(saved)
+        missing = self._missing_fields_after_fallback(saved)
         return {
             'section': section,
             'value': mask_section(section, saved_payload),
@@ -496,9 +516,12 @@ class FavApiService:
     def _stored_cookiecloud_password(self, *, source: str, account: str) -> str:
         """Resolve a masked password against whatever the source stores it under.
 
-        Bilibili keys its vaults by account name; every other source has exactly one,
-        so it is read straight from that source's section.
+        Bilibili keys its vaults by account name; the shared credential is its own
+        section; every other source has exactly one, so it is read straight from
+        that source's section.
         """
+        if source == 'shared':
+            return str(self._stored_section('credentials.cookiecloud').get('password') or '')
         if source == 'bilibili':
             if not account:
                 raise ApiError(status_code=422, code='invalid_settings', message='account is required.')
@@ -509,11 +532,13 @@ class FavApiService:
         """Check a source's CookieCloud credentials without saving them.
 
         The draft from the form wins, except that a masked or omitted password is
-        resolved against what is already stored for that source.
+        resolved against what is already stored for that source. ``source='shared'``
+        tests the deployment-wide credential: reachability and decryption only,
+        since it is not tied to any one source's cookies.
         """
         source = str(payload.get('source') or 'bilibili')
-        profile = cookiecloud_tool.PROFILES.get(source)
-        if profile is None:
+        profile = None if source == 'shared' else cookiecloud_tool.PROFILES.get(source)
+        if profile is None and source != 'shared':
             raise ApiError(status_code=422, code='invalid_settings', message=f'Unknown cookiecloud source: {source}')
 
         draft = {key: str(payload.get(key) or '') for key in ('server_url', 'uuid', 'password')}

@@ -45,6 +45,11 @@ world-writable.
   section at module import, or UI edits will not apply until a restart.
 - `settings.use(snapshot)` pins a snapshot and bypasses the database; `tests/conftest.py` uses it in
   an autouse fixture so the suite never needs PostgreSQL.
+- `credentials.cookiecloud` is a deployment-wide CookieCloud credential. A source (or bilibili
+  account) whose own `cookiecloud` block is not fully filled in gets it substituted when the
+  `Settings` snapshot is built (`Settings.apply_shared_cookiecloud`); the stored sections keep only
+  what the operator typed. The API mirrors the fallback when computing `missing_fields`
+  (`FavApiService._missing_fields_after_fallback`).
 - `httpx`, `yt-dlp` and `gallery-dl` all read `HTTP_PROXY` / `HTTPS_PROXY`, so there is no global
   proxy setting. Sources that need to route only their own origin have a per-source proxy field
   (`web.azurlane.origin_proxy`, `web.twitter.proxy`, `web.rednote.proxy` -- the last one is

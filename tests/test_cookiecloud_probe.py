@@ -136,3 +136,24 @@ def test_a_bilibili_only_vault_is_not_mistaken_for_an_x_session(monkeypatch) -> 
 
     assert result.ok is False
     assert result.code == 'no_domain_cookies'
+
+
+def test_probe_without_a_profile_checks_reachability_and_decryption_only(monkeypatch) -> None:
+    # The shared credential is not tied to any one source, so an otherwise
+    # bilibili-less vault still probes fine.
+    _install_cookies(monkeypatch, {'example.com': [{'name': 'a', 'value': 'b'}]})
+
+    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=None)
+
+    assert result.ok is True
+    assert result.code == 'ok'
+    assert result.domain_count == 1
+
+
+def test_probe_without_a_profile_still_reports_a_bad_password(monkeypatch) -> None:
+    _install_cookies(monkeypatch, ValueError('Invalid OpenSSL encrypted text'))
+
+    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=None)
+
+    assert result.ok is False
+    assert result.code == 'decrypt_failed'

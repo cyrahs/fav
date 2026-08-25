@@ -125,7 +125,7 @@ export function BilibiliForm(props: SectionFormProps) {
         count={accounts.length}
         addLabel="添加账号"
         empty="还没有账号，Bilibili 任务会保持未就绪。"
-        hint="每个账号都要填自己的 CookieCloud 凭据——它就是这个账号的身份。"
+        hint="CookieCloud 凭据就是账号的身份。留空则使用「凭证」分区的共享凭据；多账号时每个账号要填自己的。"
         onAdd={() =>
           set('accounts', [
             ...accounts,
@@ -204,6 +204,7 @@ export function BilibiliForm(props: SectionFormProps) {
 
                 <div className="subsection">
                   <h4>CookieCloud 凭据</h4>
+                  <p className="field-hint">留空则使用「凭证」分区的共享 CookieCloud；填写完整则以这里的为准。</p>
                   <div className="field-grid">
                     <TextField
                       label="服务地址"
