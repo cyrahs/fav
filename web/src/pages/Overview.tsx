@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
-import type { ArchiveSourceStat, Health, Job, JobRequest, ListResponse, Readiness } from '../api/types';
+import { api, getReadiness } from '../api/client';
+import type { ArchiveSourceStat, Health, Job, JobRequest, ListResponse } from '../api/types';
 import { describeCron } from '../components/CronInput';
 import { StatusPill } from '../components/StatusPill';
+import { formatDateTime } from '../format';
 import { kindLabel, sectionLabel, sourceLabel, targetLabel } from '../labels';
 
 export function OverviewPage() {
@@ -13,10 +14,10 @@ export function OverviewPage() {
   });
 
   const readiness = useQuery({
-    // /readyz answers 503 when degraded, which the client surfaces as an error;
-    // that is the state worth showing, so keep the error rather than retrying.
+    // getReadiness resolves the degraded 503 as data, so the per-check messages
+    // below stay available exactly when they matter.
     queryKey: ['readiness'],
-    queryFn: () => api.get<Readiness>('/readyz'),
+    queryFn: getReadiness,
     retry: false,
     refetchInterval: 60000,
   });
@@ -42,13 +43,24 @@ export function OverviewPage() {
         <div className="stat-row">
           <div className="stat">
             <span className="stat-label">进程</span>
-            <span className={health.data ? 'ok' : 'warn'}>{health.data ? '运行中' : '不可达'}</span>
+            {/* Neutral placeholder while loading, so the page never flashes a false alarm. */}
+            {health.isLoading ? (
+              <span className="muted">检查中…</span>
+            ) : (
+              <span className={health.data ? 'ok' : 'warn'}>{health.data ? '运行中' : '不可达'}</span>
+            )}
           </div>
           <div className="stat">
             <span className="stat-label">就绪检查</span>
-            <span className={readiness.data?.status === 'ok' ? 'ok' : 'warn'}>
-              {readiness.data?.status ?? 'degraded'}
-            </span>
+            {readiness.isLoading ? (
+              <span className="muted">检查中…</span>
+            ) : readiness.data ? (
+              <span className={readiness.data.status === 'ok' ? 'ok' : 'warn'}>
+                {readiness.data.status === 'ok' ? '正常' : '降级'}
+              </span>
+            ) : (
+              <span className="warn">不可达</span>
+            )}
           </div>
           <div className="stat">
             <span className="stat-label">启用任务</span>
@@ -61,7 +73,7 @@ export function OverviewPage() {
           Object.entries(readiness.data.checks)
             .filter(([, check]) => check.status !== 'ok')
             .map(([name, check]) => (
-              <p key={name} className="muted">
+              <p key={name} className="warn">
                 {name}: {check.message}
               </p>
             ))}
@@ -82,7 +94,7 @@ export function OverviewPage() {
             <div className="stat" key={item.source}>
               <span className="stat-label">{sourceLabel(item.source, item.name)}</span>
               <span className="stat-value">{item.total}</span>
-              <span className="muted">{item.latest_at?.slice(0, 16).replace('T', ' ') ?? '—'}</span>
+              <span className="muted">{formatDateTime(item.latest_at)}</span>
             </div>
           ))}
         </div>
@@ -111,7 +123,7 @@ export function OverviewPage() {
               <StatusPill status={request.status} />
               <strong>{targetLabel(request.target)}</strong>
               <span className="muted">{kindLabel(request.kind)}</span>
-              <span className="muted">{request.requested_at}</span>
+              <span className="muted">{formatDateTime(request.requested_at)}</span>
             </li>
           ))}
         </ul>

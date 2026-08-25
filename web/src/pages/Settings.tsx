@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { Hanime1Author, Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
 import { TelegramNotificationTest } from '../components/TelegramNotificationTest';
 import { JOBS_PAGE_ONLY_SECTIONS, SECTION_FORMS, validateSection } from '../components/sectionForms';
+import { formatDateTime } from '../format';
 import { sectionLabel } from '../labels';
 
 /**
@@ -24,6 +26,17 @@ function SectionEditor({ section }: { section: SettingsSection }) {
     setRawText(JSON.stringify(section.value, null, 2));
     setError('');
   }, [section.value]);
+
+  // "前往配置" on the jobs page links here as /settings#<section>; open and
+  // reveal the matching editor instead of leaving the user to hunt for it.
+  const { hash } = useLocation();
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (hash === `#${section.section}` && detailsRef.current) {
+      detailsRef.current.open = true;
+      detailsRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+  }, [hash, section.section]);
 
   const Form = SECTION_FORMS[section.section];
   const useRaw = rawMode || Form === undefined;
@@ -73,7 +86,7 @@ function SectionEditor({ section }: { section: SettingsSection }) {
   };
 
   return (
-    <details className="section-editor">
+    <details ref={detailsRef} id={section.section} className="section-editor">
       <summary>
         <span>{sectionLabel(section.section)}</span>
         {dirty && <span className="badge-dirty">未保存</span>}
@@ -230,7 +243,7 @@ function Hanime1Seeds() {
                 </td>
                 <td className="mono">{item.video_id}</td>
                 <td>{item.video_count}</td>
-                <td className="muted">{item.last_scanned_at ?? '—'}</td>
+                <td className="muted nowrap">{formatDateTime(item.last_scanned_at)}</td>
                 <td className="actions">
                   <button
                     type="button"
@@ -323,7 +336,7 @@ function Hanime1Authors() {
                 </td>
                 <td className="mono">{item.author_id}</td>
                 <td>{item.video_count}</td>
-                <td className="muted">{item.last_scanned_at ?? '—'}</td>
+                <td className="muted nowrap">{formatDateTime(item.last_scanned_at)}</td>
                 <td className="actions">
                   <button
                     type="button"

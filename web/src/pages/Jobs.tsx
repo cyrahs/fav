@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Job, JobRequest, ListResponse, SettingsSection } from '../api/types';
 import { CronInput, describeCron } from '../components/CronInput';
 import { StatusPill } from '../components/StatusPill';
+import { formatDateTime } from '../format';
 import { kindLabel, sectionLabel, targetLabel } from '../labels';
 
 const REQUEST_FILTERS = [
@@ -69,7 +70,8 @@ function JobRow({ job }: { job: Job }) {
           <div className="warn">
             配置不完整，缺少：{job.missing_fields.join(', ')}
             <br />
-            <Link to="/settings">前往配置</Link>
+            {/* The hash opens and reveals the matching section on the settings page. */}
+            <Link to={`/settings#${job.section}`}>前往配置</Link>
           </div>
         )}
         {error && <div className="warn">{error}</div>}
@@ -97,7 +99,13 @@ function JobRow({ job }: { job: Job }) {
         </div>
       </td>
       <td className="actions">
-        <button type="button" disabled={!dirty || !cronValid || save.isPending} onClick={() => save.mutate()}>
+        {/* Quiet until there is something to save; a page of disabled primary buttons is noise. */}
+        <button
+          type="button"
+          className={dirty ? undefined : 'ghost'}
+          disabled={!dirty || !cronValid || save.isPending}
+          onClick={() => save.mutate()}
+        >
           {save.isPending ? '保存中…' : '保存'}
         </button>
         <button type="button" className="ghost" disabled={trigger.isPending} onClick={() => trigger.mutate()}>
@@ -109,7 +117,12 @@ function JobRow({ job }: { job: Job }) {
 }
 
 export function JobsPage() {
-  const [filter, setFilter] = useState<RequestFilterKey>('all');
+  // The filter lives in the URL so a refresh or a shared link keeps it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawFilter = searchParams.get('filter');
+  const filter: RequestFilterKey = REQUEST_FILTERS.some((item) => item.key === rawFilter)
+    ? (rawFilter as RequestFilterKey)
+    : 'all';
   const jobs = useQuery({
     queryKey: ['jobs'],
     queryFn: () => api.get<ListResponse<Job>>('/api/v2/jobs'),
@@ -166,7 +179,8 @@ export function JobsPage() {
               key={item.key}
               type="button"
               className={item.key === filter ? 'tab tab-active' : 'tab'}
-              onClick={() => setFilter(item.key)}
+              aria-pressed={item.key === filter}
+              onClick={() => setSearchParams(item.key === 'all' ? {} : { filter: item.key }, { replace: true })}
             >
               {item.label}
             </button>
@@ -197,8 +211,8 @@ export function JobsPage() {
                   <td>
                     <StatusPill status={request.status} />
                   </td>
-                  <td className="muted">{request.requested_at}</td>
-                  <td className="muted">{request.finished_at ?? '—'}</td>
+                  <td className="muted nowrap">{formatDateTime(request.requested_at)}</td>
+                  <td className="muted nowrap">{formatDateTime(request.finished_at)}</td>
                   <td className="wrap">{request.error || request.result || '—'}</td>
                 </tr>
               ))}

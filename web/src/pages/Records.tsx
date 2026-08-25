@@ -1,16 +1,34 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { ArchiveItem, ArchiveSourceStat, ListResponse, PagedResponse } from '../api/types';
+import { formatDateTime } from '../format';
 import { sourceLabel } from '../labels';
 
 const PAGE_SIZE = 50;
 
 export function RecordsPage() {
-  const [source, setSource] = useState('');
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
-  const [offset, setOffset] = useState(0);
+  // Source, query and offset live in the URL, so a refresh keeps the position
+  // and a filtered view can be shared as a link.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const source = searchParams.get('source') ?? '';
+  const query = searchParams.get('q') ?? '';
+  const offsetRaw = Number(searchParams.get('offset') ?? '0');
+  const offset = Number.isInteger(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
+  const [search, setSearch] = useState(query);
+
+  const apply = (next: { source: string; q: string; offset: number }, replace = false) => {
+    const params: Record<string, string> = { source: next.source };
+    if (next.q) params.q = next.q;
+    if (next.offset > 0) params.offset = String(next.offset);
+    setSearchParams(params, { replace });
+  };
+
+  // Keep the input in sync when the query comes from the URL (back button, shared link).
+  useEffect(() => {
+    setSearch(query);
+  }, [query]);
 
   const sources = useQuery({
     queryKey: ['archive-sources'],
@@ -21,7 +39,8 @@ export function RecordsPage() {
   useEffect(() => {
     if (source || !sources.data) return;
     const withData = sources.data.items.find((item) => item.total > 0) ?? sources.data.items[0];
-    if (withData) setSource(withData.source);
+    if (withData) apply({ source: withData.source, q: query, offset: 0 }, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply/query are stable enough here
   }, [source, sources.data]);
 
   const params = new URLSearchParams({ source, limit: String(PAGE_SIZE), offset: String(offset) });
@@ -37,6 +56,9 @@ export function RecordsPage() {
   const total = items.data?.total ?? 0;
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // With keepPreviousData the old page stays visible during a fetch; dim it so
+  // paging and re-searching give immediate feedback.
+  const refetching = items.isFetching && !items.isLoading;
 
   return (
     <div className="stack">
@@ -48,10 +70,8 @@ export function RecordsPage() {
               key={item.source}
               type="button"
               className={item.source === source ? 'tab tab-active' : 'tab'}
-              onClick={() => {
-                setSource(item.source);
-                setOffset(0);
-              }}
+              aria-pressed={item.source === source}
+              onClick={() => apply({ source: item.source, q: query, offset: 0 })}
             >
               {sourceLabel(item.source, item.name)}
               <span className="badge">{item.total}</span>
@@ -63,8 +83,7 @@ export function RecordsPage() {
           className="inline-form"
           onSubmit={(event) => {
             event.preventDefault();
-            setQuery(search.trim());
-            setOffset(0);
+            apply({ source, q: search.trim(), offset: 0 });
           }}
         >
           <input
@@ -80,8 +99,7 @@ export function RecordsPage() {
               className="ghost"
               onClick={() => {
                 setSearch('');
-                setQuery('');
-                setOffset(0);
+                apply({ source, q: '', offset: 0 });
               }}
             >
               清除
@@ -95,7 +113,7 @@ export function RecordsPage() {
 
         {items.data && items.data.items.length > 0 && (
           <>
-            <table className="table">
+            <table className={refetching ? 'table refetching' : 'table'}>
               <thead>
                 <tr>
                   <th>标题</th>
@@ -117,20 +135,28 @@ export function RecordsPage() {
                       <div className="muted mono">{item.id}</div>
                     </td>
                     <td className="muted">{item.subtitle || '—'}</td>
-                    <td className="muted">{item.created_at ?? '—'}</td>
+                    <td className="muted nowrap">{formatDateTime(item.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
             <div className="pager">
-              <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+              <button
+                type="button"
+                disabled={offset === 0 || items.isFetching}
+                onClick={() => apply({ source, q: query, offset: Math.max(0, offset - PAGE_SIZE) })}
+              >
                 上一页
               </button>
               <span className="muted">
                 第 {page} / {pages} 页 · 共 {total} 条
               </span>
-              <button type="button" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>
+              <button
+                type="button"
+                disabled={offset + PAGE_SIZE >= total || items.isFetching}
+                onClick={() => apply({ source, q: query, offset: offset + PAGE_SIZE })}
+              >
                 下一页
               </button>
             </div>

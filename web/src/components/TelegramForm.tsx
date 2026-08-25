@@ -73,6 +73,7 @@ function ChannelsEditor({ channels, accountName, onChange }: ChannelsEditorProps
                 <td className="cell-id">
                   <NumberField
                     label=""
+                    ariaLabel="频道 ID"
                     value={channel.id ?? Number.NaN}
                     onChange={(next) => update(index, { id: next })}
                     invalid={!idOk}

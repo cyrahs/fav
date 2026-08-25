@@ -1,3 +1,5 @@
+import type { Readiness } from './types';
+
 const TOKEN_KEY = 'fav.api.token';
 /**
  * How long a login survives without re-entering the token. The window slides on
@@ -94,7 +96,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : undefined;
+  // A proxy in front of the API can answer with an HTML error page; keep the
+  // HTTP status as the message instead of surfacing a JSON parse error.
+  let payload: { error?: { code?: string; message?: string; details?: unknown } } | undefined;
+  try {
+    payload = text ? JSON.parse(text) : undefined;
+  } catch {
+    payload = undefined;
+  }
 
   if (!response.ok) {
     const error = payload?.error;
@@ -105,6 +114,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       error?.details,
     );
   }
+  if (payload === undefined && text) {
+    throw new ApiError(response.status, 'invalid_response', '服务器返回了无法解析的内容');
+  }
   return payload as T;
 }
 
@@ -114,6 +126,26 @@ export const api = {
   post: <T,>(path: string, body: unknown) => request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   delete: <T,>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
+
+/**
+ * /readyz answers 503 with the same ReadinessResponse body when degraded, so the
+ * error-envelope handling in `request` would drop exactly the per-check details
+ * worth showing. Treat both statuses as data.
+ */
+export async function getReadiness(): Promise<Readiness> {
+  const response = await fetch('/readyz', { headers: { Authorization: `Bearer ${getToken()}` } });
+  const text = await response.text();
+  let payload: unknown;
+  try {
+    payload = text ? JSON.parse(text) : undefined;
+  } catch {
+    payload = undefined;
+  }
+  if (payload && typeof payload === 'object' && 'status' in payload && 'checks' in payload) {
+    return payload as Readiness;
+  }
+  throw new ApiError(response.status, 'http_error', `HTTP ${response.status}`);
+}
 
 /** Cheap authenticated call used to validate a pasted token at login. */
 export async function verifyToken(token: string): Promise<boolean> {

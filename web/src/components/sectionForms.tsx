@@ -189,6 +189,7 @@ function AzurLaneForm(props: SectionFormProps) {
         value={originProxy}
         onChange={(next) => set('origin_proxy', next)}
         mono
+        wide
         invalid={!originProxy}
         placeholder="http://用户名:密码@主机:端口"
         hint="l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。"
@@ -498,6 +499,7 @@ function RedNoteForm(props: SectionFormProps) {
             value={proxy}
             onChange={(next) => set('proxy', next)}
             mono
+            wide
             invalid={!proxy && !allowDirect}
             placeholder="http://用户名:密码@主机:端口"
             hint="小红书屏蔽了大部分机房 IP 段。带账号密码时必须用 http(s)：Chromium 不支持 SOCKS 认证。"

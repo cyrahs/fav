@@ -86,6 +86,9 @@ a:hover {
   padding: 6px 12px;
   border-radius: 6px;
   color: var(--muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .topbar nav a:hover {
@@ -113,7 +116,7 @@ a:hover {
 
 .card h2 {
   margin: 0 0 4px;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .muted {
@@ -175,6 +178,11 @@ button {
   border-radius: 6px;
   padding: 7px 14px;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
 }
 
 button:disabled {
@@ -214,6 +222,13 @@ button.danger {
   letter-spacing: 0.05em;
   color: var(--muted);
   font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Row hover for the read-only tables; the compact editor tables are all inputs
+   and gain nothing from it. */
+.table:not(.compact) > tbody > tr:hover > td {
+  background: var(--surface-2);
 }
 
 .actions {
@@ -388,6 +403,12 @@ td.actions > *:last-child {
   margin-top: 14px;
 }
 
+/* Feedback while keepPreviousData holds the old page during a fetch. */
+.refetching {
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
 .section-editor {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -403,6 +424,23 @@ td.actions > *:last-child {
   align-items: center;
   flex-wrap: wrap;
   font-weight: 600;
+}
+
+/* display:flex removes the native disclosure triangle, so draw one back —
+   without it the collapsed sections read as inert rows. */
+.section-editor > summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.section-editor[open] > summary::before {
+  transform: rotate(90deg);
 }
 
 .json-editor {
@@ -434,7 +472,8 @@ td.actions > *:last-child {
 /* Wide blocks span the whole grid instead of being squeezed into one column. */
 .field-grid > .repeater,
 .field-grid > .subsection,
-.field-grid > .field-checks {
+.field-grid > .field-checks,
+.field-grid > .field-wide {
   grid-column: 1 / -1;
 }
 
@@ -457,13 +496,13 @@ td.actions > *:last-child {
 
 .field-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   line-height: 1.4;
 }
 
 .field .warn {
-  font-size: 11px;
+  font-size: 12px;
   margin: 0;
 }
 
