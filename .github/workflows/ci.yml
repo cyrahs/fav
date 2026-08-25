@@ -22,6 +22,30 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v9.0.0
+      with:
+        python-version: '3.12'
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync --locked
+
+    - name: Ruff lint
+      run: uv run ruff check .
+
+    - name: Ruff format check
+      run: uv run ruff format --check .
+
   test:
     runs-on: ubuntu-latest
     permissions:
@@ -55,21 +79,42 @@ jobs:
     - name: Install dependencies
       run: uv sync --locked
 
-    - name: Ruff lint
-      run: uv run ruff check .
-
-    - name: Ruff format check
-      run: uv run ruff format --check .
-
     - name: Run tests
       run: uv run pytest -q
       env:
         POSTGRES_DSN: postgresql://tests@127.0.0.1:5432/fav-tests
         API_TOKEN: token-for-tests
 
-  build-and-push:
+  # Validates the Dockerfile on every run without pushing anything, so it can run
+  # in parallel with lint/test instead of waiting behind them. Its layers land in
+  # the GHA cache, which `publish` reuses.
+  build:
     runs-on: ubuntu-latest
-    needs: test
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        platforms: linux/amd64
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # The only job that writes anywhere. Never runs on pull requests, and only
+  # publishes after lint, test, and build have all passed.
+  publish:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [lint, test, build]
     permissions:
       contents: read
       packages: write
@@ -95,7 +140,6 @@ jobs:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch
-          type=ref,event=pr
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
           type=raw,value=latest,enable={{is_default_branch}}
@@ -107,8 +151,8 @@ jobs:
       uses: docker/build-push-action@v7
       with:
         context: .
-        platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
-        push: ${{ github.event_name != 'pull_request' }}
+        platforms: linux/amd64,linux/arm64
+        push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
@@ -118,3 +162,17 @@ jobs:
       if: inputs.trigger-reason
       run: |
         echo "Build triggered by: ${{ inputs.trigger-reason }}"
+
+  # Single aggregate gate for branch protection: the ruleset requires only this
+  # check, so jobs can be added or renamed above without touching repo settings.
+  # `publish` is deliberately not listed -- it never runs on pull requests.
+  ci-passed:
+    name: CI passed
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [lint, test, build]
+
+    steps:
+    - name: Fail if any job did not succeed
+      if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+      run: exit 1

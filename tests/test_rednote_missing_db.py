@@ -7,7 +7,7 @@ The rule is carried by one statement -- an upsert whose `DO UPDATE` is guarded b
 "three runs agreed" mean three runs rather than three sightings. A fake database
 cannot check it, because a fake is written from the same understanding as the code.
 
-CI runs these against the postgres service in .github/workflows/docker-build.yml.
+CI runs these against the postgres service in .github/workflows/ci.yml.
 They skip when there is no database to talk to, so the suite still runs on a laptop.
 
 Each test is *one* `asyncio.run` that closes the pool on its way out. `src/tool/
