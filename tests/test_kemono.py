@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ from src.web.kemono import (
     Kemono,
     attachment_filename,
     build_file_url,
+    build_thumbnail_url,
     collect_new_posts,
     parse_post,
     retry_after_seconds,
@@ -40,8 +42,8 @@ def _kemono_job(handler) -> Kemono:
     return job
 
 
-def _post_payload(post_id: str, *, path: str | None = None, name: str | None = None) -> dict:
-    file_obj = {'name': name, 'path': path} if path else {}
+def _post_payload(post_id: str, *, path: str | None = None, name: str | None = None, preview_only: bool = False) -> dict:
+    file_obj = {'name': name, 'path': path, 'preview_only': preview_only} if path else {}
     return {
         'id': post_id,
         'user': '123',
@@ -59,18 +61,28 @@ def _sha256_path(content: bytes, ext: str = '.bin') -> str:
 
 
 class _FakeDatabase:
-    def __init__(self, select_rows: list[dict] | None = None) -> None:
+    def __init__(self, select_rows: list[dict] | None = None, pending_rows: list[dict] | None = None) -> None:
         self.calls: list[tuple[str, tuple]] = []
         self.select_rows = select_rows or []
+        self.pending_rows = pending_rows or []
 
     async def query_db(self, sql: str, params: tuple = ()) -> list[dict]:
         self.calls.append((sql, params))
         if sql.lstrip().upper().startswith('SELECT'):
-            return self.select_rows
+            return self.pending_rows if 'kemono_pending_originals' in sql else self.select_rows
         return []
 
     def inserted_ids(self) -> list[str]:
-        return [params[0] for sql, params in self.calls if 'INSERT' in sql.upper()]
+        return [params[0] for sql, params in self.calls if 'INSERT' in sql.upper() and 'kemono_pending_originals' not in sql]
+
+    def pending_inserts(self) -> list[tuple]:
+        return [params for sql, params in self.calls if 'INSERT' in sql.upper() and 'kemono_pending_originals' in sql]
+
+    def pending_updates(self) -> list[tuple]:
+        return [params for sql, params in self.calls if sql.lstrip().upper().startswith('UPDATE') and 'kemono_pending_originals' in sql]
+
+    def pending_deletes(self) -> list[tuple]:
+        return [params for sql, params in self.calls if sql.lstrip().upper().startswith('DELETE') and 'kemono_pending_originals' in sql]
 
 
 # --- pure functions ---
@@ -418,3 +430,212 @@ def test_downloaded_post_survives_missing_attachment(tmp_path, monkeypatch) -> N
 
     assert fake_db.inserted_ids() == ['7']
     assert notifications[0]['payload']['missing_files'] == 1
+
+
+# --- preview-only attachments ---
+
+
+def test_parse_post_reads_preview_only() -> None:
+    data = {
+        'id': 1,
+        'user': 2,
+        'service': 'patreon',
+        'title': 't',
+        'file': {'name': 'a.gif', 'path': '/aa/bb/a-hash.gif', 'preview_only': True},
+        'attachments': [{'name': 'b.gif', 'path': '/cc/dd/b-hash.gif'}],
+    }
+
+    post = parse_post(data)
+
+    assert [a.preview_only for a in post.attachments] == [True, False]
+
+
+def test_build_thumbnail_url() -> None:
+    expected = 'https://img.pawchive.pw/thumbnail/data/aa/bb/hash.gif'
+    assert build_thumbnail_url('https://img.pawchive.pw', '/aa/bb/hash.gif') == expected
+    assert build_thumbnail_url('https://img.pawchive.pw/', '/aa/bb/hash.gif') == expected
+
+
+def test_update_archives_preview_only_thumbnail_and_queues_recheck(tmp_path, monkeypatch) -> None:
+    """A preview-only attachment is fetched from the thumbnail host (no sha check
+    possible) and a recheck for the original is queued; the file host is not hit."""
+    content = b'thumbnail-bytes'
+    path = '/aa/bb/' + 'a' * 64 + '.gif'
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == 'img.pawchive.pw':
+            assert request.url.path == f'/thumbnail/data{path}'
+            return httpx.Response(200, content=content)
+        assert request.url.host != 'file.pawchive.pw', 'preview-only attachments must not hit the file host during the crawl'
+        return httpx.Response(200, json=[_post_payload('9', path=path, name='anim.gif', preview_only=True)])
+
+    fake_db = _FakeDatabase()
+    monkeypatch.setattr(kemono_module.database, 'query_db', fake_db.query_db)
+    notifications: list[dict] = []
+
+    async def _fake_notify(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(kemono_module, 'enqueue_notification', _fake_notify)
+    _configure_kemono(
+        path=tmp_path,
+        sleep_request_seconds=0.0,
+        creators=[KemonoCreator(service='fanbox', id='123', name='tester')],
+    )
+    job = _kemono_job(_handler)
+    try:
+        asyncio.run(job.update())
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert fake_db.inserted_ids() == ['9']
+    assert (tmp_path / 'fanbox' / 'tester_123' / 'post 9 [9]' / 'anim.gif').read_bytes() == content
+
+    pending = fake_db.pending_inserts()
+    assert len(pending) == 1
+    service, user_id, post_id, pending_path, dst, next_check_at = pending[0]
+    assert (service, user_id, post_id, pending_path) == ('fanbox', '123', '9', path)
+    assert dst == 'fanbox/tester_123/post 9 [9]/anim.gif'
+    gap = next_check_at - datetime.now(UTC)
+    assert timedelta(hours=23) < gap < timedelta(hours=25)
+
+    assert notifications[0]['payload']['preview_files'] == 1
+    assert notifications[0]['payload']['missing_files'] == 0
+    assert notifications[0]['payload']['failed_creators'] == []
+
+
+def test_preview_download_failure_does_not_fail_the_creator(tmp_path, monkeypatch) -> None:
+    """A hard error from the thumbnail host (e.g. ddos-guard 403) degrades to a
+    missing file instead of aborting the creator; the recheck is still queued."""
+    path = '/aa/bb/' + 'b' * 64 + '.gif'
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == 'img.pawchive.pw':
+            return httpx.Response(403)
+        return httpx.Response(200, json=[_post_payload('9', path=path, name='anim.gif', preview_only=True)])
+
+    fake_db = _FakeDatabase()
+    monkeypatch.setattr(kemono_module.database, 'query_db', fake_db.query_db)
+    notifications: list[dict] = []
+
+    async def _fake_notify(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(kemono_module, 'enqueue_notification', _fake_notify)
+    _configure_kemono(
+        path=tmp_path,
+        sleep_request_seconds=0.0,
+        creators=[KemonoCreator(service='fanbox', id='123', name='tester')],
+    )
+    job = _kemono_job(_handler)
+    try:
+        asyncio.run(job.update())
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert fake_db.inserted_ids() == ['9']
+    assert len(fake_db.pending_inserts()) == 1
+    assert notifications[0]['payload']['missing_files'] == 1
+    assert notifications[0]['payload']['failed_creators'] == []
+
+
+def _pending_row(path: str, dst: str, attempts: int = 0) -> dict:
+    return {'service': 'fanbox', 'user_id': '123', 'post_id': '9', 'path': path, 'dst': dst, 'attempts': attempts}
+
+
+def test_promotion_replaces_preview_with_original(tmp_path, monkeypatch) -> None:
+    original = b'original-bytes'
+    path = _sha256_path(original, '.gif')
+    dst = 'fanbox/tester_123/post 9 [9]/anim.gif'
+    preview_file = tmp_path / dst
+    preview_file.parent.mkdir(parents=True)
+    preview_file.write_bytes(b'preview-bytes')
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == 'file.pawchive.pw'
+        return httpx.Response(200, content=original)
+
+    fake_db = _FakeDatabase(select_rows=[{'id': '1'}], pending_rows=[_pending_row(path, dst)])
+    monkeypatch.setattr(kemono_module.database, 'query_db', fake_db.query_db)
+    notifications: list[dict] = []
+
+    async def _fake_notify(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(kemono_module, 'enqueue_notification', _fake_notify)
+    _configure_kemono(
+        path=tmp_path,
+        sleep_request_seconds=0.0,
+        creators=[KemonoCreator(service='fanbox', id='123', name='tester')],
+    )
+
+    async def _api_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == 'file.pawchive.pw':
+            return httpx.Response(200, content=original)
+        return httpx.Response(200, json=[_post_payload('1')])
+
+    job = _kemono_job(_api_handler)
+    try:
+        asyncio.run(job.update())
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert preview_file.read_bytes() == original
+    assert fake_db.pending_deletes() == [('fanbox', '123', '9', path)]
+    assert notifications[0]['payload']['promoted_originals'] == 1
+
+
+def test_promotion_failure_advances_schedule_without_raising(tmp_path, monkeypatch) -> None:
+    path = '/aa/bb/' + 'c' * 64 + '.gif'
+    dst = 'fanbox/tester_123/post 9 [9]/anim.gif'
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    fake_db = _FakeDatabase(pending_rows=[_pending_row(path, dst)])
+    monkeypatch.setattr(kemono_module.database, 'query_db', fake_db.query_db)
+    _configure_kemono(path=tmp_path, sleep_request_seconds=0.0)
+    job = _kemono_job(_handler)
+    try:
+        promoted = asyncio.run(job._promote_pending_originals())
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert promoted == 0
+    assert fake_db.pending_deletes() == []
+    updates = fake_db.pending_updates()
+    assert len(updates) == 1
+    attempts, next_check_at, *key = updates[0]
+    assert attempts == 1
+    assert tuple(key) == ('fanbox', '123', '9', path)
+    # Second check follows after the 3-day gap of the 1/3/5/7/7/7/... ladder.
+    gap = next_check_at - datetime.now(UTC)
+    assert timedelta(days=2, hours=23) < gap < timedelta(days=3, hours=1)
+
+
+def test_promotion_keeps_checking_every_seven_days_forever(tmp_path, monkeypatch) -> None:
+    """Past the end of the ladder the 7-day gap repeats; the row is never dropped."""
+    path = '/aa/bb/' + 'd' * 64 + '.gif'
+    dst = 'fanbox/tester_123/post 9 [9]/anim.gif'
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    fake_db = _FakeDatabase(pending_rows=[_pending_row(path, dst, attempts=41)])
+    monkeypatch.setattr(kemono_module.database, 'query_db', fake_db.query_db)
+    _configure_kemono(path=tmp_path, sleep_request_seconds=0.0)
+    job = _kemono_job(_handler)
+    try:
+        promoted = asyncio.run(job._promote_pending_originals())
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert promoted == 0
+    assert fake_db.pending_deletes() == []
+    updates = fake_db.pending_updates()
+    assert len(updates) == 1
+    attempts, next_check_at, *key = updates[0]
+    assert attempts == 42
+    assert tuple(key) == ('fanbox', '123', '9', path)
+    gap = next_check_at - datetime.now(UTC)
+    assert timedelta(days=6, hours=23) < gap < timedelta(days=7, hours=1)
