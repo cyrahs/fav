@@ -254,6 +254,14 @@ function KemonoForm(props: SectionFormProps) {
         mono
         hint="附件下载走独立域名（主站对 /data 路径返回 404）。"
       />
+      <TextField
+        label="缩略图服务器地址"
+        value={str(props.value, 'thumbnail_base_url')}
+        onChange={(next) => set('thumbnail_base_url', next)}
+        placeholder="https://img.pawchive.pw"
+        mono
+        hint="preview_only 附件（站点没存原文件）从这里收压缩预览图，之后按 1/3/5/7/7/7/… 天永久检测原文件补传。"
+      />
       <NumberField
         label="请求间隔（秒）"
         value={num(props.value, 'sleep_request_seconds', 1)}
@@ -851,7 +859,7 @@ export function validateSection(section: string, value: Record<string, unknown>)
   }
 
   if (section === 'web.kemono') {
-    for (const field of ['base_url', 'file_base_url'] as const) {
+    for (const field of ['base_url', 'file_base_url', 'thumbnail_base_url'] as const) {
       const url = str(value, field).trim();
       if (url && !/^https?:\/\//.test(url)) {
         issues.push(`${field} 必须以 http:// 或 https:// 开头`);

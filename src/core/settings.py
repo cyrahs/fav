@@ -536,12 +536,15 @@ class Kemono(ScheduleJob):
     base_url: str = 'https://pawchive.pw'
     # Attachments live on a separate host (the main domain 404s on /data paths).
     file_base_url: str = 'https://file.pawchive.pw'
+    # Compressed previews live on yet another host; preview_only attachments (the
+    # file host never stored their original) are archived from here.
+    thumbnail_base_url: str = 'https://img.pawchive.pw'
     # Applied before every API and file request. Raise it via settings if the site
     # starts throttling; no redeploy needed.
     sleep_request_seconds: float = 1.0
     creators: list[KemonoCreator] = Field(default_factory=list)
 
-    @field_validator('base_url', 'file_base_url')
+    @field_validator('base_url', 'file_base_url', 'thumbnail_base_url')
     @classmethod
     def normalize_base_url(cls, value: str) -> str:
         normalized = value.strip().rstrip('/')
