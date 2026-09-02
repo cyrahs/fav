@@ -13,7 +13,7 @@ import src.web.twitter as twitter_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
-from src.web.twitter import FILENAME_FORMAT, Twitter, build_command, parse_sidecar
+from src.web.twitter import FILENAME_FORMAT, Twitter, TwitterDownloadError, build_command, is_transient_user_lookup_failure, parse_sidecar
 
 
 def _configure_twitter(**updates: object) -> settings.Twitter:
@@ -404,6 +404,91 @@ def test_an_unconfigured_source_does_nothing_rather_than_launching_gallery_dl(mo
     monkeypatch.setattr(twitter_module, 'database', _explode)
 
     asyncio.run(Twitter().update())
+
+
+# ---------- transient user lookup failures ----------
+
+_USER_NOT_FOUND = '[twitter][error] NotFoundError: Requested user could not be found'
+_KEYS_REFRESHED = '[twitter][info] Initializing client transaction keys'
+
+
+def test_a_clean_user_not_found_exit_is_worth_another_attempt() -> None:
+    assert is_transient_user_lookup_failure(4, [_USER_NOT_FOUND])
+    # gallery-dl refreshes its transaction keys every few hours and says so on stderr.
+    assert is_transient_user_lookup_failure(4, [_KEYS_REFRESHED, _USER_NOT_FOUND])
+
+
+def test_anything_that_got_past_the_lookup_is_not_retried() -> None:
+    # An authentication failure has its own exit bit and its own message.
+    assert not is_transient_user_lookup_failure(16, [_USER_NOT_FOUND])
+    assert not is_transient_user_lookup_failure(4 | 16, [_USER_NOT_FOUND])
+    # A 429 or an API error means the timeline was reached; the lookup succeeded.
+    assert not is_transient_user_lookup_failure(4, ['[twitter][warning] API errors (1/10):', _USER_NOT_FOUND])
+    # Some other extraction error, and a clean exit, are not this case either.
+    assert not is_transient_user_lookup_failure(4, ['[twitter][error] Unable to retrieve Tweets from this timeline'])
+    assert not is_transient_user_lookup_failure(0, [])
+
+
+class _ScriptedGalleryDl:
+    """Stands in for _run_gallery_dl, returning one scripted outcome per call."""
+
+    def __init__(self, *outcomes: tuple[int, list[str]]) -> None:
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    async def __call__(self, _command: list[str]) -> tuple[int, list[str]]:
+        self.calls += 1
+        return self.outcomes.pop(0)
+
+
+def test_a_flaky_lookup_is_run_again_and_the_second_outcome_wins(monkeypatch) -> None:
+    _runnable_cfg()
+    monkeypatch.setattr(twitter_module, 'USER_LOOKUP_RETRY_DELAY_SECONDS', 0)
+    fake = _ScriptedGalleryDl((4, [_USER_NOT_FOUND]), (0, []))
+    source = Twitter()
+    monkeypatch.setattr(source, '_run_gallery_dl', fake)
+
+    assert asyncio.run(source._run_gallery_dl_with_retry(['gallery-dl'])) == (0, [])
+    assert fake.calls == 2
+
+
+def test_a_lookup_that_keeps_failing_is_not_retried_forever(monkeypatch) -> None:
+    _runnable_cfg()
+    monkeypatch.setattr(twitter_module, 'USER_LOOKUP_RETRY_DELAY_SECONDS', 0)
+    fake = _ScriptedGalleryDl((4, [_USER_NOT_FOUND]), (4, [_USER_NOT_FOUND]))
+    source = Twitter()
+    monkeypatch.setattr(source, '_run_gallery_dl', fake)
+
+    assert asyncio.run(source._run_gallery_dl_with_retry(['gallery-dl'])) == (4, [_USER_NOT_FOUND])
+    assert fake.calls == 1 + twitter_module.USER_LOOKUP_RETRIES
+
+
+def test_a_run_that_fails_elsewhere_is_reported_straight_away(monkeypatch) -> None:
+    _runnable_cfg()
+    monkeypatch.setattr(twitter_module, 'USER_LOOKUP_RETRY_DELAY_SECONDS', 0)
+    fake = _ScriptedGalleryDl((16, ['[twitter][error] AuthorizationError: Login required']))
+    source = Twitter()
+    monkeypatch.setattr(source, '_run_gallery_dl', fake)
+
+    asyncio.run(source._run_gallery_dl_with_retry(['gallery-dl']))
+    assert fake.calls == 1
+
+
+def test_update_still_raises_once_the_lookup_retry_is_spent(monkeypatch, tmp_path) -> None:
+    _runnable_cfg(path=tmp_path / 'twitter')
+    monkeypatch.setattr(twitter_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(twitter_module, 'USER_LOOKUP_RETRY_DELAY_SECONDS', 0)
+    fake = _ScriptedGalleryDl((4, [_USER_NOT_FOUND]), (4, [_USER_NOT_FOUND]))
+    source = Twitter()
+    monkeypatch.setattr(source, '_write_cookie_file', lambda _path: None)
+    monkeypatch.setattr(source, '_run_gallery_dl', fake)
+
+    with pytest.raises(TwitterDownloadError) as excinfo:
+        asyncio.run(source.update())
+
+    assert fake.calls == 2
+    assert 'Requested user could not be found' in str(excinfo.value)
+    assert excinfo.value.notification_dedupe_key == 'twitter:exit:4'
 
 
 # ---------- registration ----------
