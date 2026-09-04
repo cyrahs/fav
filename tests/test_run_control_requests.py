@@ -7,7 +7,7 @@ import run as run_module
 from src.service.jobs import ScheduledJob
 from src.tool import telegram_bot
 from src.tool.control_queue import STATUS_FAILED, STATUS_REJECTED, STATUS_SUCCEEDED, ControlRequest
-from src.tool.notifications import WEBHOOK_ACTION_UPSERT, NotificationRecord
+from src.tool.notifications import SCOPE_JOB, WEBHOOK_ACTION_UPSERT, NotificationRecord
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 
 
@@ -487,7 +487,69 @@ def test_run_job_uses_exception_notification_dedupe_key(monkeypatch) -> None:
 
     assert result.success is False
     assert captured['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
+    assert captured['scope'] == SCOPE_JOB
     assert captured['payload']['dedupe_key'] == 'job_failed:bilibili:bilibili:download:BV1TEST'
+
+
+def test_run_job_resolves_job_failed_notifications_on_success(monkeypatch) -> None:
+    resolved: list[dict[str, object]] = []
+
+    class _Worker:
+        async def update(self) -> None:
+            return None
+
+    async def _fake_resolve(**payload):
+        resolved.append(payload)
+        return []
+
+    monkeypatch.setattr(run_module, 'resolve_job_failure_notifications', _fake_resolve)
+
+    result = asyncio.run(run_module._run_job(job=_job(key='twitter'), worker=_Worker()))
+
+    assert result.success is True
+    assert len(resolved) == 1
+    assert resolved[0]['job_key'] == 'twitter'
+    assert resolved[0]['header'] == 'Twitter'
+    assert resolved[0]['title'] == 'Job recovered'
+    assert resolved[0]['payload']['job'] == 'twitter'
+
+
+def test_run_job_success_survives_a_failing_resolve(monkeypatch) -> None:
+    class _Worker:
+        async def update(self) -> None:
+            return None
+
+    async def _broken_resolve(**_payload):
+        raise RuntimeError('db down')
+
+    monkeypatch.setattr(run_module, 'resolve_job_failure_notifications', _broken_resolve)
+
+    result = asyncio.run(run_module._run_job(job=_job(key='twitter'), worker=_Worker()))
+
+    assert result.success is True
+
+
+def test_run_job_does_not_resolve_after_a_failure(monkeypatch) -> None:
+    resolved: list[dict[str, object]] = []
+
+    class _FailingWorker:
+        async def update(self) -> None:
+            raise RuntimeError('boom')
+
+    async def _fake_enqueue_notification(**_payload) -> None:
+        return None
+
+    async def _fake_resolve(**payload):
+        resolved.append(payload)
+        return []
+
+    monkeypatch.setattr(run_module, 'enqueue_notification', _fake_enqueue_notification)
+    monkeypatch.setattr(run_module, 'resolve_job_failure_notifications', _fake_resolve)
+
+    result = asyncio.run(run_module._run_job(job=_job(key='twitter'), worker=_FailingWorker()))
+
+    assert result.success is False
+    assert resolved == []
 
 
 def test_run_job_dedupes_hanime1_parser_failure_notification(monkeypatch) -> None:
@@ -591,10 +653,10 @@ def test_deliver_next_notification_uses_direct_telegram(monkeypatch) -> None:
         assert notification.notification_id == 7
         assert client is not None
         delivery_configs.append(config)
-        return telegram_bot.TelegramDeliveryResult(message_id=99, media_status='none')
+        return telegram_bot.TelegramDeliveryResult(message_id=99, media_status='none', pinned_message_id=99)
 
-    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
-        delivered.append((notification_id, event_version))
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int, message_id, pinned_message_id) -> None:
+        delivered.append((notification_id, event_version, message_id, pinned_message_id))
 
     monkeypatch.setattr(run_module, 'claim_next_pending_notification', _fake_claim)
     monkeypatch.setattr(run_module, '_load_telegram_bot_config', _telegram_config)
@@ -605,7 +667,7 @@ def test_deliver_next_notification_uses_direct_telegram(monkeypatch) -> None:
 
     assert processed is True
     assert delivery_configs == [_telegram_config()]
-    assert delivered == [(7, 3)]
+    assert delivered == [(7, 3, 99, 99)]
 
 
 def test_deliver_next_notification_leaves_queue_untouched_when_telegram_is_disabled(monkeypatch) -> None:
