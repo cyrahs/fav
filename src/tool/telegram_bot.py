@@ -72,6 +72,9 @@ class TelegramDeliveryResult:
     message_id: int | None
     media_status: str
     warnings: tuple[str, ...] = ()
+    # The message this delivery left pinned for its notification, if any. The
+    # outbox stores it so the next delivery on the same row knows what to unpin.
+    pinned_message_id: int | None = None
 
 
 class TelegramDeliveryError(RuntimeError):
@@ -271,6 +274,56 @@ async def _pin_message(*, client: httpx.AsyncClient, config: TelegramBotConfig, 
     await _call_api(client=client, config=config, method='pinChatMessage', json_payload=payload)
 
 
+async def _unpin_message(*, client: httpx.AsyncClient, config: TelegramBotConfig, message_id: int) -> None:
+    payload = {**_common_payload(config), 'message_id': message_id}
+    try:
+        await _call_api(client=client, config=config, method='unpinChatMessage', json_payload=payload)
+    except TelegramDeliveryError as exc:
+        # A 400 here means the message is gone or was unpinned by hand already;
+        # either way there is nothing left to unpin, so it is not worth a retry.
+        if exc.retryable or 'error 400' not in str(exc):
+            raise
+        log.info('Telegram message %s was already unpinned: %s', message_id, exc)
+
+
+async def _settle_pins(
+    *,
+    client: httpx.AsyncClient,
+    config: TelegramBotConfig,
+    notification,  # noqa: ANN001 - see deliver()
+    message_id: int | None,
+    warnings: list[str],
+) -> int | None:
+    """Pin the new message if asked, unpin the one this row had pinned before.
+
+    Returns the message that is pinned once the dust settles: the new one, or
+    the previous one if unpinning it failed and nothing replaced it, so a later
+    delivery gets another go at clearing it.
+    """
+    pinned_message_id: int | None = None
+    if notification.pin and message_id is not None:
+        try:
+            await _pin_message(client=client, config=config, message_id=message_id)
+            pinned_message_id = message_id
+        except TelegramDeliveryError as exc:
+            warning = f'Pinning failed: {exc}'
+            warnings.append(warning)
+            log.warning('Telegram notification %s was delivered but %s', notification.notification_id, warning)
+
+    previous_pinned_message_id = getattr(notification, 'telegram_pinned_message_id', None)
+    if previous_pinned_message_id is None or previous_pinned_message_id == pinned_message_id:
+        return pinned_message_id
+    try:
+        await _unpin_message(client=client, config=config, message_id=previous_pinned_message_id)
+    except TelegramDeliveryError as exc:
+        warning = f'Unpinning message {previous_pinned_message_id} failed: {exc}'
+        warnings.append(warning)
+        log.warning('Telegram notification %s was delivered but %s', notification.notification_id, warning)
+        if pinned_message_id is None:
+            return previous_pinned_message_id
+    return pinned_message_id
+
+
 async def deliver(
     *,
     notification,  # noqa: ANN001 - NotificationRecord is kept out to avoid coupling the adapter to storage
@@ -317,15 +370,20 @@ async def deliver(
         )
 
     warnings: list[str] = []
-    if notification.pin and message_id is not None:
-        try:
-            await _pin_message(client=client, config=config, message_id=message_id)
-        except TelegramDeliveryError as exc:
-            warning = f'Pinning failed: {exc}'
-            warnings.append(warning)
-            log.warning('Telegram notification %s was delivered but %s', notification.notification_id, warning)
+    pinned_message_id = await _settle_pins(
+        client=client,
+        config=config,
+        notification=notification,
+        message_id=message_id,
+        warnings=warnings,
+    )
 
-    return TelegramDeliveryResult(message_id=message_id, media_status=media_status, warnings=tuple(warnings))
+    return TelegramDeliveryResult(
+        message_id=message_id,
+        media_status=media_status,
+        warnings=tuple(warnings),
+        pinned_message_id=pinned_message_id,
+    )
 
 
 async def send_text_now(*, header: str = '', text: str, require_enabled: bool = True) -> int | None:

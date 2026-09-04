@@ -194,3 +194,94 @@ def test_send_text_now_opens_with_the_same_header_line_as_the_outbox(pinned_sett
 
     assert message_id == 5
     assert payloads[0]['text'] == 'FAV · RedNote\nSigned in\\.'
+
+
+def _pin_handler(*, unpin_response: httpx.Response | None = None) -> tuple[list[tuple[str, dict[str, object]]], object]:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        method = request.url.path.rsplit('/', 1)[-1]
+        calls.append((method, json.loads(request.content)))
+        if method == 'unpinChatMessage' and unpin_response is not None:
+            return unpin_response
+        if method in {'pinChatMessage', 'unpinChatMessage'}:
+            return httpx.Response(200, json={'ok': True, 'result': True})
+        return httpx.Response(200, json={'ok': True, 'result': {'message_id': 99}})
+
+    return calls, _handler
+
+
+def _deliver(notification: NotificationRecord, handler: object) -> telegram_bot.TelegramDeliveryResult:
+    async def _run() -> telegram_bot.TelegramDeliveryResult:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await telegram_bot.deliver(notification=notification, client=client, config=_config())
+
+    return asyncio.run(_run())
+
+
+def test_resolve_delivery_unpins_the_previous_failure_message() -> None:
+    calls, handler = _pin_handler()
+
+    result = _deliver(_notification(webhook_action='resolve', pin=False, telegram_pinned_message_id=55), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'unpinChatMessage']
+    assert calls[1][1] == {'chat_id': '-100123', 'message_thread_id': 42, 'message_id': 55}
+    assert result.message_id == 99
+    assert result.pinned_message_id is None
+    assert result.warnings == ()
+
+
+def test_pinned_repeat_replaces_the_previous_pin() -> None:
+    calls, handler = _pin_handler()
+
+    result = _deliver(_notification(pin=True, telegram_pinned_message_id=55), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'pinChatMessage', 'unpinChatMessage']
+    assert calls[1][1]['message_id'] == 99
+    assert calls[2][1]['message_id'] == 55
+    assert result.pinned_message_id == 99
+
+
+def test_delivery_without_a_previous_pin_does_not_unpin() -> None:
+    calls, handler = _pin_handler()
+
+    result = _deliver(_notification(pin=True), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'pinChatMessage']
+    assert result.pinned_message_id == 99
+
+
+def test_unpin_tolerates_a_message_that_is_already_gone() -> None:
+    calls, handler = _pin_handler(
+        unpin_response=httpx.Response(400, json={'ok': False, 'error_code': 400, 'description': 'message to unpin not found'}),
+    )
+
+    result = _deliver(_notification(webhook_action='resolve', telegram_pinned_message_id=55), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'unpinChatMessage']
+    assert result.pinned_message_id is None
+    assert result.warnings == ()
+
+
+def test_unpin_failure_keeps_the_previous_pin_for_a_later_attempt() -> None:
+    calls, handler = _pin_handler(
+        unpin_response=httpx.Response(200, json={'ok': False, 'error_code': 403, 'description': 'not enough rights'}),
+    )
+
+    result = _deliver(_notification(webhook_action='resolve', telegram_pinned_message_id=55), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'unpinChatMessage']
+    assert result.pinned_message_id == 55
+    assert result.warnings == ('Unpinning message 55 failed: Telegram Bot API responded with error 403: not enough rights',)
+
+
+def test_unpin_failure_does_not_override_a_new_pin() -> None:
+    calls, handler = _pin_handler(
+        unpin_response=httpx.Response(200, json={'ok': False, 'error_code': 403, 'description': 'not enough rights'}),
+    )
+
+    result = _deliver(_notification(pin=True, telegram_pinned_message_id=55), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'pinChatMessage', 'unpinChatMessage']
+    assert result.pinned_message_id == 99
+    assert len(result.warnings) == 1

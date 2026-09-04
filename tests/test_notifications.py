@@ -11,6 +11,8 @@ from src.tool.notifications import (
     DELIVERY_FAILED,
     DELIVERY_PENDING,
     DELIVERY_SENDING,
+    SCOPE_ITEM,
+    SCOPE_JOB,
     WEBHOOK_ACTION_RESOLVE,
     WEBHOOK_ACTION_SEND,
     WEBHOOK_ACTION_UPSERT,
@@ -22,6 +24,7 @@ from src.tool.notifications import (
     mark_notification_failed,
     mark_notification_retry,
     reset_stale_sending_notifications,
+    resolve_job_failure_notifications,
     resolve_notification,
     retry_delay_seconds,
 )
@@ -184,6 +187,7 @@ def test_enqueue_notification_serializes_payload_and_renders_markdown(monkeypatc
         'pending',
         0,
         '',
+        SCOPE_ITEM,
     )
 
 
@@ -618,7 +622,13 @@ def test_mark_notification_delivered_updates_status(monkeypatch) -> None:
 
     asyncio.run(mark_notification_delivered(12, event_version=6))
 
-    assert captured[-1][1] == (DELIVERY_DELIVERED, 'read', 12, DELIVERY_SENDING, 6)
+    assert captured[-1][1] == (DELIVERY_DELIVERED, 'read', None, None, 12, DELIVERY_SENDING, 6)
+    assert 'telegram_message_id = COALESCE(?, telegram_message_id)' in captured[-1][0]
+    assert 'telegram_pinned_message_id = ?' in captured[-1][0]
+
+    asyncio.run(mark_notification_delivered(12, event_version=6, message_id=501, pinned_message_id=501))
+
+    assert captured[-1][1] == (DELIVERY_DELIVERED, 'read', 501, 501, 12, DELIVERY_SENDING, 6)
 
 
 def test_mark_notification_retry_updates_attempt_count(monkeypatch) -> None:
@@ -671,3 +681,110 @@ def test_retry_delay_seconds_uses_exponential_backoff_with_cap() -> None:
     assert retry_delay_seconds(3) == 120
     assert retry_delay_seconds(6) == 600
     assert retry_delay_seconds(10) == 600
+
+
+def test_schema_adds_scope_and_telegram_message_columns(monkeypatch) -> None:
+    statements: list[str] = []
+    _reset_schema_state()
+
+    async def _fake_query_db_multi(sql: str, params: tuple[object, ...] = ()) -> list[list[dict[str, object]]]:
+        statements.append(sql)
+        return []
+
+    monkeypatch.setattr(notifications_module.database, 'query_db_multi', _fake_query_db_multi)
+
+    asyncio.run(ensure_notifications_table())
+
+    schema = statements[0]
+    assert "ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'item'" in schema
+    assert 'ADD COLUMN IF NOT EXISTS telegram_message_id BIGINT NULL' in schema
+    assert 'ADD COLUMN IF NOT EXISTS telegram_pinned_message_id BIGINT NULL' in schema
+    assert "SET scope = 'job'" in schema
+    assert 'AND strpos(payload, \'"error_class"\') > 0;' in schema
+    # psycopg rejects a bare '%' when params are given, even an empty tuple.
+    assert '%' not in schema
+
+
+def _job_failure_row(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        'id': 21,
+        'kind': 'job_recovered',
+        'source': 'worker',
+        'header': 'X',
+        'title': 'Job recovered',
+        'body': 'X completed successfully again.',
+        'link_url': '',
+        'image_url': '',
+        'payload': '{"job":"twitter"}',
+        'dedupe_key': 'job_failed:twitter:twitter:exit:4',
+        'status': 'unread',
+        'markdown': '',
+        'disable_web_page_preview': True,
+        'disable_notification': True,
+        'pin': False,
+        'webhook_action': WEBHOOK_ACTION_RESOLVE,
+        'occurrence_count': 3,
+        'event_version': 7,
+        'delivery_status': 'pending',
+        'attempt_count': 0,
+        'next_attempt_at': _NOW,
+        'created_at': _NOW,
+        'read_at': None,
+        'delivered_at': None,
+        'last_error': '',
+        'scope': SCOPE_JOB,
+        'telegram_message_id': 4903,
+        'telegram_pinned_message_id': 4903,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_resolve_job_failure_notifications_targets_job_scoped_rows(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    _reset_schema_state()
+
+    async def _fake_query_db_multi(sql: str, params: tuple[object, ...] = ()) -> list[list[dict[str, object]]]:
+        return []
+
+    async def _fake_query_db(sql: str, params: tuple[object, ...] = ()) -> list[dict[str, object]]:
+        captured['sql'] = sql
+        captured['params'] = params
+        return [_job_failure_row(), _job_failure_row(id=22, dedupe_key='job_failed:twitter:twitter:auth', occurrence_count=1)]
+
+    monkeypatch.setattr(notifications_module.database, 'query_db_multi', _fake_query_db_multi)
+    monkeypatch.setattr(notifications_module.database, 'query_db', _fake_query_db)
+
+    resolved = asyncio.run(
+        resolve_job_failure_notifications(
+            job_key='Twitter',
+            header='X',
+            body='X completed successfully again.',
+            payload={'job': 'twitter'},
+        ),
+    )
+
+    assert [item.notification_id for item in resolved] == [21, 22]
+    assert 'WHERE dedupe_key LIKE ?' in captured['sql']
+    assert 'AND scope = ?' in captured['sql']
+    assert '(webhook_action <> ? OR delivery_status = ?)' in captured['sql']
+    assert captured['params'][:2] == ('job_recovered', 'worker')
+    assert captured['params'][13:16] == (WEBHOOK_ACTION_RESOLVE, DELIVERY_PENDING, 0)
+    assert captured['params'][16:] == ('job\\_failed:twitter:%', SCOPE_JOB, WEBHOOK_ACTION_RESOLVE, DELIVERY_FAILED)
+    # The rendered resolve message is silent, unpinned, and carries no occurrence count.
+    assert resolved[0].pin is False
+    assert resolved[0].disable_notification is True
+    assert 'Occurrences' not in resolved[0].markdown
+    # The pinned message id survives the resolve so its delivery can unpin it.
+    assert resolved[0].telegram_pinned_message_id == 4903
+    assert resolved[0].scope == SCOPE_JOB
+
+
+def test_resolve_job_failure_notifications_ignores_an_empty_job_key(monkeypatch) -> None:
+    async def _unexpected_query(sql: str, params: tuple[object, ...] = ()) -> list[dict[str, object]]:
+        msg = 'no query expected'
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(notifications_module.database, 'query_db', _unexpected_query)
+
+    assert asyncio.run(resolve_job_failure_notifications(job_key='  ')) == []

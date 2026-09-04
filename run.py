@@ -30,6 +30,7 @@ from src.tool.control_queue import (
     update_control_request,
 )
 from src.tool.notifications import (
+    SCOPE_JOB,
     NotificationRecord,
     claim_next_pending_notification,
     enqueue_notification,
@@ -37,6 +38,7 @@ from src.tool.notifications import (
     mark_notification_delivered,
     mark_notification_failed,
     mark_notification_retry,
+    resolve_job_failure_notifications,
 )
 from src.web.telegram import Telegram
 
@@ -195,6 +197,7 @@ async def _enqueue_job_failed_notification(
             title='Job failed',
             body=error_message,
             dedupe_key=dedupe_key,
+            scope=SCOPE_JOB,
             payload={
                 'job': job.key,
                 'dedupe_key': dedupe_key,
@@ -207,6 +210,28 @@ async def _enqueue_job_failed_notification(
         )
     except Exception as notify_exc:  # noqa: BLE001
         log.warning('Failed to enqueue job_failed notification for %s: %s', job.key, notify_exc)
+
+
+async def _resolve_job_failed_notifications(*, job: ScheduledJob, finished_at: datetime) -> None:
+    """Clear whatever this job raised on earlier runs now that it went through.
+
+    Runs on every success rather than only after a known failure so a restart
+    between the two does not leave a pinned failure standing. Not gated on
+    ``notify``: the row was already queued, so clearing it is the cheaper path.
+    """
+    try:
+        resolved = await resolve_job_failure_notifications(
+            job_key=job.key,
+            header=job.name,
+            title='Job recovered',
+            body=f'{job.name} completed successfully again.',
+            payload={'job': job.key, 'finished_at': _serialize_datetime(finished_at)},
+        )
+    except Exception as resolve_exc:  # noqa: BLE001
+        log.warning('Failed to resolve job_failed notifications for %s: %s', job.key, resolve_exc)
+        return
+    for notification in resolved:
+        log.info('Resolved job_failed notification %s (%s)', notification.notification_id, notification.dedupe_key)
 
 
 def _exception_notification_dedupe_key(*, job: ScheduledJob, exc: BaseException) -> str:
@@ -253,7 +278,12 @@ async def _deliver_notification_to_telegram(
         log.warning('Telegram delivery permanently failed for notification %s: %s', notification.notification_id, error_message)
         return
 
-    await mark_notification_delivered(notification.notification_id, event_version=notification.event_version)
+    await mark_notification_delivered(
+        notification.notification_id,
+        event_version=notification.event_version,
+        message_id=result.message_id,
+        pinned_message_id=result.pinned_message_id,
+    )
     log.info('Delivered notification %s through Telegram (message %s)', notification.notification_id, result.message_id)
 
 
@@ -343,6 +373,7 @@ async def _run_job(*, job: ScheduledJob, worker: object | None = None, close_wor
     else:
         elapsed = perf_counter() - started_perf
         log.notice('Job completed: %s (%.1fs)', job.name, elapsed)
+        await _resolve_job_failed_notifications(job=job, finished_at=datetime.now(tz=UTC))
         return JobRunResult(job_key=job.key, job_name=job.name, success=True)
     finally:
         if close_worker:

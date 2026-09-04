@@ -26,6 +26,12 @@ WEBHOOK_ACTION_SEND = 'send'
 WEBHOOK_ACTION_UPSERT = 'upsert'
 WEBHOOK_ACTION_RESOLVE = 'resolve'
 
+# ``job``: the whole job raised, queued by the runner; cleared when the job next
+# succeeds. ``item``: one unit of work inside a job (a video, a parser), which the
+# owning module clears itself once that unit goes through.
+SCOPE_ITEM = 'item'
+SCOPE_JOB = 'job'
+
 _SENDING_LEASE_SECONDS = 600
 # Telegram only wants ')' and '\' escaped inside the (...) part of an inline link.
 _MARKDOWN_V2_URL_SPECIAL_CHARS = frozenset('\\)')
@@ -57,7 +63,10 @@ _SELECT_FIELDS = """
     attempt_count,
     next_attempt_at,
     delivered_at,
-    last_error
+    last_error,
+    scope,
+    telegram_message_id,
+    telegram_pinned_message_id
 """
 
 _ENSURE_NOTIFICATIONS_SCHEMA_SQL = """
@@ -86,7 +95,10 @@ CREATE TABLE IF NOT EXISTS notifications (
     attempt_count INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     delivered_at TIMESTAMPTZ NULL,
-    last_error TEXT NOT NULL DEFAULT ''
+    last_error TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL DEFAULT 'item',
+    telegram_message_id BIGINT NULL,
+    telegram_pinned_message_id BIGINT NULL
 );
 
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT '';
@@ -103,6 +115,9 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NUL
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ NULL;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'item';
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS telegram_message_id BIGINT NULL;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS telegram_pinned_message_id BIGINT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedupe_key_unique
 ON notifications (dedupe_key)
@@ -113,6 +128,15 @@ SET delivery_status = 'delivered',
     delivered_at = COALESCE(delivered_at, read_at, created_at)
 WHERE status = 'read'
   AND delivery_status <> 'delivered';
+
+-- Rows the runner queued before ``scope`` existed: only it records ``error_class``.
+-- Written without LIKE: psycopg rejects a bare percent sign in parameterless SQL.
+UPDATE notifications
+SET scope = 'job'
+WHERE scope = 'item'
+  AND source = 'worker'
+  AND strpos(dedupe_key, 'job_failed:') = 1
+  AND strpos(payload, '"error_class"') > 0;
 """
 
 
@@ -143,6 +167,11 @@ class NotificationRecord:
     last_error: str = ''
     pin: bool = False
     header: str = ''
+    scope: str = SCOPE_ITEM
+    # Telegram ids of the last message this row produced and of the one it still
+    # keeps pinned, so a later delivery (a repeat or the resolve) can unpin it.
+    telegram_message_id: int | None = None
+    telegram_pinned_message_id: int | None = None
 
     @property
     def payload_json(self) -> dict[str, Any]:
@@ -249,7 +278,19 @@ def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
         read_at=row.get('read_at'),
         delivered_at=row.get('delivered_at'),
         last_error=str(row.get('last_error') or ''),
+        scope=str(row.get('scope') or SCOPE_ITEM),
+        telegram_message_id=_optional_int(row.get('telegram_message_id')),
+        telegram_pinned_message_id=_optional_int(row.get('telegram_pinned_message_id')),
     )
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return None
 
 
 def _with_rendered_delivery_fields(notification: NotificationRecord) -> NotificationRecord:
@@ -302,6 +343,7 @@ async def enqueue_notification(
     image_url: str = '',
     payload: Mapping[str, Any] | None = None,
     dedupe_key: str = '',
+    scope: str = SCOPE_ITEM,
 ) -> NotificationRecord | None:
     """Queue one notification, unless the source has its ``notify`` toggle off.
 
@@ -350,9 +392,10 @@ async def enqueue_notification(
             delivery_status,
             attempt_count,
             next_attempt_at,
-            last_error
+            last_error,
+            scope
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
         ON CONFLICT (dedupe_key) WHERE dedupe_key <> ''
         DO UPDATE SET
             kind = EXCLUDED.kind,
@@ -370,6 +413,7 @@ async def enqueue_notification(
             disable_notification = EXCLUDED.disable_notification,
             pin = EXCLUDED.pin,
             webhook_action = EXCLUDED.webhook_action,
+            scope = EXCLUDED.scope,
             occurrence_count = CASE
                 WHEN notifications.webhook_action = '{WEBHOOK_ACTION_RESOLVE}' THEN 1
                 ELSE notifications.occurrence_count + 1
@@ -418,6 +462,7 @@ async def enqueue_notification(
             DELIVERY_PENDING,
             0,
             '',
+            scope,
         ),
     )
     if not rows:
@@ -426,43 +471,7 @@ async def enqueue_notification(
     return _with_rendered_delivery_fields(_from_row(rows[0]))
 
 
-async def resolve_notification(
-    *,
-    dedupe_key: str,
-    kind: str,
-    source: str,
-    header: str = '',
-    title: str,
-    body: str = '',
-    link_url: str = '',
-    image_url: str = '',
-    payload: Mapping[str, Any] | None = None,
-) -> NotificationRecord | None:
-    """Close out a failure this source queued earlier.
-
-    Deliberately not gated on ``notify``: this only ever updates a row that was
-    already queued, and leaving a pinned failure standing because the source was
-    muted in the meantime is worse than the one message it takes to clear it.
-    """
-    normalized_dedupe_key = dedupe_key.strip()
-    if not normalized_dedupe_key:
-        return None
-
-    await ensure_notifications_table()
-    payload_text = json.dumps(payload or {}, ensure_ascii=False, separators=(',', ':'))
-    markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
-        kind=kind,
-        header=header,
-        title=title,
-        body=body,
-        link_url=link_url,
-        image_url=image_url,
-        webhook_action=WEBHOOK_ACTION_RESOLVE,
-        occurrence_count=1,
-    )
-    rows = await database.query_db(
-        f"""
-        UPDATE notifications
+_RESOLVE_SET_SQL = """
         SET kind = ?,
             source = ?,
             header = ?,
@@ -484,27 +493,100 @@ async def resolve_notification(
             next_attempt_at = CURRENT_TIMESTAMP,
             delivered_at = NULL,
             last_error = ''
+"""
+
+# A resolve only ever re-opens an active failure, or retries one whose resolve
+# message never got out; a row already resolved and delivered stays as it is.
+_RESOLVE_WHERE_ACTIVE_SQL = '(webhook_action <> ? OR delivery_status = ?)'
+
+
+def _resolve_set_params(
+    *,
+    kind: str,
+    source: str,
+    header: str,
+    title: str,
+    body: str,
+    link_url: str,
+    image_url: str,
+    payload: Mapping[str, Any] | None,
+) -> tuple[object, ...]:
+    payload_text = json.dumps(payload or {}, ensure_ascii=False, separators=(',', ':'))
+    markdown, disable_web_page_preview, disable_notification, pin = _notification_delivery_fields(
+        kind=kind,
+        header=header,
+        title=title,
+        body=body,
+        link_url=link_url,
+        image_url=image_url,
+        webhook_action=WEBHOOK_ACTION_RESOLVE,
+        occurrence_count=1,
+    )
+    return (
+        kind,
+        source,
+        header,
+        title,
+        body,
+        link_url,
+        image_url,
+        payload_text,
+        STATUS_UNREAD,
+        markdown,
+        disable_web_page_preview,
+        disable_notification,
+        pin,
+        WEBHOOK_ACTION_RESOLVE,
+        DELIVERY_PENDING,
+        0,
+    )
+
+
+async def resolve_notification(
+    *,
+    dedupe_key: str,
+    kind: str,
+    source: str,
+    header: str = '',
+    title: str,
+    body: str = '',
+    link_url: str = '',
+    image_url: str = '',
+    payload: Mapping[str, Any] | None = None,
+) -> NotificationRecord | None:
+    """Close out a failure this source queued earlier.
+
+    Deliberately not gated on ``notify``: this only ever updates a row that was
+    already queued, and leaving a pinned failure standing because the source was
+    muted in the meantime is worse than the one message it takes to clear it.
+
+    The row keeps ``telegram_pinned_message_id`` until the resolve message is
+    delivered; that delivery is what unpins the old failure message.
+    """
+    normalized_dedupe_key = dedupe_key.strip()
+    if not normalized_dedupe_key:
+        return None
+
+    await ensure_notifications_table()
+    rows = await database.query_db(
+        f"""
+        UPDATE notifications
+        {_RESOLVE_SET_SQL}
         WHERE dedupe_key = ?
-          AND (webhook_action <> ? OR delivery_status = ?)
+          AND {_RESOLVE_WHERE_ACTIVE_SQL}
         RETURNING {_SELECT_FIELDS};
         """,
         (
-            kind,
-            source,
-            header,
-            title,
-            body,
-            link_url,
-            image_url,
-            payload_text,
-            STATUS_UNREAD,
-            markdown,
-            disable_web_page_preview,
-            disable_notification,
-            pin,
-            WEBHOOK_ACTION_RESOLVE,
-            DELIVERY_PENDING,
-            0,
+            *_resolve_set_params(
+                kind=kind,
+                source=source,
+                header=header,
+                title=title,
+                body=body,
+                link_url=link_url,
+                image_url=image_url,
+                payload=payload,
+            ),
             normalized_dedupe_key,
             WEBHOOK_ACTION_RESOLVE,
             DELIVERY_FAILED,
@@ -513,6 +595,62 @@ async def resolve_notification(
     if not rows:
         return None
     return _with_rendered_delivery_fields(_from_row(rows[0]))
+
+
+def _like_literal(value: str) -> str:
+    return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
+async def resolve_job_failure_notifications(
+    *,
+    job_key: str,
+    kind: str = 'job_recovered',
+    source: str = 'worker',
+    header: str = '',
+    title: str = 'Job recovered',
+    body: str = '',
+    payload: Mapping[str, Any] | None = None,
+) -> list[NotificationRecord]:
+    """Close every job-scoped failure queued for ``job_key``.
+
+    Meant for the runner's success path: whatever ``update()`` raised last time
+    is over once it returns cleanly, whichever dedupe key the exception carried.
+    Item-scoped rows are left alone; a job can finish while one of its items is
+    still broken, and only the module that owns the item knows when it recovers.
+    """
+    normalized_job_key = job_key.strip().lower()
+    if not normalized_job_key:
+        return []
+
+    await ensure_notifications_table()
+    prefix = format_job_failure_dedupe_key(job_key=normalized_job_key, failure_key='x')[:-1]
+    rows = await database.query_db(
+        f"""
+        UPDATE notifications
+        {_RESOLVE_SET_SQL}
+        WHERE dedupe_key LIKE ?
+          AND scope = ?
+          AND {_RESOLVE_WHERE_ACTIVE_SQL}
+        RETURNING {_SELECT_FIELDS};
+        """,
+        (
+            *_resolve_set_params(
+                kind=kind,
+                source=source,
+                header=header,
+                title=title,
+                body=body,
+                link_url='',
+                image_url='',
+                payload=payload,
+            ),
+            f'{_like_literal(prefix)}%',
+            SCOPE_JOB,
+            WEBHOOK_ACTION_RESOLVE,
+            DELIVERY_FAILED,
+        ),
+    )
+    return [_with_rendered_delivery_fields(_from_row(row)) for row in rows]
 
 
 async def claim_next_pending_notification() -> NotificationRecord | None:
@@ -610,7 +748,18 @@ def retry_delay_seconds(next_attempt_count: int) -> int:
     return min(600, 30 * (2 ** (next_attempt_count - 1)))
 
 
-async def mark_notification_delivered(notification_id: int, *, event_version: int) -> None:
+async def mark_notification_delivered(
+    notification_id: int,
+    *,
+    event_version: int,
+    message_id: int | None = None,
+    pinned_message_id: int | None = None,
+) -> None:
+    """Close a delivery, remembering which Telegram message (if any) it left pinned.
+
+    ``pinned_message_id`` is written as given: ``None`` means the delivery left
+    nothing pinned, which is what a resolve or an unpinned repeat should record.
+    """
     await ensure_notifications_table()
     await database.query_db(
         """
@@ -619,12 +768,14 @@ async def mark_notification_delivered(notification_id: int, *, event_version: in
             delivered_at = CURRENT_TIMESTAMP,
             status = ?,
             read_at = COALESCE(read_at, CURRENT_TIMESTAMP),
-            last_error = ''
+            last_error = '',
+            telegram_message_id = COALESCE(?, telegram_message_id),
+            telegram_pinned_message_id = ?
         WHERE id = ?
           AND delivery_status = ?
           AND event_version = ?;
         """,
-        (DELIVERY_DELIVERED, STATUS_READ, notification_id, DELIVERY_SENDING, event_version),
+        (DELIVERY_DELIVERED, STATUS_READ, message_id, pinned_message_id, notification_id, DELIVERY_SENDING, event_version),
     )
 
 
