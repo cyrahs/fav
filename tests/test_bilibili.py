@@ -818,3 +818,33 @@ def test_an_account_referencing_a_missing_shared_config_is_reported() -> None:
     cfg = settings.Bilibili(accounts=[_account('main', cookiecloud='ghost')])
 
     assert cfg.validate_runnable() == ["accounts[0].cookiecloud (no config named 'ghost')"]
+
+
+def _cookie_file(path: Path, names: list[str]) -> Path:
+    lines = ['# Netscape HTTP Cookie File']
+    lines.extend(f'.bilibili.com\tTRUE\t/\tTRUE\t4102444800\t{name}\tvalue-{name}' for name in names)
+    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    return path
+
+
+def test_create_credential_names_the_missing_cookies(tmp_path) -> None:
+    b = _make_bilibili(tmp_path)
+    cookie_path = _cookie_file(tmp_path / 'bilibili-main.txt', ['bili_jct', 'buvid3', 'DedeUserID'])
+
+    with pytest.raises(bilibili_module.MissingCookiesError) as error:
+        b.create_credential(cookie_path)
+
+    # The old code died with ``KeyError: 'sessdata'`` before its own warning could fire.
+    assert error.value.missing == ('sessdata',)
+    assert 'bilibili-main.txt' in str(error.value)
+    assert 'Sign in to bilibili.com' in str(error.value)
+
+
+def test_create_credential_builds_from_a_complete_cookie_file(tmp_path) -> None:
+    b = _make_bilibili(tmp_path)
+    cookie_path = _cookie_file(tmp_path / 'bilibili-main.txt', ['SESSDATA', 'bili_jct', 'buvid3', 'DedeUserID'])
+
+    credential = b.create_credential(cookie_path)
+
+    assert credential.sessdata == 'value-SESSDATA'
+    assert credential.bili_jct == 'value-bili_jct'

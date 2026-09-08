@@ -35,6 +35,7 @@ from src.tool.notifications import (
     claim_next_pending_notification,
     enqueue_notification,
     format_job_failure_dedupe_key,
+    format_job_run_failure_dedupe_key,
     mark_notification_delivered,
     mark_notification_failed,
     mark_notification_retry,
@@ -236,16 +237,35 @@ async def _resolve_job_failed_notifications(*, job: ScheduledJob, finished_at: d
 
 def _exception_notification_dedupe_key(*, job: ScheduledJob, exc: BaseException) -> str:
     failure_key = getattr(exc, 'notification_dedupe_key', '')
-    if not isinstance(failure_key, str):
-        return ''
-    return format_job_failure_dedupe_key(job_key=job.key, failure_key=failure_key)
+    if isinstance(failure_key, str) and failure_key.strip():
+        return format_job_failure_dedupe_key(job_key=job.key, failure_key=failure_key)
+    # Anything else (an expired cookie, a network error, a KeyError) is "this job's
+    # run is broken", one row per job, however many runs it stays broken for.
+    return format_job_run_failure_dedupe_key(job.key)
 
 
 def _format_exception(exc: BaseException) -> str:
-    message = str(exc)
+    message = str(exc) or _request_host(exc)
     if not message:
         return exc.__class__.__name__
     return f'{exc.__class__.__name__}: {message}'
+
+
+def _request_host(exc: BaseException) -> str:
+    """The host an httpx transport error was talking to, for the ones with no message at all.
+
+    ``ConnectTimeout`` and ``ReadTimeout`` stringify to nothing, so a failure
+    notification for one said only which class it was. The host is enough to
+    tell a dead CookieCloud from a slow origin; the full URL can carry secrets
+    (CookieCloud puts the vault id in the path), so it stays out.
+    """
+    if not isinstance(exc, httpx.RequestError):
+        return ''
+    try:
+        request = exc.request
+    except RuntimeError:
+        return ''
+    return f'while requesting {request.url.host}' if request.url.host else ''
 
 
 async def _deliver_notification_to_telegram(
@@ -347,16 +367,13 @@ async def _run_job(*, job: ScheduledJob, worker: object | None = None, close_wor
     try:
         await selected_worker.update()
     except asyncio.CancelledError as exc:
+        # A cancelled run is the worker going down (a deploy, a restart) or the user
+        # stopping it, not the job being broken: the next scheduled run simply runs.
+        # Reporting it used to leave a pinned "CancelledError" behind every deploy,
+        # and folding it into the run-level failure row would overwrite whatever
+        # real failure that row was pinning.
         elapsed = perf_counter() - started_perf
-        finished_at = datetime.now(tz=UTC)
-        await _enqueue_job_failed_notification(
-            job=job,
-            started_at=started_at,
-            finished_at=finished_at,
-            elapsed_seconds=elapsed,
-            exc=exc,
-        )
-        log.exception('Job cancelled: %s', job.name)
+        log.notice('Job cancelled: %s (%.1fs)', job.name, elapsed)
         return JobRunResult(job_key=job.key, job_name=job.name, success=False, error=_format_exception(exc), cancelled=True)
     except Exception as exc:
         elapsed = perf_counter() - started_perf

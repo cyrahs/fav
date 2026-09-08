@@ -3,6 +3,8 @@
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
+
 import run as run_module
 from src.service.jobs import ScheduledJob
 from src.tool import telegram_bot
@@ -421,6 +423,9 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert captured['payload']['job'] == 'bilibili'
     assert captured['payload']['error_class'] == 'RuntimeError'
     assert captured['payload']['error_message'] == 'boom'
+    # No exception-specific key, so the failure folds into the job's single run-level row.
+    assert captured['dedupe_key'] == 'job_failed:bilibili:run'
+    assert captured['payload']['dedupe_key'] == 'job_failed:bilibili:run'
 
 
 def test_run_job_skips_job_failed_notification_for_a_muted_job(monkeypatch) -> None:
@@ -605,8 +610,19 @@ def test_run_job_handles_cancelled_error_and_closes_worker(monkeypatch) -> None:
     assert result.error == 'CancelledError'
     assert result.cancelled is True
     assert closed == ['closed']
-    assert captured['kind'] == 'job_failed'
-    assert captured['payload']['error_class'] == 'CancelledError'
+    # A cancellation is a shutdown, not a failure worth a (pinned) notification.
+    assert captured == {}
+
+
+def test_format_exception_names_the_host_for_a_messageless_transport_error() -> None:
+    request = httpx.Request('GET', 'https://cookiecloud.example.com/get/secret-vault-id')
+    exc = httpx.ConnectTimeout('', request=request)
+
+    formatted = run_module._format_exception(exc)
+
+    assert formatted == 'ConnectTimeout: while requesting cookiecloud.example.com'
+    assert 'secret-vault-id' not in formatted
+    assert run_module._format_exception(httpx.ConnectTimeout('')) == 'ConnectTimeout'
 
 
 def test_run_job_can_reuse_singleton_worker_without_closing_it() -> None:

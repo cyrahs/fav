@@ -447,8 +447,10 @@ from the `app_settings` table.
 The worker delivers queued notifications directly through Telegram's Bot API. It prefers a local
 image, then a remote image URL, and finally text. Telegram rate-limit responses feed the PostgreSQL
 outbox retry schedule. Pinning is best-effort so a missing pin permission does not resend an already
-delivered message. The API origin is fixed to `https://api.telegram.org` so a retained masked token
-cannot be redirected to another host.
+delivered message. A failure that repeats re-pins its latest message and unpins the previous one, and
+the recovery message unpins the failure, so one problem never holds more than one pin. Only the first
+occurrence of a failure rings the phone; repeats arrive silently with an occurrence count. The API origin
+is fixed to `https://api.telegram.org` so a retained masked token cannot be redirected to another host.
 
 Configure the `notifications.telegram` section in the web UI, save it, then use 发送测试消息 before
 switching `enabled` on:

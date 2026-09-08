@@ -337,6 +337,36 @@ def test_notification_record_resolves_local_image_path_from_payload() -> None:
     assert record.local_image_path == Path('/images/demo.png')
 
 
+def test_job_run_failure_dedupe_key_is_one_row_per_job() -> None:
+    assert notifications_module.format_job_run_failure_dedupe_key('Bilibili') == 'job_failed:bilibili:run'
+    assert notifications_module.format_job_run_failure_dedupe_key('') == ''
+
+
+def test_first_failure_rings_and_repeats_stay_silent() -> None:
+    def _fields(occurrence_count: int) -> tuple[str, bool, bool, bool]:
+        return notifications_module._notification_delivery_fields(
+            kind='job_failed',
+            header='Bilibili',
+            title='Job failed',
+            body='KeyError: sessdata',
+            link_url='',
+            image_url='',
+            webhook_action=WEBHOOK_ACTION_UPSERT,
+            occurrence_count=occurrence_count,
+        )
+
+    first_markdown, _, first_silent, first_pin = _fields(1)
+    repeat_markdown, _, repeat_silent, repeat_pin = _fields(4)
+
+    assert first_silent is False
+    assert first_pin is True
+    assert 'Occurrences' not in first_markdown
+    # Still delivered and still pinned, just without the alert sound.
+    assert repeat_silent is True
+    assert repeat_pin is True
+    assert repeat_markdown.endswith('Occurrences: 4')
+
+
 def test_image_url_is_not_rendered_as_redundant_caption_link() -> None:
     markdown, disable_web_page_preview, disable_notification, pin = notifications_module._notification_delivery_fields(
         kind='download_completed',
@@ -597,7 +627,8 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
         DELIVERY_SENDING,
         'FAV · Bilibili\n[*Video \\[01\\]*](https://example.com/video)\nUploader\\_\\(name\\)\nOccurrences: 3',
         False,
-        False,
+        # Third occurrence: still pinned, but re-rendered as silent at claim time.
+        True,
         True,
         notifications_module._SENDING_LEASE_SECONDS,
         10,

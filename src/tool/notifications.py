@@ -190,12 +190,27 @@ class NotificationRecord:
         return Path(normalized_path) if normalized_path else None
 
 
+JOB_RUN_FAILURE_KEY = 'run'
+
+
 def format_job_failure_dedupe_key(*, job_key: str, failure_key: str) -> str:
     normalized_job_key = job_key.strip().lower()
     normalized_failure_key = failure_key.strip()
     if not normalized_job_key or not normalized_failure_key:
         return ''
     return f'job_failed:{normalized_job_key}:{normalized_failure_key}'
+
+
+def format_job_run_failure_dedupe_key(job_key: str) -> str:
+    """Key for a job run that failed as a whole, whatever the exception was.
+
+    One job has one current state, so every run-level failure shares this key:
+    a repeat bumps the occurrence count and re-pins instead of stacking a new
+    row (and a new pin) per run. Being job-scoped, the next clean run resolves
+    it with the rest. Failures an exception scopes narrower than the run (one
+    video, one parser) keep their own key through ``notification_dedupe_key``.
+    """
+    return format_job_failure_dedupe_key(job_key=job_key, failure_key=JOB_RUN_FAILURE_KEY)
 
 
 def _escape_markdown_v2(value: str) -> str:
@@ -248,7 +263,11 @@ def _notification_delivery_fields(
     if normalized_link_url and not normalized_title:
         parts.append(_escape_markdown_v2(normalized_link_url))
 
-    return '\n'.join(parts), not bool(normalized_link_url), not is_active_job_failure, is_active_job_failure
+    # Only the first occurrence of a failure rings the phone: the repeats still
+    # arrive and take over the pin, so the chat shows the problem is still there,
+    # without a daily alert for something already known.
+    disable_notification = not is_active_job_failure or occurrence_count > 1
+    return '\n'.join(parts), not bool(normalized_link_url), disable_notification, is_active_job_failure
 
 
 def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
