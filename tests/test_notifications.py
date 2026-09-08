@@ -94,6 +94,7 @@ def test_ensure_notifications_table_runs_schema_migration(monkeypatch) -> None:
     assert 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT' in captured[0]
     assert 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS header TEXT NOT NULL DEFAULT' in captured[0]
     assert 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS pin BOOLEAN NOT NULL DEFAULT FALSE' in captured[0]
+    assert 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS pinned_message_id BIGINT NULL' in captured[0]
     assert 'CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedupe_key_unique' in captured[0]
     assert 'ALTER TABLE notifications ADD COLUMN IF NOT EXISTS event_version INTEGER NOT NULL DEFAULT 1' in captured[0]
     assert "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS delivery_status TEXT NOT NULL DEFAULT 'pending'" in captured[0]
@@ -331,6 +332,31 @@ def test_notification_record_resolves_local_image_path_from_payload() -> None:
     )
 
     assert record.local_image_path == Path('/images/demo.png')
+
+
+def test_first_failure_rings_and_repeats_stay_silent() -> None:
+    def _fields(occurrence_count: int) -> tuple[str, bool, bool, bool]:
+        return notifications_module._notification_delivery_fields(
+            kind='job_failed',
+            header='Bilibili',
+            title='Job failed',
+            body='KeyError: sessdata',
+            link_url='',
+            image_url='',
+            webhook_action=WEBHOOK_ACTION_UPSERT,
+            occurrence_count=occurrence_count,
+        )
+
+    first_markdown, _, first_silent, first_pin = _fields(1)
+    repeat_markdown, _, repeat_silent, repeat_pin = _fields(4)
+
+    assert first_silent is False
+    assert first_pin is True
+    assert 'Occurrences' not in first_markdown
+    # Still delivered and still pinned, just without the alert sound.
+    assert repeat_silent is True
+    assert repeat_pin is True
+    assert repeat_markdown.endswith('Occurrences: 4')
 
 
 def test_image_url_is_not_rendered_as_redundant_caption_link() -> None:
@@ -593,7 +619,8 @@ def test_claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
         DELIVERY_SENDING,
         'FAV · Bilibili\n[*Video \\[01\\]*](https://example.com/video)\nUploader\\_\\(name\\)\nOccurrences: 3',
         False,
-        False,
+        # Third occurrence: still pinned, but re-rendered as silent at claim time.
+        True,
         True,
         notifications_module._SENDING_LEASE_SECONDS,
         10,
@@ -616,9 +643,34 @@ def test_mark_notification_delivered_updates_status(monkeypatch) -> None:
     monkeypatch.setattr(notifications_module.database, 'query_db_multi', _fake_query_db_multi)
     monkeypatch.setattr(notifications_module.database, 'query_db', _fake_query_db)
 
+    asyncio.run(mark_notification_delivered(12, event_version=6, pinned_message_id=4967))
+
+    assert 'pinned_message_id = ?' in captured[-1][0]
+    assert captured[-1][1] == (DELIVERY_DELIVERED, 'read', 4967, 12, DELIVERY_SENDING, 6)
+
+
+def test_mark_notification_delivered_clears_the_pin_when_nothing_stays_pinned(monkeypatch) -> None:
+    captured: list[tuple[str, tuple[object, ...]]] = []
+    _reset_schema_state()
+
+    async def _fake_query_db_multi(sql: str, params: tuple[object, ...] = ()) -> list[list[dict[str, object]]]:
+        return []
+
+    async def _fake_query_db(sql: str, params: tuple[object, ...] = ()) -> list[dict[str, object]]:
+        captured.append((sql, params))
+        return []
+
+    monkeypatch.setattr(notifications_module.database, 'query_db_multi', _fake_query_db_multi)
+    monkeypatch.setattr(notifications_module.database, 'query_db', _fake_query_db)
+
     asyncio.run(mark_notification_delivered(12, event_version=6))
 
-    assert captured[-1][1] == (DELIVERY_DELIVERED, 'read', 12, DELIVERY_SENDING, 6)
+    assert captured[-1][1] == (DELIVERY_DELIVERED, 'read', None, 12, DELIVERY_SENDING, 6)
+
+
+def test_job_run_failure_dedupe_key_is_one_row_per_job() -> None:
+    assert notifications_module.format_job_run_failure_dedupe_key('Bilibili') == 'job_failed:bilibili:run'
+    assert notifications_module.format_job_run_failure_dedupe_key('') == ''
 
 
 def test_mark_notification_retry_updates_attempt_count(monkeypatch) -> None:

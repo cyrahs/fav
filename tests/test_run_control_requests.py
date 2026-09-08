@@ -3,6 +3,8 @@
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
+
 import run as run_module
 from src.service.jobs import ScheduledJob
 from src.tool import telegram_bot
@@ -421,6 +423,47 @@ def test_run_job_enqueues_job_failed_notification(monkeypatch) -> None:
     assert captured['payload']['job'] == 'bilibili'
     assert captured['payload']['error_class'] == 'RuntimeError'
     assert captured['payload']['error_message'] == 'boom'
+    # No exception-specific key, so the failure folds into the job's single run-level row.
+    assert captured['dedupe_key'] == 'job_failed:bilibili:run'
+    assert captured['payload']['dedupe_key'] == 'job_failed:bilibili:run'
+
+
+def test_run_job_resolves_the_run_failure_when_the_job_succeeds(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _Worker:
+        async def update(self) -> None:
+            return None
+
+    async def _fake_resolve_notification(**payload) -> None:
+        captured.update(payload)
+
+    monkeypatch.setattr(run_module, 'resolve_notification', _fake_resolve_notification)
+
+    result = asyncio.run(run_module._run_job(job=_job(key='bilibili'), worker=_Worker()))
+
+    assert result.success is True
+    assert captured['dedupe_key'] == 'job_failed:bilibili:run'
+    assert captured['kind'] == 'job_recovered'
+    assert captured['source'] == 'worker'
+    assert captured['header'] == 'Bilibili'
+    assert captured['title'] == 'Job recovered'
+    assert captured['payload']['job'] == 'bilibili'
+
+
+def test_run_job_success_survives_a_failing_resolve(monkeypatch) -> None:
+    class _Worker:
+        async def update(self) -> None:
+            return None
+
+    async def _broken_resolve_notification(**_payload) -> None:
+        raise RuntimeError('database is away')
+
+    monkeypatch.setattr(run_module, 'resolve_notification', _broken_resolve_notification)
+
+    result = asyncio.run(run_module._run_job(job=_job(key='bilibili'), worker=_Worker()))
+
+    assert result.success is True
 
 
 def test_run_job_skips_job_failed_notification_for_a_muted_job(monkeypatch) -> None:
@@ -543,11 +586,27 @@ def test_run_job_handles_cancelled_error_and_closes_worker(monkeypatch) -> None:
     assert result.error == 'CancelledError'
     assert result.cancelled is True
     assert closed == ['closed']
-    assert captured['kind'] == 'job_failed'
-    assert captured['payload']['error_class'] == 'CancelledError'
+    # A cancellation is a shutdown, not a failure worth a (pinned) notification.
+    assert captured == {}
 
 
-def test_run_job_can_reuse_singleton_worker_without_closing_it() -> None:
+def test_format_exception_names_the_host_for_a_messageless_transport_error() -> None:
+    request = httpx.Request('GET', 'https://cookiecloud.example.com/get/secret-vault-id')
+    exc = httpx.ConnectTimeout('', request=request)
+
+    formatted = run_module._format_exception(exc)
+
+    assert formatted == 'ConnectTimeout: while requesting cookiecloud.example.com'
+    assert 'secret-vault-id' not in formatted
+    assert run_module._format_exception(httpx.ConnectTimeout('')) == 'ConnectTimeout'
+
+
+def test_run_job_can_reuse_singleton_worker_without_closing_it(monkeypatch) -> None:
+    async def _fake_resolve_notification(**_payload) -> None:
+        return None
+
+    monkeypatch.setattr(run_module, 'resolve_notification', _fake_resolve_notification)
+
     calls: list[str] = []
 
     class _Worker:
@@ -581,7 +640,7 @@ def test_run_job_can_reuse_singleton_worker_without_closing_it() -> None:
 
 
 def test_deliver_next_notification_uses_direct_telegram(monkeypatch) -> None:
-    delivered: list[tuple[int, int]] = []
+    delivered: list[tuple[int, int, int | None]] = []
     delivery_configs: list[telegram_bot.TelegramBotConfig] = []
 
     async def _fake_claim() -> NotificationRecord | None:
@@ -591,10 +650,10 @@ def test_deliver_next_notification_uses_direct_telegram(monkeypatch) -> None:
         assert notification.notification_id == 7
         assert client is not None
         delivery_configs.append(config)
-        return telegram_bot.TelegramDeliveryResult(message_id=99, media_status='none')
+        return telegram_bot.TelegramDeliveryResult(message_id=99, media_status='none', pinned_message_id=99)
 
-    async def _fake_mark_delivered(notification_id: int, *, event_version: int) -> None:
-        delivered.append((notification_id, event_version))
+    async def _fake_mark_delivered(notification_id: int, *, event_version: int, pinned_message_id: int | None) -> None:
+        delivered.append((notification_id, event_version, pinned_message_id))
 
     monkeypatch.setattr(run_module, 'claim_next_pending_notification', _fake_claim)
     monkeypatch.setattr(run_module, '_load_telegram_bot_config', _telegram_config)
@@ -605,7 +664,8 @@ def test_deliver_next_notification_uses_direct_telegram(monkeypatch) -> None:
 
     assert processed is True
     assert delivery_configs == [_telegram_config()]
-    assert delivered == [(7, 3)]
+    # The pinned message id is what lets the next delivery on this row unpin it.
+    assert delivered == [(7, 3, 99)]
 
 
 def test_deliver_next_notification_leaves_queue_untouched_when_telegram_is_disabled(monkeypatch) -> None:

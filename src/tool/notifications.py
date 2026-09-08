@@ -57,7 +57,8 @@ _SELECT_FIELDS = """
     attempt_count,
     next_attempt_at,
     delivered_at,
-    last_error
+    last_error,
+    pinned_message_id
 """
 
 _ENSURE_NOTIFICATIONS_SCHEMA_SQL = """
@@ -86,7 +87,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     attempt_count INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     delivered_at TIMESTAMPTZ NULL,
-    last_error TEXT NOT NULL DEFAULT ''
+    last_error TEXT NOT NULL DEFAULT '',
+    pinned_message_id BIGINT NULL
 );
 
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dedupe_key TEXT NOT NULL DEFAULT '';
@@ -103,6 +105,7 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NUL
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ NULL;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS pinned_message_id BIGINT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedupe_key_unique
 ON notifications (dedupe_key)
@@ -143,6 +146,9 @@ class NotificationRecord:
     last_error: str = ''
     pin: bool = False
     header: str = ''
+    # The Telegram message this row currently keeps pinned, so the next delivery on
+    # the same dedupe key can unpin it. Only ever written by the delivery worker.
+    pinned_message_id: int | None = None
 
     @property
     def payload_json(self) -> dict[str, Any]:
@@ -161,12 +167,27 @@ class NotificationRecord:
         return Path(normalized_path) if normalized_path else None
 
 
+JOB_RUN_FAILURE_KEY = 'run'
+
+
 def format_job_failure_dedupe_key(*, job_key: str, failure_key: str) -> str:
     normalized_job_key = job_key.strip().lower()
     normalized_failure_key = failure_key.strip()
     if not normalized_job_key or not normalized_failure_key:
         return ''
     return f'job_failed:{normalized_job_key}:{normalized_failure_key}'
+
+
+def format_job_run_failure_dedupe_key(job_key: str) -> str:
+    """Key for a job run that failed as a whole, whatever the exception was.
+
+    One job has one current state, so every run-level failure shares this key:
+    a repeat bumps the occurrence count and re-pins instead of stacking a new
+    pinned message per run, and the next successful run resolves it. Failures an
+    exception scopes narrower than the run (one video, one parser) keep their own
+    key through ``notification_dedupe_key``.
+    """
+    return format_job_failure_dedupe_key(job_key=job_key, failure_key=JOB_RUN_FAILURE_KEY)
 
 
 def _escape_markdown_v2(value: str) -> str:
@@ -219,7 +240,11 @@ def _notification_delivery_fields(
     if normalized_link_url and not normalized_title:
         parts.append(_escape_markdown_v2(normalized_link_url))
 
-    return '\n'.join(parts), not bool(normalized_link_url), not is_active_job_failure, is_active_job_failure
+    # Only the first occurrence of a failure rings the phone: the repeats still
+    # arrive and take over the pin, so the chat shows the problem is still there,
+    # without a daily alert for something already known.
+    disable_notification = not is_active_job_failure or occurrence_count > 1
+    return '\n'.join(parts), not bool(normalized_link_url), disable_notification, is_active_job_failure
 
 
 def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
@@ -249,7 +274,17 @@ def _from_row(row: Mapping[str, Any]) -> NotificationRecord:
         read_at=row.get('read_at'),
         delivered_at=row.get('delivered_at'),
         last_error=str(row.get('last_error') or ''),
+        pinned_message_id=_optional_int(row.get('pinned_message_id')),
     )
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _with_rendered_delivery_fields(notification: NotificationRecord) -> NotificationRecord:
@@ -610,7 +645,13 @@ def retry_delay_seconds(next_attempt_count: int) -> int:
     return min(600, 30 * (2 ** (next_attempt_count - 1)))
 
 
-async def mark_notification_delivered(notification_id: int, *, event_version: int) -> None:
+async def mark_notification_delivered(
+    notification_id: int,
+    *,
+    event_version: int,
+    pinned_message_id: int | None = None,
+) -> None:
+    """Record a successful send, along with which Telegram message (if any) it left pinned."""
     await ensure_notifications_table()
     await database.query_db(
         """
@@ -619,12 +660,13 @@ async def mark_notification_delivered(notification_id: int, *, event_version: in
             delivered_at = CURRENT_TIMESTAMP,
             status = ?,
             read_at = COALESCE(read_at, CURRENT_TIMESTAMP),
-            last_error = ''
+            last_error = '',
+            pinned_message_id = ?
         WHERE id = ?
           AND delivery_status = ?
           AND event_version = ?;
         """,
-        (DELIVERY_DELIVERED, STATUS_READ, notification_id, DELIVERY_SENDING, event_version),
+        (DELIVERY_DELIVERED, STATUS_READ, pinned_message_id, notification_id, DELIVERY_SENDING, event_version),
     )
 
 

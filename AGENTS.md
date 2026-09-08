@@ -71,8 +71,14 @@ Three moving parts, all coordinating through PostgreSQL rather than through memo
   `control_requests`; the worker claims it (`FOR UPDATE SKIP LOCKED`) within ~1s. Job state is
   re-read per request, so "configure, then press Run" works without waiting for the settings poll.
 - **Notifications**: sources call `enqueue_notification(...)` into a durable outbox table; the worker
-  delivers it via `src/tool/telegram_bot.py`. Job failures are enqueued by `run.py` itself, and an
-  exception carrying a `notification_dedupe_key` attribute is deduplicated instead of spamming.
+  delivers it via `src/tool/telegram_bot.py`. Job failures are enqueued by `run.py` itself under one
+  dedupe key per job (`job_failed:<job>:run`), so a job that keeps failing bumps one row instead of
+  adding a message per run; an exception carrying a `notification_dedupe_key` attribute gets its own
+  narrower key instead (one video, one parser). A successful run resolves the run-level row. The row
+  remembers the Telegram message it pinned (`pinned_message_id`), and the next delivery on that row
+  pins the new message and unpins the old one, so a failure holds at most one pin at a time. Only the
+  first occurrence rings; repeats are delivered silent. A cancelled run (shutdown, deploy, manual
+  stop) is logged but not reported at all.
   Every message follows one template: a `FAV · <source>` line from `header`, then `title` carrying
   the `link_url` hyperlink, then `body`. Pass `header` from every call site — the source's `JOB_SPECS`
   name, so one source is never labelled two ways — and keep that name out of `title`. The immediate

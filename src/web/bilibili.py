@@ -54,6 +54,21 @@ SELECT EXISTS (
 _BILIBILI_ADD_BVID_ARBITER_SQL = 'ALTER TABLE bilibili ADD CONSTRAINT bilibili_bvid_unique UNIQUE (bvid);'
 
 
+class MissingCookiesError(RuntimeError):
+    """The CookieCloud vault no longer carries the cookies a Credential needs.
+
+    Nearly always the browser signed out of bilibili.com, so the message says so;
+    a bare ``KeyError: 'sessdata'`` in the failure notification does not.
+    """
+
+    def __init__(self, *, cookie_path: Path, missing: list[str]) -> None:
+        super().__init__(
+            f'bilibili.com cookies missing from CookieCloud ({cookie_path.name}): {", ".join(missing)}. '
+            'Sign in to bilibili.com in the browser CookieCloud syncs from.',
+        )
+        self.missing = tuple(missing)
+
+
 class DownloadError(RuntimeError):
     """Raised when a download fails after retries."""
 
@@ -359,10 +374,10 @@ class Bilibili:
         cookies = [cookie.__dict__ for cookie in cookie_jar]
         cookies = {cookies['name'].lower(): cookies['value'] for cookies in cookies}
         needed_cookies = ['sessdata', 'bili_jct', 'buvid3', 'dedeuserid']
-        cookies = {k: cookies[k] for k in needed_cookies}
-        if len(cookies) != len(needed_cookies):
-            log.warning('Some cookies are missing: %s', cookies.keys())
-        return api.Credential(**cookies)
+        missing = [name for name in needed_cookies if name not in cookies]
+        if missing:
+            raise MissingCookiesError(cookie_path=cookie_path, missing=missing)
+        return api.Credential(**{k: cookies[k] for k in needed_cookies})
 
     async def check_valid(self, v: api.video.Video) -> bool:
         """Check if the video is valid."""

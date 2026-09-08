@@ -153,7 +153,81 @@ def test_pin_failure_is_best_effort() -> None:
 
     assert methods == ['sendMessage', 'pinChatMessage']
     assert result.message_id == 99
+    assert result.pinned_message_id is None
     assert result.warnings == ('Pinning failed: Telegram Bot API responded with error 403: not enough rights',)
+
+
+def _pin_recorder(*, fail: str | None = None) -> tuple[list[tuple[str, dict[str, object]]], object]:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        method = request.url.path.rsplit('/', 1)[-1]
+        calls.append((method, json.loads(request.content)))
+        if method == fail:
+            return httpx.Response(200, json={'ok': False, 'error_code': 400, 'description': 'message to unpin not found'})
+        return httpx.Response(200, json={'ok': True, 'result': {'message_id': 99}})
+
+    return calls, _handler
+
+
+def _deliver(notification: NotificationRecord, handler) -> telegram_bot.TelegramDeliveryResult:
+    async def _run() -> telegram_bot.TelegramDeliveryResult:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await telegram_bot.deliver(notification=notification, client=client, config=_config())
+
+    return asyncio.run(_run())
+
+
+def test_repeated_failure_pins_the_new_message_and_unpins_the_previous_one() -> None:
+    calls, handler = _pin_recorder()
+
+    result = _deliver(_notification(pin=True, pinned_message_id=50), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'pinChatMessage', 'unpinChatMessage']
+    assert calls[1][1]['message_id'] == 99
+    assert calls[2][1] == {'chat_id': '-100123', 'message_id': 50}
+    assert result.pinned_message_id == 99
+    assert result.warnings == ()
+
+
+def test_first_failure_has_nothing_to_unpin() -> None:
+    calls, handler = _pin_recorder()
+
+    result = _deliver(_notification(pin=True), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'pinChatMessage']
+    assert result.pinned_message_id == 99
+
+
+def test_recovery_unpins_the_failure_without_pinning_itself() -> None:
+    calls, handler = _pin_recorder()
+
+    result = _deliver(_notification(pin=False, webhook_action='resolve', pinned_message_id=50), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'unpinChatMessage']
+    assert calls[1][1]['message_id'] == 50
+    assert result.pinned_message_id is None
+
+
+def test_failed_pin_keeps_the_previous_message_pinned() -> None:
+    calls, handler = _pin_recorder(fail='pinChatMessage')
+
+    result = _deliver(_notification(pin=True, pinned_message_id=50), handler)
+
+    # The old pin is still the only thing marking the failure, so it stays.
+    assert [method for method, _ in calls] == ['sendMessage', 'pinChatMessage']
+    assert result.pinned_message_id == 50
+    assert len(result.warnings) == 1
+
+
+def test_unpin_failure_is_best_effort() -> None:
+    calls, handler = _pin_recorder(fail='unpinChatMessage')
+
+    result = _deliver(_notification(pin=True, pinned_message_id=50), handler)
+
+    assert [method for method, _ in calls] == ['sendMessage', 'pinChatMessage', 'unpinChatMessage']
+    assert result.pinned_message_id == 99
+    assert result.warnings == ('Unpinning message 50 failed: Telegram Bot API responded with error 400: message to unpin not found',)
 
 
 def test_long_markdown_uses_truncated_plain_text() -> None:
