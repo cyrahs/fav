@@ -72,9 +72,8 @@ class TelegramDeliveryResult:
     message_id: int | None
     media_status: str
     warnings: tuple[str, ...] = ()
-    # The message left pinned for this notification once delivery finished: the new
-    # one when pinning succeeded, the previous one when it did not, None when the
-    # notification is not meant to stay pinned.
+    # The message this delivery left pinned for its notification, if any. The
+    # outbox stores it so the next delivery on the same row knows what to unpin.
     pinned_message_id: int | None = None
 
 
@@ -276,11 +275,18 @@ async def _pin_message(*, client: httpx.AsyncClient, config: TelegramBotConfig, 
 
 
 async def _unpin_message(*, client: httpx.AsyncClient, config: TelegramBotConfig, message_id: int) -> None:
-    payload = {'chat_id': config.chat_id, 'message_id': message_id}
-    await _call_api(client=client, config=config, method='unpinChatMessage', json_payload=payload)
+    payload = {**_common_payload(config), 'message_id': message_id}
+    try:
+        await _call_api(client=client, config=config, method='unpinChatMessage', json_payload=payload)
+    except TelegramDeliveryError as exc:
+        # A 400 here means the message is gone or was unpinned by hand already;
+        # either way there is nothing left to unpin, so it is not worth a retry.
+        if exc.retryable or 'error 400' not in str(exc):
+            raise
+        log.info('Telegram message %s was already unpinned: %s', message_id, exc)
 
 
-async def _update_pin(
+async def _settle_pins(
     *,
     client: httpx.AsyncClient,
     config: TelegramBotConfig,
@@ -288,35 +294,33 @@ async def _update_pin(
     message_id: int | None,
     warnings: list[str],
 ) -> int | None:
-    """Leave at most one message pinned for this notification.
+    """Pin the new message if asked, unpin the one this row had pinned before.
 
-    A repeated failure and its eventual recovery both land on the same outbox row,
-    so the row remembers which message it pinned last time. Pinning the new one
-    first and unpinning the old one second means the chat never goes without a
-    pin in between. Both calls are best-effort: the message is already delivered,
-    and a missing pin permission must not turn into a resend.
+    Returns the message that is pinned once the dust settles: the new one, or
+    the previous one if unpinning it failed and nothing replaced it, so a later
+    delivery gets another go at clearing it.
     """
-    previous_message_id = notification.pinned_message_id
-    pinned_message_id = previous_message_id
+    pinned_message_id: int | None = None
     if notification.pin and message_id is not None:
         try:
             await _pin_message(client=client, config=config, message_id=message_id)
+            pinned_message_id = message_id
         except TelegramDeliveryError as exc:
             warning = f'Pinning failed: {exc}'
             warnings.append(warning)
             log.warning('Telegram notification %s was delivered but %s', notification.notification_id, warning)
-        else:
-            pinned_message_id = message_id
-    elif not notification.pin:
-        pinned_message_id = None
 
-    if previous_message_id is not None and previous_message_id != pinned_message_id:
-        try:
-            await _unpin_message(client=client, config=config, message_id=previous_message_id)
-        except TelegramDeliveryError as exc:
-            warning = f'Unpinning message {previous_message_id} failed: {exc}'
-            warnings.append(warning)
-            log.warning('Telegram notification %s was delivered but %s', notification.notification_id, warning)
+    previous_pinned_message_id = getattr(notification, 'telegram_pinned_message_id', None)
+    if previous_pinned_message_id is None or previous_pinned_message_id == pinned_message_id:
+        return pinned_message_id
+    try:
+        await _unpin_message(client=client, config=config, message_id=previous_pinned_message_id)
+    except TelegramDeliveryError as exc:
+        warning = f'Unpinning message {previous_pinned_message_id} failed: {exc}'
+        warnings.append(warning)
+        log.warning('Telegram notification %s was delivered but %s', notification.notification_id, warning)
+        if pinned_message_id is None:
+            return previous_pinned_message_id
     return pinned_message_id
 
 
@@ -366,7 +370,7 @@ async def deliver(
         )
 
     warnings: list[str] = []
-    pinned_message_id = await _update_pin(
+    pinned_message_id = await _settle_pins(
         client=client,
         config=config,
         notification=notification,

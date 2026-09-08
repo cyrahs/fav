@@ -21,10 +21,13 @@ log = logger.get('kemono')
 
 API_PREFIX = '/api/v1'
 PAGE_SIZE = 50
-# Pawchive fronts the API with Cloudflare and the file host with ddos-guard. Both
-# gate on IP reputation rather than UA, but a browser UA stays off the obvious
-# bot heuristics.
-DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+# Pawchive's operator asked downloader tools (2026-09-01 notice) to identify
+# themselves instead of pretending to be a browser, and to keep to 1 file request
+# per second with at most 5 active downloads. The file host's ddos-guard now
+# answers a browser UA that is not a real browser fetch with 403 on any file its
+# edge cache has not seen, which is every new attachment. Honest tool UAs pass;
+# `_pace` and the sequential download loop keep us well inside the rate limits.
+DEFAULT_USER_AGENT = 'fav/1.0 (personal archiver; read your file-server notice and respecting it, thank you)'
 _API_RETRY_DELAYS_SECONDS = (2.0, 5.0, 15.0, 30.0)
 # 403 is deliberately absent: behind Cloudflare it means blocked, and retrying a
 # block only feeds the risk-control score.

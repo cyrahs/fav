@@ -50,10 +50,21 @@ DIRECTORY_FORMAT = ('{author[name]}',)
 # gallery-dl's own media types. X stores a GIF as a short video, so it belongs here.
 VIDEO_TYPES = frozenset({'video', 'animated_gif'})
 
-# gallery-dl ORs an exit code per failure class; 16 is authentication/authorization.
+# gallery-dl ORs an exit code per failure class; 16 is authentication/authorization,
+# 4 is an extraction error such as "not found".
 EXIT_AUTH = 16
+EXIT_EXTRACTION = 4
 # How much of gallery-dl's stderr to carry into a failure notification.
 _ERROR_TAIL_LINES = 5
+
+# X's GraphQL backend sometimes answers HTTP 200 with an empty ``data`` object instead
+# of a 5xx ("Dependency: Unspecified"). gallery-dl retries that while paginating the
+# timeline, but not on the username lookup that precedes it, where it surfaces as this
+# line and a clean exit code 4 (mikf/gallery-dl#8317, #8627). A run that dies there
+# has not fetched anything yet, so it is simply run again after a pause.
+USER_LOOKUP_ERROR = '[twitter][error] NotFoundError: Requested user could not be found'
+USER_LOOKUP_RETRIES = 1
+USER_LOOKUP_RETRY_DELAY_SECONDS = 30.0
 
 
 class TwitterDownloadError(RuntimeError):
@@ -105,6 +116,21 @@ def build_command(
         command.extend(['--proxy', cfg.proxy])
     command.append(f'https://x.com/{cfg.username}/likes')
     return command
+
+
+def is_transient_user_lookup_failure(returncode: int, errors: list[str]) -> bool:
+    """Whether a run died on gallery-dl's username lookup, which X answers flakily.
+
+    A genuinely missing account fails the same way, so this only earns another
+    attempt; the error is still raised once the retries are spent. gallery-dl's
+    ``[info]`` lines are ignored because it logs its transaction-key refresh to
+    stderr too, while any warning (a 429, an API error) means the run got further
+    than the lookup and is not this case.
+    """
+    if returncode != EXIT_EXTRACTION:
+        return False
+    relevant = [line for line in errors if '[info]' not in line]
+    return len(relevant) == 1 and relevant[0].endswith(USER_LOOKUP_ERROR)
 
 
 def parse_sidecar(payload: dict[str, Any], *, media_path: Path, root: Path) -> dict[str, Any] | None:
@@ -218,6 +244,23 @@ class Twitter:
 
         await asyncio.gather(drain_stdout(), drain_stderr())
         return await process.wait(), errors
+
+    async def _run_gallery_dl_with_retry(self, command: list[str]) -> tuple[int, list[str]]:
+        """Run gallery-dl, trying again when X flaked on the username lookup."""
+        returncode, errors = await self._run_gallery_dl(command)
+        for attempt in range(1, USER_LOOKUP_RETRIES + 1):
+            if not is_transient_user_lookup_failure(returncode, errors):
+                break
+            log.warning(
+                'X did not resolve %s; retrying in %.0fs (%d/%d)',
+                self.cfg.username,
+                USER_LOOKUP_RETRY_DELAY_SECONDS,
+                attempt,
+                USER_LOOKUP_RETRIES,
+            )
+            await asyncio.sleep(USER_LOOKUP_RETRY_DELAY_SECONDS)
+            returncode, errors = await self._run_gallery_dl(command)
+        return returncode, errors
 
     def _destination_root(self, media_type: str) -> Path:
         """Which configured directory a file of this type belongs under."""
@@ -342,7 +385,7 @@ class Twitter:
                 archive_path=self.cfg.path / ARCHIVE_FILENAME,
                 incremental=backfill_complete,
             )
-            returncode, errors = await self._run_gallery_dl(command)
+            returncode, errors = await self._run_gallery_dl_with_retry(command)
 
         # Ingest whatever was downloaded before judging the exit code: a run that
         # died halfway still fetched files, and their sidecars are on disk.
