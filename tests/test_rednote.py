@@ -1865,3 +1865,97 @@ def test_the_archive_links_a_row_to_a_note_that_actually_opens() -> None:
     # Without the token the note is only readable by its author.
     assert url == f'https://www.xiaohongshu.com/explore/{NOTE_ID}?xsec_token=TOKEN&xsec_source=pc_user'
     assert 'xsec_token' in source.columns
+
+
+_LINUX_HEADLESS_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.0.0 Safari/537.36'
+_REAL_HINTS = {'brands': [{'brand': 'Chromium', 'version': '140'}], 'platform': 'Linux', 'uaFullVersion': '140.0.7339.80'}
+
+
+class _ErrorPageRacePage:
+    """A blank page whose neutral navigation fails, the way the proxy made it on 2026-09-09.
+
+    `goto` raises, Chromium commits its error page a beat later, and the first evaluate
+    sent in that beat finds its execution context gone.
+    """
+
+    url = 'about:blank'
+
+    def __init__(self, *, destroyed_reads: int) -> None:
+        self.destroyed_reads = destroyed_reads
+        self.hint_reads = 0
+        self.gotos: list[str] = []
+
+    async def goto(self, url: str, wait_until: str = '') -> None:
+        from playwright.async_api import Error as PlaywrightError  # noqa: PLC0415
+
+        self.gotos.append(url)
+        msg = f'Page.goto: net::ERR_PROXY_CONNECTION_FAILED at {url}'
+        raise PlaywrightError(msg)
+
+    async def evaluate(self, script: str) -> object:
+        from playwright.async_api import Error as PlaywrightError  # noqa: PLC0415
+
+        if 'navigator.userAgent)' in script or script.endswith('navigator.userAgent'):
+            return _LINUX_HEADLESS_UA
+        if 'Boolean(navigator.userAgentData)' in script:
+            return False
+        self.hint_reads += 1
+        if self.hint_reads <= self.destroyed_reads:
+            msg = 'Page.evaluate: Execution context was destroyed, most likely because of a navigation'
+            raise PlaywrightError(msg)
+        return dict(_REAL_HINTS)
+
+
+class _RecordingCdp:
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, dict]] = []
+
+    async def send(self, method: str, params: dict) -> None:
+        self.sent.append((method, params))
+
+
+class _CdpContext:
+    def __init__(self) -> None:
+        self.cdp = _RecordingCdp()
+
+    async def new_cdp_session(self, page: object) -> _RecordingCdp:
+        return self.cdp
+
+
+def _present(page: _ErrorPageRacePage, monkeypatch) -> dict:
+    monkeypatch.setattr(rednote_browser_module, '_HINTS_RETRY_SECONDS', 0)
+    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
+    browser._page = page
+    browser._context = _CdpContext()
+    asyncio.run(browser._present_mac_user_agent())
+    ((method, override),) = browser._context.cdp.sent
+    assert method == 'Emulation.setUserAgentOverride'
+    return override
+
+
+def test_a_client_hints_read_cut_short_by_the_error_page_is_tried_again(monkeypatch) -> None:
+    """The 2026-09-09 scheduled run: the neutral page failed through the proxy and the
+    run died reading hints off a page that was being replaced under it."""
+    page = _ErrorPageRacePage(destroyed_reads=1)
+
+    override = _present(page, monkeypatch)
+
+    assert page.hint_reads == 2
+    assert 'HeadlessChrome' not in override['userAgent']
+    assert '(Macintosh; Intel Mac OS X 10_15_7)' in override['userAgent']
+    # The real browser's brands and version, under the corrected platform.
+    assert override['userAgentMetadata']['brands'] == _REAL_HINTS['brands']
+    assert override['userAgentMetadata']['fullVersion'] == '140.0.7339.80'
+    assert override['userAgentMetadata']['platform'] == 'macOS'
+
+
+def test_hints_that_never_come_back_cost_the_metadata_and_not_the_run(monkeypatch) -> None:
+    # The UA string is the token the site refuses; the hints are the story around it.
+    # Losing the story to a proxy hiccup is a degraded run, not a failed one.
+    page = _ErrorPageRacePage(destroyed_reads=rednote_browser_module._HINTS_ATTEMPTS)
+
+    override = _present(page, monkeypatch)
+
+    assert page.hint_reads == rednote_browser_module._HINTS_ATTEMPTS
+    assert '(Macintosh; Intel Mac OS X 10_15_7)' in override['userAgent']
+    assert 'userAgentMetadata' not in override

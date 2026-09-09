@@ -65,6 +65,11 @@ _LIKED_TAB_TIMEOUT_MS = 15_000
 # lone slow answer has taken down a whole scheduled run before (2026-08-24); one
 # more attempt absorbs that without stretching a genuinely unreachable site much.
 _GOTO_ATTEMPTS = 2
+# Attempts at reading the client hints off the neutral page, and the pause between
+# them. The first read has landed in the middle of Chromium committing its own error
+# page (2026-09-09), which is over well within a second.
+_HINTS_ATTEMPTS = 2
+_HINTS_RETRY_SECONDS = 1.0
 # Where the site sends a note that no longer exists.
 _NOT_FOUND_PATH = '/404'
 _SHAPE_MAX_KEYS = 40
@@ -650,10 +655,7 @@ class PlaywrightNoteBrowser:
         too: this runs before the UA is corrected, and the one origin that must not
         see the uncorrected string is the site itself.
         """
-        if not await self._page.evaluate('() => Boolean(navigator.userAgentData)'):
-            with contextlib.suppress(Exception):
-                await self._page.goto(_EXIT_IP_URL, wait_until='domcontentloaded')
-        hints = await self._page.evaluate(_USER_AGENT_HINTS_SCRIPT)
+        hints = await self._read_user_agent_hints()
         from_ua = user_agent.rsplit('Chrome/', maxsplit=1)[-1].split('.', maxsplit=1)[0]
         version = str(hints.get('uaFullVersion') or '').split('.')[0] or from_ua
         return {
@@ -666,6 +668,39 @@ class PlaywrightNoteBrowser:
             'mobile': bool(hints.get('mobile')),
             'majorVersion': version,
         }
+
+    async def _read_user_agent_hints(self) -> dict[str, Any]:
+        """The raw client hints, or nothing when the neutral page will not give them.
+
+        Nothing here touches the site, so nothing here is allowed to end the run: the
+        worst outcome of an unreadable hint is the override going out without
+        metadata, which is the same browser minus its client hints.
+
+        The neutral page is fetched through the same proxy as everything else, and
+        when that fetch fails Chromium follows the failure by committing its own
+        error page. That commit is a navigation of its own, a beat after ``goto`` has
+        already raised, and an evaluate sent in that beat dies with `Execution
+        context was destroyed` -- which took the 2026-09-09 scheduled run down before
+        it had opened the site at all. So the read is tried again after a pause, and
+        a page that still will not answer is reported and left alone.
+        """
+        if not await self._page.evaluate('() => Boolean(navigator.userAgentData)'):
+            try:
+                await self._page.goto(_EXIT_IP_URL, wait_until='domcontentloaded')
+            except Exception as exc:  # noqa: BLE001
+                log.warning('RedNote could not open %s to read the client hints: %s', _EXIT_IP_URL, exc)
+        for attempt in range(1, _HINTS_ATTEMPTS + 1):
+            try:
+                hints = await self._page.evaluate(_USER_AGENT_HINTS_SCRIPT)
+            except Exception as exc:  # noqa: BLE001
+                if attempt < _HINTS_ATTEMPTS:
+                    log.debug('RedNote client hints read landed mid-navigation, retrying: %s', exc)
+                    await asyncio.sleep(_HINTS_RETRY_SECONDS)
+                    continue
+                log.warning('RedNote could not read the client hints; presenting the UA without them: %s', exc)
+                return {}
+            return hints if isinstance(hints, dict) else {}
+        return {}
 
     async def _goto(self, url: str) -> None:
         """Navigate, giving a transient stall a second chance.
