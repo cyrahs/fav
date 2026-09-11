@@ -415,7 +415,12 @@ async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotifica
 )
 async def start_wechat_login(payload: WeChatLoginStartRequest, service: ApiServiceDep) -> WeChatLoginStartResponse:
     """Fetch a QR code that binds a WeChat iLink bot to the named account."""
-    started = await service.start_wechat_login(payload.account, path=payload.path, media_types=payload.media_types)
+    started = await service.start_wechat_login(
+        payload.account,
+        path=payload.path,
+        media_types=payload.media_types,
+        transport=payload.transport,
+    )
     return WeChatLoginStartResponse.model_validate(started)
 
 

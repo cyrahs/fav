@@ -173,7 +173,7 @@ written to disk. Outputs are rooted at a path from the settings table, usually `
 ### Network + external services
 
 Nearly every module talks to a real external service (PostgreSQL, CookieCloud, Bilibili, Telegram,
-WeChat iLink,
+WeChat iLink and web 文件传输助手,
 Kemono, l2d.su, X). Prefer dependency injection and fakes in tests. If an integration test is truly
 necessary, make it skip cleanly when its config or secrets are absent.
 

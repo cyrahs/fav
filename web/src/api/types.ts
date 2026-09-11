@@ -110,6 +110,7 @@ export interface CookieCloudTestResult {
 export interface WeChatLoginStart {
   session_key: string;
   account: string;
+  transport: 'ilink' | 'filehelper';
   qrcode_url: string;
   qrcode_image: string;
   expires_in_seconds: number;

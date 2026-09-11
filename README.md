@@ -333,7 +333,7 @@ saved on an incomplete source like any other field.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels,
-WeChat accounts (each with a 扫码绑定 button that binds an iLink bot by QR scan),
+WeChat accounts (each with a 扫码绑定 button that logs in 文件传输助手 or binds an iLink bot by QR scan),
 Kemono creators and shared CookieCloud configs (the `CookieCloud` block at the bottom of the page,
 with a live connection test; Bilibili accounts, X and pixiv reference its entries by name from a
 dropdown) — validated locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
@@ -549,67 +549,79 @@ history_wait_seconds = 1
 flood_sleep_threshold_seconds = 300
 ```
 
-## WeChat (iLink bot)
+## WeChat
 
 WeChat has no channels to subscribe to and no personal-account API, so this source is the inverse of
-the Telegram one: you send (or forward) media **to** a bot from WeChat, and the worker receives it.
-The bot is a [ClawBot](https://github.com/tencent-weixin/openclaw-weixin) identity on Tencent's
-official iLink protocol -- `ilinkai.weixin.qq.com`, the same endpoints the OpenClaw plugin uses --
-so there is no hook, no reverse-engineered client and no ban risk. Text, images, voice, files and
-videos all arrive; the archive keeps images, videos and files.
+the Telegram one: you put media in front of a conversation the worker can read, and the worker
+receives it. There are two such conversations, selected per account by `transport`:
 
-### Setting it up
+| `transport` | What it is | Can be a 转发 target | Protocol |
+| --- | --- | --- | --- |
+| `filehelper` (default) | Your own 文件传输助手, through the web File Transfer Helper (`filehelper.weixin.qq.com`) | **yes** | classic web-WeChat, undocumented but an official page |
+| `ilink` | A [ClawBot](https://github.com/tencent-weixin/openclaw-weixin) bot on Tencent's iLink protocol | no | official, documented by the reference plugin |
 
-1. Settings page → 微信 → 添加账号. Give it a name, a save path and the media types to keep.
-2. Press 扫码绑定 and scan the QR code with WeChat. WeChat opens the ClawBot connection page; tap
-   连接. The page polls until iLink confirms, then writes `bot_token`, `bot_id` and `user_id`
-   (the WeChat account that scanned) straight into the stored section -- the browser only ever sees
-   the masked token. The account's name, path and media types are saved at the same moment.
-3. Jobs page → 微信 → enable. Restart the worker: like Telegram, the long-poll listener is created
-   at process start.
-4. In WeChat, open the bot chat (我 → 设置 → 插件 → ClawBot → 发消息; it also shows in the chat list
-   after the scan) and send it something with the `+` menu: 相册 for photos and videos, 文件 for
-   files -- the 文件 picker's 微信文件 tab lists files received in other chats, which is the way to
-   hand one over without leaving WeChat.
+Text, images, voice, files and videos all arrive on both; the archive keeps images, videos and
+files. Either way the settings page's 扫码绑定 button does the login and writes the credentials
+server-side, the account's name, path and media types are saved at that moment, and the worker
+needs a restart afterwards -- like Telegram, the listener is created at process start.
 
-Constraints that come from the protocol, not from this code:
+### 文件传输助手 (forwarding)
 
-- **The bot is not a forward target.** It is a bot-type account (`@im.bot`), not a contact, and the
-  WeChat client leaves it out of the 转发 recipient list (see
-  [Tencent/openclaw-weixin#198](https://github.com/Tencent/openclaw-weixin/issues/198)). Images from
-  other chats have to be saved to the album first, files go through 文件 → 微信文件, and text is
-  copy-pasted. Nothing on the bot side can change this.
-- The bot cannot speak first and cannot join groups. `group_id` messages are ignored.
-- Only the scanning user is trusted: `user_id` is filled in by the scan and anything from another
-  sender is logged and dropped. Clear the field to accept anyone.
-- A video sent as a video is re-encoded by WeChat. For the original file, 以文件形式发送 -- it then
-  arrives as a `file` item and keeps its own name and extension.
-- Video-channel (视频号) posts and article cards forward as links, not media, and are not archived.
+This is the transport for "long-press → 转发 → archive": the WeChat client lists 文件传输助手 among
+forward recipients, which no bot account ever is (see
+[Tencent/openclaw-weixin#198](https://github.com/Tencent/openclaw-weixin/issues/198)). Press
+扫码登录文件传输助手, scan with WeChat's 扫一扫 and confirm on the phone. The worker then keeps one
+web session per account: `synccheck` long-polls (the server holds it ~25s), `webwxsync` fetches
+what arrived, and media is streamed from `webwxgetmsgimg` / `webwxgetvideo` / `webwxgetmedia`.
+The session -- cookies, tokens and the rolling `SyncKey` -- lives in
+`wechat_account_state.webwx_session` and is rewritten after every sync, so a worker restart
+resumes where it left off.
+
+What to expect:
+
+- Use 逐条转发, not 合并转发: merged chat records are a card, not media. Video-channel posts,
+  articles and mini-programs forward as link cards and are not archived.
+- **Nothing is delivered while the web session is down.** The web helper has no history, so
+  anything forwarded between a logout and the next scan is lost. A logout (`synccheck`
+  retcode 1100-1102) pauses the account, sends one `session_expired` notification, and the
+  worker waits for a new scan; the phone also shows a persistent "网页版文件传输助手已打开"
+  banner while the session is alive, which is the normal state.
+- Everything in that conversation is archived, including what you send from a desktop client.
+  The protocol cannot tell a forward from a direct send.
+- A forwarded video is the copy WeChat already re-encoded when it was first sent; files are the
+  originals. Single files up to 1GB.
+- This drives an official page over an undocumented protocol. The listener mirrors the page's
+  own cadence (one long-poll at a time, serial downloads) and should be left that way.
+
+### ClawBot (iLink)
+
+The bot cannot speak first and cannot join groups; `group_id` messages are ignored. Only the
+scanning user is trusted: `user_id` is filled in by the scan and anything from another sender is
+logged and dropped; clear the field to accept anyone. The bot is not a forward target, so media
+reaches it from inside its own chat through the `+` menu (相册, or 文件 → 微信文件 for files received
+elsewhere). A video sent as a video is re-encoded by WeChat; 以文件形式发送 keeps the original.
+Media sits on WeChat's CDN encrypted with AES-128-ECB; the key travels with the message and the
+file is decrypted block by block. errcode `-14` means the token is dead: same pause and
+notification as above, scan again.
 
 ### How it runs
 
-Each logged-in account gets one listener that long-polls `getupdates` (the server holds the request
-for up to `long_poll_timeout_seconds`, and its own suggestion overrides that) and one serial download
-worker, so accounts run in parallel and downloads within one account do not. Every media item is
-written to the durable `wechat_media_queue` before the server's cursor (`get_updates_buf`, stored in
-`wechat_account_state`) is advanced, so a crash between the two replays the page rather than losing
-it; the queue's primary key makes the replay a no-op. Media sits on WeChat's CDN encrypted with
-AES-128-ECB; the key travels with the message and the file is decrypted block by block, so a large
-video never has to fit in memory.
+Each logged-in account gets one listener and one serial download worker, so accounts run in
+parallel and downloads within one account do not. Every media item is written to the durable
+`wechat_media_queue` before the receive cursor advances (the iLink `get_updates_buf`, or the web
+`SyncKey`), so a crash between the two replays the page rather than losing it; the queue's primary
+key makes the replay a no-op.
 
 Files land in the account's `path` as `<caption or kind> [<message id>].<ext>` (images sniffed to
 `jpg`/`png`/`gif`/`webp`, videos `mp4`); files keep their own name, `<stem> [<message id>].<ext>`.
 Each download sends a `download_completed` notification, with `image_path` for images so the
 Telegram bot can attach them.
 
-Transient failures back off (30s doubling to 30min) up to `max_download_attempts`; a key that does
-not open the object or a CDN 4xx is discarded straight away. When the server answers errcode `-14`
-the token is dead: the account is paused for `session_pause_seconds`, one deduplicated
-`session_expired` notification goes out, and you scan again from the settings page.
-
-The cron does not fetch anything -- there is no history to reconcile against -- so 立即运行 and the
-schedule re-release every backed-off download instead. Without the listener (`--trigger wechat`) it
-polls once, with a short timeout, and drains the queue.
+Transient failures back off (30s doubling to 30min) up to `max_download_attempts`; an error the
+server will repeat is discarded straight away. The cron does not fetch anything -- there is no
+history to reconcile against -- so 立即运行 and the schedule re-release every backed-off download
+instead. Without the listener (`--trigger wechat`) it polls once, with a short timeout, and drains
+the queue.
 
 ```toml
 [web.wechat]

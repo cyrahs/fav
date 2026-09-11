@@ -1,11 +1,13 @@
-import { CheckboxGroup, NumberField, Repeater, SecretField, TextField, type Option } from './Field';
+import { CheckboxGroup, NumberField, Repeater, SecretField, SelectField, TextField, type Option } from './Field';
 import { list, num, patcher, str, type SectionFormProps } from './sectionFields';
 import { WeChatLogin } from './WeChatLogin';
 
 export type WeChatMediaType = 'video' | 'image' | 'file';
+export type WeChatTransport = 'ilink' | 'filehelper';
 
 export interface WeChatAccount {
   name?: string;
+  transport?: WeChatTransport;
   path?: string;
   media_types?: WeChatMediaType[];
   bot_token?: string;
@@ -19,6 +21,11 @@ const MEDIA_TYPES: Option<WeChatMediaType>[] = [
   { value: 'video', label: '视频' },
   { value: 'image', label: '图片' },
   { value: 'file', label: '文件' },
+];
+
+const TRANSPORTS: Option<WeChatTransport>[] = [
+  { value: 'filehelper', label: '文件传输助手（可接收转发）' },
+  { value: 'ilink', label: 'ClawBot 机器人（iLink）' },
 ];
 
 const ACCOUNT_NAME_RE = /^[A-Za-z0-9_-]+$/;
@@ -37,7 +44,9 @@ export function WeChatForm(props: SectionFormProps) {
   return (
     <div className="field-grid">
       <p className="field-hint field-wide">
-        微信没有可订阅的频道：在 ClawBot 会话里用 + 菜单发送相册里的图片、视频或“文件 → 微信文件”里收到的文件，worker 就会收下并归档。ClawBot 是机器人账号，不会出现在“转发”的收件人列表里。视频会被微信压缩，要原片请以文件形式发送。
+        微信没有可订阅的频道，只能把内容送到一个我们能读的会话。“文件传输助手”会出现在转发列表里：任何会话长按 → 逐条转发 →
+        文件传输助手，worker 通过网页版协议收下并归档；网页会话断开期间转发的内容不会补发。ClawBot 机器人只能在它自己的会话里用 + 菜单发送，
+        不能作为转发目标。视频号、公众号和合并转发的聊天记录都是卡片，两种方式都收不到。
       </p>
 
       <details className="subsection">
@@ -77,14 +86,17 @@ export function WeChatForm(props: SectionFormProps) {
         addLabel="添加账号"
         empty="还没有账号，微信任务会保持未就绪。"
         hint="每个账号对应一个 ClawBot 机器人。改动账号后需要重启 worker，实时监听在进程启动时建立。"
-        onAdd={() => set('accounts', [...accounts, { name: '', path: 'collection/wechat', media_types: ['video', 'image', 'file'] }])}
+        onAdd={() =>
+          set('accounts', [...accounts, { name: '', transport: 'filehelper', path: 'collection/wechat', media_types: ['video', 'image', 'file'] }])
+        }
       >
         <div className="stack">
           {accounts.map((account, index) => {
             const name = account.name ?? '';
             const nameOk = ACCOUNT_NAME_RE.test(name);
             const mediaTypes = account.media_types ?? [];
-            const bound = Boolean(account.bot_token);
+            const transport: WeChatTransport = account.transport === 'filehelper' ? 'filehelper' : 'ilink';
+            const bound = transport === 'filehelper' ? Boolean(account.user_id) : Boolean(account.bot_token);
             return (
               // eslint-disable-next-line react/no-array-index-key -- accounts are reorderable and unsaved rows have no id
               <div key={index} className="account-card">
@@ -119,6 +131,13 @@ export function WeChatForm(props: SectionFormProps) {
                     hint="仅限字母、数字、下划线、连字符"
                     error={name && !nameOk ? '名称含非法字符' : undefined}
                   />
+                  <SelectField
+                    label="接收方式"
+                    value={transport}
+                    options={TRANSPORTS}
+                    onChange={(next) => update(index, { transport: next })}
+                    hint={transport === 'filehelper' ? '扫码登录网页版文件传输助手，之后把内容转发到“文件传输助手”即可' : '扫码绑定 ClawBot，只能在它的会话里直接发送'}
+                  />
                   <TextField
                     label="保存路径"
                     value={str(account as Record<string, unknown>, 'path')}
@@ -134,42 +153,55 @@ export function WeChatForm(props: SectionFormProps) {
                     onChange={(next) => update(index, { media_types: next })}
                     error={mediaTypes.length === 0 ? '至少选一种' : undefined}
                   />
-                  <SecretField
-                    label="bot_token"
-                    value={account.bot_token ?? ''}
-                    onChange={(next) => update(index, { bot_token: next })}
-                    hint={bound ? undefined : '通过下方扫码获得；也可以粘贴其他 iLink 客户端导出的 token'}
-                  />
-                  <TextField
-                    label="bot_id"
-                    value={account.bot_id ?? ''}
-                    onChange={(next) => update(index, { bot_id: next })}
-                    mono
-                    hint="扫码后自动填写"
-                  />
-                  <TextField
-                    label="允许的发送者（user_id）"
-                    value={account.user_id ?? ''}
-                    onChange={(next) => update(index, { user_id: next })}
-                    mono
-                    hint="扫码后自动填写为扫码的微信；留空则接收任何发送者"
-                  />
-                  <TextField
-                    label="API 地址"
-                    value={str(account as Record<string, unknown>, 'base_url', 'https://ilinkai.weixin.qq.com')}
-                    onChange={(next) => update(index, { base_url: next })}
-                    mono
-                  />
-                  <TextField
-                    label="CDN 地址"
-                    value={str(account as Record<string, unknown>, 'cdn_base_url', 'https://novac2c.cdn.weixin.qq.com/c2c')}
-                    onChange={(next) => update(index, { cdn_base_url: next })}
-                    mono
-                  />
+                  {transport === 'filehelper' ? (
+                    <TextField
+                      label="已绑定的微信（uin）"
+                      value={account.user_id ?? ''}
+                      onChange={(next) => update(index, { user_id: next })}
+                      mono
+                      hint="扫码后自动填写；网页会话本身保存在数据库里，掉线后重新扫码即可"
+                    />
+                  ) : (
+                    <>
+                      <SecretField
+                        label="bot_token"
+                        value={account.bot_token ?? ''}
+                        onChange={(next) => update(index, { bot_token: next })}
+                        hint={bound ? undefined : '通过下方扫码获得；也可以粘贴其他 iLink 客户端导出的 token'}
+                      />
+                      <TextField
+                        label="bot_id"
+                        value={account.bot_id ?? ''}
+                        onChange={(next) => update(index, { bot_id: next })}
+                        mono
+                        hint="扫码后自动填写"
+                      />
+                      <TextField
+                        label="允许的发送者（user_id）"
+                        value={account.user_id ?? ''}
+                        onChange={(next) => update(index, { user_id: next })}
+                        mono
+                        hint="扫码后自动填写为扫码的微信；留空则接收任何发送者"
+                      />
+                      <TextField
+                        label="API 地址"
+                        value={str(account as Record<string, unknown>, 'base_url', 'https://ilinkai.weixin.qq.com')}
+                        onChange={(next) => update(index, { base_url: next })}
+                        mono
+                      />
+                      <TextField
+                        label="CDN 地址"
+                        value={str(account as Record<string, unknown>, 'cdn_base_url', 'https://novac2c.cdn.weixin.qq.com/c2c')}
+                        onChange={(next) => update(index, { cdn_base_url: next })}
+                        mono
+                      />
+                    </>
+                  )}
                 </div>
 
                 <WeChatLogin
                   account={name}
+                  transport={transport}
                   path={account.path ?? ''}
                   mediaTypes={mediaTypes}
                   onBound={(stored) => update(index, stored as Partial<WeChatAccount>)}

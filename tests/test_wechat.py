@@ -710,9 +710,10 @@ def test_login_poll_drops_an_expired_qr() -> None:
 
 def test_login_routes_delegate_to_the_manager() -> None:
     class _Manager:
-        async def start(self, account: str, *, path: str = '', media_types=None):
+        async def start(self, account: str, *, path: str = '', media_types=None, transport: str = 'ilink'):
             return {
                 'session_key': 'k',
+                'transport': transport,
                 'account': account,
                 'qrcode_url': 'u',
                 'qrcode_image': 'data:image/png;base64,AA==',
