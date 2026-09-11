@@ -61,6 +61,10 @@ from .schemas import (
     SettingsListResponse,
     SettingsSection,
     TelegramNotificationTestResponse,
+    WeChatLoginPollRequest,
+    WeChatLoginPollResponse,
+    WeChatLoginStartRequest,
+    WeChatLoginStartResponse,
 )
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
@@ -401,6 +405,29 @@ def update_settings_section(
 async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotificationTestResponse:
     """Send a test message with the stored bot credentials."""
     return service.model_telegram_notification_test(await service.test_telegram_notification())
+
+
+@router.post(
+    '/wechat/login/start',
+    operation_id='startWeChatLogin',
+    response_model=WeChatLoginStartResponse,
+    tags=[TAG_SETTINGS],
+)
+async def start_wechat_login(payload: WeChatLoginStartRequest, service: ApiServiceDep) -> WeChatLoginStartResponse:
+    """Fetch a QR code that binds a WeChat iLink bot to the named account."""
+    started = await service.start_wechat_login(payload.account, path=payload.path, media_types=payload.media_types)
+    return WeChatLoginStartResponse.model_validate(started)
+
+
+@router.post(
+    '/wechat/login/poll',
+    operation_id='pollWeChatLogin',
+    response_model=WeChatLoginPollResponse,
+    tags=[TAG_SETTINGS],
+)
+async def poll_wechat_login(payload: WeChatLoginPollRequest, service: ApiServiceDep) -> WeChatLoginPollResponse:
+    """Long-poll the scan state; a confirmed scan stores the bot token server-side."""
+    return WeChatLoginPollResponse.model_validate(await service.poll_wechat_login(payload.session_key))
 
 
 @router.post(

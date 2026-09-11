@@ -19,6 +19,7 @@ import { CookieCloudPicker, type SharedCookieCloudConfig } from './CookieCloudPi
 import { CookieCloudTest } from './CookieCloudTest';
 import { RedNoteProxyTest } from './RedNoteProxyTest';
 import { TelegramForm, validateTelegram } from './TelegramForm';
+import { WeChatForm, validateWeChat } from './WeChatForm';
 import {
   PathField,
   bool,
@@ -730,6 +731,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.twitter': TwitterForm,
   'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
+  'web.wechat': WeChatForm,
   'notifications.telegram': TelegramNotificationForm,
   cookiecloud: CookieCloudForm,
 };
@@ -781,6 +783,10 @@ export function validateSection(section: string, value: Record<string, unknown>)
 
   if (section === 'web.telegram') {
     issues.push(...validateTelegram(value));
+  }
+
+  if (section === 'web.wechat') {
+    issues.push(...validateWeChat(value));
   }
 
   if (section === 'web.jandan' && list<number>(value, 'fav_types').length === 0) {

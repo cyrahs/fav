@@ -128,6 +128,16 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
             search_columns=('id', 'title', 'creator'),
             subtitle_columns=('creator', 'service'),
         ),
+        ArchiveSource(
+            key='wechat',
+            name='WeChat',
+            table='wechat',
+            id_columns=('account_name', 'message_id', 'item_index'),
+            title_column='title',
+            columns=('media_type', 'from_user_id', 'local_path'),
+            search_columns=('title', 'from_user_id'),
+            subtitle_columns=('media_type',),
+        ),
     )
 }
 

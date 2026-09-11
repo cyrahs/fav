@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
 from time import perf_counter
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -42,6 +43,7 @@ from src.tool.notifications import (
     resolve_job_failure_notifications,
 )
 from src.web.telegram import Telegram
+from src.web.wechat import WeChat
 
 log = logger.get('main')
 _CONTROL_REQUEST_POLL_INTERVAL_SECONDS = 1.0
@@ -57,6 +59,27 @@ class JobRunResult:
     success: bool
     error: str = ''
     cancelled: bool = False
+
+
+@dataclass(slots=True)
+class RealtimeRuntime:
+    """A source that keeps a long-running listener beside its cron job.
+
+    The listener is created at process start for every enabled account; the
+    cron/manual runner reuses that same object instead of building a new one.
+    """
+
+    job_key: str
+    name: str
+    runtime: Any
+    task: asyncio.Task[None] | None = None
+    ready_task: asyncio.Task[None] | None = None
+
+
+_REALTIME_FACTORIES: dict[str, tuple[str, Callable[[], Any]]] = {
+    'telegram': ('Telegram', Telegram),
+    'wechat': ('WeChat', WeChat),
+}
 
 
 def _parse_args() -> argparse.Namespace:
@@ -662,9 +685,7 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
     control_request_task: asyncio.Task[None] | None = None
     notification_delivery_task: asyncio.Task[None] | None = None
     settings_watcher_task: asyncio.Task[None] | None = None
-    telegram_runtime_task: asyncio.Task[None] | None = None
-    telegram_ready_task: asyncio.Task[None] | None = None
-    telegram_runtime: Telegram | None = None
+    realtime_runtimes: dict[str, RealtimeRuntime] = {}
     stop_event = asyncio.Event()
     main_task = asyncio.current_task()
     if main_task is None:
@@ -683,9 +704,11 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         log.info('Scheduler timezone: %s', getattr(timezone, 'key', str(timezone)))
 
     runner_by_key: dict[str, Callable[[], object]] = {}
-    telegram_job = next((job for job in all_jobs if job.key == 'telegram'), None)
-    if trigger_target is None and telegram_job is not None and telegram_job.enabled:
-        telegram_runtime = Telegram()
+    if trigger_target is None:
+        for job in all_jobs:
+            factory = _REALTIME_FACTORIES.get(job.key)
+            if factory is not None and job.enabled:
+                realtime_runtimes[job.key] = RealtimeRuntime(job_key=job.key, name=factory[0], runtime=factory[1]())
 
     try:
         for job in all_jobs:
@@ -696,8 +719,9 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
                     log.warning('%s is still running, skip this trigger', _job.name)
                     return JobRunResult(job_key=_job.key, job_name=_job.name, success=False, error='Job is already running')
                 async with _lock:
-                    if _job.key == 'telegram' and telegram_runtime is not None:
-                        return await _run_job(job=_job, worker=telegram_runtime, close_worker=False)
+                    realtime = realtime_runtimes.get(_job.key)
+                    if realtime is not None:
+                        return await _run_job(job=_job, worker=realtime.runtime, close_worker=False)
                     return await _run_job(job=_job)
 
             runner_by_key[job.key] = runner
@@ -726,21 +750,18 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         if not jobs:
             log.warning('No jobs enabled. Waiting indefinitely.')
 
-        if telegram_runtime is not None:
-            telegram_runtime_task = asyncio.create_task(
-                telegram_runtime.run(stop_event),
-                name='telegram-runtime',
-            )
-            telegram_ready_task = asyncio.create_task(telegram_runtime.wait_until_ready(), name='telegram-runtime-ready')
-            done, _ = await asyncio.wait({telegram_runtime_task, telegram_ready_task}, return_when=asyncio.FIRST_COMPLETED)
-            if telegram_runtime_task in done:
-                telegram_ready_task.cancel()
-                await asyncio.gather(telegram_ready_task, return_exceptions=True)
-                await telegram_runtime_task
-                msg = 'Telegram runtime exited before all accounts became ready'
+        for realtime in realtime_runtimes.values():
+            realtime.task = asyncio.create_task(realtime.runtime.run(stop_event), name=f'{realtime.job_key}-runtime')
+            realtime.ready_task = asyncio.create_task(realtime.runtime.wait_until_ready(), name=f'{realtime.job_key}-runtime-ready')
+            done, _ = await asyncio.wait({realtime.task, realtime.ready_task}, return_when=asyncio.FIRST_COMPLETED)
+            if realtime.task in done:
+                realtime.ready_task.cancel()
+                await asyncio.gather(realtime.ready_task, return_exceptions=True)
+                await realtime.task
+                msg = f'{realtime.name} runtime exited before all accounts became ready'
                 raise RuntimeError(msg)
-            await telegram_ready_task
-            log.info('Telegram event listeners and queue workers enabled')
+            await realtime.ready_task
+            log.info('%s listeners and queue workers enabled', realtime.name)
 
         control_request_task = asyncio.create_task(
             _consume_control_requests(runner_by_key=runner_by_key, stop_event=stop_event),
@@ -765,18 +786,20 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
 
         scheduler.start()
 
-        if telegram_runtime_task is None:
+        runtime_tasks = {realtime.task for realtime in realtime_runtimes.values() if realtime.task is not None}
+        if not runtime_tasks:
             await stop_event.wait()
         else:
             stop_task = asyncio.create_task(stop_event.wait(), name='main-stop-wait')
-            done, pending = await asyncio.wait({stop_task, telegram_runtime_task}, return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait({stop_task, *runtime_tasks}, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 if task is stop_task:
                     task.cancel()
-            if telegram_runtime_task in done and not stop_event.is_set():
-                await telegram_runtime_task
-                msg = 'Telegram runtime exited unexpectedly'
-                raise RuntimeError(msg)
+            for realtime in realtime_runtimes.values():
+                if realtime.task in done and not stop_event.is_set():
+                    await realtime.task
+                    msg = f'{realtime.name} runtime exited unexpectedly'
+                    raise RuntimeError(msg)
     except KeyboardInterrupt:
         if not stop_event.is_set():
             stop_event.set()
@@ -790,10 +813,10 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
         await _shutdown_task(control_request_task, name='control request consumer')
         await _shutdown_task(notification_delivery_task, name='notification delivery consumer')
         await _shutdown_task(settings_watcher_task, name='settings watcher')
-        if telegram_runtime is not None:
-            await telegram_runtime.aclose()
-        await _shutdown_task(telegram_ready_task, name='telegram runtime readiness')
-        await _shutdown_task(telegram_runtime_task, name='telegram runtime')
+        for realtime in realtime_runtimes.values():
+            await realtime.runtime.aclose()
+            await _shutdown_task(realtime.ready_task, name=f'{realtime.job_key} runtime readiness')
+            await _shutdown_task(realtime.task, name=f'{realtime.job_key} runtime')
         await notification_client.aclose()
         if scheduler.running:
             scheduler.shutdown(wait=False)

@@ -653,3 +653,21 @@ select {
   margin: 0;
   font-size: 20px;
 }
+
+.wechat-login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wechat-qr {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.wechat-qr img {
+  background: #fff;
+  border-radius: 6px;
+  padding: 4px;
+}
