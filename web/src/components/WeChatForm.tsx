@@ -37,7 +37,7 @@ export function WeChatForm(props: SectionFormProps) {
   return (
     <div className="field-grid">
       <p className="field-hint field-wide">
-        微信没有可订阅的频道：在微信里把图片、视频、文件发给（或转发给）绑定的 ClawBot 联系人，worker 就会收下并归档。视频会被微信压缩，要原片请“以文件形式发送”。
+        微信没有可订阅的频道：在 ClawBot 会话里用 + 菜单发送相册里的图片、视频或“文件 → 微信文件”里收到的文件，worker 就会收下并归档。ClawBot 是机器人账号，不会出现在“转发”的收件人列表里。视频会被微信压缩，要原片请以文件形式发送。
       </p>
 
       <details className="subsection">
