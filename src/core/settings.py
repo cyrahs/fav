@@ -28,6 +28,7 @@ _ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 _TWITTER_USERNAME_RE = re.compile(r'^[A-Za-z0-9_]+$')
 TelegramMediaType = Literal['video', 'image']
 WeChatMediaType = Literal['video', 'image', 'file']
+WeChatTransport = Literal['ilink', 'filehelper']
 
 CREATE_APP_SETTINGS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -821,13 +822,18 @@ class TelegramNotification(BaseModel):
 
 
 class WeChatAccount(BaseModel):
-    """One iLink bot, bound to one WeChat user by a QR scan.
+    """One receiving identity, bound to one WeChat user by a QR scan.
 
-    The token and ids are filled in by the settings page's scan flow rather than
-    typed; ``user_id`` is the scanner, and only that sender is archived.
+    ``ilink`` is a ClawBot: the user sends media to the bot chat, and the token
+    and ids are filled in by the settings page's scan flow rather than typed;
+    ``user_id`` is the scanner, and only that sender is archived. ``filehelper``
+    is the user's own 文件传输助手 through the web protocol -- the one target the
+    WeChat client lets you 转发 to. Its session lives in ``wechat_account_state``
+    (it rolls with every sync), and ``user_id`` holds the uin as the "bound" mark.
     """
 
     name: str
+    transport: WeChatTransport = 'ilink'
     path: Path = Path('./collection/wechat')
     media_types: list[WeChatMediaType] = Field(default_factory=lambda: ['video', 'image', 'file'])
     bot_token: str = ''
@@ -876,9 +882,13 @@ class WeChatAccount(BaseModel):
 
     @property
     def logged_in(self) -> bool:
+        if self.transport == 'filehelper':
+            return bool(self.user_id)
         return bool(self.bot_token)
 
     def validate_runnable(self) -> list[str]:
+        if self.transport == 'filehelper':
+            return [] if self.user_id else ['user_id']
         return [] if self.bot_token else ['bot_token']
 
 

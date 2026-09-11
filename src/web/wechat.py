@@ -39,6 +39,7 @@ from src.tool.wechat_queue import (
     reset_processing_wechat_media_jobs,
     wechat_media_retry_delay,
 )
+from src.tool.wechat_webwx import WebWxClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS wechat_account_state (
     last_message_at TIMESTAMPTZ NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE wechat_account_state ADD COLUMN IF NOT EXISTS webwx_session TEXT NOT NULL DEFAULT '';
 """
 _QUEUE_IDLE_POLL_SECONDS = 1.0
 _POLL_RETRY_INITIAL_SECONDS = 2.0
@@ -87,6 +90,37 @@ _WEBP_RIFF = b'RIFF'
 _WEBP_TAG = b'WEBP'
 _WEBP_TAG_OFFSET = 8
 _SNIFF_BYTES = 16
+
+
+async def ensure_wechat_tables() -> None:
+    await database.query_db_multi(_WECHAT_SCHEMA_SQL)
+    await ensure_wechat_media_queue_table()
+    log.debug('WeChat archive, account state, and media queue tables initialized')
+
+
+async def get_webwx_session(account_name: str) -> str:
+    rows = await database.query_db('SELECT webwx_session FROM wechat_account_state WHERE account_name = ?;', (account_name,))
+    return str(rows[0]['webwx_session'] or '') if rows else ''
+
+
+async def save_webwx_session(account_name: str, snapshot: str) -> None:
+    """Store the web session (cookies, tokens, SyncKey); also lifts any pause, since a fresh scan lands here."""
+    await database.query_db(
+        """
+        INSERT INTO wechat_account_state (account_name, webwx_session, last_error)
+        VALUES (?, ?, '')
+        ON CONFLICT (account_name)
+        DO UPDATE SET
+            webwx_session = EXCLUDED.webwx_session,
+            paused_until = CASE
+                WHEN EXCLUDED.webwx_session <> wechat_account_state.webwx_session THEN NULL
+                ELSE wechat_account_state.paused_until
+            END,
+            last_error = '',
+            updated_at = CURRENT_TIMESTAMP;
+        """,
+        (account_name, snapshot),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,8 +147,13 @@ class WeChat:
         # Long-lived runtime: resolve per access so UI edits apply without a restart.
         return settings.load().web.wechat
 
-    @staticmethod
-    def _default_client(account: WeChatAccount) -> ILinkClient:
+    def _default_client(self, account: WeChatAccount) -> ILinkClient | WebWxClient:
+        if account.transport == 'filehelper':
+            name = account.name
+            return WebWxClient(
+                session_loader=lambda: self.get_webwx_session(name),
+                session_saver=lambda snapshot: self.save_webwx_session(name, snapshot),
+            )
         return ILinkClient(base_url=account.base_url, cdn_base_url=account.cdn_base_url, bot_token=account.bot_token)
 
     def __del__(self) -> None:
@@ -133,9 +172,7 @@ class WeChat:
         self._tmp_dir.cleanup()
 
     async def _initialize_tables(self) -> None:
-        await database.query_db_multi(_WECHAT_SCHEMA_SQL)
-        await ensure_wechat_media_queue_table()
-        log.debug('WeChat archive, account state, and media queue tables initialized')
+        await ensure_wechat_tables()
 
     # ---- account state -----------------------------------------------------
 
@@ -195,6 +232,14 @@ class WeChat:
         )
 
     @staticmethod
+    async def get_webwx_session(account_name: str) -> str:
+        return await get_webwx_session(account_name)
+
+    @staticmethod
+    async def save_webwx_session(account_name: str, snapshot: str) -> None:
+        await save_webwx_session(account_name, snapshot)
+
+    @staticmethod
     async def mark_account_message(account_name: str) -> None:
         await database.query_db(
             """
@@ -225,7 +270,9 @@ class WeChat:
         """
         if not message.is_user_message or message.group_id:
             return []
-        if account.user_id and message.from_user_id != account.user_id:
+        # A 文件传输助手 conversation only ever carries the user's own messages, and
+        # the web protocol's sender ids are per-login, so the filter is iLink-only.
+        if account.transport == 'ilink' and account.user_id and message.from_user_id != account.user_id:
             log.warning(
                 'WeChat account %s ignored message %s from unexpected sender %s', account.name, message.message_id, message.from_user_id
             )
