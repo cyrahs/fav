@@ -166,6 +166,7 @@ written to disk. Outputs are rooted at a path from the settings table, usually `
 ### Network + external services
 
 Nearly every module talks to a real external service (PostgreSQL, CookieCloud, Bilibili, Telegram,
+WeChat iLink,
 Kemono, l2d.su, X). Prefer dependency injection and fakes in tests. If an integration test is truly
 necessary, make it skip cleanly when its config or secrets are absent.
 
@@ -227,7 +228,7 @@ build. Verify with `uv run pytest` and the commands above instead.
 ## Making Changes Safely
 
 - Avoid logging secrets (CookieCloud passwords, PostgreSQL credentials, Telegram API hash and bot
-  token, proxy URLs with embedded credentials).
+  token, WeChat iLink bot tokens, proxy URLs with embedded credentials).
 - Keep `.env` out of git history (it is gitignored; do not override that).
 - Secrets in `app_settings` are masked on read and restored on write. Preserve that round trip when
   touching the settings API — a masked or omitted value means "keep what is stored", never "clear it".

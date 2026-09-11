@@ -71,6 +71,7 @@ from .schemas import (
     TelegramNotificationTestResponse,
 )
 from .settings_masking import keep_secret, mask_section, unmask_section
+from .wechat_login import WeChatLoginManager
 
 log = logger.get('fav-api')
 
@@ -130,6 +131,7 @@ class FavApiService:
         nikke_library: NikkeLibrary | None = None,
         bd2_library: BD2Library | None = None,
         live2d_view_override_store: Live2DViewOverrideStore | None = None,
+        wechat_login_manager: WeChatLoginManager | None = None,
     ) -> None:
         self._dsn = dsn
         self._token = token
@@ -164,6 +166,10 @@ class FavApiService:
         self._nikke_library = nikke_library or NikkeLibrary(settings.load().web.nikke.path)
         self._bd2_library = bd2_library or BD2Library(settings.load().web.bd2.path)
         self._live2d_view_override_store = live2d_view_override_store or PostgresLive2DViewOverrideStore(self._dsn)
+        self._wechat_login_manager = wechat_login_manager or WeChatLoginManager(
+            section_getter=self._settings_section_getter,
+            section_saver=self._settings_section_saver,
+        )
         self._readiness_cache: tuple[float, dict[str, object]] | None = None
         self._readiness_lock = asyncio.Lock()
 
@@ -443,6 +449,14 @@ class FavApiService:
             'message_id': result.message_id,
             'warnings': list(result.warnings),
         }
+
+    async def start_wechat_login(self, account: str, *, path: str = '', media_types: list[str] | None = None) -> dict[str, Any]:
+        """Fetch a QR code that binds an iLink bot to ``account``."""
+        return await self._wechat_login_manager.start(account, path=path, media_types=media_types)
+
+    async def poll_wechat_login(self, session_key: str) -> dict[str, Any]:
+        """Ask iLink whether the QR code was scanned; stores the token on confirmation."""
+        return await self._wechat_login_manager.poll(session_key)
 
     def test_azurlane_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check that the l2d.su origin is reachable through a proxy, without saving it.

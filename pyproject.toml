@@ -20,6 +20,7 @@ dependencies = [
     "pycryptodome>=3.21.0",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
+    "qrcode>=8.0",
     "telethon>=1.43.2",
     "tenacity>=8.5.0",
     "tqdm>=4.67.1",
