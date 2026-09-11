@@ -567,11 +567,18 @@ videos all arrive; the archive keeps images, videos and files.
    the masked token. The account's name, path and media types are saved at the same moment.
 3. Jobs page → 微信 → enable. Restart the worker: like Telegram, the long-poll listener is created
    at process start.
-4. In WeChat, open the bot contact (it appears in your chats after the scan) and send it something.
-   Long-press any image, video or file in another chat to 转发 it there.
+4. In WeChat, open the bot chat (我 → 设置 → 插件 → ClawBot → 发消息; it also shows in the chat list
+   after the scan) and send it something with the `+` menu: 相册 for photos and videos, 文件 for
+   files -- the 文件 picker's 微信文件 tab lists files received in other chats, which is the way to
+   hand one over without leaving WeChat.
 
 Constraints that come from the protocol, not from this code:
 
+- **The bot is not a forward target.** It is a bot-type account (`@im.bot`), not a contact, and the
+  WeChat client leaves it out of the 转发 recipient list (see
+  [Tencent/openclaw-weixin#198](https://github.com/Tencent/openclaw-weixin/issues/198)). Images from
+  other chats have to be saved to the album first, files go through 文件 → 微信文件, and text is
+  copy-pasted. Nothing on the bot side can change this.
 - The bot cannot speak first and cannot join groups. `group_id` messages are ignored.
 - Only the scanning user is trusted: `user_id` is filled in by the scan and anything from another
   sender is logged and dropped. Clear the field to accept anyone.
