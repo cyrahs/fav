@@ -46,7 +46,7 @@ _DEFAULT_TIMEOUT_SECONDS = 15.0
 _DEFAULT_LONG_POLL_TIMEOUT_SECONDS = 35.0
 _LONG_POLL_GRACE_SECONDS = 5.0
 
-MessageItemKind = Literal['text', 'image', 'voice', 'file', 'video']
+MessageItemKind = Literal['text', 'image', 'voice', 'file', 'video', 'link']
 QrStatus = Literal['wait', 'scaned', 'confirmed', 'expired']
 
 ITEM_TYPE_TEXT = 1

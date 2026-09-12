@@ -251,7 +251,7 @@ def test_wechat_account_defaults_and_normalization() -> None:
     assert account.base_url == 'https://ilink.test'
     assert account.media_types == ['image', 'video']
     assert account.logged_in is True
-    assert WeChatAccount(name='x').media_types == ['video', 'image', 'file']
+    assert WeChatAccount(name='x').media_types == ['video', 'image', 'file', 'link']
 
 
 @pytest.mark.parametrize(

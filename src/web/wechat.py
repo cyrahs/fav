@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -26,6 +27,8 @@ from src.core import logger, settings
 from src.tool import database, ensure_unique_path, format_media_filename, sanitize
 from src.tool.notifications import enqueue_notification
 from src.tool.wechat_ilink import CdnMedia, ILinkClient, ILinkError, InboundMessage, MediaItem
+from src.tool.wechat_link import build_client as build_link_client
+from src.tool.wechat_link import download_link_images, sniff_image_extension
 from src.tool.wechat_queue import (
     WeChatMediaJob,
     claim_next_wechat_media_job,
@@ -80,15 +83,6 @@ _RECONNECT_MAX_SECONDS = 300.0
 _PAUSE_POLL_SECONDS = 60.0
 _ONE_SHOT_POLL_TIMEOUT_SECONDS = 10.0
 _MD5_CHUNK_BYTES = 1 << 20
-_IMAGE_SIGNATURES: tuple[tuple[bytes, str], ...] = (
-    (b'\xff\xd8\xff', 'jpg'),
-    (b'\x89PNG\r\n\x1a\n', 'png'),
-    (b'GIF87a', 'gif'),
-    (b'GIF89a', 'gif'),
-)
-_WEBP_RIFF = b'RIFF'
-_WEBP_TAG = b'WEBP'
-_WEBP_TAG_OFFSET = 8
 _SNIFF_BYTES = 16
 
 
@@ -141,6 +135,8 @@ class WeChat:
         self._close_event = asyncio.Event()
         self._running = False
         self._closed = False
+        # Public HTTP for the pages behind link cards; unrelated to either transport's session.
+        self._link_client = build_link_client()
 
     @property
     def cfg(self) -> settings.WeChat:
@@ -169,6 +165,8 @@ class WeChat:
             with contextlib.suppress(Exception):
                 await client.aclose()
         self._clients.clear()
+        with contextlib.suppress(Exception):
+            await self._link_client.aclose()
         self._tmp_dir.cleanup()
 
     async def _initialize_tables(self) -> None:
@@ -387,12 +385,7 @@ class WeChat:
                 head = handle.read(_SNIFF_BYTES)
         except OSError:
             return 'jpg'
-        for signature, ext in _IMAGE_SIGNATURES:
-            if head.startswith(signature):
-                return ext
-        if head.startswith(_WEBP_RIFF) and head[_WEBP_TAG_OFFSET : _WEBP_TAG_OFFSET + len(_WEBP_TAG)] == _WEBP_TAG:
-            return 'webp'
-        return 'jpg'
+        return sniff_image_extension(head)
 
     @classmethod
     def build_filename(cls, job: WeChatMediaJob, downloaded: Path) -> str:
@@ -436,7 +429,54 @@ class WeChat:
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue wechat download notification for message %s: %s', job.message_id, exc)
 
+    async def _archive_link_job(self, *, account: WeChatAccount, job: WeChatMediaJob) -> Path:
+        """A link card: fetch the page and keep its pictures in one folder per link."""
+        locator = json.loads(job.encrypt_query_param)
+        url = str(locator.get('url') or '')
+        if not url:
+            msg = 'link card carries no URL'
+            raise ILinkError(msg, retryable=False)
+        title = sanitize(job.title.strip() or str(locator.get('title') or '').strip() or 'link', max_bytes=120)
+        folder = ensure_unique_path(account.path / f'{title} [{job.message_id}]')
+        saved = await download_link_images(self._link_client, url, folder)
+        if not saved:
+            with contextlib.suppress(OSError):
+                folder.rmdir()
+            msg = f'no images found behind {url}'
+            raise ILinkError(msg, retryable=False)
+        await database.query_db(
+            """
+            INSERT INTO wechat (account_name, message_id, item_index, media_type, title, from_user_id, local_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (account_name, message_id, item_index) DO NOTHING;
+            """,
+            (account.name, job.message_id, job.item_index, job.media_type, job.title, job.from_user_id, str(folder)),
+        )
+        try:
+            await enqueue_notification(
+                kind='download_completed',
+                source='wechat',
+                header='WeChat',
+                title=job.title.strip() or url,
+                body=f'{len(saved)} image(s) | Account {account.name} | Message ID {job.message_id}',
+                link_url=url,
+                payload={
+                    'account_name': account.name,
+                    'message_id': job.message_id,
+                    'item_index': job.item_index,
+                    'saved_path': str(folder),
+                    'image_path': str(saved[0]),
+                    'image_count': len(saved),
+                    'url': url,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue wechat link notification for message %s: %s', job.message_id, exc)
+        return folder
+
     async def _archive_job(self, *, account: WeChatAccount, client: ILinkClient, job: WeChatMediaJob) -> Path:
+        if job.media_type == 'link':
+            return await self._archive_link_job(account=account, job=job)
         stem = f'{account.name}-{job.message_id}-{job.item_index}'
         scratch = self.cache_dir / f'{stem}.enc'
         partial = self.cache_dir / f'{stem}.part'

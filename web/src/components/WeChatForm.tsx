@@ -2,7 +2,7 @@ import { CheckboxGroup, NumberField, Repeater, SecretField, SelectField, TextFie
 import { list, num, patcher, str, type SectionFormProps } from './sectionFields';
 import { WeChatLogin } from './WeChatLogin';
 
-export type WeChatMediaType = 'video' | 'image' | 'file';
+export type WeChatMediaType = 'video' | 'image' | 'file' | 'link';
 export type WeChatTransport = 'ilink' | 'filehelper';
 
 export interface WeChatAccount {
@@ -21,6 +21,7 @@ const MEDIA_TYPES: Option<WeChatMediaType>[] = [
   { value: 'video', label: '视频' },
   { value: 'image', label: '图片' },
   { value: 'file', label: '文件' },
+  { value: 'link', label: '链接内图片' },
 ];
 
 const TRANSPORTS: Option<WeChatTransport>[] = [
@@ -46,7 +47,7 @@ export function WeChatForm(props: SectionFormProps) {
       <p className="field-hint field-wide">
         微信没有可订阅的频道，只能把内容送到一个我们能读的会话。“文件传输助手”会出现在转发列表里：任何会话长按 → 逐条转发 →
         文件传输助手，worker 通过网页版协议收下并归档；网页会话断开期间转发的内容不会补发。ClawBot 机器人只能在它自己的会话里用 + 菜单发送，
-        不能作为转发目标。视频号、公众号和合并转发的聊天记录都是卡片，两种方式都收不到。
+        不能作为转发目标。转发的链接卡片（公众号文章、网页）会抓取页面里的图片，每个链接一个文件夹；合并转发的聊天记录和视频号只是卡片，两种方式都收不到。
       </p>
 
       <details className="subsection">
@@ -87,7 +88,7 @@ export function WeChatForm(props: SectionFormProps) {
         empty="还没有账号，微信任务会保持未就绪。"
         hint="每个账号对应一个 ClawBot 机器人。改动账号后需要重启 worker，实时监听在进程启动时建立。"
         onAdd={() =>
-          set('accounts', [...accounts, { name: '', transport: 'filehelper', path: 'collection/wechat', media_types: ['video', 'image', 'file'] }])
+          set('accounts', [...accounts, { name: '', transport: 'filehelper', path: 'collection/wechat', media_types: ['video', 'image', 'file', 'link'] }])
         }
       >
         <div className="stack">
