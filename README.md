@@ -561,7 +561,7 @@ receives it. There are two such conversations, selected per account by `transpor
 | `ilink` | A [ClawBot](https://github.com/tencent-weixin/openclaw-weixin) bot on Tencent's iLink protocol | no | official, documented by the reference plugin |
 
 Text, images, voice, files and videos all arrive on both; the archive keeps images, videos and
-files. Either way the settings page's 扫码绑定 button does the login and writes the credentials
+files, plus the pictures behind link cards on the web transport. Either way the settings page's 扫码绑定 button does the login and writes the credentials
 server-side, the account's name, path and media types are saved at that moment, and the worker
 needs a restart afterwards -- like Telegram, the listener is created at process start.
 
@@ -579,8 +579,15 @@ resumes where it left off.
 
 What to expect:
 
-- Use 逐条转发, not 合并转发: merged chat records are a card, not media. Video-channel posts,
-  articles and mini-programs forward as link cards and are not archived.
+- Use 逐条转发, not 合并转发. A merged chat record is a card whose pictures are WeChat CDN file
+  ids plus AES keys (`cdndataurl` / `cdndatakey`), fetchable only through the native client's CDN
+  protocol; the web protocol cannot reach them, so the record is logged and skipped. To archive
+  its pictures, open the record on the phone and forward each one from inside it.
+- A forwarded **link card** (公众号 article, web page) is fetched and its pictures saved into one
+  folder per link, `<title> [<message id>]/001.jpg, 002.png, ...`, when the account's media types
+  include `link`. 公众号 images are requested at their original size (`/0?wx_fmt=...`); icons and
+  tracking pixels are dropped below 8KB; a card with no pictures behind it is discarded, not
+  retried. Video-channel posts and mini-programs are cards with nothing to fetch.
 - **Nothing is delivered while the web session is down.** The web helper has no history, so
   anything forwarded between a logout and the next scan is lost. A logout (`synccheck`
   retcode 1100-1102) pauses the account, sends one `session_expired` notification, and the

@@ -27,7 +27,7 @@ _CRON_FIELDS = 5
 _ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 _TWITTER_USERNAME_RE = re.compile(r'^[A-Za-z0-9_]+$')
 TelegramMediaType = Literal['video', 'image']
-WeChatMediaType = Literal['video', 'image', 'file']
+WeChatMediaType = Literal['video', 'image', 'file', 'link']
 WeChatTransport = Literal['ilink', 'filehelper']
 
 CREATE_APP_SETTINGS_TABLE_SQL = """
@@ -835,7 +835,7 @@ class WeChatAccount(BaseModel):
     name: str
     transport: WeChatTransport = 'ilink'
     path: Path = Path('./collection/wechat')
-    media_types: list[WeChatMediaType] = Field(default_factory=lambda: ['video', 'image', 'file'])
+    media_types: list[WeChatMediaType] = Field(default_factory=lambda: ['video', 'image', 'file', 'link'])
     bot_token: str = ''
     bot_id: str = ''
     user_id: str = ''
