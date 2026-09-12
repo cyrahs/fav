@@ -753,11 +753,13 @@ class WeChatLoginStartRequest(ApiSchema):
     account: str
     path: str = ''
     media_types: list[str] = Field(default_factory=list)
+    transport: Literal['ilink', 'filehelper'] = 'ilink'
 
 
 class WeChatLoginStartResponse(ApiSchema):
     session_key: str
     account: str
+    transport: Literal['ilink', 'filehelper'] = 'ilink'
     qrcode_url: str
     # PNG data URL, ready for an <img>.
     qrcode_image: str

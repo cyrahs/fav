@@ -450,9 +450,16 @@ class FavApiService:
             'warnings': list(result.warnings),
         }
 
-    async def start_wechat_login(self, account: str, *, path: str = '', media_types: list[str] | None = None) -> dict[str, Any]:
-        """Fetch a QR code that binds an iLink bot to ``account``."""
-        return await self._wechat_login_manager.start(account, path=path, media_types=media_types)
+    async def start_wechat_login(
+        self,
+        account: str,
+        *,
+        path: str = '',
+        media_types: list[str] | None = None,
+        transport: str = 'ilink',
+    ) -> dict[str, Any]:
+        """Fetch a QR code that binds an iLink bot or a web 文件传输助手 session to ``account``."""
+        return await self._wechat_login_manager.start(account, path=path, media_types=media_types, transport=transport)  # type: ignore[arg-type]
 
     async def poll_wechat_login(self, session_key: str) -> dict[str, Any]:
         """Ask iLink whether the QR code was scanned; stores the token on confirmation."""

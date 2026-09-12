@@ -5,6 +5,7 @@ import type { WeChatLoginPoll, WeChatLoginStart } from '../api/types';
 
 interface WeChatLoginProps {
   account: string;
+  transport: 'ilink' | 'filehelper';
   path: string;
   mediaTypes: string[];
   /** Called with the stored (token-masked) account once the scan is confirmed. */
@@ -26,7 +27,7 @@ const ACCOUNT_NAME_RE = /^[A-Za-z0-9_-]+$/;
  * browser: the backend stores it on confirmation and hands back the masked
  * account, which is patched into the draft so 保存 keeps it.
  */
-export function WeChatLogin({ account, path, mediaTypes, onBound }: WeChatLoginProps) {
+export function WeChatLogin({ account, transport, path, mediaTypes, onBound }: WeChatLoginProps) {
   const queryClient = useQueryClient();
   const [state, setState] = useState<LoginState>({ phase: 'idle' });
   const cancelled = useRef(false);
@@ -47,6 +48,7 @@ export function WeChatLogin({ account, path, mediaTypes, onBound }: WeChatLoginP
     try {
       const started = await api.post<WeChatLoginStart>('/api/v2/wechat/login/start', {
         account,
+        transport,
         path,
         media_types: mediaTypes,
       });
@@ -97,16 +99,19 @@ export function WeChatLogin({ account, path, mediaTypes, onBound }: WeChatLoginP
           </button>
         )}
         {!nameOk && <span className="muted">先填写合法的账号名称</span>}
-        {state.phase === 'scanned' && <span className="ok">已扫码，请在微信里点“连接”</span>}
+        {state.phase === 'scanned' && <span className="ok">{transport === 'filehelper' ? '已扫码，请在手机上确认登录' : '已扫码，请在微信里点“连接”'}</span>}
         {state.phase === 'confirmed' && <span className="ok">✓ 已绑定，凭据已保存到服务器</span>}
         {state.phase === 'expired' && <span className="warn">二维码已过期，请重新获取</span>}
         {state.phase === 'error' && <span className="warn">{state.message}</span>}
       </div>
       {busy && state.qrcodeImage && (
         <div className="wechat-qr">
-          <img src={state.qrcodeImage} alt="微信 ClawBot 绑定二维码" width={220} height={220} />
+          <img src={state.qrcodeImage} alt="微信扫码二维码" width={220} height={220} />
           <p className="field-hint">
-            用微信扫描（微信内会打开 ClawBot 连接页），点“连接”后本页会自动完成。绑定会立即保存这个账号的名称、路径和媒体类型。
+            {transport === 'filehelper'
+              ? '用微信“扫一扫”扫描，手机上确认登录网页版文件传输助手后本页会自动完成。手机顶部之后会一直显示“网页版文件传输助手已打开”，那是正常状态。'
+              : '用微信扫描（微信内会打开 ClawBot 连接页），点“连接”后本页会自动完成。'}
+            绑定会立即保存这个账号的名称、路径和媒体类型。
           </p>
         </div>
       )}
