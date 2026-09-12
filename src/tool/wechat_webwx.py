@@ -32,6 +32,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
+from src.core import logger
 from src.tool.wechat_ilink import (
     MESSAGE_TYPE_USER,
     SESSION_EXPIRED_ERRCODE,
@@ -64,7 +65,9 @@ MSG_TYPE_TEXT = 1
 MSG_TYPE_IMAGE = 3
 MSG_TYPE_VIDEO = 43
 MSG_TYPE_APP = 49
+APP_MSG_TYPE_LINK = 5
 APP_MSG_TYPE_FILE = 6
+APP_MSG_TYPE_RECORD = 19
 
 _LOGIN_CODE_CONFIRMED = 200
 _LOGIN_CODE_SCANNED = 201
@@ -76,6 +79,11 @@ _SYNC_RET_SESSION_GONE = 1101
 _UUID_RE = re.compile(r'window\.QRLogin\.uuid\s*=\s*"([^"]+)"')
 _LOGIN_CODE_RE = re.compile(r'window\.code\s*=\s*(\d+)')
 _REDIRECT_RE = re.compile(r'window\.redirect_uri\s*=\s*"([^"]+)"')
+_APPMSG_URL_RE = re.compile(r'<url>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</url>', re.DOTALL)
+_APPMSG_TITLE_RE = re.compile(r'<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>', re.DOTALL)
+
+log = logger.get('wechat-webwx')
+
 _SYNCCHECK_RE = re.compile(r'retcode\s*:\s*"?(\d+)"?\s*,\s*selector\s*:\s*"?(\d+)"?')
 
 
@@ -158,6 +166,37 @@ def _locator(kind: str, **fields: Any) -> CdnMedia:
     return CdnMedia(encrypt_query_param=json.dumps({'kind': kind, **fields}, separators=(',', ':')), aes_key='')
 
 
+def _parse_app_message(item: dict[str, Any], *, msg_id: int, sender: str) -> tuple[str, list[MediaItem]]:
+    """Link cards and file attachments become media; everything else is logged and dropped."""
+    app_type = _int(item.get('AppMsgType'))
+    if app_type == APP_MSG_TYPE_LINK:
+        content = html.unescape(str(item.get('Content') or ''))
+        url_match = _APPMSG_URL_RE.search(content)
+        title_match = _APPMSG_TITLE_RE.search(content)
+        url = str(item.get('Url') or '').strip() or (html.unescape(url_match.group(1)).strip() if url_match else '')
+        title = str(item.get('FileName') or '').strip() or (html.unescape(title_match.group(1)).strip() if title_match else '')
+        if not url:
+            return title, []
+        return title, [MediaItem(index=0, kind='link', media=_locator('link', url=url, title=title))]
+    if app_type == APP_MSG_TYPE_FILE:
+        file_name = str(item.get('FileName') or '')
+        item_media = _locator(
+            'file',
+            msg_id=msg_id,
+            media_id=str(item.get('MediaId') or ''),
+            sender=sender,
+            encry_filename=str(item.get('EncryFileName') or ''),
+        )
+        return '', [MediaItem(index=0, kind='file', media=item_media, file_name=file_name, size=_int(item.get('FileSize')))]
+    if app_type == APP_MSG_TYPE_RECORD:
+        # A 合并转发 record: its pictures are CDN file ids plus AES keys that only
+        # the native client's CDN protocol can fetch, so there is nothing to queue.
+        log.info('Skipped a merged chat record (message %s): its media is not reachable over the web protocol', msg_id)
+        return '', []
+    log.info('Skipped app message %s of type %s: not archivable', msg_id, app_type)
+    return '', []
+
+
 def parse_sync_message(item: dict[str, Any]) -> InboundMessage | None:
     """Map one ``AddMsgList`` entry to the transport-neutral shape; ``None`` when it is not ours.
 
@@ -173,7 +212,6 @@ def parse_sync_message(item: dict[str, Any]) -> InboundMessage | None:
     if msg_id <= 0:
         return None
     msg_type = _int(item.get('MsgType'))
-    app_type = _int(item.get('AppMsgType'))
     text = ''
     media: list[MediaItem] = []
     if msg_type == MSG_TYPE_TEXT:
@@ -182,23 +220,8 @@ def parse_sync_message(item: dict[str, Any]) -> InboundMessage | None:
         media.append(MediaItem(index=0, kind='image', media=_locator('image', msg_id=msg_id)))
     elif msg_type == MSG_TYPE_VIDEO:
         media.append(MediaItem(index=0, kind='video', media=_locator('video', msg_id=msg_id)))
-    elif msg_type == MSG_TYPE_APP and app_type == APP_MSG_TYPE_FILE:
-        file_name = str(item.get('FileName') or '')
-        media.append(
-            MediaItem(
-                index=0,
-                kind='file',
-                media=_locator(
-                    'file',
-                    msg_id=msg_id,
-                    media_id=str(item.get('MediaId') or ''),
-                    sender=from_user,
-                    encry_filename=str(item.get('EncryFileName') or ''),
-                ),
-                file_name=file_name,
-                size=_int(item.get('FileSize')),
-            ),
-        )
+    elif msg_type == MSG_TYPE_APP:
+        text, media = _parse_app_message(item, msg_id=msg_id, sender=from_user)
     return InboundMessage(
         message_id=msg_id,
         from_user_id=FILEHELPER_USER,

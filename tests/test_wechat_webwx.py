@@ -101,7 +101,7 @@ def test_parse_sync_message_keeps_only_the_filehelper_conversation() -> None:
     assert text.text == 'hi & bye'
     assert text.media == ()
 
-    # A link card (AppMsgType 5) is not media; a message in another chat is not ours.
+    # A link card without any URL is not media; a message in another chat is not ours.
     assert parse_sync_message(_raw(49, AppMsgType=5)).media == ()
     assert parse_sync_message(_raw(3, FromUserName='@friend', ToUserName='@me')) is None
 
