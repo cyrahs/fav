@@ -74,6 +74,19 @@ export function WeChatForm(props: SectionFormProps) {
             hint="服务器返回 -14 后停多久再试；期间需要重新扫码"
           />
           <NumberField
+            label="网页会话提前续期（秒）"
+            value={num(props.value, 'session_renew_after_seconds', 85500)}
+            onChange={(next) => set('session_renew_after_seconds', next)}
+            step={0.5}
+            hint="文件传输助手网页会话登录 24 小时后会被服务端登出；到这个时长时会推送“确认登录”到手机，点一下即续期。0 为关闭"
+          />
+          <NumberField
+            label="等待手机确认（秒）"
+            value={num(props.value, 'session_confirm_wait_seconds', 600)}
+            onChange={(next) => set('session_confirm_wait_seconds', next)}
+            step={0.5}
+          />
+          <NumberField
             label="单个媒体最多重试次数"
             value={num(props.value, 'max_download_attempts', 8)}
             onChange={(next) => set('max_download_attempts', next)}

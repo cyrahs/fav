@@ -907,6 +907,12 @@ class WeChat(ScheduleJob):
     # (errcode -14). The reference plugin pauses an hour; polling sooner just
     # burns requests until someone scans again.
     session_pause_seconds: float = 3600.0
+    # The web 文件传输助手 session dies 24h after login. Renew it by phone
+    # confirmation this long after login, so the swap happens before the cut-off
+    # and nothing forwarded in between is lost. 0 disables the early renewal.
+    session_renew_after_seconds: float = 85500.0
+    # How long one renewal waits for the 确认登录 tap before giving up.
+    session_confirm_wait_seconds: float = 600.0
     max_download_attempts: int = 8
 
     @field_validator('long_poll_timeout_seconds')
@@ -917,7 +923,7 @@ class WeChat(ScheduleJob):
             raise ValueError(msg)
         return value
 
-    @field_validator('download_delay_seconds', 'session_pause_seconds')
+    @field_validator('download_delay_seconds', 'session_pause_seconds', 'session_renew_after_seconds', 'session_confirm_wait_seconds')
     @classmethod
     def validate_non_negative_seconds(cls, value: float) -> float:
         if not math.isfinite(value) or value < 0:
