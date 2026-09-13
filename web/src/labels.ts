@@ -19,7 +19,6 @@ const SECTION_LABELS: Record<string, string> = {
   'web.twitter': 'X',
   'web.pixiv': 'Pixiv',
   'web.rednote': '小红书',
-  'web.wechat': '微信',
   'notifications.telegram': 'Telegram 通知',
   cookiecloud: 'CookieCloud',
 };

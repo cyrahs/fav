@@ -27,8 +27,6 @@ _CRON_FIELDS = 5
 _ACCOUNT_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 _TWITTER_USERNAME_RE = re.compile(r'^[A-Za-z0-9_]+$')
 TelegramMediaType = Literal['video', 'image']
-WeChatMediaType = Literal['video', 'image', 'file', 'link']
-WeChatTransport = Literal['ilink', 'filehelper']
 
 CREATE_APP_SETTINGS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -821,152 +819,6 @@ class TelegramNotification(BaseModel):
         return [name for name in ('bot_token', 'chat_id') if not getattr(self, name)]
 
 
-class WeChatAccount(BaseModel):
-    """One receiving identity, bound to one WeChat user by a QR scan.
-
-    ``ilink`` is a ClawBot: the user sends media to the bot chat, and the token
-    and ids are filled in by the settings page's scan flow rather than typed;
-    ``user_id`` is the scanner, and only that sender is archived. ``filehelper``
-    is the user's own 文件传输助手 through the web protocol -- the one target the
-    WeChat client lets you 转发 to. Its session lives in ``wechat_account_state``
-    (it rolls with every sync), and ``user_id`` holds the uin as the "bound" mark.
-    """
-
-    name: str
-    transport: WeChatTransport = 'ilink'
-    path: Path = Path('./collection/wechat')
-    media_types: list[WeChatMediaType] = Field(default_factory=lambda: ['video', 'image', 'file', 'link'])
-    bot_token: str = ''
-    bot_id: str = ''
-    user_id: str = ''
-    base_url: str = 'https://ilinkai.weixin.qq.com'
-    cdn_base_url: str = 'https://novac2c.cdn.weixin.qq.com/c2c'
-
-    @field_validator('name')
-    @classmethod
-    def normalize_name(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            msg = 'wechat account name cannot be empty'
-            raise ValueError(msg)
-        if not _ACCOUNT_NAME_RE.fullmatch(normalized):
-            msg = 'wechat account name must contain only ASCII letters, digits, underscores, or hyphens'
-            raise ValueError(msg)
-        return normalized
-
-    @field_validator('bot_token', 'bot_id', 'user_id')
-    @classmethod
-    def normalize_text(cls, value: str) -> str:
-        return value.strip()
-
-    @field_validator('base_url', 'cdn_base_url')
-    @classmethod
-    def normalize_url(cls, value: str) -> str:
-        normalized = value.strip().rstrip('/')
-        if not normalized.startswith(('http://', 'https://')):
-            msg = 'wechat URLs must start with http:// or https://'
-            raise ValueError(msg)
-        return normalized
-
-    @field_validator('media_types')
-    @classmethod
-    def validate_media_types(cls, value: list[WeChatMediaType]) -> list[WeChatMediaType]:
-        deduped: list[WeChatMediaType] = []
-        for media_type in value:
-            if media_type not in deduped:
-                deduped.append(media_type)
-        if not deduped:
-            msg = 'wechat account media_types cannot be empty'
-            raise ValueError(msg)
-        return deduped
-
-    @property
-    def logged_in(self) -> bool:
-        if self.transport == 'filehelper':
-            return bool(self.user_id)
-        return bool(self.bot_token)
-
-    def validate_runnable(self) -> list[str]:
-        if self.transport == 'filehelper':
-            return [] if self.user_id else ['user_id']
-        return [] if self.bot_token else ['bot_token']
-
-
-class WeChat(ScheduleJob):
-    """Media the user sends to an iLink bot from WeChat.
-
-    There is nothing to crawl: the worker long-polls each bot and the cron only
-    re-releases queued downloads (or, without the listener, drains once).
-    """
-
-    accounts: list[WeChatAccount] = Field(default_factory=list)
-    cron: str = '0 * * * *'
-    long_poll_timeout_seconds: float = 35.0
-    download_delay_seconds: float = 0.0
-    # How long to leave a bot alone after the server says its token is dead
-    # (errcode -14). The reference plugin pauses an hour; polling sooner just
-    # burns requests until someone scans again.
-    session_pause_seconds: float = 3600.0
-    # The web 文件传输助手 session dies 24h after login. Renew it by phone
-    # confirmation this long after login, so the swap happens before the cut-off
-    # and nothing forwarded in between is lost. 0 disables the early renewal.
-    session_renew_after_seconds: float = 85500.0
-    # How long one renewal waits for the 确认登录 tap before giving up.
-    session_confirm_wait_seconds: float = 600.0
-    max_download_attempts: int = 8
-
-    @field_validator('long_poll_timeout_seconds')
-    @classmethod
-    def validate_long_poll_timeout(cls, value: float) -> float:
-        if not math.isfinite(value) or value < 1:
-            msg = 'wechat long_poll_timeout_seconds must be at least 1'
-            raise ValueError(msg)
-        return value
-
-    @field_validator('download_delay_seconds', 'session_pause_seconds', 'session_renew_after_seconds', 'session_confirm_wait_seconds')
-    @classmethod
-    def validate_non_negative_seconds(cls, value: float) -> float:
-        if not math.isfinite(value) or value < 0:
-            msg = 'wechat delays must be finite and greater than or equal to 0'
-            raise ValueError(msg)
-        return value
-
-    @field_validator('max_download_attempts')
-    @classmethod
-    def validate_max_download_attempts(cls, value: int) -> int:
-        if value < 1:
-            msg = 'wechat max_download_attempts must be at least 1'
-            raise ValueError(msg)
-        return value
-
-    @model_validator(mode='after')
-    def validate_unique_account_names(self) -> Self:
-        seen: set[str] = set()
-        for account in self.accounts:
-            folded = account.name.casefold()
-            if folded in seen:
-                msg = f'duplicate wechat account name: {account.name}'
-                raise ValueError(msg)
-            seen.add(folded)
-        return self
-
-    def get_account(self, name: str) -> WeChatAccount | None:
-        normalized = name.strip().casefold()
-        return next((account for account in self.accounts if account.name.casefold() == normalized), None)
-
-    def resolved_accounts(self) -> list[WeChatAccount]:
-        """Accounts that have completed the scan; the rest stay parked."""
-        return [account for account in self.accounts if account.logged_in]
-
-    def validate_runnable(self) -> list[str]:
-        if not self.accounts:
-            return ['accounts']
-        missing: list[str] = []
-        for index, account in enumerate(self.accounts):
-            missing.extend(f'accounts[{index}].{field}' for field in account.validate_runnable())
-        return missing
-
-
 class Notifications(BaseModel):
     telegram: TelegramNotification = Field(default_factory=TelegramNotification)
 
@@ -984,7 +836,6 @@ class Web(BaseModel):
     twitter: Twitter = Field(default_factory=Twitter)
     pixiv: Pixiv = Field(default_factory=Pixiv)
     rednote: RedNote = Field(default_factory=RedNote)
-    wechat: WeChat = Field(default_factory=WeChat)
 
 
 class Settings(BaseModel):
@@ -1008,7 +859,6 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.twitter': Twitter,
     'web.pixiv': Pixiv,
     'web.rednote': RedNote,
-    'web.wechat': WeChat,
     'notifications.telegram': TelegramNotification,
     'cookiecloud': CookieCloudConfigs,
 }
@@ -1020,7 +870,6 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'cookiecloud': ('configs[].password',),
     'web.telegram': ('accounts[].api_hash',),
-    'web.wechat': ('accounts[].bot_token',),
     'notifications.telegram': ('bot_token',),
 }
 

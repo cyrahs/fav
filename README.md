@@ -39,8 +39,7 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `web.wechat`,
-`cookiecloud`,
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `cookiecloud`,
 `notifications.telegram`. The settings page groups them into three partitions — sources (`web.*`),
 credentials (`cookiecloud`) and notifications (`notifications.*`) — and shows only display names,
 never these internal keys.
@@ -305,9 +304,9 @@ them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete sour
 crashing.
 
 Secrets (`cookiecloud.configs[].password`, `web.telegram.accounts[].api_hash`,
-`web.wechat.accounts[].bot_token`, `notifications.telegram.bot_token`) are stored in
+`notifications.telegram.bot_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
-keeps the stored secret. Telegram and WeChat secrets are matched by account name, so reordering accounts in the
+keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
 UI cannot shuffle credentials between them; the same holds for the shared CookieCloud passwords,
 matched by config name. (`web.rednote.proxy` and the other proxy URLs are deliberately shown in
 plain text.)
@@ -316,9 +315,9 @@ The worker polls `app_settings` every 15 seconds and reschedules APScheduler job
 `enabled` and `cron` changes apply without a restart. `notify` is read when a notification is
 queued, so it applies to the next message either way.
 
-**Known limitation:** the Telegram and WeChat realtime listeners are created at process start.
-Toggling `web.telegram.enabled` or `web.wechat.enabled` at runtime only affects the cron job; the
-listener still needs a worker restart, and so does adding or re-binding an account.
+**Known limitation:** the Telegram realtime listener is created at process start. Toggling
+`web.telegram.enabled` at runtime only affects its cron reconciliation job; the listener still needs
+a worker restart.
 
 ## Web UI
 
@@ -333,7 +332,6 @@ saved on an incomplete source like any other field.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels,
-WeChat accounts (each with a 扫码绑定 button that logs in 文件传输助手 or binds an iLink bot by QR scan),
 Kemono creators and shared CookieCloud configs (the `CookieCloud` block at the bottom of the page,
 with a live connection test; Bilibili accounts, X and pixiv reference its entries by name from a
 dropdown) — validated locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
@@ -393,8 +391,6 @@ Protected endpoints:
 - `PUT /api/v2/settings/{section}`
 - `POST /api/v2/cookiecloud/test`
 - `POST /api/v2/notifications/telegram/test`
-- `POST /api/v2/wechat/login/start`
-- `POST /api/v2/wechat/login/poll`
 - `GET /api/v2/archive/sources`
 - `GET /api/v2/archive/items`
 - `GET /api/v2/nikke/characters`
@@ -547,105 +543,6 @@ download_delay_seconds = 60
 channel_cooldown_seconds = 1800
 history_wait_seconds = 1
 flood_sleep_threshold_seconds = 300
-```
-
-## WeChat
-
-WeChat has no channels to subscribe to and no personal-account API, so this source is the inverse of
-the Telegram one: you put media in front of a conversation the worker can read, and the worker
-receives it. There are two such conversations, selected per account by `transport`:
-
-| `transport` | What it is | Can be a 转发 target | Protocol |
-| --- | --- | --- | --- |
-| `filehelper` (default) | Your own 文件传输助手, through the web File Transfer Helper (`filehelper.weixin.qq.com`) | **yes** | classic web-WeChat, undocumented but an official page |
-| `ilink` | A [ClawBot](https://github.com/tencent-weixin/openclaw-weixin) bot on Tencent's iLink protocol | no | official, documented by the reference plugin |
-
-Text, images, voice, files and videos all arrive on both; the archive keeps images, videos and
-files, plus the pictures behind link cards on the web transport. Either way the settings page's 扫码绑定 button does the login and writes the credentials
-server-side, the account's name, path and media types are saved at that moment, and the worker
-needs a restart afterwards -- like Telegram, the listener is created at process start.
-
-### 文件传输助手 (forwarding)
-
-This is the transport for "long-press → 转发 → archive": the WeChat client lists 文件传输助手 among
-forward recipients, which no bot account ever is (see
-[Tencent/openclaw-weixin#198](https://github.com/Tencent/openclaw-weixin/issues/198)). Press
-扫码登录文件传输助手, scan with WeChat's 扫一扫 and confirm on the phone. The worker then keeps one
-web session per account: `synccheck` long-polls (the server holds it ~25s), `webwxsync` fetches
-what arrived, and media is streamed from `webwxgetmsgimg` / `webwxgetvideo` / `webwxgetmedia`.
-The session -- cookies, tokens and the rolling `SyncKey` -- lives in
-`wechat_account_state.webwx_session` and is rewritten after every sync, so a worker restart
-resumes where it left off.
-
-What to expect:
-
-- Use 逐条转发, not 合并转发. A merged chat record is a card whose pictures are WeChat CDN file
-  ids plus AES keys (`cdndataurl` / `cdndatakey`), fetchable only through the native client's CDN
-  protocol; the web protocol cannot reach them, so the record is logged and skipped. To archive
-  its pictures, open the record on the phone and forward each one from inside it.
-- A forwarded **link card** (公众号 article, web page) is fetched and its pictures saved into one
-  folder per link, `<title> [<message id>]/001.jpg, 002.png, ...`, when the account's media types
-  include `link`. 公众号 images are requested at their original size (`/0?wx_fmt=...`); icons and
-  tracking pixels are dropped below 8KB; a card with no pictures behind it is discarded, not
-  retried. Video-channel posts and mini-programs are cards with nothing to fetch.
-- **The session lives 24 hours.** The server ends a web 文件传输助手 session 24h after the login
-  that minted it (observed to the second in production). The worker therefore renews it without a
-  scan: `session_renew_after_seconds` (default 23h45m) after login it asks the server to push a
-  确认登录 prompt to the phone (`webwxpushloginurl`, on the strength of the old cookies), sends a
-  `session_confirm` notification, and waits `session_confirm_wait_seconds` for the tap; the new
-  session replaces the old one in place. Tap it and there is no gap. The same push is tried when
-  the server reports the session gone (`synccheck` retcode 1100-1102); only if the server insists
-  on a scan does the account pause, send one `session_expired` notification, and wait for the
-  settings page.
-- **Nothing is delivered while the web session is down.** The web helper has no history, so
-  anything forwarded between a logout and the next login is lost. The phone shows a persistent
-  "网页版文件传输助手已打开" banner while the session is alive, which is the normal state.
-- Everything in that conversation is archived, including what you send from a desktop client.
-  The protocol cannot tell a forward from a direct send.
-- A forwarded video is the copy WeChat already re-encoded when it was first sent; files are the
-  originals. Single files up to 1GB.
-- This drives an official page over an undocumented protocol. The listener mirrors the page's
-  own cadence (one long-poll at a time, serial downloads) and should be left that way.
-
-### ClawBot (iLink)
-
-The bot cannot speak first and cannot join groups; `group_id` messages are ignored. Only the
-scanning user is trusted: `user_id` is filled in by the scan and anything from another sender is
-logged and dropped; clear the field to accept anyone. The bot is not a forward target, so media
-reaches it from inside its own chat through the `+` menu (相册, or 文件 → 微信文件 for files received
-elsewhere). A video sent as a video is re-encoded by WeChat; 以文件形式发送 keeps the original.
-Media sits on WeChat's CDN encrypted with AES-128-ECB; the key travels with the message and the
-file is decrypted block by block. errcode `-14` means the token is dead: same pause and
-notification as above, scan again.
-
-### How it runs
-
-Each logged-in account gets one listener and one serial download worker, so accounts run in
-parallel and downloads within one account do not. Every media item is written to the durable
-`wechat_media_queue` before the receive cursor advances (the iLink `get_updates_buf`, or the web
-`SyncKey`), so a crash between the two replays the page rather than losing it; the queue's primary
-key makes the replay a no-op.
-
-Files land in the account's `path` as `<caption or kind> [<message id>].<ext>` (images sniffed to
-`jpg`/`png`/`gif`/`webp`, videos `mp4`); files keep their own name, `<stem> [<message id>].<ext>`.
-Each download sends a `download_completed` notification, with `image_path` for images so the
-Telegram bot can attach them.
-
-Transient failures back off (30s doubling to 30min) up to `max_download_attempts`; an error the
-server will repeat is discarded straight away. The cron does not fetch anything -- there is no
-history to reconcile against -- so 立即运行 and the schedule re-release every backed-off download
-instead. Without the listener (`--trigger wechat`) it polls once, with a short timeout, and drains
-the queue.
-
-```toml
-[web.wechat]
-cron = "0 * * * *"
-long_poll_timeout_seconds = 35
-download_delay_seconds = 0
-session_pause_seconds = 3600
-session_renew_after_seconds = 85500
-session_confirm_wait_seconds = 600
-max_download_attempts = 8
 ```
 
 ## Hanime1 Archive Layout

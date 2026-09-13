@@ -107,20 +107,6 @@ export interface CookieCloudTestResult {
   missing_cookies: string[];
 }
 
-export interface WeChatLoginStart {
-  session_key: string;
-  account: string;
-  transport: 'ilink' | 'filehelper';
-  qrcode_url: string;
-  qrcode_image: string;
-  expires_in_seconds: number;
-}
-
-export interface WeChatLoginPoll {
-  status: 'wait' | 'scaned' | 'confirmed' | 'expired';
-  account: Record<string, unknown> | null;
-}
-
 export interface TelegramNotificationTest {
   status: 'delivered';
   message_id: number | null;
