@@ -121,6 +121,9 @@ class WebWxSession:
     uin: str = ''
     pass_ticket: str = ''
     user_name: str = ''
+    # Epoch seconds of the login that minted this session. The server ends a
+    # web 文件传输助手 session 24 hours after login, so the receiver renews ahead of it.
+    logged_in_at: float = 0.0
     synckey: dict[str, Any] = field(default_factory=lambda: {'Count': 0, 'List': []})
     cookies: list[dict[str, str]] = field(default_factory=list)
 
@@ -139,6 +142,8 @@ class WebWxSession:
             value = data.get(key)
             if isinstance(value, str) and value:
                 setattr(session, key, value)
+        if isinstance(data.get('logged_in_at'), (int, float)):
+            session.logged_in_at = float(data['logged_in_at'])
         if isinstance(data.get('synckey'), dict):
             session.synckey = data['synckey']
         if isinstance(data.get('cookies'), list):
@@ -389,6 +394,45 @@ class WebWxClient:
         session = await self.complete_login(redirect.group(1))
         return QrLoginStatus(status='confirmed', bot_token='', bot_id=session.user_name, base_url='', user_id=session.uin)
 
+    async def push_login(self) -> str | None:
+        """Ask the server to push a login confirmation to the phone instead of a QR scan.
+
+        Works on the strength of the previous session's cookies (``webwx_auth_ticket``)
+        and uin; the phone then shows 确认登录 and the returned uuid is polled like a
+        scan. ``None`` means the server wants a real scan.
+        """
+        if self._session is None and self._session_loader is not None:
+            text = await self._session_loader()
+            if text:
+                self._session = WebWxSession.from_json(text)
+                self._restore_cookies(self._session)
+        session = self._session
+        if session is None or not session.uin:
+            return None
+        url = f'https://{session.entry_host}/cgi-bin/mmwebwx-bin/webwxpushloginurl'
+        response = await self._client.get(
+            url, params={'uin': session.uin, 'mmweb_appid': MMWEB_APPID}, headers={'mmweb_appid': MMWEB_APPID}
+        )
+        if response.status_code >= httpx.codes.BAD_REQUEST:
+            msg = f'webwxpushloginurl answered HTTP {response.status_code}'
+            raise WebWxError(msg)
+        try:
+            data = response.json()
+        except ValueError:
+            log.info('webwxpushloginurl answered non-JSON; a scan is needed')
+            return None
+        uuid = str(data.get('uuid') or '') if isinstance(data, dict) else ''
+        if not uuid or str(data.get('ret')) not in ('0', '0.0'):
+            log.info(
+                'webwxpushloginurl declined (ret=%s msg=%s); a scan is needed',
+                data.get('ret') if isinstance(data, dict) else '?',
+                data.get('msg') if isinstance(data, dict) else '?',
+            )
+            return None
+        self._uuid = uuid
+        self._entry_host = session.entry_host
+        return uuid
+
     async def complete_login(self, redirect_uri: str) -> WebWxSession:
         parsed = urlparse(redirect_uri)
         query = parse_qs(parsed.query)
@@ -410,6 +454,7 @@ class WebWxClient:
         session = WebWxSession(
             entry_host=entry_host,
             device_id=_new_device_id(),
+            logged_in_at=time.time(),
             skey=_xml_tag(xml, 'skey'),
             sid=_xml_tag(xml, 'wxsid'),
             uin=_xml_tag(xml, 'wxuin'),

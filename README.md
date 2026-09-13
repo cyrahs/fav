@@ -588,11 +588,18 @@ What to expect:
   include `link`. 公众号 images are requested at their original size (`/0?wx_fmt=...`); icons and
   tracking pixels are dropped below 8KB; a card with no pictures behind it is discarded, not
   retried. Video-channel posts and mini-programs are cards with nothing to fetch.
+- **The session lives 24 hours.** The server ends a web 文件传输助手 session 24h after the login
+  that minted it (observed to the second in production). The worker therefore renews it without a
+  scan: `session_renew_after_seconds` (default 23h45m) after login it asks the server to push a
+  确认登录 prompt to the phone (`webwxpushloginurl`, on the strength of the old cookies), sends a
+  `session_confirm` notification, and waits `session_confirm_wait_seconds` for the tap; the new
+  session replaces the old one in place. Tap it and there is no gap. The same push is tried when
+  the server reports the session gone (`synccheck` retcode 1100-1102); only if the server insists
+  on a scan does the account pause, send one `session_expired` notification, and wait for the
+  settings page.
 - **Nothing is delivered while the web session is down.** The web helper has no history, so
-  anything forwarded between a logout and the next scan is lost. A logout (`synccheck`
-  retcode 1100-1102) pauses the account, sends one `session_expired` notification, and the
-  worker waits for a new scan; the phone also shows a persistent "网页版文件传输助手已打开"
-  banner while the session is alive, which is the normal state.
+  anything forwarded between a logout and the next login is lost. The phone shows a persistent
+  "网页版文件传输助手已打开" banner while the session is alive, which is the normal state.
 - Everything in that conversation is archived, including what you send from a desktop client.
   The protocol cannot tell a forward from a direct send.
 - A forwarded video is the copy WeChat already re-encoded when it was first sent; files are the
@@ -636,6 +643,8 @@ cron = "0 * * * *"
 long_poll_timeout_seconds = 35
 download_delay_seconds = 0
 session_pause_seconds = 3600
+session_renew_after_seconds = 85500
+session_confirm_wait_seconds = 600
 max_download_attempts = 8
 ```
 

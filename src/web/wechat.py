@@ -16,6 +16,7 @@ import hashlib
 import json
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -81,6 +82,7 @@ _POLL_RETRY_MAX_SECONDS = 60.0
 _RECONNECT_INITIAL_SECONDS = 5.0
 _RECONNECT_MAX_SECONDS = 300.0
 _PAUSE_POLL_SECONDS = 60.0
+_CONFIRM_POLL_TIMEOUT_SECONDS = 25.0
 _ONE_SHOT_POLL_TIMEOUT_SECONDS = 10.0
 _MD5_CHUNK_BYTES = 1 << 20
 _SNIFF_BYTES = 16
@@ -132,6 +134,8 @@ class WeChat:
         self._clients: dict[str, ILinkClient] = {}
         self._worker_wake_events: dict[str, asyncio.Event] = {}
         self._account_ready_events: dict[str, asyncio.Event] = {}
+        # logged_in_at of the session a scheduled renewal was already attempted for.
+        self._renewal_attempted: dict[str, float] = {}
         self._close_event = asyncio.Event()
         self._running = False
         self._closed = False
@@ -314,10 +318,11 @@ class WeChat:
 
     async def _handle_session_expired(self, account: WeChatAccount, exc: ILinkError) -> None:
         pause = self.cfg.session_pause_seconds
-        await self.set_account_pause(account.name, pause, error=f'session expired (errcode {exc.errcode})')
+        await self.set_account_pause(account.name, pause, error=f'session expired: {exc}')
         log.error(
-            'WeChat bot session for account %s has expired; pausing %.0fs. Scan the QR code again from the settings page.',
+            'WeChat session for account %s has expired (%s); pausing %.0fs. Scan the QR code again from the settings page.',
             account.name,
+            exc,
             pause,
         )
         try:
@@ -349,6 +354,71 @@ class WeChat:
             self._worker_wake_events.setdefault(account.name, asyncio.Event()).set()
         return page.long_poll_timeout_seconds
 
+    def _renewal_due(self, account: WeChatAccount, client: object) -> bool:
+        """Whether the web session is old enough for its scheduled phone-confirmed renewal."""
+        renew_after = self.cfg.session_renew_after_seconds
+        session = getattr(client, 'session', None)
+        logged_in_at = float(getattr(session, 'logged_in_at', 0.0) or 0.0)
+        if account.transport != 'filehelper' or renew_after <= 0 or logged_in_at <= 0:
+            return False
+        if self._renewal_attempted.get(account.name) == logged_in_at:
+            return False
+        return time.time() - logged_in_at >= renew_after
+
+    async def _renew_web_session(self, account: WeChatAccount, client: object, stop_event: asyncio.Event, *, reason: str) -> bool:
+        """Replace the web session through a phone confirmation instead of a scan.
+
+        The server pushes 确认登录 to the phone on the strength of the old cookies;
+        the user taps, and the login completes here without the settings page.
+        Returns whether a fresh session is now in place.
+        """
+        push_login = getattr(client, 'push_login', None)
+        poll_login = getattr(client, 'poll_login', None)
+        if not callable(push_login) or not callable(poll_login):
+            return False
+        session = getattr(client, 'session', None)
+        self._renewal_attempted[account.name] = float(getattr(session, 'logged_in_at', 0.0) or 0.0)
+        try:
+            uuid = await push_login()
+        except (ILinkError, httpx.HTTPError, OSError) as exc:
+            log.warning('WeChat account %s: push login request failed (%s): %s', account.name, reason, exc)
+            return False
+        if not uuid:
+            log.info('WeChat account %s: the server wants a QR scan (%s)', account.name, reason)
+            return False
+        wait_seconds = self.cfg.session_confirm_wait_seconds
+        log.notice(
+            'WeChat account %s: login confirmation pushed to the phone (%s); waiting up to %.0fs', account.name, reason, wait_seconds
+        )
+        try:
+            await enqueue_notification(
+                kind='session_confirm',
+                source='wechat',
+                header='WeChat',
+                title='Confirm the web File Transfer Helper login on your phone',
+                body=f'Account {account.name}: WeChat is showing a 网页版文件传输助手 login prompt; tap 确认 within {wait_seconds:.0f}s.',
+                dedupe_key=f'wechat:session-confirm:{account.name}',
+                payload={'account_name': account.name, 'reason': reason},
+            )
+        except Exception as notify_exc:  # noqa: BLE001
+            log.warning('Failed to enqueue WeChat confirm-login notification for account %s: %s', account.name, notify_exc)
+        deadline = time.monotonic() + wait_seconds
+        while not stop_event.is_set() and not self._close_event.is_set() and time.monotonic() < deadline:
+            try:
+                status = await poll_login(uuid, timeout_seconds=_CONFIRM_POLL_TIMEOUT_SECONDS)
+            except (ILinkError, httpx.HTTPError, OSError) as exc:
+                log.warning('WeChat account %s: login confirmation poll failed: %s', account.name, exc)
+                return False
+            if status.status == 'confirmed':
+                fresh = getattr(client, 'session', None)
+                self._renewal_attempted[account.name] = float(getattr(fresh, 'logged_in_at', 0.0) or 0.0)
+                log.notice('WeChat account %s: web session renewed by phone confirmation (%s)', account.name, reason)
+                return True
+            if status.status == 'expired':
+                break
+        log.warning('WeChat account %s: login confirmation was not completed in time (%s)', account.name, reason)
+        return False
+
     async def _poll_account(self, account: WeChatAccount, client: ILinkClient, stop_event: asyncio.Event) -> None:
         timeout_seconds = self.cfg.long_poll_timeout_seconds
         retry_delay = _POLL_RETRY_INITIAL_SECONDS
@@ -357,10 +427,16 @@ class WeChat:
             if state.pause_remaining_seconds > 0:
                 await self._sleep(min(state.pause_remaining_seconds, _PAUSE_POLL_SECONDS), stop_event)
                 continue
+            if self._renewal_due(account, client):
+                await self._renew_web_session(account, client, stop_event, reason='scheduled renewal before the 24h cut-off')
             try:
                 suggested = await self._poll_once(account, client, timeout_seconds=timeout_seconds)
             except ILinkError as exc:
                 if exc.session_expired:
+                    if account.transport == 'filehelper' and await self._renew_web_session(
+                        account, client, stop_event, reason='session expired'
+                    ):
+                        continue
                     await self._handle_session_expired(account, exc)
                     continue
                 log.warning('WeChat getupdates failed for account %s; retry in %.0fs: %s', account.name, retry_delay, exc)

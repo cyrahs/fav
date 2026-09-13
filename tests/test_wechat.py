@@ -551,7 +551,7 @@ def test_session_expiry_pauses_the_account_and_notifies_once(monkeypatch) -> Non
 
     asyncio.run(receiver._handle_session_expired(_account(), ILinkError('expired', errcode=SESSION_EXPIRED_ERRCODE)))
 
-    assert pauses == [('main', 120.0, 'session expired (errcode -14)')]
+    assert pauses == [('main', 120.0, 'session expired: expired')]
     assert notifications[0]['kind'] == 'session_expired'
     assert notifications[0]['dedupe_key'] == 'wechat:session-expired:main'
 

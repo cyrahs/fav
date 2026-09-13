@@ -1,7 +1,8 @@
-# ruff: noqa: INP001, S101, S105, S106, ANN001, ANN002, ANN003, ANN202, ARG001, ARG002, ARG005, PLR2004, SLF001, EM101
+# ruff: noqa: INP001, S101, S105, S106, ANN001, ANN002, ANN003, ANN202, ARG001, ARG002, ARG005, PLR2004, SLF001, EM101, TRY003, RET501, PLR1711
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,8 +13,9 @@ import src.web.wechat as wechat_module
 from src.api.errors import ApiError
 from src.api.settings_masking import MASK_SUFFIX
 from src.api.wechat_login import WeChatLoginManager
+from src.core import settings
 from src.core.settings import WeChat, WeChatAccount
-from src.tool.wechat_ilink import CdnMedia, ILinkError, QrLoginStatus
+from src.tool.wechat_ilink import SESSION_EXPIRED_ERRCODE, CdnMedia, ILinkError, QrLoginStatus
 from src.tool.wechat_webwx import (
     FILEHELPER_USER,
     MMWEB_APPID,
@@ -166,6 +168,7 @@ def test_login_flow_parses_uuid_and_completes_on_confirmation() -> None:
     assert session.pass_ticket == 'pt%2F1'
     assert session.synckey == _SYNCKEY
     assert len(session.device_id) == 15
+    assert session.logged_in_at > 0
     # The saver saw the completed session, cookies included.
     restored = WebWxSession.from_json(saved[0])
     assert {c['name'] for c in restored.cookies} == {'webwx_data_ticket'}
@@ -474,3 +477,151 @@ def _async_value(value):
         return value
 
     return _inner
+
+
+# ---------------------------------------------------------------------------
+# phone-confirmed renewal
+# ---------------------------------------------------------------------------
+
+
+def test_session_json_keeps_the_login_time() -> None:
+    session = _session(logged_in_at=1_700_000_000.5)
+
+    assert WebWxSession.from_json(session.to_json()).logged_in_at == 1_700_000_000.5
+    assert WebWxSession.from_json('{}').logged_in_at == 0.0
+
+
+def test_push_login_returns_a_uuid_or_none() -> None:
+    answers = [{'ret': '0', 'msg': 'all ok', 'uuid': 'push-uuid'}, {'ret': 1, 'msg': 'need scan'}]
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        assert request.url.path.endswith('/webwxpushloginurl')
+        assert request.url.params['uin'] == '1234567'
+        return httpx.Response(200, json=answers.pop(0))
+
+    async def _run() -> tuple[str | None, str | None]:
+        client = _client(handler, session=_session())
+        return await client.push_login(), await client.push_login()
+
+    first, second = asyncio.run(_run())
+
+    assert first == 'push-uuid'
+    assert second is None
+    assert seen[0].url.host == 'szfilehelper.weixin.qq.com'
+
+
+def test_push_login_without_a_session_needs_a_scan() -> None:
+    async def _load() -> str:
+        return ''
+
+    assert asyncio.run(_client(lambda request: httpx.Response(500), session_loader=_load).push_login()) is None
+
+
+class _RenewableClient:
+    def __init__(self, *, push_uuid: str | None, statuses: list[QrLoginStatus], logged_in_at: float) -> None:
+        self.session = _session(logged_in_at=logged_in_at)
+        self._push_uuid = push_uuid
+        self._statuses = statuses
+        self.calls: list[str] = []
+
+    async def push_login(self) -> str | None:
+        self.calls.append('push')
+        return self._push_uuid
+
+    async def poll_login(self, uuid: str, *, timeout_seconds: float) -> QrLoginStatus:
+        assert uuid == self._push_uuid
+        self.calls.append('poll')
+        status = self._statuses.pop(0)
+        if status.status == 'confirmed':
+            self.session = _session(logged_in_at=self.session.logged_in_at + 86_400)
+        return status
+
+
+def _receiver_with_notifications(monkeypatch) -> tuple[wechat_module.WeChat, list[dict]]:
+    notifications: list[dict] = []
+
+    async def _notify(**kwargs):
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(wechat_module, 'enqueue_notification', _notify)
+    return wechat_module.WeChat(), notifications
+
+
+def test_renew_web_session_completes_on_phone_confirmation(monkeypatch) -> None:
+    receiver, notifications = _receiver_with_notifications(monkeypatch)
+    account = WeChatAccount(name='fh', transport='filehelper', user_id='1234567')
+    client = _RenewableClient(
+        push_uuid='push-uuid', statuses=[QrLoginStatus(status='wait'), QrLoginStatus(status='confirmed')], logged_in_at=1000.0
+    )
+
+    renewed = asyncio.run(receiver._renew_web_session(account, client, asyncio.Event(), reason='test'))
+
+    assert renewed is True
+    assert client.calls == ['push', 'poll', 'poll']
+    assert notifications[0]['kind'] == 'session_confirm'
+    assert notifications[0]['dedupe_key'] == 'wechat:session-confirm:fh'
+    # The renewal is booked against the new session so it is not re-attempted at once.
+    assert receiver._renewal_attempted['fh'] == 1000.0 + 86_400
+
+
+def test_renew_web_session_gives_up_when_a_scan_is_required(monkeypatch) -> None:
+    receiver, notifications = _receiver_with_notifications(monkeypatch)
+    account = WeChatAccount(name='fh', transport='filehelper', user_id='1234567')
+    client = _RenewableClient(push_uuid=None, statuses=[], logged_in_at=1000.0)
+
+    assert asyncio.run(receiver._renew_web_session(account, client, asyncio.Event(), reason='test')) is False
+    assert notifications == []
+
+    expired = _RenewableClient(push_uuid='u', statuses=[QrLoginStatus(status='expired')], logged_in_at=1000.0)
+    assert asyncio.run(receiver._renew_web_session(account, expired, asyncio.Event(), reason='test')) is False
+
+
+def test_renewal_is_due_once_per_session_after_the_configured_age(monkeypatch) -> None:
+    receiver = wechat_module.WeChat()
+    account = WeChatAccount(name='fh', transport='filehelper', user_id='1234567')
+    settings.load().web.wechat.session_renew_after_seconds = 3600.0
+    fresh = _RenewableClient(push_uuid=None, statuses=[], logged_in_at=time.time() - 60)
+    old = _RenewableClient(push_uuid=None, statuses=[], logged_in_at=time.time() - 7200)
+
+    assert receiver._renewal_due(account, fresh) is False
+    assert receiver._renewal_due(account, old) is True
+    receiver._renewal_attempted['fh'] = old.session.logged_in_at
+    assert receiver._renewal_due(account, old) is False
+    assert receiver._renewal_due(WeChatAccount(name='bot', bot_token='t'), old) is False
+    settings.load().web.wechat.session_renew_after_seconds = 0
+    assert receiver._renewal_due(account, old) is False
+
+
+def test_poll_loop_renews_instead_of_pausing_when_the_session_expires(monkeypatch) -> None:
+    receiver, notifications = _receiver_with_notifications(monkeypatch)
+    account = WeChatAccount(name='fh', transport='filehelper', user_id='1234567')
+    client = _RenewableClient(push_uuid='push-uuid', statuses=[QrLoginStatus(status='confirmed')], logged_in_at=time.time())
+    stop_event = asyncio.Event()
+    polls: list[str] = []
+    pauses: list[float] = []
+
+    async def _get_state(account_name: str):
+        return wechat_module.WeChatAccountState(get_updates_buf='')
+
+    async def _poll_once(acc, cli, *, timeout_seconds):
+        polls.append('poll')
+        if len(polls) == 1:
+            raise WebWxError('web WeChat session ended (synccheck retcode 1101)', errcode=SESSION_EXPIRED_ERRCODE, retryable=False)
+        stop_event.set()
+        return None
+
+    async def _pause(account_name: str, seconds: float, *, error: str = '') -> None:
+        pauses.append(seconds)
+
+    monkeypatch.setattr(receiver, 'get_account_state', _get_state)
+    monkeypatch.setattr(receiver, '_poll_once', _poll_once)
+    monkeypatch.setattr(receiver, 'set_account_pause', _pause)
+
+    asyncio.run(receiver._poll_account(account, client, stop_event))
+
+    assert polls == ['poll', 'poll']
+    assert client.calls == ['push', 'poll']
+    assert pauses == []
+    assert [n['kind'] for n in notifications] == ['session_confirm']
