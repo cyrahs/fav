@@ -53,7 +53,6 @@ class JobRequestTarget(StrEnum):
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
     TWITTER = 'twitter'
-    WECHAT = 'wechat'
 
 
 class JobRequestStatus(StrEnum):
@@ -744,36 +743,6 @@ class CookieCloudTestRequest(ApiSchema):
     uuid: str = ''
     # A masked value (or an omitted one) means "test what is already stored".
     password: str = ''
-
-
-class WeChatLoginStartRequest(ApiSchema):
-    # The account the scan binds to; created if it is not stored yet. The path
-    # and media types travel with it so a freshly added row in the form is not
-    # lost when the section reloads after the scan.
-    account: str
-    path: str = ''
-    media_types: list[str] = Field(default_factory=list)
-    transport: Literal['ilink', 'filehelper'] = 'ilink'
-
-
-class WeChatLoginStartResponse(ApiSchema):
-    session_key: str
-    account: str
-    transport: Literal['ilink', 'filehelper'] = 'ilink'
-    qrcode_url: str
-    # PNG data URL, ready for an <img>.
-    qrcode_image: str
-    expires_in_seconds: int
-
-
-class WeChatLoginPollRequest(ApiSchema):
-    session_key: str
-
-
-class WeChatLoginPollResponse(ApiSchema):
-    status: Literal['wait', 'scaned', 'confirmed', 'expired']
-    # The stored account (token masked) once the scan is confirmed.
-    account: dict[str, Any] | None = None
 
 
 class CookieCloudTestResult(ApiSchema):

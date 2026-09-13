@@ -10,20 +10,5 @@ from .rednote import RedNote
 from .stellasora import StellaSora
 from .telegram import Telegram
 from .twitter import Twitter
-from .wechat import WeChat
 
-__all__ = [
-    'BD2',
-    'AzurLane',
-    'Bilibili',
-    'Hanime1',
-    'Jandan',
-    'Kemono',
-    'Nikke',
-    'Pixiv',
-    'RedNote',
-    'StellaSora',
-    'Telegram',
-    'Twitter',
-    'WeChat',
-]
+__all__ = ['BD2', 'AzurLane', 'Bilibili', 'Hanime1', 'Jandan', 'Kemono', 'Nikke', 'Pixiv', 'RedNote', 'StellaSora', 'Telegram', 'Twitter']
