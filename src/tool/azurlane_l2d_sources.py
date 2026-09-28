@@ -12,11 +12,13 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
+from src.tool.connect_to import AsyncConnectToTransport, ConnectToTransport
 from src.tool.filename import sanitize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
+L2D_SU_HOST = 'l2d.su'
 L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://l2d.su/data/ships-{region}.json'
 L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://l2d.su/data/ships/{region}/{ship_id}.json'
 L2D_SU_STATIC_BASE_URL = 'https://static.l2d.su/azurlane'
@@ -854,9 +856,24 @@ class L2DSuOriginProbe:
     exit_ip: str = ''
 
 
+def l2d_su_origin_transport(*, proxy: str, connect_host: str, limits: httpx.Limits) -> httpx.BaseTransport:
+    """Transport for l2d.su origin requests: through ``proxy``, and through ``connect_host``
+    while l2d.su itself has no DNS record (see ``src/tool/connect_to.py``)."""
+    if not connect_host:
+        return httpx.HTTPTransport(proxy=proxy or None, limits=limits)
+    return ConnectToTransport(host=L2D_SU_HOST, connect_host=connect_host, proxy=proxy, limits=limits)
+
+
+def l2d_su_async_origin_transport(*, proxy: str, connect_host: str, limits: httpx.Limits) -> httpx.AsyncBaseTransport:
+    if not connect_host:
+        return httpx.AsyncHTTPTransport(proxy=proxy or None, limits=limits)
+    return AsyncConnectToTransport(host=L2D_SU_HOST, connect_host=connect_host, proxy=proxy, limits=limits)
+
+
 def probe_l2d_su_origin(
     proxy: str,
     *,
+    connect_host: str = '',
     timeout: float = 45.0,
     region: str = L2D_SU_PRIMARY_REGION,
     client: httpx.Client | None = None,
@@ -874,13 +891,12 @@ def probe_l2d_su_origin(
     if client is not None:
         return _run_origin_probe(client, url=url)
 
-    with httpx.Client(
+    transport = l2d_su_origin_transport(
         proxy=proxy.strip(),
-        follow_redirects=True,
-        timeout=timeout,
-        headers=_request_headers(),
+        connect_host=connect_host.strip(),
         limits=httpx.Limits(max_keepalive_connections=0),
-    ) as owned_client:
+    )
+    with httpx.Client(transport=transport, follow_redirects=True, timeout=timeout, headers=_request_headers()) as owned_client:
         return _run_origin_probe(owned_client, url=url)
 
 

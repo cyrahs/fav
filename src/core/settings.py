@@ -411,12 +411,17 @@ class AzurLane(ScheduleJob):
     # The l2d.su origin blocks datacenter IPs outright, so its index and per-ship detail
     # requests can be routed through a proxy. Assets live on a CDN and never use it.
     origin_proxy: str = ''
+    # l2d.su lost its DNS record in September 2026 while Cloudflare kept serving it. While the
+    # name does not resolve, origin requests connect to this host (a sibling hostname or an edge
+    # IP of the same Cloudflare zone) and keep l2d.su as TLS server name and Host header. Once
+    # the record is back it goes unused; empty turns the fallback off.
+    origin_connect_host: str = 'static.l2d.su'
     # Spacing between l2d.su origin requests. With a rotating proxy every request already gets
     # its own exit IP, so this paces the aggregate load on the origin rather than protecting any
     # single address. Below the round-trip time (~2s through a proxy) it stops having an effect.
     origin_request_interval_seconds: float = 1.0
 
-    @field_validator('origin_proxy')
+    @field_validator('origin_proxy', 'origin_connect_host')
     @classmethod
     def normalize_origin_proxy(cls, value: str) -> str:
         return value.strip()

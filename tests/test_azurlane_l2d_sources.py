@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, PLR2004
+# ruff: noqa: INP001, S101, PLR2004, SLF001
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 import pytest
 
+from src.tool import azurlane_l2d_sources
 from src.tool.azurlane_l2d_sources import (
     L2D_SU_ENGLISH_REGION,
     L2D_SU_PRIMARY_REGION,
@@ -21,6 +22,7 @@ from src.tool.azurlane_l2d_sources import (
     AzurLaneSourceSnapshots,
     L2DSuCharacterSnapshot,
     L2DSuModelSnapshot,
+    L2DSuOriginProbe,
     L2DSuSourceSnapshot,
     ModelEntry,
     NagamiSourceSnapshot,
@@ -53,6 +55,7 @@ from src.tool.azurlane_l2d_sources import (
     spine_resource_manifest,
     validate_azurlane_model_catalog_resources,
 )
+from src.tool.connect_to import ConnectToTransport
 
 _LIVE_SOURCE_SMOKE_ENV = 'FAV_RUN_LIVE_AZURLANE_SOURCE_SMOKE'
 _PRIMARY_INDEX_URL = l2d_su_ship_index_url(L2D_SU_PRIMARY_REGION)
@@ -2053,3 +2056,22 @@ def test_build_azurlane_model_catalog_live_counts_and_source_merges() -> None:
     for logical_key, entry_ids in ids_by_logical_key.items():
         if len(entry_ids) > 1:
             assert len(assets_by_logical_key[logical_key]) == len(entry_ids)
+
+
+def test_probe_l2d_su_origin_uses_the_connect_host_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[httpx.BaseTransport] = []
+
+    def fake_probe(client: httpx.Client, *, url: str) -> L2DSuOriginProbe:
+        seen.append(client._transport)
+        return L2DSuOriginProbe(ok=True, code='ok', message=url)
+
+    monkeypatch.setattr(azurlane_l2d_sources, '_run_origin_probe', fake_probe)
+
+    probe_l2d_su_origin('http://user:pass@proxy.example:8080', connect_host=' static.l2d.su ')
+    probe_l2d_su_origin('http://user:pass@proxy.example:8080', connect_host='')
+
+    # The settings-page test has to take the same route the crawler does, or it reports a
+    # dead origin while the crawler would get through.
+    assert isinstance(seen[0], ConnectToTransport)
+    assert seen[0]._connect_host == 'static.l2d.su'
+    assert isinstance(seen[1], httpx.HTTPTransport)

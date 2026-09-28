@@ -28,6 +28,7 @@ from src.tool.azurlane_l2d_sources import (
     l2d_su_ship_index_url,
     parse_l2d_su_ship_index,
 )
+from src.tool.connect_to import AsyncConnectToTransport
 from src.web import AzurLane
 
 if TYPE_CHECKING:
@@ -1900,10 +1901,39 @@ def test_azurlane_origin_client_disables_connection_reuse(tmp_path: Path) -> Non
             # invariant matters: an HTTPS request through a proxy lives in a CONNECT tunnel that
             # is pinned to one exit IP, so a reused connection would push the whole backfill
             # through a single address and leave retries stuck on the same failing exit.
-            assert origin._transport._pool._max_keepalive_connections == 0
+            assert origin._transport._inner._pool._max_keepalive_connections == 0
             assert direct._transport._pool._max_keepalive_connections > 0
 
     asyncio.run(check())
+
+
+def test_azurlane_origin_client_falls_back_to_the_configured_connect_host(tmp_path: Path) -> None:
+    crawler = AzurLane(path=tmp_path, origin_proxy='http://user:pass@proxy.example:8080', origin_connect_host='static.l2d.su')
+
+    async def check() -> None:
+        async with crawler._http_client() as direct, crawler._origin_http_client(direct) as origin:
+            transport = origin._transport
+            assert isinstance(transport, AsyncConnectToTransport)
+            assert (transport._host, transport._connect_host) == ('l2d.su', 'static.l2d.su')
+
+    asyncio.run(check())
+
+
+def test_azurlane_origin_client_has_no_fallback_when_the_connect_host_is_empty(tmp_path: Path) -> None:
+    crawler = AzurLane(path=tmp_path, origin_proxy='http://user:pass@proxy.example:8080', origin_connect_host='')
+
+    async def check() -> None:
+        async with crawler._http_client() as direct, crawler._origin_http_client(direct) as origin:
+            assert isinstance(origin._transport, httpx.AsyncHTTPTransport)
+            assert origin._transport._pool._max_keepalive_connections == 0
+
+    asyncio.run(check())
+
+
+def test_azurlane_connect_host_defaults_to_the_sibling_cdn_hostname() -> None:
+    # l2d.su lost its DNS record while its Cloudflare zone kept serving it; static.l2d.su is
+    # in the same zone and still resolves, so the fallback works without any configuration.
+    assert AzurLaneConfig().origin_connect_host == 'static.l2d.su'
 
 
 def test_azurlane_origin_client_is_the_direct_client_when_no_proxy_is_configured(tmp_path: Path) -> None:

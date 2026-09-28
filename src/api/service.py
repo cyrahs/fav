@@ -450,7 +450,10 @@ class FavApiService:
         The draft from the form is probed as-is: proxies are shown to the UI in
         plaintext, so there is no masked value to resolve.
         """
-        result = probe_l2d_su_origin(str(payload.get('origin_proxy') or ''))
+        result = probe_l2d_su_origin(
+            str(payload.get('origin_proxy') or ''),
+            connect_host=str(payload.get('origin_connect_host') or ''),
+        )
         return {'ok': result.ok, 'code': result.code, 'message': result.message, 'exit_ip': result.exit_ip}
 
     def _stored_section(self, section: str) -> dict[str, Any]:
