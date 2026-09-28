@@ -709,6 +709,7 @@ class TelegramNotificationTestResponse(ApiSchema):
 class AzurLaneProxyTestRequest(ApiSchema):
     # A masked value (or an omitted one) means "test what is already stored".
     origin_proxy: str = ''
+    origin_connect_host: str = ''
 
 
 class AzurLaneProxyTestResult(ApiSchema):

@@ -43,7 +43,9 @@ from src.tool.azurlane_l2d_sources import (
     case_variant_urls,
     enumerate_azurlane_model_resources,
     fetch_source_snapshots,
+    l2d_su_async_origin_transport,
     l2d_su_character_fingerprint,
+    l2d_su_origin_transport,
     l2d_su_ship_detail_url,
     model_probe_urls,
     painting_index_url,
@@ -985,6 +987,7 @@ class AzurLane:
         origin_client: httpx.AsyncClient | None = None,
         origin_source_client: httpx.Client | None = None,
         origin_proxy: str | None = None,
+        origin_connect_host: str | None = None,
         source_timeout: float = 30.0,
         api_request_interval_seconds: float = _API_REQUEST_INTERVAL_SECONDS,
         cdn_request_interval_seconds: float = _CDN_REQUEST_INTERVAL_SECONDS,
@@ -999,6 +1002,7 @@ class AzurLane:
         self._origin_client = origin_client
         self._origin_source_client = origin_source_client
         self._origin_proxy = config.origin_proxy if origin_proxy is None else origin_proxy
+        self._origin_connect_host = config.origin_connect_host if origin_connect_host is None else origin_connect_host
         self._origin_attempts = max(1, origin_attempts)
         self._source_timeout = source_timeout
         if origin_request_interval_seconds is None:
@@ -1050,13 +1054,12 @@ class AzurLane:
             return
 
         timeout = httpx.Timeout(60.0, connect=30.0)
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            headers=_asset_headers(),
-            timeout=timeout,
+        transport = l2d_su_async_origin_transport(
             proxy=self._origin_proxy,
+            connect_host=self._origin_connect_host,
             limits=httpx.Limits(max_keepalive_connections=0),
-        ) as client:
+        )
+        async with httpx.AsyncClient(transport=transport, follow_redirects=True, headers=_asset_headers(), timeout=timeout) as client:
             yield client
 
     async def _ensure_schema(self) -> None:
@@ -1073,13 +1076,12 @@ class AzurLane:
             )
 
         headers = {'Accept': 'application/json, text/javascript, */*', 'Referer': L2D_SU_REFERER, 'User-Agent': DEFAULT_USER_AGENT}
-        with httpx.Client(
-            follow_redirects=True,
-            timeout=self._source_timeout,
-            headers=headers,
+        transport = l2d_su_origin_transport(
             proxy=self._origin_proxy,
+            connect_host=self._origin_connect_host,
             limits=httpx.Limits(max_keepalive_connections=0),
-        ) as owned:
+        )
+        with httpx.Client(transport=transport, follow_redirects=True, timeout=self._source_timeout, headers=headers) as owned:
             return fetch_source_snapshots(
                 timeout=self._source_timeout,
                 client=self._source_client,

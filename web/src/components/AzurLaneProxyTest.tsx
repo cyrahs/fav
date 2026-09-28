@@ -4,6 +4,7 @@ import type { AzurLaneProxyTestResult } from '../api/types';
 
 interface AzurLaneProxyTestProps {
   originProxy: string;
+  originConnectHost: string;
 }
 
 const CODE_LABELS: Record<string, string> = {
@@ -17,9 +18,13 @@ const CODE_LABELS: Record<string, string> = {
  * Tests the proxy as currently typed, without saving it. The draft is sent as-is;
  * the backend swaps a masked value for the one already stored.
  */
-export function AzurLaneProxyTest({ originProxy }: AzurLaneProxyTestProps) {
+export function AzurLaneProxyTest({ originProxy, originConnectHost }: AzurLaneProxyTestProps) {
   const test = useMutation({
-    mutationFn: () => api.post<AzurLaneProxyTestResult>('/api/v2/azurlane/proxy/test', { origin_proxy: originProxy }),
+    mutationFn: () =>
+      api.post<AzurLaneProxyTestResult>('/api/v2/azurlane/proxy/test', {
+        origin_proxy: originProxy,
+        origin_connect_host: originConnectHost,
+      }),
   });
 
   const result = test.data;

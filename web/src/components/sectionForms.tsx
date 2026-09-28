@@ -179,6 +179,7 @@ interface KemonoCreator {
 function AzurLaneForm(props: SectionFormProps) {
   const set = patcher(props);
   const originProxy = str(props.value, 'origin_proxy');
+  const originConnectHost = str(props.value, 'origin_connect_host');
 
   return (
     <div className="field-grid">
@@ -194,7 +195,15 @@ function AzurLaneForm(props: SectionFormProps) {
         placeholder="http://用户名:密码@主机:端口"
         hint="l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。"
       />
-      <AzurLaneProxyTest originProxy={originProxy} />
+      <TextField
+        label="源站备用连接地址"
+        value={originConnectHost}
+        onChange={(next) => set('origin_connect_host', next)}
+        mono
+        placeholder="static.l2d.su"
+        hint="l2d.su 解析不到时改连这个地址（同一 Cloudflare zone 的子域名或边缘 IP），证书和 Host 仍按 l2d.su。域名恢复后自动不再使用；留空则关闭。"
+      />
+      <AzurLaneProxyTest originProxy={originProxy} originConnectHost={originConnectHost} />
 
       <NumberField
         label="源站请求间隔（秒）"
