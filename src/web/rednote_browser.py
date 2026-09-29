@@ -31,7 +31,7 @@ import httpx
 from src.core import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
 
 log = logger.get('rednote')
@@ -65,6 +65,8 @@ _LIKED_TAB_TIMEOUT_MS = 15_000
 # lone slow answer has taken down a whole scheduled run before (2026-08-24); one
 # more attempt absorbs that without stretching a genuinely unreachable site much.
 _GOTO_ATTEMPTS = 2
+# How many of the requests a timed-out navigation was still waiting on get logged.
+_PENDING_LOG_LIMIT = 8
 # Attempts at reading the client hints off the neutral page, and the pause between
 # them. The first read has landed in the middle of Chromium committing its own error
 # page (2026-09-09), which is over well within a second.
@@ -429,6 +431,30 @@ def build_launch_options(*, user_data_dir: Path, proxy: str, headless: bool) -> 
     }
 
 
+def summarize_pending(entries: Iterable[tuple[str, str, float]], *, now: float, limit: int = _PENDING_LOG_LIMIT) -> str:
+    """The requests a stalled page is still waiting on, oldest first, as one log line.
+
+    Each entry is ``(resource_type, url, started)``. Only the host and the first path
+    segment are kept: that is enough to tell the document from a script from an
+    XHR, and to name the host a stuck connection leads to, while query strings and
+    deeper paths carry note and account ids that do not belong in a log.
+    """
+    ordered = sorted(entries, key=lambda entry: entry[2])
+    if not ordered:
+        return 'nothing'
+    parts = [f'{resource_type} {_url_head(url)} {now - started:.1f}s' for resource_type, url, started in ordered[:limit]]
+    if len(ordered) > limit:
+        parts.append(f'and {len(ordered) - limit} more')
+    return ', '.join(parts)
+
+
+def _url_head(url: str) -> str:
+    """``host/first-segment`` of a URL, with nothing after it."""
+    parts = urlsplit(url)
+    segment = parts.path.lstrip('/').split('/', 1)[0]
+    return f'{parts.netloc}/{segment}' if parts.netloc else url[:40]
+
+
 def describe_shape(value: Any, *, depth: int = 5) -> Any:
     """Key names and types, never values.
 
@@ -506,6 +532,8 @@ class PlaywrightNoteBrowser:
         self._capture_tasks: set[asyncio.Task[None]] = set()
         self._logged_like_shape = False
         self._cdp: Any = None
+        # Request -> (resource type, url, monotonic start), for as long as it is in flight.
+        self._inflight: dict[Any, tuple[str, str, float]] = {}
 
     async def start(self) -> None:
         try:
@@ -520,16 +548,29 @@ class PlaywrightNoteBrowser:
 
         self._playwright = await async_playwright().start()
         try:
-            self._context = await self._playwright.chromium.launch_persistent_context(**self._launch_options)
-            await self._context.add_init_script(_WEBDRIVER_INIT_SCRIPT)
-            self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
-            self._page.on('response', self._on_response)
-            await self._present_mac_user_agent()
+            await self._open_context()
         except Exception:
             await self.aclose()
             raise
 
     async def aclose(self) -> None:
+        await self._close_context()
+        if self._playwright is not None:
+            with contextlib.suppress(Exception):
+                await self._playwright.stop()
+            self._playwright = None
+
+    async def _open_context(self) -> None:
+        self._context = await self._playwright.chromium.launch_persistent_context(**self._launch_options)
+        await self._context.add_init_script(_WEBDRIVER_INIT_SCRIPT)
+        self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
+        self._page.on('response', self._on_response)
+        self._page.on('request', self._on_request)
+        self._page.on('requestfinished', self._on_request_done)
+        self._page.on('requestfailed', self._on_request_done)
+        await self._present_mac_user_agent()
+
+    async def _close_context(self) -> None:
         for task in list(self._capture_tasks):
             task.cancel()
         self._capture_tasks.clear()
@@ -541,13 +582,30 @@ class PlaywrightNoteBrowser:
             with contextlib.suppress(Exception):
                 await self._context.close()
             self._context = None
-        if self._playwright is not None:
-            with contextlib.suppress(Exception):
-                await self._playwright.stop()
-            self._playwright = None
         self._page = None
+        self._inflight.clear()
+
+    async def _relaunch(self) -> None:
+        """Close Chromium and open the same profile again.
+
+        The one thing this buys over retrying on the same page is a fresh socket pool.
+        Chromium keeps its proxy tunnels open and hands them to the next navigation,
+        so a tunnel that has gone silent without closing stalls the retry exactly as
+        it stalled the first attempt. Both 2026-09-29 failures looked like that: the
+        proxy was up and answering, yet the retry opened at most one new connection
+        through it and timed out on the ones it already had. Nothing on disk is
+        lost: the profile is the state.
+        """
+        await self._close_context()
+        await self._open_context()
 
     # ---------- request capture ----------
+
+    def _on_request(self, request: Any) -> None:
+        self._inflight[request] = (str(request.resource_type), str(request.url), time.monotonic())
+
+    def _on_request_done(self, request: Any) -> None:
+        self._inflight.pop(request, None)
 
     def _on_response(self, response: Any) -> None:
         if LIKE_PAGE_PATH not in response.url:
@@ -703,12 +761,16 @@ class PlaywrightNoteBrowser:
         return {}
 
     async def _goto(self, url: str) -> None:
-        """Navigate, giving a transient stall a second chance.
+        """Navigate, giving a transient stall a second chance in a fresh browser.
 
         Only the timeout is retried: it is the one failure that says nothing beyond
         "this particular response was slow". Anything else -- DNS, refused
         connections, aborted navigations -- keeps its meaning and its handling at
-        the call site.
+        the call site. The retry runs after `_relaunch`, because retrying on the
+        same browser reuses the very connections that just stalled.
+
+        Every timeout also logs what the page was still waiting on, which is the
+        difference between "the site was slow" and "one host never answered".
         """
         from playwright.async_api import TimeoutError as PlaywrightTimeoutError  # noqa: PLC0415
 
@@ -716,9 +778,17 @@ class PlaywrightNoteBrowser:
             try:
                 await self._page.goto(url, wait_until='domcontentloaded')
             except PlaywrightTimeoutError:
+                log.warning(
+                    'RedNote navigation to %s timed out (attempt %s) on %s, still waiting on: %s',
+                    url,
+                    attempt,
+                    _url_head(str(self._page.url)),
+                    summarize_pending(self._inflight.values(), now=time.monotonic()),
+                )
                 if attempt >= _GOTO_ATTEMPTS:
                     raise
-                log.warning('RedNote navigation to %s timed out (attempt %s); retrying', url, attempt)
+                log.warning('RedNote relaunching the browser before retrying the navigation')
+                await self._relaunch()
             else:
                 return
 

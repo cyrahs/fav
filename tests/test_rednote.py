@@ -47,6 +47,7 @@ from src.web.rednote_browser import (
     describe_shape,
     probe_proxy,
     redact_probe,
+    summarize_pending,
 )
 
 # 2025-08-12 11:34:56 in the timezone the app displays.
@@ -731,6 +732,25 @@ class _TimingOutPage(_FakePage):
         self.url = url
 
 
+def _timing_out_browser(page: _TimingOutPage) -> tuple[PlaywrightNoteBrowser, list[str]]:
+    """A browser over ``page`` whose relaunch is recorded instead of starting Chromium.
+
+    The relaunched browser keeps the same fake page, so its navigation count carries
+    across the relaunch the way the real profile's state does.
+    """
+    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
+    browser._page = page
+    browser._inflight = {}
+    relaunches: list[str] = []
+
+    async def _relaunch() -> None:
+        relaunches.append(page.url)
+        browser._inflight.clear()
+
+    browser._relaunch = _relaunch
+    return browser, relaunches
+
+
 def test_a_navigation_that_times_out_once_is_retried_rather_than_failing_the_run(monkeypatch) -> None:
     """The 2026-08-24 scheduled run: one slow homepage response cost the whole job.
 
@@ -738,26 +758,60 @@ def test_a_navigation_that_times_out_once_is_retried_rather_than_failing_the_run
     first one buys a retry; the probe then proceeds against the page it reached.
     """
     monkeypatch.setattr(rednote_browser_module, '_LOGIN_RENDER_POLL_SECONDS', 0)
-    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
     page = _TimingOutPage([{'logged_in': True, 'user_id': '5ff'}], failures=1)
-    browser._page = page
+    browser, _ = _timing_out_browser(page)
 
     probe = asyncio.run(browser.probe_login())
 
     assert (probe['logged_in'], len(page.gotos)) == (True, 2)
 
 
+def test_the_retry_after_a_timeout_runs_in_a_relaunched_browser(monkeypatch, caplog) -> None:
+    """The 2026-09-29 runs: the retry reused the stalled proxy tunnels and stalled too.
+
+    Retrying on the same browser opened almost no new connections, so the retry has
+    to start from a fresh socket pool -- and the timeout has to say what it was still
+    waiting on, so the next failure explains itself.
+    """
+    monkeypatch.setattr(rednote_browser_module, '_LOGIN_RENDER_POLL_SECONDS', 0)
+    page = _TimingOutPage([{'logged_in': True, 'user_id': '5ff'}], failures=1)
+    browser, relaunches = _timing_out_browser(page)
+    started = time.monotonic() - 29.5
+    browser._inflight[object()] = ('script', 'https://fe-static.xhscdn.com/formula-static/app.js?v=1', started)
+
+    with caplog.at_level(logging.WARNING, logger='embyx.rednote'):
+        asyncio.run(browser.probe_login())
+
+    assert (len(relaunches), len(page.gotos)) == (1, 2)
+    assert 'still waiting on: script fe-static.xhscdn.com/formula-static 29.' in caplog.text
+    assert 'v=1' not in caplog.text
+
+
 def test_a_navigation_that_keeps_timing_out_still_fails(monkeypatch) -> None:
     # A site that is actually unreachable must still be reported, not retried forever.
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError  # noqa: PLC0415
 
-    browser = PlaywrightNoteBrowser.__new__(PlaywrightNoteBrowser)
     page = _TimingOutPage([], failures=rednote_browser_module._GOTO_ATTEMPTS)
-    browser._page = page
+    browser, relaunches = _timing_out_browser(page)
 
     with pytest.raises(PlaywrightTimeoutError):
         asyncio.run(browser.probe_login())
     assert len(page.gotos) == rednote_browser_module._GOTO_ATTEMPTS
+    # Relaunched between attempts, not after the last one: aclose owns that.
+    assert len(relaunches) == rednote_browser_module._GOTO_ATTEMPTS - 1
+
+
+def test_pending_requests_are_summarized_oldest_first_without_their_ids() -> None:
+    entries = [
+        ('xhr', 'https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?user_id=5ff&cursor=abc', 7.0),
+        ('document', 'https://www.xiaohongshu.com/explore?exSource=null', 1.0),
+        ('script', 'https://fe-static.xhscdn.com/formula-static/xhs-pc-web/vendor.js', 2.0),
+    ]
+
+    summary = summarize_pending(entries, now=31.0, limit=2)
+
+    assert summary == 'document www.xiaohongshu.com/explore 30.0s, script fe-static.xhscdn.com/formula-static 29.0s, and 1 more'
+    assert summarize_pending([], now=0.0) == 'nothing'
 
 
 def test_a_navigation_the_scan_interrupts_does_not_end_the_run(monkeypatch) -> None:
