@@ -1813,21 +1813,29 @@ class AzurLane:
                 return False
         return False
 
-    async def _known_model_paths(self) -> dict[int, str]:
+    async def _known_model_paths(self) -> dict[tuple[int, str], str]:
+        """Archived model paths keyed by costume and model type.
+
+        The type is part of the key because a costume can change type under the same id: the
+        source re-released 304092 (antu_3) as a spine painting after it had been archived as a
+        Live2D model, and handing the spine entry the old model3.json URL made every run fail
+        to read it as a spine parts manifest.
+        """
         rows = await database.query_db(
             """
-            SELECT costume_id, primary_url
+            SELECT costume_id, model_type, primary_url
             FROM azurlane_models
             WHERE costume_id IS NOT NULL AND completed_at IS NOT NULL AND model_type <> 'painting' AND primary_url LIKE ?;
             """,
             (f'{L2D_SU_STATIC_BASE_URL}/%',),
         )
-        paths: dict[int, str] = {}
+        paths: dict[tuple[int, str], str] = {}
         for row in rows:
             costume_id = _row_int(row, 'costume_id')
+            model_type = _row_text(row, 'model_type')
             primary_url = _row_text(row, 'primary_url')
-            if costume_id is not None and primary_url:
-                paths[costume_id] = primary_url
+            if costume_id is not None and model_type and primary_url:
+                paths[costume_id, model_type] = primary_url
         return paths
 
     async def _fetch_ship_detail_from_origin(self, *, client: httpx.AsyncClient, ship_id: int) -> str | None:
@@ -1961,15 +1969,18 @@ class AzurLane:
     async def _resolve_model_paths(self, catalog: AzurLaneModelCatalog, *, client: httpx.AsyncClient) -> AzurLaneModelCatalog:
         known = await self._known_model_paths()
         resolved: dict[int, str] = {}
+        reused = 0
         probed = 0
+        corrections = 0
 
         for entry in catalog.entries:
             costume_id = entry.costume.id
             if entry.type == 'painting' or entry.source == 'nagami' or costume_id is None or entry.character.id is None:
                 continue
-            stored = known.get(costume_id)
+            stored = known.get((costume_id, entry.type))
             if stored:
                 resolved[costume_id] = stored
+                reused += 1
                 continue
 
             probed += 1
@@ -1981,11 +1992,11 @@ class AzurLane:
             if authoritative and authoritative != entry.resources.primary_url:
                 log.info('Resolved Azur Lane model %s to %s', entry.id, authoritative)
                 resolved[costume_id] = authoritative
+                corrections += 1
 
-        corrections = sum(1 for costume_id, url in resolved.items() if known.get(costume_id) != url)
         log.info(
             'Azur Lane model paths: %d reused, %d probed, %d corrected, %d origin detail requests',
-            len(known),
+            reused,
             probed,
             corrections,
             self._origin_detail_spent,

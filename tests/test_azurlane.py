@@ -84,10 +84,10 @@ class FakeAzurLaneDatabase:
                 for key, row in sorted(self.characters.items())
                 if row.get('active', True)
             ]
-        if sql.startswith('SELECT costume_id, primary_url'):
+        if sql.startswith('SELECT costume_id, model_type, primary_url'):
             prefix = str(params[0]).rstrip('%')
             return [
-                {'costume_id': row.get('costume_id'), 'primary_url': row.get('primary_url', '')}
+                {'costume_id': row.get('costume_id'), 'model_type': row.get('model_type'), 'primary_url': row.get('primary_url', '')}
                 for row in self.models.values()
                 if row.get('costume_id') is not None
                 and row.get('completed')
@@ -730,6 +730,7 @@ def test_azurlane_update_reuses_stored_model_path_without_probing(tmp_path: Path
     texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/bisimaiZ/textures/texture_00.webp'
     fake_db.models['azurlane:live2d:bisimaiz:bisimaiz'] = {
         'model_id': 'azurlane:live2d:bisimaiz:bisimaiz',
+        'model_type': 'live2d',
         'costume_id': 405050,
         'primary_url': real_url,
         'completed': True,
@@ -778,6 +779,71 @@ def test_azurlane_update_reuses_stored_model_path_without_probing(tmp_path: Path
     assert fake_db.models['azurlane:live2d:bisimaiz:bisimaiz']['primary_url'] == real_url
     assert not [entry for entry in requested if entry.startswith('HEAD ')]
     assert not [entry for entry in requested if '/data/ships/' in entry]
+
+
+def test_azurlane_update_ignores_a_stored_path_archived_under_another_model_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A costume re-released as spine must not inherit the model3.json it was archived under as Live2D."""
+    fake_db = _install_fake_database(monkeypatch)
+    stale_live2d_url = _live2d_url('antu_2')
+    fake_db.models['azurlane:live2d:antu:antu_3'] = {
+        'model_id': 'azurlane:live2d:antu:antu_3',
+        'model_type': 'live2d',
+        'costume_id': 304092,
+        'primary_url': stale_live2d_url,
+        'completed': True,
+        'active': False,
+    }
+    spine_url = _spine_url('antu_3')
+    skel_url = f'{spine_url}/antu_3.skel'
+    atlas_url = f'{spine_url}/antu_3.atlas'
+    texture_url = f'{spine_url}/antu_3.webp'
+    atlas_text = '\nantu_3.webp\nsize: 4096,4096\nformat: RGBA8888\n'
+    catalog = _ship_index_payload([_ship(30409, 'antu', 'Azuchi', skins=[_skin(304092, 'Elevator', key='antu_3', kind='spine')])])
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
+        url = str(request.url)
+        requested.append(url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == skel_url:
+            return httpx.Response(200, content=b'skel-bytes', headers={'content-type': 'application/octet-stream'})
+        if url == atlas_url:
+            return httpx.Response(200, text=atlas_text, headers={'content-type': 'text/plain'})
+        if url == texture_url:
+            return httpx.Response(200, content=b'texture-bytes', headers={'content-type': 'image/webp'})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    spine_row = fake_db.models['azurlane:spine:antu:antu_3']
+    assert spine_row['primary_url'] == spine_url
+    assert spine_row['completed'] is True
+    assert stale_live2d_url not in requested
 
 
 def test_azurlane_update_writes_backend_manifests_and_source_artifacts(  # noqa: PLR0915
