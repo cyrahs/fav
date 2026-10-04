@@ -19,9 +19,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
 L2D_SU_HOST = 'l2d.su'
-L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://l2d.su/data/ships-{region}.json'
-L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://l2d.su/data/ships/{region}/{ship_id}.json'
 L2D_SU_STATIC_BASE_URL = 'https://static.l2d.su/azurlane'
+# The ship data used to be served by the l2d.su origin under /data/. Since 2026-10 l2d.su is a
+# generic model viewer that answers every path with its HTML shell (HTTP 200), and the same JSON
+# lives on the CDN next to the assets.
+L2D_SU_SHIP_INDEX_URL_TEMPLATE = f'{L2D_SU_STATIC_BASE_URL}/data/ships-{{region}}.json'
+L2D_SU_SHIP_DETAIL_URL_TEMPLATE = f'{L2D_SU_STATIC_BASE_URL}/data/ships/{{region}}/{{ship_id}}.json'
 L2D_SU_REFERER = 'https://l2d.su/'
 L2D_SU_PRIMARY_REGION = 'CN'
 L2D_SU_ENGLISH_REGION = 'EN'
@@ -3012,10 +3015,18 @@ def _fetch_l2d_su_index(
     try:
         parsed = parse_l2d_su_ship_index(response.text, region=region)
     except SourceParseError as exc:
-        return None, metadata, (_source_error('parse', str(exc), metadata),)
+        return None, metadata, (_source_error('parse', _with_content_type(str(exc), response), metadata),)
     except SourceSchemaError as exc:
         return None, metadata, (_source_error('schema', str(exc), metadata),)
     return parsed, metadata, ()
+
+
+def _with_content_type(message: str, response: httpx.Response) -> str:
+    """Name a non-JSON content type, which says at a glance that the URL now serves a web page."""
+    content_type = response.headers.get('content-type', '').split(';', 1)[0].strip()
+    if not content_type or 'json' in content_type:
+        return message
+    return f'{message} (served as {content_type})'
 
 
 def _parse_nagami_mapping_entry(key: str, value: Any) -> NagamiMappingEntry:

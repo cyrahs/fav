@@ -887,7 +887,11 @@ def test_fetch_nagami_snapshot_returns_network_error() -> None:
 
 def test_fetch_l2d_su_snapshot_returns_parse_error_for_spa_html() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text='<!doctype html><html><body><div id="root"></div></body></html>')
+        return httpx.Response(
+            200,
+            text='<!doctype html><html><body><div id="root"></div></body></html>',
+            headers={'content-type': 'text/html; charset=utf-8'},
+        )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         snapshot = fetch_l2d_su_snapshot(client=client)
@@ -895,6 +899,8 @@ def test_fetch_l2d_su_snapshot_returns_parse_error_for_spa_html() -> None:
     assert snapshot.characters == ()
     assert snapshot.errors[0].kind == 'parse'
     assert snapshot.errors[0].http_status == 200
+    # The content type is what tells an operator the URL now serves a web page rather than data.
+    assert snapshot.errors[0].message.endswith('(served as text/html)')
 
 
 def test_fetch_nagami_snapshot_returns_schema_error() -> None:

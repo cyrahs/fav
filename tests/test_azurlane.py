@@ -25,6 +25,7 @@ from src.tool.azurlane_l2d_sources import (
     L2D_SU_STATIC_BASE_URL,
     NAGAMI_MAPPING_URL,
     l2d_su_character_fingerprint,
+    l2d_su_ship_detail_url,
     l2d_su_ship_index_url,
     parse_l2d_su_ship_index,
 )
@@ -669,7 +670,7 @@ def test_azurlane_update_resolves_model_path_from_ship_detail_when_derived_path_
     fake_db = _install_fake_database(monkeypatch)
     derived_url = _live2d_url('bisimaiz')
     real_url = _live2d_url('bisimaiZ')
-    detail_url = 'https://l2d.su/data/ships/CN/40505.json'
+    detail_url = l2d_su_ship_detail_url(40505)
     moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/bisimaiZ/javelin.moc3'
     texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/bisimaiZ/textures/texture_00.webp'
     catalog = _ship_index_payload([_ship(40505, 'bisimaiz', 'Bismarck Zwei', skins=[_skin(405050, 'Zwei', key='bisimaiz')])])
@@ -1426,7 +1427,7 @@ def test_azurlane_update_downloads_painting_faces_icons_and_voices(  # noqa: C90
     model3_url = _live2d_url('javelin')
     moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
     texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
-    detail_url = 'https://l2d.su/data/ships/CN/1.json'
+    detail_url = l2d_su_ship_detail_url(1)
     voice_url = f'{L2D_SU_STATIC_BASE_URL}/cue/cv-1/detail.ogg'
     face_url = f'{L2D_SU_STATIC_BASE_URL}/paintingface/javelin/1.webp'
     icon_urls = {
@@ -1881,11 +1882,12 @@ def test_azurlane_sends_only_l2d_su_origin_traffic_through_the_origin_client(
 
     _run_with_origin_split(tmp_path, origin_handler, direct_handler)
 
-    # The origin client carries l2d.su and nothing else: routing CDN assets through a metered
-    # proxy would multiply its bandwidth by orders of magnitude.
+    # The origin client carries the l2d.su ship data and nothing else: routing CDN assets through a
+    # metered proxy would multiply its bandwidth by orders of magnitude.
+    data_prefix = f'{L2D_SU_STATIC_BASE_URL}/data/'
     assert origin_urls, 'expected the origin client to be used'
-    assert all(url.startswith('https://l2d.su/') for url in origin_urls)
-    assert not [url for url in direct_urls if url.startswith('https://l2d.su/')]
+    assert all(url.startswith(data_prefix) for url in origin_urls)
+    assert not [url for url in direct_urls if url.startswith(data_prefix)]
     assert _PRIMARY_INDEX_URL in origin_urls
     assert NAGAMI_MAPPING_URL in direct_urls
     assert [url for url in direct_urls if url.startswith(L2D_SU_STATIC_BASE_URL)]
