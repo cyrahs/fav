@@ -408,8 +408,10 @@ class BD2(ScheduleJob):
 class AzurLane(ScheduleJob):
     path: Path = Path('./collection/azurlane')
     cron: str = '0 */6 * * *'
-    # The l2d.su origin blocks datacenter IPs outright, so its index and per-ship detail
-    # requests can be routed through a proxy. Assets live on a CDN and never use it.
+    # Optional route for the ship index and per-ship detail requests; empty fetches them directly.
+    # It was required while that data came from the l2d.su origin, which blocks datacenter IPs.
+    # Since October 2026 the data is served by the CDN (static.l2d.su) next to the assets, which
+    # answers direct requests but rejects some rotating residential exits with HTTP 403.
     origin_proxy: str = ''
     # l2d.su lost its DNS record in September 2026 while Cloudflare kept serving it. While the
     # name does not resolve, origin requests connect to this host (a sibling hostname or an edge
@@ -433,11 +435,6 @@ class AzurLane(ScheduleJob):
             msg = 'origin_request_interval_seconds cannot be negative'
             raise ValueError(msg)
         return value
-
-    def validate_runnable(self) -> list[str]:
-        # The l2d.su origin null-routes datacenter IPs, so without a residential proxy the
-        # crawler cannot read the catalog at all and would silently preserve stale state.
-        return [] if self.origin_proxy else ['origin_proxy']
 
 
 class Hanime1RankingDeepScan(BaseModel):

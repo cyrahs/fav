@@ -64,8 +64,9 @@ log = logger.get('azurlane')
 
 _SECOND_FAILURE_COUNT = 2
 _API_REQUEST_INTERVAL_SECONDS = 0.5
-# The l2d.su origin bans source IPs outright; its CDN (static.l2d.su) does not. Every l2d.su
-# origin request (the mandatory index fetch and the detail backfill alike) is spaced by this
+# "Origin" requests are the ship index and per-ship detail JSON, which used to come from the l2d.su
+# origin (it bans source IPs outright) and now come from its CDN. Each one (the mandatory index
+# fetch and the detail backfill alike) is spaced by this
 # interval plus jitter. Global, not per-IP: connection recycling already gives each request its
 # own exit, so this paces aggregate load. Overridable from settings.
 _ORIGIN_REQUEST_INTERVAL_SECONDS = 1.0
