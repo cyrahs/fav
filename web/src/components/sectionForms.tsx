@@ -191,9 +191,8 @@ function AzurLaneForm(props: SectionFormProps) {
         onChange={(next) => set('origin_proxy', next)}
         mono
         wide
-        invalid={!originProxy}
-        placeholder="http://用户名:密码@主机:端口"
-        hint="l2d.su 会封禁机房 IP，必须配置住宅代理，否则任务保持未就绪。"
+        placeholder="留空则直连"
+        hint="可选。舰船索引和详情现在由 CDN（static.l2d.su）提供，直连即可；部分住宅代理出口会被它以 403 拒绝，没有特殊原因请留空。"
       />
       <TextField
         label="源站备用连接地址"
