@@ -727,6 +727,31 @@ function TelegramNotificationForm(props: SectionFormProps) {
   );
 }
 
+function WechatForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const token = str(props.value, 'token');
+
+  return (
+    <div className="field-grid">
+      <PathField {...props} />
+      <TextField
+        label="FavInbox 地址"
+        value={str(props.value, 'api_url')}
+        onChange={(next) => set('api_url', next)}
+        mono
+        placeholder="http://favinbox-oracle.proxy.svc"
+        hint="oracle 上 FavInbox HTTP 服务经 frp 隧道进集群后的地址。"
+      />
+      <SecretField
+        label="Token"
+        value={token}
+        onChange={(next) => set('token', next)}
+        hint={token.includes('•') ? undefined : 'oracle 上 /etc/favinbox.env 里的 FAVINBOX_TOKEN。'}
+      />
+    </div>
+  );
+}
+
 export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactElement> = {
   'web.bilibili': BilibiliForm,
   'web.telegram': TelegramForm,
@@ -738,6 +763,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.twitter': TwitterForm,
   'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
+  'web.wechat': WechatForm,
   'notifications.telegram': TelegramNotificationForm,
   cookiecloud: CookieCloudForm,
 };
@@ -837,6 +863,13 @@ export function validateSection(section: string, value: Record<string, unknown>)
     }
     if (num(value, 'abort_after', 20) < 1) {
       issues.push('停止阈值至少为 1');
+    }
+  }
+
+  if (section === 'web.wechat') {
+    const url = str(value, 'api_url').trim();
+    if (url && !/^https?:\/\//.test(url)) {
+      issues.push('FavInbox 地址必须以 http:// 或 https:// 开头');
     }
   }
 

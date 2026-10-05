@@ -39,7 +39,7 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `cookiecloud`,
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `web.wechat`, `cookiecloud`,
 `notifications.telegram`. The settings page groups them into three partitions — sources (`web.*`),
 credentials (`cookiecloud`) and notifications (`notifications.*`) — and shows only display names,
 never these internal keys.
@@ -298,13 +298,25 @@ not replaceable. The QR is a live credential for the few minutes it lasts, so se
 private chat rather than a shared group. And unliking a note does not delete what was already
 downloaded.
 
+#### WeChat forwarded images
+
+`web.wechat` collects the images forwarded to a WeChat account that runs in redroid on another host.
+The WAuxiliary plugin in `script/wechat_favinbox/` saves the original of every image a private chat
+receives, and `favinbox_server.py` beside it serves that inbox over HTTP behind a bearer token
+(`FAVINBOX_TOKEN` on that host); frp tunnels it into the cluster, where fav reaches it at `api_url`
+(`http://favinbox-oracle.proxy.svc` by default). Every run (`*/15 * * * *` by default) lists the
+inbox, downloads each saved image into `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>`,
+records it in the `wechat` table keyed `(msg_id, create_time)`, and only then acknowledges it, which
+deletes the host's copy. A run that dies between the insert and the ack only acknowledges the item
+next time. Videos and files are not collected yet; the plugin only records that they arrived.
+
 Every section is constructible from defaults, so an empty database boots with all sources disabled.
 Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports
 them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
 crashing.
 
 Secrets (`cookiecloud.configs[].password`, `web.telegram.accounts[].api_hash`,
-`notifications.telegram.bot_token`) are stored in
+`notifications.telegram.bot_token`, `web.wechat.token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
 UI cannot shuffle credentials between them; the same holds for the shared CookieCloud passwords,
