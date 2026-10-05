@@ -580,21 +580,15 @@ def test_scheduler_registration_includes_azurlane() -> None:
     assert azurlane_job.factory is jobs_module.AzurLane
 
 
-def test_azurlane_job_stays_parked_until_an_origin_proxy_is_configured() -> None:
+def test_azurlane_job_runs_without_an_origin_proxy() -> None:
     fake_config = settings.Settings()
     fake_config.web.azurlane.enabled = True
 
-    parked = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'azurlane')
+    job = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'azurlane')
 
-    # Without a proxy the origin is unreachable, so running would only preserve stale state.
-    assert parked.missing_fields == ('origin_proxy',)
-    assert parked.enabled is False
-
-    fake_config.web.azurlane.origin_proxy = 'http://user:pass@proxy.example:8080'
-    ready = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'azurlane')
-
-    assert ready.missing_fields == ()
-    assert ready.enabled is True
+    # The ship data is on the CDN, which answers direct requests, so the proxy is optional.
+    assert job.missing_fields == ()
+    assert job.enabled is True
 
 
 def test_api_job_enum_includes_azurlane() -> None:
