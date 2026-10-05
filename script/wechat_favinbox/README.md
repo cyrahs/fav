@@ -70,9 +70,9 @@ Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
    ```
 2. Add the proxy in `deploy/frpc-proxy.toml` to `/etc/frp/frpc.toml`, then
    `systemctl restart frpc`.
-3. In the `charys117/nas-gitops` repo, add `deploy/nas-gitops-service.yaml` as
-   `apps/proxy/services/favinbox-oracle.yaml`, wire it into
-   `apps/proxy/kustomization.yaml`, and commit (Flux applies it).
+3. Cluster side (the `charys117/nas-gitops` repo): the `favinbox-oracle` Service
+   and the `9970-9979` frps `allowPorts` range are added there, not here —
+   `deploy/nas-gitops-service.yaml` is the manifest, kept as a reference copy.
 
 fav then reaches the API at `http://favinbox-oracle.proxy.svc:80` with the same
 token in `Authorization: Bearer <token>`.

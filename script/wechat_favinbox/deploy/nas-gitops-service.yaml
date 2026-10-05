@@ -1,5 +1,5 @@
 # Cluster Service so the fav pod has a stable name for the FavInbox API that the
-# oracle frpc tunnels in on frps remote port 9903.
+# oracle frpc tunnels in on frps remote port 9970.
 #
 # This belongs in the charys117/nas-gitops repo, NOT in fav. Drop it at
 # apps/proxy/services/favinbox-oracle.yaml and add that path to
@@ -18,4 +18,4 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 9903
+      targetPort: 9970
