@@ -11,7 +11,7 @@ export interface JobRequest {
   id: number;
   target: string;
   kind: string;
-  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'rejected';
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'rejected' | 'interrupted';
   requested_at: string;
   started_at: string | null;
   finished_at: string | null;

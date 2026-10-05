@@ -20,12 +20,13 @@ from src.service.jobs import ScheduledJob, build_jobs, resolve_trigger_jobs
 from src.tool import database, telegram_bot
 from src.tool.control_queue import (
     STATUS_FAILED,
+    STATUS_INTERRUPTED,
     STATUS_REJECTED,
     STATUS_SUCCEEDED,
     ControlRequest,
     claim_next_control_request,
     ensure_control_requests_table,
-    fail_stale_running_control_requests,
+    interrupt_running_control_requests,
     record_scheduled_run_start,
     update_control_request,
 )
@@ -428,6 +429,17 @@ async def _run_control_runner(*, job: ScheduledJob, runner: Callable[[], object]
         return JobRunResult(job_key=job.key, job_name=job.name, success=False, error=_format_exception(exc))
 
 
+def _unsuccessful_status(result: JobRunResult) -> str:
+    """A cancelled run was cut short by a shutdown or restart, which says nothing about the job."""
+    return STATUS_INTERRUPTED if result.cancelled else STATUS_FAILED
+
+
+def _result_label(result: JobRunResult) -> str:
+    if result.success:
+        return 'ok'
+    return 'interrupted' if result.cancelled else 'failed'
+
+
 async def _execute_control_request(  # noqa: C901, PLR0911
     request: ControlRequest,
     *,
@@ -466,10 +478,12 @@ async def _execute_control_request(  # noqa: C901, PLR0911
                 break
 
         failures = [result for result in results if not result.success]
-        summary = ', '.join(f'{result.job_key}={"ok" if result.success else "failed"}' for result in results)
+        summary = ', '.join(f'{result.job_key}={_result_label(result)}' for result in results)
         if failures:
             error = '; '.join(f'{result.job_key}: {result.error}' for result in failures)
-            await update_control_request(request.request_id, status=STATUS_FAILED, result=summary, error=error)
+            # A real failure outranks the cancellation that cut the batch short.
+            status = STATUS_FAILED if any(not result.cancelled for result in failures) else STATUS_INTERRUPTED
+            await update_control_request(request.request_id, status=status, result=summary, error=error)
             return
 
         await update_control_request(request.request_id, status=STATUS_SUCCEEDED, result=summary)
@@ -504,7 +518,7 @@ async def _execute_control_request(  # noqa: C901, PLR0911
     if result.success:
         await update_control_request(request.request_id, status=STATUS_SUCCEEDED, result=f'Completed {target}.')
         return
-    await update_control_request(request.request_id, status=STATUS_FAILED, error=result.error)
+    await update_control_request(request.request_id, status=_unsuccessful_status(result), error=result.error)
 
 
 async def _consume_control_requests(
@@ -514,9 +528,6 @@ async def _consume_control_requests(
     jobs_provider: Callable[[], Awaitable[list[ScheduledJob]]] = _current_jobs,
 ) -> None:
     await ensure_control_requests_table()
-    stale_count = await fail_stale_running_control_requests()
-    if stale_count:
-        log.warning('Marked %d stale control requests as failed', stale_count)
     while not stop_event.is_set():
         request = await claim_next_control_request()
         if request is None:
@@ -555,7 +566,7 @@ def _make_scheduled_runner(*, job: ScheduledJob, runner: Callable[[], object]) -
             if result.success:
                 await update_control_request(request_id, status=STATUS_SUCCEEDED, result=f'Completed {job.key}.')
             else:
-                await update_control_request(request_id, status=STATUS_FAILED, error=result.error)
+                await update_control_request(request_id, status=_unsuccessful_status(result), error=result.error)
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to record scheduled run result for %s: %s', job.key, exc)
 
@@ -741,6 +752,16 @@ async def main(*, trigger_target: str | None = None) -> None:  # noqa: C901, PLR
                 raise RuntimeError(msg)
             await telegram_ready_task
             log.info('Telegram event listeners and queue workers enabled')
+
+        # Before the scheduler starts and before anything is claimed, so every
+        # `running` row this sees belongs to a worker that has already stopped.
+        try:
+            interrupted_count = await interrupt_running_control_requests()
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to close out runs left by the previous worker: %s', exc)
+        else:
+            if interrupted_count:
+                log.warning('Marked %d run(s) left by the previous worker as interrupted', interrupted_count)
 
         control_request_task = asyncio.create_task(
             _consume_control_requests(runner_by_key=runner_by_key, stop_event=stop_event),

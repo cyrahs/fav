@@ -70,6 +70,9 @@ Three moving parts, all coordinating through PostgreSQL rather than through memo
 - **Manual triggers**: the UI posts to `/api/v2/job-requests`, which inserts a row into
   `control_requests`; the worker claims it (`FOR UPDATE SKIP LOCKED`) within ~1s. Job state is
   re-read per request, so "configure, then press Run" works without waiting for the settings poll.
+  On startup, before it schedules or claims anything, the worker marks every row still `running` as
+  `interrupted`: the deployment runs one worker (`Recreate`), so those rows belong to a worker a
+  deploy or crash stopped mid-run. A run cancelled during a graceful shutdown is recorded the same way.
 - **Notifications**: sources call `enqueue_notification(...)` into a durable outbox table; the worker
   delivers it via `src/tool/telegram_bot.py`. Job failures are enqueued by `run.py` itself under one
   dedupe key per job (`job_failed:<job>:run`), so a job that keeps failing bumps one row instead of

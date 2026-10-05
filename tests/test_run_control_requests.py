@@ -8,7 +8,7 @@ import httpx
 import run as run_module
 from src.service.jobs import ScheduledJob
 from src.tool import telegram_bot
-from src.tool.control_queue import STATUS_FAILED, STATUS_REJECTED, STATUS_SUCCEEDED, ControlRequest
+from src.tool.control_queue import STATUS_FAILED, STATUS_INTERRUPTED, STATUS_REJECTED, STATUS_SUCCEEDED, ControlRequest
 from src.tool.notifications import SCOPE_JOB, WEBHOOK_ACTION_UPSERT, NotificationRecord
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 
@@ -133,9 +133,6 @@ def test_consume_control_requests_rereads_job_state(monkeypatch) -> None:
     async def _fake_ensure_table() -> None:
         return
 
-    async def _fake_fail_stale() -> int:
-        return 0
-
     async def _runner() -> run_module.JobRunResult:
         invoked.append('azurlane')
         return run_module.JobRunResult(job_key='azurlane', job_name='Azur Lane', success=True)
@@ -146,7 +143,6 @@ def test_consume_control_requests_rereads_job_state(monkeypatch) -> None:
     monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
     monkeypatch.setattr(run_module, 'claim_next_control_request', _fake_claim)
     monkeypatch.setattr(run_module, 'ensure_control_requests_table', _fake_ensure_table)
-    monkeypatch.setattr(run_module, 'fail_stale_running_control_requests', _fake_fail_stale)
 
     async def _scenario() -> None:
         stop_event = asyncio.Event()
@@ -205,7 +201,7 @@ def test_execute_control_request_marks_failed_runner(monkeypatch) -> None:
     assert updates == [{'request_id': '1', 'status': STATUS_FAILED, 'result': '', 'error': 'RuntimeError: boom'}]
 
 
-def test_execute_control_request_marks_failed_cancelled_runner(monkeypatch) -> None:
+def test_execute_control_request_marks_cancelled_runner_interrupted(monkeypatch) -> None:
     updates: list[dict[str, str]] = []
 
     async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
@@ -224,7 +220,7 @@ def test_execute_control_request_marks_failed_cancelled_runner(monkeypatch) -> N
         ),
     )
 
-    assert updates == [{'request_id': '1', 'status': STATUS_FAILED, 'result': '', 'error': 'CancelledError'}]
+    assert updates == [{'request_id': '1', 'status': STATUS_INTERRUPTED, 'result': '', 'error': 'CancelledError'}]
 
 
 def test_scheduled_runner_records_success(monkeypatch) -> None:
@@ -270,6 +266,27 @@ def test_scheduled_runner_records_failure(monkeypatch) -> None:
     asyncio.run(scheduled())
 
     assert updates == [{'request_id': '42', 'status': STATUS_FAILED, 'result': '', 'error': 'RuntimeError: boom'}]
+
+
+def test_scheduled_runner_records_cancelled_run_as_interrupted(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+
+    async def _fake_record_start(_target: str) -> int:
+        return 42
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    async def _fake_runner() -> run_module.JobRunResult:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(run_module, 'record_scheduled_run_start', _fake_record_start)
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    scheduled = run_module._make_scheduled_runner(job=_job(key='bilibili'), runner=_fake_runner)
+    asyncio.run(scheduled())
+
+    assert updates == [{'request_id': '42', 'status': STATUS_INTERRUPTED, 'result': '', 'error': 'CancelledError'}]
 
 
 def test_scheduled_runner_still_runs_job_when_bookkeeping_insert_fails(monkeypatch) -> None:
@@ -380,9 +397,41 @@ def test_execute_control_request_all_stops_after_cancelled_runner(monkeypatch) -
     assert updates == [
         {
             'request_id': '1',
-            'status': STATUS_FAILED,
-            'result': 'telegram=failed',
+            'status': STATUS_INTERRUPTED,
+            'result': 'telegram=interrupted',
             'error': 'telegram: CancelledError',
+        },
+    ]
+
+
+def test_execute_control_request_all_keeps_real_failure_over_cancellation(monkeypatch) -> None:
+    updates: list[dict[str, str]] = []
+
+    async def _fake_update(request_id: int, *, status: str, result: str = '', error: str = '') -> None:
+        updates.append({'request_id': str(request_id), 'status': status, 'result': result, 'error': error})
+
+    async def _failing_runner() -> run_module.JobRunResult:
+        raise RuntimeError('boom')
+
+    async def _cancelled_runner() -> run_module.JobRunResult:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(run_module, 'update_control_request', _fake_update)
+
+    asyncio.run(
+        run_module._execute_control_request(
+            _request(target='all'),
+            all_jobs=[_job(key='bilibili', enabled=True), _job(key='telegram', enabled=True)],
+            runner_by_key={'bilibili': _failing_runner, 'telegram': _cancelled_runner},
+        ),
+    )
+
+    assert updates == [
+        {
+            'request_id': '1',
+            'status': STATUS_FAILED,
+            'result': 'bilibili=failed, telegram=interrupted',
+            'error': 'bilibili: RuntimeError: boom; telegram: CancelledError',
         },
     ]
 
@@ -750,7 +799,12 @@ def test_main_starts_notification_consumer_and_closes_client(monkeypatch) -> Non
             self.closed = True
             calls.append('client_closed')
 
+    async def _fake_interrupt_running() -> int:
+        calls.append('interrupted_leftover_runs')
+        return 1
+
     async def _fake_consume_control_requests(*, stop_event, **_kwargs) -> None:
+        calls.append('control_consumer_started')
         await stop_event.wait()
 
     async def _fake_consume_notifications(*, stop_event, **_kwargs) -> None:
@@ -760,11 +814,15 @@ def test_main_starts_notification_consumer_and_closes_client(monkeypatch) -> Non
     monkeypatch.setattr(run_module, 'build_jobs', list)
     monkeypatch.setattr(run_module, '_validate_commands', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(run_module, 'AsyncIOScheduler', _FakeScheduler)
+    monkeypatch.setattr(run_module, 'interrupt_running_control_requests', _fake_interrupt_running)
     monkeypatch.setattr(run_module, '_consume_control_requests', _fake_consume_control_requests)
     monkeypatch.setattr(run_module, '_consume_notification_deliveries', _fake_consume_notifications)
     monkeypatch.setattr(run_module.telegram_bot, 'build_client', _FakeClient)
 
     asyncio.run(run_module.main())
+
+    # Leftover rows are closed before the consumer can claim anything.
+    assert calls.index('interrupted_leftover_runs') < calls.index('control_consumer_started')
 
     assert 'notification_consumer_started' in calls
     assert 'client_closed' in calls

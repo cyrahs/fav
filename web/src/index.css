@@ -308,6 +308,9 @@ td.actions > *:last-child {
   color: var(--warn);
   border-color: var(--warn);
 }
+.pill-interrupted {
+  color: var(--muted);
+}
 .pill-pending,
 .pill-running {
   color: var(--pending);

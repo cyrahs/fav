@@ -58,6 +58,7 @@ class JobRequestTarget(StrEnum):
 
 class JobRequestStatus(StrEnum):
     FAILED = 'failed'
+    INTERRUPTED = 'interrupted'
     PENDING = 'pending'
     REJECTED = 'rejected'
     RUNNING = 'running'
