@@ -40,6 +40,7 @@ const STATUS_LABELS: Record<string, string> = {
   succeeded: '成功',
   failed: '失败',
   rejected: '已拒绝',
+  interrupted: '已中断',
 };
 
 export function statusLabel(status: string): string {

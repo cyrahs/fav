@@ -15,15 +15,16 @@ if TYPE_CHECKING:
     from typing import Any
 
 STATUS_FAILED = 'failed'
+STATUS_INTERRUPTED = 'interrupted'
 STATUS_PENDING = 'pending'
 STATUS_REJECTED = 'rejected'
 STATUS_RUNNING = 'running'
 STATUS_SUCCEEDED = 'succeeded'
-VALID_STATUSES = {STATUS_PENDING, STATUS_RUNNING, STATUS_SUCCEEDED, STATUS_FAILED, STATUS_REJECTED}
+VALID_STATUSES = {STATUS_PENDING, STATUS_RUNNING, STATUS_SUCCEEDED, STATUS_FAILED, STATUS_REJECTED, STATUS_INTERRUPTED}
 KIND_TRIGGER_JOB = 'trigger_job'
 KIND_SCHEDULED_JOB = 'scheduled_job'
 VALID_KINDS = {KIND_TRIGGER_JOB, KIND_SCHEDULED_JOB}
-_STALE_RUNNING_REQUEST_SECONDS = 6 * 60 * 60
+INTERRUPTED_BY_RESTART_ERROR = 'Interrupted: the worker stopped before this run finished'
 
 _CREATE_CONTROL_REQUESTS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS control_requests (
@@ -242,7 +243,14 @@ async def update_control_request(
     )
 
 
-async def fail_stale_running_control_requests(*, older_than_seconds: int = _STALE_RUNNING_REQUEST_SECONDS) -> int:
+async def interrupt_running_control_requests() -> int:
+    """Close out every `running` row left behind by a worker that is gone.
+
+    Only call this at worker startup, before anything can claim or record a
+    run: the deployment runs a single worker (one replica, `Recreate`), so at
+    that point no row can be running for real. A deploy or crash that stops
+    the worker mid-run otherwise leaves the row showing as running.
+    """
     await ensure_control_requests_table()
     rows = await database.query_db(
         """
@@ -251,15 +259,8 @@ async def fail_stale_running_control_requests(*, older_than_seconds: int = _STAL
             finished_at = CURRENT_TIMESTAMP,
             error = CASE WHEN error = '' THEN ? ELSE error END
         WHERE status = ?
-          AND started_at IS NOT NULL
-          AND started_at < CURRENT_TIMESTAMP - (?::double precision * INTERVAL '1 second')
         RETURNING id;
         """,
-        (
-            STATUS_FAILED,
-            f'Stale running control request after {older_than_seconds} seconds',
-            STATUS_RUNNING,
-            str(older_than_seconds),
-        ),
+        (STATUS_INTERRUPTED, INTERRUPTED_BY_RESTART_ERROR, STATUS_RUNNING),
     )
     return len(rows)

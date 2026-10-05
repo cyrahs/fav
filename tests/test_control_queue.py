@@ -6,7 +6,7 @@ import pytest
 
 from src.tool import control_queue
 
-EXPECTED_STALE_REQUEST_COUNT = 2
+EXPECTED_INTERRUPTED_REQUEST_COUNT = 2
 EXPECTED_SCHEDULED_REQUEST_ID = 5
 
 
@@ -52,7 +52,7 @@ def test_list_control_requests_sync_rejects_unknown_status() -> None:
         control_queue.list_control_requests_sync('postgresql://db.local/fav', statuses=['succeeded', 'bogus'])
 
 
-def test_fail_stale_running_control_requests_marks_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_interrupt_running_control_requests_marks_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, tuple[str, ...]]] = []
 
     async def _fake_ensure_control_requests_table() -> None:
@@ -65,15 +65,16 @@ def test_fail_stale_running_control_requests_marks_rows(monkeypatch: pytest.Monk
     monkeypatch.setattr(control_queue, 'ensure_control_requests_table', _fake_ensure_control_requests_table)
     monkeypatch.setattr(control_queue.database, 'query_db', _fake_query_db)
 
-    count = asyncio.run(control_queue.fail_stale_running_control_requests(older_than_seconds=42))
+    count = asyncio.run(control_queue.interrupt_running_control_requests())
 
-    assert count == EXPECTED_STALE_REQUEST_COUNT
+    assert count == EXPECTED_INTERRUPTED_REQUEST_COUNT
     assert len(calls) == 1
     sql, params = calls[0]
     assert 'UPDATE control_requests' in sql
+    # Every running row, however recent: at startup none of them can still be running.
+    assert 'started_at' not in sql
     assert params == (
-        control_queue.STATUS_FAILED,
-        'Stale running control request after 42 seconds',
+        control_queue.STATUS_INTERRUPTED,
+        control_queue.INTERRUPTED_BY_RESTART_ERROR,
         control_queue.STATUS_RUNNING,
-        '42',
     )

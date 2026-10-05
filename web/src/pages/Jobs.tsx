@@ -12,7 +12,7 @@ const REQUEST_FILTERS = [
   { key: 'all', label: '全部', statuses: [] },
   { key: 'active', label: '运行中', statuses: ['pending', 'running'] },
   { key: 'succeeded', label: '成功', statuses: ['succeeded'] },
-  { key: 'failed', label: '失败', statuses: ['failed', 'rejected'] },
+  { key: 'failed', label: '失败', statuses: ['failed', 'rejected', 'interrupted'] },
 ] as const;
 
 type RequestFilterKey = (typeof REQUEST_FILTERS)[number]['key'];
