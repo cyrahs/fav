@@ -53,6 +53,7 @@ class JobRequestTarget(StrEnum):
     STELLASORA = 'stellasora'
     TELEGRAM = 'telegram'
     TWITTER = 'twitter'
+    WECHAT = 'wechat'
 
 
 class JobRequestStatus(StrEnum):

@@ -794,6 +794,39 @@ class RedNote(ScheduleJob):
         return [] if self.proxy or self.allow_direct_connection else ['proxy']
 
 
+class Wechat(ScheduleJob):
+    """Images forwarded to the agent's WeChat account, pulled from the FavInbox API.
+
+    WeChat itself runs in redroid on another host, where the WAuxiliary FavInbox
+    plugin saves the original of every incoming image and a small HTTP service
+    serves them (script/wechat_favinbox). This source drains that service: it lists
+    what is pending, downloads each file, records it, then acknowledges it so the
+    host can drop its copy.
+    """
+
+    path: Path = Path('./collection/wechat')
+    # Forwarded images are something to see soon, and an empty poll is one cheap
+    # in-cluster request, so this runs far more often than the crawled sources.
+    cron: str = '*/15 * * * *'
+    # The FavInbox service, as the cluster reaches it through frps.
+    api_url: str = 'http://favinbox-oracle.proxy.svc'
+    # FAVINBOX_TOKEN from /etc/favinbox.env on the host running the service.
+    token: str = ''
+
+    @field_validator('api_url')
+    @classmethod
+    def normalize_api_url(cls, value: str) -> str:
+        return value.strip().rstrip('/')
+
+    @field_validator('token')
+    @classmethod
+    def normalize_token(cls, value: str) -> str:
+        return value.strip()
+
+    def validate_runnable(self) -> list[str]:
+        return [name for name in ('api_url', 'token') if not getattr(self, name)]
+
+
 class TelegramNotification(BaseModel):
     enabled: bool = False
     bot_token: str = ''
@@ -838,6 +871,7 @@ class Web(BaseModel):
     twitter: Twitter = Field(default_factory=Twitter)
     pixiv: Pixiv = Field(default_factory=Pixiv)
     rednote: RedNote = Field(default_factory=RedNote)
+    wechat: Wechat = Field(default_factory=Wechat)
 
 
 class Settings(BaseModel):
@@ -861,6 +895,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.twitter': Twitter,
     'web.pixiv': Pixiv,
     'web.rednote': RedNote,
+    'web.wechat': Wechat,
     'notifications.telegram': TelegramNotification,
     'cookiecloud': CookieCloudConfigs,
 }
@@ -873,6 +908,7 @@ SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'cookiecloud': ('configs[].password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
+    'web.wechat': ('token',),
 }
 
 

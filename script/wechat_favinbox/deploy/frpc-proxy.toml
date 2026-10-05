@@ -1,0 +1,14 @@
+# Append this proxy to /etc/frp/frpc.toml on the oracle host, alongside the
+# existing hermes-oracle-a2a proxy, then restart frpc:  systemctl restart frpc
+#
+# remotePort 9970 is inside the dedicated 9970-9979 range added to the cluster's
+# frps for per-host HTTP service tunnels (nas-gitops PR, apps/proxy/frps/frps.toml),
+# kept out of 9901-9920 which is reserved for Hermes A2A. The matching cluster
+# Service (favinbox-oracle, targetPort 9970) is in that same PR.
+
+[[proxies]]
+name = "favinbox-oracle-http"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 9970
+remotePort = 9970
