@@ -7,18 +7,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError, MessageIdInvalidError, RPCError
-from telethon.tl.types import (
-    Channel,
-    DocumentAttributeVideo,
-    Message,
-    MessageMediaDocument,
-    MessageMediaPhoto,
-    MessageMediaWebPage,
-    PeerChannel,
-)
+from telethon.tl.types import Channel, DocumentAttributeVideo, Message, MessageMediaDocument, MessageMediaPhoto, PeerChannel
 from tqdm import tqdm
 
 from src.core import logger, settings
@@ -36,7 +27,6 @@ from src.tool.telegram_queue import (
     reset_processing_telegram_media_jobs,
     telegram_media_retry_delay,
 )
-from src.tool.tieba_image import TiebaImageUnavailableError, extract_tieba_image_urls, fetch_tieba_image, strip_tieba_image_urls
 
 log = logger.get('telegram')
 
@@ -177,20 +167,6 @@ class Telegram:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue telegram download notification for message %s: %s', message_id, exc)
-
-    @staticmethod
-    async def _notify_tieba_unavailable(*, account_name: str, job: TelegramMediaJob, reason: str) -> None:
-        try:
-            await enqueue_notification(
-                kind='download_failed',
-                source='telegram',
-                header='Telegram',
-                title='Tieba picture not saved',
-                body=f'Message ID {job.message_id} | {reason}',
-                payload={'account_name': account_name, 'channel_id': job.channel_id, 'message_id': job.message_id},
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to enqueue telegram Tieba notification for message %s: %s', job.message_id, exc)
 
     @staticmethod
     async def get_downloaded_ids(account_name: str, channel_id: int, *, min_message_id: int = 0) -> list[int]:
@@ -357,20 +333,10 @@ class Telegram:
         return not any(Telegram._is_sticker_attribute(attr) for attr in attrs)
 
     @staticmethod
-    def _tieba_image_urls(msg: Message) -> list[str]:
-        """Tieba picture links in a text message; a message with media of its own is archived as that media."""
-        media = getattr(msg, 'media', None)
-        if media is not None and not isinstance(media, MessageMediaWebPage):
-            return []
-        # A link hidden behind other text arrives as an entity rather than in the text itself.
-        entity_urls = [url for entity in getattr(msg, 'entities', None) or [] if isinstance(url := getattr(entity, 'url', None), str)]
-        return extract_tieba_image_urls(getattr(msg, 'message', '') or '', entity_urls)
-
-    @staticmethod
     def _message_media_type(msg: Message, media_types: set[TelegramMediaType]) -> TelegramMediaType | None:
         if 'video' in media_types and Telegram._is_video_message(msg):
             return 'video'
-        if 'image' in media_types and (Telegram._is_image_message(msg) or Telegram._tieba_image_urls(msg)):
+        if 'image' in media_types and Telegram._is_image_message(msg):
             return 'image'
         return None
 
@@ -489,9 +455,6 @@ class Telegram:
     @staticmethod
     def _build_standalone_entry(item: TelegramMediaEntry) -> TelegramMediaEntry:
         caption = (getattr(item.msg, 'message', '') or '').strip()
-        if Telegram._tieba_image_urls(item.msg):
-            # The link itself makes a poor filename; keep only what was written around it.
-            caption = strip_tieba_image_urls(caption)
         return replace(item, filename=caption or Telegram._fallback_title(item))
 
     async def get_media(self, channel: Channel, media_types: list[TelegramMediaType]) -> list[TelegramMediaEntry]:
@@ -515,9 +478,6 @@ class Telegram:
         if await asyncio.to_thread(dst_dir.is_file):
             error_msg = f'{dst_dir} is a file'
             raise ValueError(error_msg)
-        tieba_urls = self._tieba_image_urls(msg)
-        if tieba_urls:
-            return await self._download_tieba_images(msg, tieba_urls, dst_dir, title)
         display_title = f'{sanitize(title, max_bytes=50)} [{msg.id}]'
         safe_account = sanitize(account_name or 'account')
         with tqdm(total=0, unit='B', unit_scale=True, desc=display_title, dynamic_ncols=True) as pbar:
@@ -541,28 +501,6 @@ class Telegram:
         await asyncio.to_thread(dst_dir.mkdir, parents=True, exist_ok=True)
         await asyncio.to_thread(shutil.move, downloaded_path, dst_path)
         return dst_path
-
-    async def _download_tieba_images(self, msg: Message, urls: list[str], dst_dir: Path, title: str) -> Path:
-        """Save the pictures behind a message's Tieba links; returns the first one saved."""
-        saved: list[Path] = []
-        refusals: list[str] = []
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            for index, url in enumerate(urls, start=1):
-                try:
-                    image = await fetch_tieba_image(client, url)
-                except TiebaImageUnavailableError as exc:
-                    log.warning('Tieba picture %d/%d of message %s is unavailable: %s', index, len(urls), msg.id, exc)
-                    refusals.append(str(exc))
-                    continue
-                media_id = str(msg.id) if len(urls) == 1 else f'{msg.id}-{index}'
-                filename = format_media_filename(title=title, media_id=media_id, uploader=None, ext=image.extension)
-                await asyncio.to_thread(dst_dir.mkdir, parents=True, exist_ok=True)
-                dst_path = dst_dir / filename
-                await asyncio.to_thread(dst_path.write_bytes, image.content)
-                saved.append(dst_path)
-        if not saved:
-            raise TiebaImageUnavailableError(refusals[0] if refusals else 'No Tieba picture could be saved')
-        return saved[0]
 
     @staticmethod
     async def _sleep(seconds: float) -> None:
@@ -923,12 +861,6 @@ class Telegram:
             raise
         except MessageIdInvalidError as exc:
             await mark_telegram_media_job_discarded(job, owner_token, error=f'{exc.__class__.__name__}: {exc}')
-            return False
-        except TiebaImageUnavailableError as exc:
-            # An expired link stays expired, so retrying would only delay the news.
-            await mark_telegram_media_job_discarded(job, owner_token, error=f'{exc.__class__.__name__}: {exc}')
-            log.warning('Telegram queue discarded Tieba link message %s/%s: %s', job.channel_id, job.message_id, exc)
-            await self._notify_tieba_unavailable(account_name=account.name, job=job, reason=str(exc))
             return False
         except FloodWaitError as exc:
             wait_seconds = float(getattr(exc, 'seconds', 0) or 0)
