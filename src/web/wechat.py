@@ -115,8 +115,10 @@ class Wechat:
         await self.client.aclose()
 
     async def _ensure_table(self) -> None:
+        # Not `wechat`: that name still holds the table of the earlier iLink /
+        # 文件传输助手 source (removed in #66), with an unrelated schema.
         await database.query_db("""
-            CREATE TABLE IF NOT EXISTS wechat (
+            CREATE TABLE IF NOT EXISTS wechat_inbox (
                 msg_id BIGINT NOT NULL,
                 create_time BIGINT NOT NULL,
                 talker TEXT NOT NULL DEFAULT '',
@@ -154,7 +156,7 @@ class Wechat:
 
     async def _already_stored(self, item: dict[str, Any]) -> bool:
         rows = await database.query_db(
-            'SELECT 1 FROM wechat WHERE msg_id = ? AND create_time = ?;',
+            'SELECT 1 FROM wechat_inbox WHERE msg_id = ? AND create_time = ?;',
             (item['msg_id'], item['create_time']),
         )
         return bool(rows)
@@ -183,7 +185,7 @@ class Wechat:
     async def _record(self, item: dict[str, Any], local_path: Path, size: int) -> None:
         await database.query_db(
             """
-            INSERT INTO wechat (
+            INSERT INTO wechat_inbox (
                 msg_id, create_time, talker, sender, sent_at, md5, size, local_path, metadata
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (msg_id, create_time) DO NOTHING;
