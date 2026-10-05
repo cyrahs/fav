@@ -15,7 +15,9 @@ import org.json.JSONObject;
 String inboxDir = null;
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
-boolean backfillRunning = false;
+// AtomicBoolean rather than a plain boolean: BeanShell treats script variables
+// captured by a lambda as final, so assigning one from the menu callback fails.
+java.util.concurrent.atomic.AtomicBoolean backfillRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
 
 void onLoad() {
     File base = hostContext.getExternalFilesDir(null);
@@ -225,11 +227,10 @@ void onCreateConversationItemMenu(Object conversationBean) {
 
 void startBackfill(String talker) {
     if (inboxDir == null || talker == null) return;
-    if (backfillRunning) {
+    if (!backfillRunning.compareAndSet(false, true)) {
         toast("补抓已在进行中");
         return;
     }
-    backfillRunning = true;
     final String t = talker;
     new Thread(new Runnable() {
         public void run() {
@@ -268,7 +269,7 @@ void startBackfill(String talker) {
             } catch (Throwable e) {
                 log("FavInbox backfill aborted: " + e);
             } finally {
-                backfillRunning = false;
+                backfillRunning.set(false);
             }
             String summary = "补抓完成：新存 " + saved + "，已有 " + skipped + "，失败 " + failed;
             log("FavInbox " + summary);
