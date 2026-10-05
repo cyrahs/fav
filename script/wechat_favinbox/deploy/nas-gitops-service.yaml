@@ -1,0 +1,21 @@
+# Cluster Service so the fav pod has a stable name for the FavInbox API that the
+# oracle frpc tunnels in on frps remote port 9903.
+#
+# This belongs in the charys117/nas-gitops repo, NOT in fav. Drop it at
+# apps/proxy/services/favinbox-oracle.yaml and add that path to
+# apps/proxy/kustomization.yaml, matching the existing per-port Services
+# (hermes-oracle, hermes-home, ...). Flux then applies it.
+#
+# fav reaches the API at:  http://favinbox-oracle.proxy.svc:80
+apiVersion: v1
+kind: Service
+metadata:
+  name: favinbox-oracle
+  namespace: proxy
+spec:
+  selector:
+    app: frps
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9903

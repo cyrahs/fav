@@ -36,3 +36,43 @@ DIR=/data/media/0/Android/media/com.tencent.mm/WAuxiliary/Plugin/FavInbox
 su 0 sh -c "mkdir -p $DIR && cp info.prop main.java $DIR/ \
   && chown u0_a68:media_rw $DIR/* && chmod 660 $DIR/*"
 ```
+
+## HTTP API (`favinbox_server.py`)
+
+A dependency-free (stdlib only) HTTP service that lets the fav crawler read and
+drain the inbox over the frpc tunnel. It runs on the oracle host, binds
+`127.0.0.1`, and requires a bearer token.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | liveness, no auth |
+| GET | `/items[?include_acked=1]` | list items from the JSON sidecars |
+| GET | `/file/<msg_id>` | the image bytes |
+| POST | `/ack/<msg_id>` | mark acked, delete the media file, keep the JSON |
+
+`ack` keeps `<msg_id>.json` (with `status: acked`) as a permanent dedupe
+tombstone so the plugin's backfill never re-saves an item fav already has, and
+deletes only the media to reclaim disk. Dedupe is on `msg_id`; the `md5` in the
+JSON is WeChat's own value and does not match the saved bytes.
+
+Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
+(default `127.0.0.1`), `FAVINBOX_PORT` (default `9970`).
+
+### Deploy on oracle
+
+1. Copy the server and create the unit + token file (as root):
+   ```sh
+   install -D -m 0644 favinbox_server.py /opt/favinbox/favinbox_server.py
+   install -m 0644 deploy/favinbox.service /etc/systemd/system/favinbox.service
+   umask 077; printf 'FAVINBOX_TOKEN=%s\n' "$(openssl rand -hex 32)" > /etc/favinbox.env
+   systemctl daemon-reload && systemctl enable --now favinbox
+   curl -s localhost:9970/health        # {"ok": true}
+   ```
+2. Add the proxy in `deploy/frpc-proxy.toml` to `/etc/frp/frpc.toml`, then
+   `systemctl restart frpc`.
+3. In the `charys117/nas-gitops` repo, add `deploy/nas-gitops-service.yaml` as
+   `apps/proxy/services/favinbox-oracle.yaml`, wire it into
+   `apps/proxy/kustomization.yaml`, and commit (Flux applies it).
+
+fav then reaches the API at `http://favinbox-oracle.proxy.svc:80` with the same
+token in `Authorization: Bearer <token>`.

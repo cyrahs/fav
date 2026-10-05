@@ -1,0 +1,16 @@
+# Append this proxy to /etc/frp/frpc.toml on the oracle host, alongside the
+# existing hermes-oracle-a2a proxy, then restart frpc:  systemctl restart frpc
+#
+# remotePort must be inside the frps `allowPorts` range. The cluster's frps
+# allows 9901-9920 (labelled "remote Hermes agents' A2A port, one per host").
+# 9901 and 9902 are taken. Using 9903 needs no frps change — only the cluster
+# Service in deploy/nas-gitops-service.yaml. If you'd rather keep that range for
+# A2A only, add a dedicated range to frps.toml allowPorts (a nas-gitops change)
+# and set remotePort to a port in it; the Service's targetPort must match.
+
+[[proxies]]
+name = "favinbox-oracle-http"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 9970
+remotePort = 9903

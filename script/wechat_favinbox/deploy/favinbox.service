@@ -1,0 +1,36 @@
+# System unit for the FavInbox read/ack HTTP API on the oracle host.
+# Install to /etc/systemd/system/favinbox.service.
+#
+# Runs as root because the inbox directory is owned by the redroid app's
+# uid/gid (10070:1078, mode 2770) and is not readable by the `ubuntu` user.
+# It binds to 127.0.0.1 and requires a bearer token, and frpc (also root)
+# tunnels it to the cluster, so it is never exposed unauthenticated.
+#
+# The token lives in /etc/favinbox.env (root-only, 0600):
+#   FAVINBOX_TOKEN=<long random string>
+# Optionally override FAVINBOX_DIR / FAVINBOX_HOST / FAVINBOX_PORT there too.
+
+[Unit]
+Description=FavInbox HTTP API (serves WeChat images from redroid to fav)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/favinbox.env
+Environment=FAVINBOX_DIR=/home/ubuntu/redroid-data/media/0/Android/data/com.tencent.mm/files/FavInbox
+Environment=FAVINBOX_HOST=127.0.0.1
+Environment=FAVINBOX_PORT=9970
+ExecStart=/usr/bin/python3 /opt/favinbox/favinbox_server.py
+Restart=always
+RestartSec=3
+# Hardening: the service only needs to read/modify the inbox directory.
+# (The inbox lives under /home/ubuntu, so ProtectHome is left off; ProtectSystem
+# plus an explicit ReadWritePaths keeps the rest of the filesystem read-only.)
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/ubuntu/redroid-data/media/0/Android/data/com.tencent.mm/files/FavInbox
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
