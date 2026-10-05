@@ -509,14 +509,6 @@ Telegram channels download videos by default. Add `media_types = ["video", "imag
 or repeat the channel ID with disjoint media types to route each type to a separate directory. `image` includes regular Telegram photos and
 image documents such as original PNG/JPEG files, while stickers are skipped.
 
-`image` also covers text messages carrying Baidu Tieba picture links (`tiebapic.baidu.com`, `imgsa.baidu.com` or
-`imgsrc.baidu.com` under `/forum/`). The worker fetches the original upload behind each link, falling back to the size in
-the link, and saves every picture of the message (`<text> [<message id>].<ext>`, or `[<message id>-<n>]` for several); the links are dropped
-from the filename. The `tbpicau` parameter in these links is a time-limited grant, and an expired one gets Tieba's logo
-back with `Error-Message: img not auth`: such a job is discarded rather than retried, with a `Tieba picture not saved`
-notification. The real-time listener fetches a link seconds after it is posted, so this only bites when the worker was
-down long enough for the link to lapse.
-
 ```toml
 [[web.telegram.accounts.channels]]
 id = 3942401424
