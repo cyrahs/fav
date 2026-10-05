@@ -121,7 +121,7 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
         ArchiveSource(
             key='wechat',
             name='WeChat',
-            table='wechat',
+            table='wechat_inbox',
             id_columns=('msg_id', 'create_time'),
             title_column='local_path',
             columns=('sender', 'sent_at', 'size'),

@@ -306,7 +306,7 @@ receives, and `favinbox_server.py` beside it serves that inbox over HTTP behind 
 (`FAVINBOX_TOKEN` on that host); frp tunnels it into the cluster, where fav reaches it at `api_url`
 (`http://favinbox-oracle.proxy.svc` by default). Every run (`*/15 * * * *` by default) lists the
 inbox, downloads each saved image into `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>`,
-records it in the `wechat` table keyed `(msg_id, create_time)`, and only then acknowledges it, which
+records it in the `wechat_inbox` table keyed `(msg_id, create_time)`, and only then acknowledges it, which
 deletes the host's copy. A run that dies between the insert and the ack only acknowledges the item
 next time. Videos and files are not collected yet; the plugin only records that they arrived.
 

@@ -58,7 +58,7 @@ class _FakeDatabase:
         return []
 
     def inserts(self) -> list[tuple]:
-        return [params for query, params in self.calls if 'INSERT INTO wechat' in query]
+        return [params for query, params in self.calls if 'INSERT INTO wechat_inbox' in query]
 
 
 class _FakeInbox:
@@ -285,4 +285,6 @@ def test_the_archive_lists_wechat_rows_without_an_external_link() -> None:
     source = ARCHIVE_SOURCES['wechat']
 
     assert source.id_columns == ('msg_id', 'create_time')
+    # The removed iLink source left a `wechat` table with another schema behind.
+    assert source.table == 'wechat_inbox'
     assert _external_url(source, {'msg_id': 1, 'create_time': _CREATE_TIME}) is None
