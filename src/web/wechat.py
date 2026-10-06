@@ -211,18 +211,25 @@ class Wechat:
         except httpx.HTTPError as exc:
             log.warning('Could not acknowledge WeChat message %s; the next run retries: %s', item['msg_id'], exc)
 
-    async def _notify_summary(self, downloaded: int) -> None:
+    async def _notify_download(self, item: dict[str, Any], local_path: Path) -> None:
+        """One message per image, sent as the photo itself, as the Telegram source does."""
+        saved_path = self.cfg.path / local_path
         try:
             await enqueue_notification(
-                kind='summary',
+                kind='download_completed',
                 source='wechat',
                 header='WeChat',
-                title='Inbox update completed',
-                body=f'Saved {downloaded} forwarded images.',
-                payload={'downloaded': downloaded},
+                title=local_path.name,
+                body=f'From {item.get("sender") or item.get("talker") or "unknown"} | Message ID {item["msg_id"]}',
+                payload={
+                    'msg_id': item['msg_id'],
+                    'sender': str(item.get('sender') or ''),
+                    'saved_path': str(saved_path),
+                    'image_path': str(saved_path),
+                },
             )
         except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to enqueue wechat summary notification: %s', exc)
+            log.warning('Failed to enqueue wechat download notification for message %s: %s', item['msg_id'], exc)
 
     async def update(self) -> None:
         missing = self.cfg.validate_runnable()
@@ -252,10 +259,9 @@ class Wechat:
             await self._ack(item)
             downloaded += 1
             log.info('Saved WeChat message %s as %s', item['msg_id'], local_path)
+            await self._notify_download(item, local_path)
 
         log.info('WeChat saved %d new images (%d pending, %d failed)', downloaded, len(items), len(failed))
-        if downloaded:
-            await self._notify_summary(downloaded)
         if failed:
             ids = ', '.join(str(msg_id) for msg_id in failed)
             msg = f'Could not download {len(failed)} WeChat image(s): {ids}'

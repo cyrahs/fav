@@ -193,7 +193,11 @@ def test_a_run_stores_records_and_then_acknowledges_each_image(fake_db, notifica
     assert inbox.acked == [1, 2]
     assert inbox.auth_headers == {'Bearer secret'}
     assert not list(tmp_path.rglob('*.part'))
-    assert notifications[0]['payload'] == {'downloaded': 2}
+    # One photo notification per image, pointing at the stored original.
+    assert [n['kind'] for n in notifications] == ['download_completed', 'download_completed']
+    assert notifications[0]['title'] == Path(local_path).name
+    assert notifications[0]['payload']['image_path'] == str(tmp_path / local_path)
+    assert notifications[0]['payload']['msg_id'] == 1
 
 
 def test_an_image_stored_by_an_earlier_run_is_only_acknowledged(fake_db, notifications, tmp_path) -> None:
