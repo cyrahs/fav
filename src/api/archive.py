@@ -129,6 +129,16 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
             subtitle_columns=('sent_at',),
         ),
         ArchiveSource(
+            key='wechat_article',
+            name='WeChat articles',
+            table='wechat_article',
+            id_columns=('msg_id', 'create_time'),
+            title_column='title',
+            columns=('account', 'sender', 'sent_at', 'published_at', 'image_count', 'local_path', 'url'),
+            search_columns=('title', 'account', 'url'),
+            subtitle_columns=('account', 'sent_at'),
+        ),
+        ArchiveSource(
             key='kemono',
             name='Kemono',
             table='kemono',
@@ -167,6 +177,8 @@ _EXTERNAL_URL_BUILDERS: dict[str, Callable[[dict[str, Any]], str | None]] = {
     'twitter': lambda row: f'https://x.com/i/status/{row["tweet_id"]}',
     'pixiv': lambda row: f'https://www.pixiv.net/artworks/{row["illust_id"]}',
     'rednote': lambda row: build_note_url(str(row['note_id']), str(row.get('xsec_token') or '')),
+    # The canonical link, without the sharer's tracking parameters.
+    'wechat_article': lambda row: str(row['url']) if row.get('url') else None,
 }
 
 

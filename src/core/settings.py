@@ -795,13 +795,13 @@ class RedNote(ScheduleJob):
 
 
 class Wechat(ScheduleJob):
-    """Images forwarded to the agent's WeChat account, pulled from the FavInbox API.
+    """Images and 公众号 articles forwarded to the agent's WeChat account.
 
     WeChat itself runs in redroid on another host, where the WAuxiliary FavInbox
-    plugin saves the original of every incoming image and a small HTTP service
-    serves them (script/wechat_favinbox). This source drains that service: it lists
-    what is pending, downloads each file, records it, then acknowledges it so the
-    host can drop its copy.
+    plugin exposes it over HTTP and keeps an inbox of incoming originals, both
+    served by a small service next to it (script/wechat_favinbox). This source
+    reads the plugin's message events, saves each image and every image of each
+    shared article, and drains the inbox for anything the events missed.
     """
 
     path: Path = Path('./collection/wechat')

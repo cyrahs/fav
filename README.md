@@ -298,17 +298,25 @@ not replaceable. The QR is a live credential for the few minutes it lasts, so se
 private chat rather than a shared group. And unliking a note does not delete what was already
 downloaded.
 
-#### WeChat forwarded images
+#### WeChat forwarded images and articles
 
-`web.wechat` collects the images forwarded to a WeChat account that runs in redroid on another host.
-The WAuxiliary plugin in `script/wechat_favinbox/` saves the original of every image a private chat
-receives, and `favinbox_server.py` beside it serves that inbox over HTTP behind a bearer token
-(`FAVINBOX_TOKEN` on that host); frp tunnels it into the cluster, where fav reaches it at `api_url`
-(`http://favinbox-oracle.proxy.svc` by default). Every run (`*/15 * * * *` by default) lists the
-inbox, downloads each saved image into `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>`,
-records it in the `wechat_inbox` table keyed `(msg_id, create_time)`, and only then acknowledges it, which
-deletes the host's copy. A run that dies between the insert and the ack only acknowledges the item
-next time. Videos and files are not collected yet; the plugin only records that they arrived.
+`web.wechat` collects the images and 公众号 articles forwarded to a WeChat account that runs in redroid
+on another host. The WAuxiliary plugin in `script/wechat_favinbox/` exposes WeChat over HTTP (the
+bridge) and also saves the original of every image a private chat receives (the inbox);
+`favinbox_server.py` beside it serves both behind one bearer token (`FAVINBOX_TOKEN` on that host),
+the bridge under `/wx/`. frp tunnels it into the cluster, where fav reaches it at `api_url`
+(`http://favinbox-oracle.proxy.svc` by default).
+
+Every run (`*/15 * * * *` by default) reads the bridge's message events after its cursor
+(`wechat_state`) and queues the images and article shares received in private chats in
+`wechat_events`. An image is fetched through `/wx/image` (or from the inbox when that fails) into
+`<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>` and recorded in `wechat_inbox`. An article is
+fetched from mp.weixin.qq.com with every body image at full size into
+`<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <title> [<msg_id>]/`, beside the page and an `article.json`, and
+recorded in `wechat_article`. Both tables are keyed `(msg_id, create_time)`. A failed item is retried
+on the next runs, five times at most. The run then drains the inbox as a fallback: it downloads what
+is not stored yet, and acknowledges each item, which deletes the host's copy. Videos and files are not
+collected yet.
 
 Every section is constructible from defaults, so an empty database boots with all sources disabled.
 Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports

@@ -137,6 +137,9 @@ the retention). Each is `{seq, kind, at, data}`:
   `talker`, `sender`, `is_send`, `is_at_me`, `at_users`, `content` (for app and
   link messages the raw `<msg><appmsg>` XML, which carries the URL of a shared
   article), `msg_source`, and `image` / `file` / `quote` / `pat` when present.
+  A shared 公众号 article arrives as `kind: app` (type 49), not `link`: tell it
+  apart by `<type>5</type>` inside `<appmsg>`, and fetch the `<url>` exactly as
+  given, since the bare `__biz/mid/idx/sn` form is answered with a captcha.
 - `new_friend` — `wxid`, `ticket`, `scene`, `info` (pass these to
   `/friend/verify`).
 - `member_change` — `change` (join/left), `room`, `wxid`, `name`.
