@@ -1,13 +1,21 @@
 # FavInbox (WAuxiliary plugin)
 
-A [WAuxiliary](https://github.com/HDSHARE/WAuxiliary) plugin for the agent-owned
-WeChat account running in redroid on the `oracle` host. It saves the **original**
-of every incoming private-chat image into an inbox directory the host can read,
-so a downstream job can pick the files up. It is not imported by the fav app; it
-runs inside WeChat via WAuxiliary/LSPosed.
+A [WAuxiliary](https://github.com/HdShare/WAuxiliary_Plugin) plugin for the agent-owned
+WeChat account running in redroid on the `oracle` host. It does two things:
+
+- **Inbox**: it saves the **original** of every incoming private-chat image into
+  an inbox directory the host can read, so the fav `wechat` source can pick the
+  files up.
+- **Bridge** (since 0.3.0): it runs an HTTP API inside the WeChat process that
+  exposes what WAuxiliary can do (message events, history, original images,
+  contacts, groups, sending, Moments), so fav decides what to do with WeChat
+  instead of the plugin. See [Bridge API](#bridge-api).
+
+It is not imported by the fav app; it runs inside WeChat via WAuxiliary/LSPosed.
 
 - `info.prop` — plugin manifest (name/author/version).
 - `main.java` — the plugin (BeanShell-style Java, interpreted by WAuxiliary).
+- `favinbox_server.py` — the host-side HTTP service fav talks to.
 
 ## What it does
 
@@ -76,3 +84,99 @@ Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
 
 fav then reaches the API at `http://favinbox-oracle.proxy.svc:80` with the same
 token in `Authorization: Bearer <token>`.
+
+## Bridge API
+
+The plugin listens on port `9971` inside the redroid container (all
+interfaces; the container sits on Docker's default bridge, `172.17.0.2` on
+oracle). Every route except `/health` needs `Authorization: Bearer <token>`,
+where the token is a random value the plugin writes on first load to
+`FavBridge/token` in WeChat's external files directory (host:
+`/home/ubuntu/redroid-data/media/0/Android/data/com.tencent.mm/files/FavBridge/token`).
+
+fav does not use that token or port directly: `favinbox_server.py` forwards
+`/wx/<route>` to the bridge, after checking fav's usual FavInbox token, and adds
+the bridge token itself. So from the cluster it is
+`http://favinbox-oracle.proxy.svc/wx/<route>` with the existing token. Set
+`FAVINBOX_BRIDGE_URL` on the host if the container's address changes (it can,
+when the container is recreated).
+
+Plugin config (`config.prop` in the plugin folder, WAuxiliary's own
+`getBoolean`/`getInt` store): `bridge_enabled` (default true), `bridge_port`
+(default 9971), `inbox_enabled` (default true; turn off once fav reads images
+through the bridge).
+
+Errors come back as `{"ok": false, "error": "..."}` with 400 (bad input),
+401, 404 (unknown route or message) or 500. A WAuxiliary function the installed
+version lacks answers 500 with `Command not found: <name>()`.
+
+### Reading
+
+| Method | Route | Returns |
+| --- | --- | --- |
+| GET | `/health` | `{ok, version}`, no auth |
+| GET | `/status` | plugin version, login wxid/alias, WeChat version, `last_seq` |
+| GET | `/events?after=N&limit=200&wait=0` | events with `seq > N`, oldest first; `wait` (≤60 s) long-polls for the first new one |
+| GET | `/history?talker=&start=0&order=asc&count=100` | `queryHistoryMsg`, as message objects |
+| GET | `/message?talker=&msg_id=[&create_time=]` | one message |
+| GET | `/image?talker=&msg_id=[&create_time=]` | the original image bytes (trailer stripped) |
+| GET | `/image?md5=&cdn_url=&aes_key=` | the same, straight from CDN fields |
+| GET | `/friends`, `/officials`, `/groups`, `/labels` | contact lists (every getter of WAuxiliary's bean, snake_case) |
+| GET | `/group/members?room=` | `{count, members}` |
+| GET | `/contact?wxid=[&room=]` | nick, remark, name, group display name, avatar URLs |
+| GET | `/label/contacts?id=` or `?name=` | wxids carrying a label |
+
+Events live in `FavBridge/events.jsonl` (rolled to `events.1.jsonl` at
+16 MB, so at most ~32 MB is kept; a gap in `seq` means the reader fell behind
+the retention). Each is `{seq, kind, at, data}`:
+
+- `message` — every message `onHandleMsg` sees, sent or received, in any chat.
+  `data` has `msg_id`, `type`, `kind` (text, image, video, voice, emoji, link,
+  file, app, quote, pat, location, share_card, system, recalled, ...), `chat`
+  (private, group, official, im_private, im_group), `create_time` (ms),
+  `talker`, `sender`, `is_send`, `is_at_me`, `at_users`, `content` (for app and
+  link messages the raw `<msg><appmsg>` XML, which carries the URL of a shared
+  article), `msg_source`, and `image` / `file` / `quote` / `pat` when present.
+  A shared 公众号 article arrives as `kind: app` (type 49), not `link`: tell it
+  apart by `<type>5</type>` inside `<appmsg>`, and fetch the `<url>` exactly as
+  given, since the bare `__biz/mid/idx/sn` form is answered with a captcha.
+- `new_friend` — `wxid`, `ticket`, `scene`, `info` (pass these to
+  `/friend/verify`).
+- `member_change` — `change` (join/left), `room`, `wxid`, `name`.
+- `pay` — the received payment bean.
+
+### Acting
+
+All take a JSON body. Media is uploaded first with `POST /upload?name=<file>`
+(raw bytes as the body, up to 200 MB, kept for a day); the returned `path` is
+what the media routes accept, and nothing outside that upload directory can be
+sent.
+
+| Route | Body |
+| --- | --- |
+| `/send/text` | `talker, content` → `svr_id` (WeChat's server id, null if it did not confirm in 15 s) |
+| `/send/quote` | `talker, content, msg_id` |
+| `/send/image`, `/send/emoji` | `talker, path[, quote_msg_id]` |
+| `/send/video` | `talker, path` |
+| `/send/voice` | `talker, path[, duration]` (Silk; convert MP3 with `/audio/mp3-to-silk`) |
+| `/send/file` | `talker, path[, title, app_id]` |
+| `/send/link` | `talker, title, url[, description, app_id]` |
+| `/send/share-text`, `/send/share-video`, `/send/music`, `/send/mini-program`, `/send/app-brand` | WAuxiliary's share helpers, fields named after its parameters |
+| `/send/pat` | `talker, user` |
+| `/send/card` | `talker, wxid` |
+| `/send/location` | `talker, poi_name, x, y[, label, scale]` |
+| `/send/note`, `/send/cipher` | `talker, content` (cipher also `title`) |
+| `/msg/revoke` | `msg_id` |
+| `/msg/system` | `talker, content[, create_time]` → `msg_id` |
+| `/friend/verify` | `wxid, ticket, scene[, privacy]` |
+| `/group/members/add`, `/invite`, `/remove` | `room, members[, reason]` |
+| `/contact/labels` | `wxid, labels` |
+| `/sns/post` | `content[, images]` (Moments) |
+| `/audio/mp3-to-silk` | `path` → `{code, path}` |
+| `/toast` | `text` |
+| `/device-step` | `step` |
+
+Not exposed: downloading videos, voice and files (WAuxiliary has no API for
+them; their CDN fields are in the event), and WAuxiliary's `eval`, hook,
+reflection and DexKit helpers, which would amount to running arbitrary code in
+WeChat.
