@@ -1044,9 +1044,9 @@ Object route(Map req, InputStream in) {
         return ok();
     }
     if (path.equals("/msg/system")) {
-        long when = b.has("create_time") ? b.getLong("create_time") : System.currentTimeMillis();
+        long createTime = b.has("create_time") ? b.getLong("create_time") : System.currentTimeMillis();
         JSONObject j = ok();
-        j.put("msg_id", insertSystemMsg(b.getString("talker"), b.getString("content"), when));
+        j.put("msg_id", insertSystemMsg(b.getString("talker"), b.getString("content"), createTime));
         return j;
     }
     if (path.equals("/friend/verify")) {
@@ -1128,8 +1128,8 @@ String events(Map req) {
 Object findMessage(Map req) {
     String talker = qRequired(req, "talker");
     long msgId = Long.parseLong(qRequired(req, "msg_id"));
-    long when = qLong(req, "create_time", 0L);
-    long start = when > 0 ? when - 1000L : 0L;
+    long createTime = qLong(req, "create_time", 0L);
+    long start = createTime > 0 ? createTime - 1000L : 0L;
     for (int round = 0; round < 50; round++) {
         List page = queryHistoryMsg(talker, start, true, PAGE_SIZE);
         if (page == null || page.isEmpty()) break;
@@ -1139,7 +1139,7 @@ Object findMessage(Map req) {
             if (m.getMsgId() == msgId) return m;
             lastTime = Math.max(lastTime, m.getCreateTime());
         }
-        if (page.size() < PAGE_SIZE || lastTime <= start || when > 0) break;
+        if (page.size() < PAGE_SIZE || lastTime <= start || createTime > 0) break;
         start = lastTime;
     }
     throw new java.io.FileNotFoundException("message " + msgId + " not found in " + talker);
