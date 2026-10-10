@@ -30,9 +30,9 @@ Env:
                                 (default http://172.17.0.2:9971)
     FAVINBOX_BRIDGE_TOKEN_FILE  the token the plugin wrote for its bridge
                                 (default: FavBridge/token next to FAVINBOX_DIR)
-
-    FAVINBOX_XWEB_CACHE         WeChat's XWeb cache (default: cache/xweb_cache
-                                under the WeChat app directory above FAVINBOX_DIR)
+    FAVINBOX_XWEB_CACHE         WeChat's XWeb cache, in the app's internal data
+                                directory (default /home/ubuntu/redroid-data/data/
+                                com.tencent.mm/cache/xweb_cache)
     FAVINBOX_ADB                adb binary (default adb)
     FAVINBOX_ADB_SERIAL         the redroid device (default 127.0.0.1:5555)
 
@@ -108,8 +108,9 @@ BRIDGE_TOKEN_FILE = Path(os.environ.get('FAVINBOX_BRIDGE_TOKEN_FILE', '') or DIR
 BRIDGE_TIMEOUT_SECONDS = 180
 _CHUNK = 65536
 
-# FAVINBOX_DIR is <WeChat app dir>/files/FavInbox; the web view's cache sits beside it.
-XWEB_CACHE = Path(os.environ.get('FAVINBOX_XWEB_CACHE', '') or DIR.parent.parent / 'cache' / 'xweb_cache')
+# Not beside FAVINBOX_DIR: the web view caches into WeChat's internal data
+# directory (/data/data/com.tencent.mm), which redroid keeps under data/.
+XWEB_CACHE = Path(os.environ.get('FAVINBOX_XWEB_CACHE', '') or '/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache')
 ADB = os.environ.get('FAVINBOX_ADB', '') or 'adb'
 ADB_SERIAL = os.environ.get('FAVINBOX_ADB_SERIAL', '') or '127.0.0.1:5555'
 _WEBVIEW = 'com.tencent.mm/.plugin.webview.ui.tools.WebViewUI'

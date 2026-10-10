@@ -28,6 +28,8 @@ Environment=FAVINBOX_BRIDGE_URL=http://172.17.0.2:9971
 # $HOME/.android and may start its server, so both stay writable.
 Environment=HOME=/root
 Environment=FAVINBOX_ADB_SERIAL=127.0.0.1:5555
+# WeChat's web view cache, in the app's internal data directory (read only).
+Environment=FAVINBOX_XWEB_CACHE=/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache
 ExecStart=/usr/bin/python3 /opt/favinbox/favinbox_server.py
 Restart=always
 RestartSec=3

@@ -66,7 +66,8 @@ JSON is WeChat's own value and does not match the saved bytes.
 
 Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
 (default `127.0.0.1`), `FAVINBOX_PORT` (default `9970`), `FAVINBOX_XWEB_CACHE`
-(default `cache/xweb_cache` in the WeChat app directory), `FAVINBOX_ADB`
+(default `/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache`, the
+host side of WeChat's internal `/data/data/com.tencent.mm/cache/xweb_cache`), `FAVINBOX_ADB`
 (default `adb`), `FAVINBOX_ADB_SERIAL` (default `127.0.0.1:5555`).
 
 `/post/page` is for image posts (贴图), which mp.weixin.qq.com hides behind a
