@@ -57,6 +57,7 @@ drain the inbox over the frpc tunnel. It runs on the oracle host, binds
 | GET | `/items[?include_acked=1]` | list items from the JSON sidecars |
 | GET | `/file/<msg_id>` | the image bytes |
 | POST | `/ack/<msg_id>` | mark acked, delete the media file, keep the JSON |
+| POST | `/post/page` | a 公众号 post's page, as WeChat itself loads it |
 
 `ack` keeps `<msg_id>.json` (with `status: acked`) as a permanent dedupe
 tombstone so the plugin's backfill never re-saves an item fav already has, and
@@ -64,7 +65,24 @@ deletes only the media to reclaim disk. Dedupe is on `msg_id`; the `md5` in the
 JSON is WeChat's own value and does not match the saved bytes.
 
 Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
-(default `127.0.0.1`), `FAVINBOX_PORT` (default `9970`).
+(default `127.0.0.1`), `FAVINBOX_PORT` (default `9970`), `FAVINBOX_XWEB_CACHE`
+(default `/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache`, the
+host side of WeChat's internal `/data/data/com.tencent.mm/cache/xweb_cache`), `FAVINBOX_ADB`
+(default `adb`), `FAVINBOX_ADB_SERIAL` (default `127.0.0.1:5555`).
+
+`/post/page` is for image posts (贴图), which mp.weixin.qq.com hides behind a
+slider captcha from every client but WeChat. It takes
+`{"url": "<share link>", "wait": 30}` and answers with the post's HTML. If
+WeChat's web view (XWeb) has the post in its HTTP cache, that copy is used;
+otherwise the server runs, over adb,
+`am start -n com.tencent.mm/.plugin.webview.ui.tools.WebViewUI --es rawUrl <post>`
+(as root inside redroid), polls the cache until the page arrives, then presses
+Back. The cache is Chromium's Simple Cache: `<hash>_0` files under
+`xweb_cache/<profile>/HTTP Cache/Cache_Data/`, each holding the URL, the body
+as received (gzip or brotli) and the response headers. Brotli needs
+`python3-brotli` on the host. Errors: 400 for a link without
+`__biz`/`mid`/`idx`/`sn`, 404 when the page never reached the cache, 502 when
+adb failed.
 
 ### Deploy on oracle
 
@@ -140,6 +158,10 @@ the retention). Each is `{seq, kind, at, data}`:
   A shared 公众号 article arrives as `kind: app` (type 49), not `link`: tell it
   apart by `<type>5</type>` inside `<appmsg>`, and fetch the `<url>` exactly as
   given, since the bare `__biz/mid/idx/sn` form is answered with a captcha.
+  Image posts (`<itemshowtype>8</itemshowtype>`) are always answered with
+  Tencent's slider captcha; their share names only the first picture
+  (`coverpicimageurl`, full size) and the count (`piccount`). fav reads them
+  through `/post/page` instead (see the HTTP API above).
 - `new_friend` — `wxid`, `ticket`, `scene`, `info` (pass these to
   `/friend/verify`).
 - `member_change` — `change` (join/left), `room`, `wxid`, `name`.

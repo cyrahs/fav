@@ -17,9 +17,12 @@ worth keeping -- images and shared articles received in a private chat -- in
 ``wechat_events``, so the cursor moves on even when saving an item fails. It then
 works that queue. An image is fetched through the bridge, or from the inbox when
 the bridge cannot; an article is fetched straight from mp.weixin.qq.com with
-every image at full size. A failed item is retried on later runs, up to
-``_MAX_ATTEMPTS`` times. Last, the run drains the inbox as it always has, which
-catches what the event log misses: the plugin only logs while it is loaded.
+every image at full size. Image posts, which the site puts behind a captcha,
+come from the service's ``POST /post/page`` instead: it has the agent's WeChat
+open the post and returns the page from WeChat's web view cache. A failed item
+is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
+inbox as it always has, which catches what the event log misses: the plugin only
+logs while it is loaded.
 
 Items are keyed on WeChat's local ``msg_id`` together with the message's
 ``create_time``. The id alone is a row number in the account's message database,
@@ -33,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -47,6 +51,7 @@ from src.web.wechat_article import (
     ArticleLink,
     ArticlePage,
     canonical_url,
+    cover_only_page,
     image_extension,
     is_captcha,
     original_image_url,
@@ -70,6 +75,8 @@ _MAGIC_EXTENSIONS = ((b'\xff\xd8\xff', 'jpg'), (b'\x89PNG', 'png'), (b'GIF8', 'g
 _REQUEST_TIMEOUT_SECONDS = 60.0
 _EVENT_PAGE_SIZE = 200
 _MAX_ATTEMPTS = 5
+# How long the FavInbox service waits for WeChat to load an image post it opened.
+_OPEN_WAIT_SECONDS = 30
 _CURSOR_KEY = 'events_after'
 # A phone browser, as the share link would open in. mp.weixin.qq.com serves the
 # full page to it without a login.
@@ -392,9 +399,11 @@ class Wechat:
         failures: list[str] = []
         for row in await self._pending_work():
             message = row['message'] if isinstance(row['message'], dict) else json.loads(row['message'])
-            save = self._save_article if row['work'] == WORK_ARTICLE else self._save_bridge_image
             try:
-                await save(message)
+                if row['work'] == WORK_ARTICLE:
+                    await self._save_article(message, final_attempt=int(row['attempts']) + 1 >= _MAX_ATTEMPTS)
+                else:
+                    await self._save_bridge_image(message)
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
                 error = str(exc) or type(exc).__name__
                 log.warning('Failed to save WeChat %s %s: %s', row['work'], row['msg_id'], error)
@@ -560,10 +569,11 @@ class Wechat:
 
     # ---------- articles ----------
 
-    async def _article_stored(self, message: dict[str, Any]) -> bool:
+    async def _article_stored(self, message: dict[str, Any], link: ArticleLink) -> bool:
+        """Whether this message, or an earlier forward of the same article, was saved already."""
         rows = await database.query_db(
-            'SELECT 1 FROM wechat_article WHERE msg_id = ? AND create_time = ?;',
-            (message['msg_id'], message['create_time']),
+            'SELECT 1 FROM wechat_article WHERE (msg_id = ? AND create_time = ?) OR url = ?;',
+            (message['msg_id'], message['create_time'], canonical_url(link.url)),
         )
         return bool(rows)
 
@@ -605,7 +615,8 @@ class Wechat:
                 entry['file'] = f'{index:0{width}d}.{ext}'
                 (partial / entry['file']).write_bytes(content)
             entries.append(entry)
-        (partial / 'article.html').write_text(page_html, encoding='utf-8')
+        if page_html:
+            (partial / 'article.html').write_text(page_html, encoding='utf-8')
         summary = {
             'title': title,
             'account': page.account or link.account,
@@ -616,25 +627,64 @@ class Wechat:
             'msg_id': message['msg_id'],
             'create_time': message['create_time'],
             'sender': message.get('sender') or message.get('talker') or '',
+            'picture_count': max(page.picture_count, len(entries)),
             'images': entries,
         }
         (partial / 'article.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
         partial.replace(destination)
         return destination.relative_to(self.cfg.path), entries
 
-    async def _save_article(self, message: dict[str, Any]) -> None:
+    async def _page_in_wechat(self, link: ArticleLink) -> tuple[ArticlePage, str]:
+        """An image post as the agent's WeChat loads it, through the FavInbox service."""
+        try:
+            response = await self.client.post(
+                self._url('/post/page'),
+                json={'url': link.url, 'wait': _OPEN_WAIT_SECONDS},
+                timeout=_OPEN_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS,
+            )
+        except httpx.HTTPError as exc:
+            msg = f'FavInbox could not open the image post in WeChat: {exc}'
+            raise WechatInboxError(msg) from exc
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            raise self._unauthorized()
+        if response.status_code != httpx.codes.OK:
+            msg = f'FavInbox could not open the image post in WeChat: HTTP {response.status_code}{_error_detail(response)}'
+            raise WechatInboxError(msg)
+        page = parse_article_page(response.text)
+        if not page.images:
+            msg = 'the image post WeChat opened lists no pictures'
+            raise WechatInboxError(msg)
+        return replace(page, picture_count=max(link.picture_count, len(page.images))), response.text
+
+    async def _image_post(self, link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
+        """An image post the site put behind its captcha: all of it from WeChat, else its first picture."""
+        cover = cover_only_page(link)
+        if cover is None:
+            msg = f'mp.weixin.qq.com answered {canonical_url(link.url)} with a captcha page'
+            raise WechatInboxError(msg)
+        try:
+            return await self._page_in_wechat(link)
+        except WechatInboxError as exc:
+            # Retried while attempts remain; the first picture beats nothing at all.
+            if not final_attempt or exc.notification_dedupe_key == 'wechat:auth':
+                raise
+            log.warning('WeChat image post %s: %s; saving its first picture only', canonical_url(link.url), exc)
+            return cover, ''
+
+    async def _save_article(self, message: dict[str, Any], *, final_attempt: bool = False) -> None:
         link = parse_article_link(str(message.get('content') or ''))
         if link is None:
             msg = f'message {message["msg_id"]} is not an article share'
             raise WechatInboxError(msg)
-        if await self._article_stored(message):
+        if await self._article_stored(message, link):
             return
         response = await self.web.get(link.url)
+        page_html = response.text
         if is_captcha(str(response.url)):
-            msg = f'mp.weixin.qq.com answered {canonical_url(link.url)} with a captcha page'
-            raise WechatInboxError(msg)
-        response.raise_for_status()
-        page = parse_article_page(response.text)
+            page, page_html = await self._image_post(link, final_attempt=final_attempt)
+        else:
+            response.raise_for_status()
+            page = parse_article_page(page_html)
         if not page.title and not page.images:
             msg = f'{canonical_url(link.url)} has no title or images; the article may have been deleted'
             raise WechatInboxError(msg)
@@ -644,7 +694,7 @@ class Wechat:
         if page.images and not saved:
             msg = f'none of the {len(page.images)} images of {canonical_url(link.url)} could be downloaded'
             raise WechatInboxError(msg)
-        local_path, entries = await asyncio.to_thread(self._write_article, message, link, page, response.text, images)
+        local_path, entries = await asyncio.to_thread(self._write_article, message, link, page, page_html, images)
         await self._record_article(message, link, page, local_path, entries)
         log.info('Saved WeChat article %s (%d of %d images) as %s', message['msg_id'], saved, len(images), local_path)
         await self._notify_article(message, link, page, local_path, entries)
@@ -676,7 +726,15 @@ class Wechat:
                 page.published_at.strftime('%Y-%m-%d %H:%M:%S') if page.published_at else '',
                 sum(1 for entry in entries if 'file' in entry),
                 str(local_path),
-                json.dumps({'share_url': link.url, 'description': link.description, 'images': entries}, ensure_ascii=False),
+                json.dumps(
+                    {
+                        'share_url': link.url,
+                        'description': link.description,
+                        'picture_count': max(page.picture_count, len(entries)),
+                        'images': entries,
+                    },
+                    ensure_ascii=False,
+                ),
             ),
         )
 
@@ -691,7 +749,11 @@ class Wechat:
         """One message per article, linking to it and showing its first image."""
         files = [entry['file'] for entry in entries if 'file' in entry]
         folder = self.cfg.path / local_path
-        count = f'{len(files)} images' if len(files) == len(entries) else f'{len(files)} of {len(entries)} images'
+        total = max(page.picture_count, len(entries))
+        noun = 'image' if total == 1 else 'images'
+        count = f'{len(files)} {noun}' if len(files) == total else f'{len(files)} of {total} {noun}'
+        if page.picture_count > len(entries):
+            count += ' (WeChat could not open the rest)'
         sender = message.get('sender') or message.get('talker') or 'unknown'
         payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': str(sender), 'saved_path': str(folder)}
         if files:

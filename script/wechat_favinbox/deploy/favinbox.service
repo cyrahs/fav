@@ -24,6 +24,12 @@ Environment=FAVINBOX_PORT=9970
 # /wx/* is forwarded to the FavInbox plugin's bridge inside redroid; change this if
 # the container's address on the Docker bridge changes.
 Environment=FAVINBOX_BRIDGE_URL=http://172.17.0.2:9971
+# /post/page opens 公众号 posts in WeChat over adb. adb keeps its key in
+# $HOME/.android and may start its server, so both stay writable.
+Environment=HOME=/root
+Environment=FAVINBOX_ADB_SERIAL=127.0.0.1:5555
+# WeChat's web view cache, in the app's internal data directory (read only).
+Environment=FAVINBOX_XWEB_CACHE=/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache
 ExecStart=/usr/bin/python3 /opt/favinbox/favinbox_server.py
 Restart=always
 RestartSec=3
@@ -33,6 +39,7 @@ RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/home/ubuntu/redroid-data/media/0/Android/data/com.tencent.mm/files/FavInbox
+ReadWritePaths=-/root/.android
 PrivateTmp=true
 
 [Install]
