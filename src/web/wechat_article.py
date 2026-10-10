@@ -16,9 +16,16 @@ The URL has to be the one in the message, with its ``chksm``: the bare
 
 Image posts (贴图, ``<itemshowtype>8</itemshowtype>``) are the exception: their
 share link never carries a ``chksm``, and the site answers it with Tencent's
-slider captcha whatever the client. The share itself names the first picture
+slider captcha whatever the client. WeChat itself opens them with its login,
+so the FavInbox service has the agent's WeChat open the post and hands back the
+page from its web view's cache. Failing that, the share names the first picture
 at full size (``coverpicimageurl``) and how many there are (``piccount``), so
 that one picture is what can be saved.
+
+An image post's page lists its pictures in ``picture_page_info_list``, a script
+array of objects. Each object's own ``cdn_url`` is the picture; objects nested
+in it (``watermark_info`` and the like) carry other ``cdn_url`` values, which
+is why the list is read by structure rather than by pattern.
 """
 
 from __future__ import annotations
@@ -38,7 +45,16 @@ CAPTCHA_PATHS = ('/mp/wappoc_appmsgcaptcha', '/mp/verifycode')
 
 _IMAGE_HOST_RE = r'https?://mmbiz\.qpic\.cn/[^"\'\s<>]+'
 _BODY_IMAGE_RE = re.compile(rf'<img\b[^>]*?\bdata-src="({_IMAGE_HOST_RE})"', re.IGNORECASE)
-_PICTURE_PAGE_RE = re.compile(rf'cdn_url\s*:\s*[\'"]({_IMAGE_HOST_RE})[\'"]')
+_PICTURE_LIST_RE = re.compile(r'picture_page_info_list[\'"]?\s*[:=]\s*\[')
+_CDN_URL_RE = re.compile(r'(?<![\w$])[\'"]?cdn_url[\'"]?\s*:\s*([\'"])(.*?)(?<!\\)\1', re.DOTALL)
+_JS_ESCAPE_RE = re.compile(r'\\(x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|.)', re.DOTALL)
+# Script source split into strings, brackets and everything else, so brackets
+# inside strings do not count.
+_JS_TOKEN_RE = re.compile(r"""'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`|[{}\[\]]|[^'"`{}\[\]]+|.""", re.DOTALL)
+# Inside the array (1) and one of its elements (2).
+_ELEMENT_DEPTH = 2
+# Far more than any page's picture list; bounds the scan on a malformed page.
+_MAX_LIST_CHARS = 4_000_000
 _WIDTH_SEGMENT_RE = re.compile(r'/\d+(?=(\?|$))')
 _EXTENSIONS = {'jpeg': 'jpg', 'jpg': 'jpg', 'png': 'png', 'gif': 'gif', 'webp': 'webp', 'bmp': 'bmp'}
 
@@ -137,20 +153,66 @@ def _script_string(page: str, pattern: str) -> str:
     return html.unescape(match.group(1)).strip() if match else ''
 
 
+def _js_unescape(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        escape = match.group(1)
+        if len(escape) > 1:
+            return chr(int(escape[1:], 16))
+        return {'n': '\n', 't': '\t', 'r': '\r'}.get(escape, escape)
+
+    return html.unescape(_JS_ESCAPE_RE.sub(replace, text))
+
+
+def _top_level_objects(page: str, start: int) -> list[str]:
+    """The text of each object in the script array opening at ``start``, nested values left out."""
+    objects: list[str] = []
+    current: list[str] = []
+    depth = 1  # inside the array
+    for token in _JS_TOKEN_RE.finditer(page, start, min(len(page), start + _MAX_LIST_CHARS)):
+        text = token.group()
+        if text in {'{', '['}:
+            depth += 1
+            current = [] if depth == _ELEMENT_DEPTH else current
+        elif text in {'}', ']'}:
+            depth -= 1
+            if depth == _ELEMENT_DEPTH - 1:
+                objects.append(''.join(current))
+            elif depth == 0:
+                break
+        elif depth == _ELEMENT_DEPTH:
+            current.append(text)
+    return objects
+
+
+def picture_list(page: str) -> list[str]:
+    """The pictures of an image post, in order, from its ``picture_page_info_list``."""
+    for match in _PICTURE_LIST_RE.finditer(page):
+        urls: list[str] = []
+        for item in _top_level_objects(page, match.end()):
+            found = _CDN_URL_RE.search(item)
+            url = _js_unescape(found.group(2)).strip() if found else ''
+            if re.fullmatch(_IMAGE_HOST_RE, url) and url not in urls:
+                urls.append(url)
+        if urls:
+            return urls
+    return []
+
+
 def parse_article_page(page: str) -> ArticlePage:
     title = _script_string(page, r"var msg_title = '(.*?)'") or _script_string(page, r'<meta property="og:title" content="(.*?)"')
     account = _script_string(page, r'var nickname = htmlDecode\("(.*?)"\)')
     published = re.search(r'var ct = "(\d+)"', page)
     published_at = datetime.fromtimestamp(int(published.group(1)), tz=UTC) if published else None
 
-    start = page.find('id="js_content"')
-    body = page[start:] if start >= 0 else ''
-    found = _BODY_IMAGE_RE.findall(body) or _PICTURE_PAGE_RE.findall(page)
-    images: list[str] = []
-    for raw in found:
-        url = html.unescape(raw)
-        if url not in images:
-            images.append(url)
+    # An image post's body is just its caption; the pictures are in the list.
+    images = picture_list(page)
+    if not images:
+        start = page.find('id="js_content"')
+        body = page[start:] if start >= 0 else ''
+        for raw in _BODY_IMAGE_RE.findall(body):
+            url = html.unescape(raw)
+            if url not in images:
+                images.append(url)
     return ArticlePage(title=title, account=account, published_at=published_at, images=images)
 
 
