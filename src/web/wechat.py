@@ -47,6 +47,7 @@ from src.web.wechat_article import (
     ArticleLink,
     ArticlePage,
     canonical_url,
+    cover_only_page,
     image_extension,
     is_captcha,
     original_image_url,
@@ -560,10 +561,11 @@ class Wechat:
 
     # ---------- articles ----------
 
-    async def _article_stored(self, message: dict[str, Any]) -> bool:
+    async def _article_stored(self, message: dict[str, Any], link: ArticleLink) -> bool:
+        """Whether this message, or an earlier forward of the same article, was saved already."""
         rows = await database.query_db(
-            'SELECT 1 FROM wechat_article WHERE msg_id = ? AND create_time = ?;',
-            (message['msg_id'], message['create_time']),
+            'SELECT 1 FROM wechat_article WHERE (msg_id = ? AND create_time = ?) OR url = ?;',
+            (message['msg_id'], message['create_time'], canonical_url(link.url)),
         )
         return bool(rows)
 
@@ -605,7 +607,8 @@ class Wechat:
                 entry['file'] = f'{index:0{width}d}.{ext}'
                 (partial / entry['file']).write_bytes(content)
             entries.append(entry)
-        (partial / 'article.html').write_text(page_html, encoding='utf-8')
+        if page_html:
+            (partial / 'article.html').write_text(page_html, encoding='utf-8')
         summary = {
             'title': title,
             'account': page.account or link.account,
@@ -616,6 +619,7 @@ class Wechat:
             'msg_id': message['msg_id'],
             'create_time': message['create_time'],
             'sender': message.get('sender') or message.get('talker') or '',
+            'picture_count': max(page.picture_count, len(entries)),
             'images': entries,
         }
         (partial / 'article.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -627,14 +631,20 @@ class Wechat:
         if link is None:
             msg = f'message {message["msg_id"]} is not an article share'
             raise WechatInboxError(msg)
-        if await self._article_stored(message):
+        if await self._article_stored(message, link):
             return
         response = await self.web.get(link.url)
+        page_html = response.text
         if is_captcha(str(response.url)):
-            msg = f'mp.weixin.qq.com answered {canonical_url(link.url)} with a captcha page'
-            raise WechatInboxError(msg)
-        response.raise_for_status()
-        page = parse_article_page(response.text)
+            page = cover_only_page(link)
+            if page is None:
+                msg = f'mp.weixin.qq.com answered {canonical_url(link.url)} with a captcha page'
+                raise WechatInboxError(msg)
+            log.warning('WeChat image post %s is behind a captcha; saving its first picture only', canonical_url(link.url))
+            page_html = ''
+        else:
+            response.raise_for_status()
+            page = parse_article_page(page_html)
         if not page.title and not page.images:
             msg = f'{canonical_url(link.url)} has no title or images; the article may have been deleted'
             raise WechatInboxError(msg)
@@ -644,7 +654,7 @@ class Wechat:
         if page.images and not saved:
             msg = f'none of the {len(page.images)} images of {canonical_url(link.url)} could be downloaded'
             raise WechatInboxError(msg)
-        local_path, entries = await asyncio.to_thread(self._write_article, message, link, page, response.text, images)
+        local_path, entries = await asyncio.to_thread(self._write_article, message, link, page, page_html, images)
         await self._record_article(message, link, page, local_path, entries)
         log.info('Saved WeChat article %s (%d of %d images) as %s', message['msg_id'], saved, len(images), local_path)
         await self._notify_article(message, link, page, local_path, entries)
@@ -676,7 +686,15 @@ class Wechat:
                 page.published_at.strftime('%Y-%m-%d %H:%M:%S') if page.published_at else '',
                 sum(1 for entry in entries if 'file' in entry),
                 str(local_path),
-                json.dumps({'share_url': link.url, 'description': link.description, 'images': entries}, ensure_ascii=False),
+                json.dumps(
+                    {
+                        'share_url': link.url,
+                        'description': link.description,
+                        'picture_count': max(page.picture_count, len(entries)),
+                        'images': entries,
+                    },
+                    ensure_ascii=False,
+                ),
             ),
         )
 
@@ -691,7 +709,11 @@ class Wechat:
         """One message per article, linking to it and showing its first image."""
         files = [entry['file'] for entry in entries if 'file' in entry]
         folder = self.cfg.path / local_path
-        count = f'{len(files)} images' if len(files) == len(entries) else f'{len(files)} of {len(entries)} images'
+        total = max(page.picture_count, len(entries))
+        noun = 'image' if total == 1 else 'images'
+        count = f'{len(files)} {noun}' if len(files) == total else f'{len(files)} of {total} {noun}'
+        if page.picture_count > len(entries):
+            count += ' (the rest are behind a WeChat captcha)'
         sender = message.get('sender') or message.get('talker') or 'unknown'
         payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': str(sender), 'saved_path': str(folder)}
         if files:

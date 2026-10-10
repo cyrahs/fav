@@ -66,6 +66,7 @@ class _FakeDatabase:
         self.calls: list[tuple[str, tuple]] = []
         self.stored = stored or set()
         self.articles: set[tuple[int, int]] = set()
+        self.article_urls: set[str] = set()
         self.state: dict[str, str] = {}
         self.queue: dict[tuple[int, int], dict] = {}
 
@@ -100,11 +101,13 @@ class _FakeDatabase:
         elif sql.startswith('SELECT 1 FROM wechat_inbox'):
             return [{'?column?': 1}] if tuple(params) in self.stored else []
         elif sql.startswith('SELECT 1 FROM wechat_article'):
-            return [{'?column?': 1}] if tuple(params) in self.articles else []
+            msg_id, create_time, url = params
+            return [{'?column?': 1}] if (msg_id, create_time) in self.articles or url in self.article_urls else []
         elif sql.startswith('INSERT INTO wechat_inbox'):
             self.stored.add((params[0], params[1]))
         elif sql.startswith('INSERT INTO wechat_article'):
             self.articles.add((params[0], params[1]))
+            self.article_urls.add(params[5])
         return []
 
     def inserts(self, table: str = 'wechat_inbox') -> list[tuple]:
@@ -637,6 +640,79 @@ def test_a_captcha_page_fails_the_article_without_writing_anything(fake_db, tmp_
     assert fake_db.inserts('wechat_article') == []
     assert fake_db.queue[(44, _CREATE_TIME + 44)]['status'] == 'pending'
     assert not any(tmp_path.rglob('*'))
+
+
+_COVER = 'https://mmbiz.qpic.cn/mmbiz_jpg/COVER/0?wx_fmt=jpeg'
+_IMAGE_POST_URL = 'https://mp.weixin.qq.com/s?__biz=MzA5==&amp;mid=2247&amp;idx=1&amp;sn=abc123&amp;scene=1&amp;from_masonry=1&amp;t=1#rd'
+_IMAGE_POST_FETCH = 'https://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&scene=1&from_masonry=1&t=1'
+
+
+def _image_post(msg_id: int, pictures: int = 9) -> dict:
+    share = _share(url=_IMAGE_POST_URL).replace(
+        '</appmsg>',
+        f'<mmreadershare><itemshowtype>8</itemshowtype><coverpicimageurl>{_COVER}</coverpicimageurl>'
+        f'<piccount>{pictures}</piccount></mmreadershare></appmsg>',
+    )
+    return {**_article_message(msg_id), 'content': share}
+
+
+def _captcha_web(**images: httpx.Response) -> _FakeWeb:
+    captcha = 'https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=x'
+    responses = {
+        _IMAGE_POST_FETCH: httpx.Response(302, headers={'location': captcha}),
+        captcha: httpx.Response(200, text='<script src="https://captcha.gtimg.com/TCaptcha.js"></script>'),
+    }
+    responses.update(images)
+    return _FakeWeb(responses)
+
+
+def test_an_image_post_share_names_its_cover_and_picture_count() -> None:
+    link = parse_article_link(_image_post(46)['content'])
+
+    assert link is not None
+    assert (link.show_type, link.picture_count, link.cover_url) == ('8', 9, _COVER)
+    assert parse_article_link(_share()).cover_url == ''
+
+
+def test_an_image_post_behind_the_captcha_keeps_its_first_picture(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _image_post(47))])
+    web = _captcha_web(**{_COVER: httpx.Response(200, content=_JPEG, headers={'content-type': 'image/jpeg'})})
+
+    asyncio.run(_source(inbox, web).update())
+
+    (row,) = fake_db.inserts('wechat_article')
+    assert row[9] == 1
+    folder = tmp_path / row[10]
+    assert sorted(path.name for path in folder.iterdir()) == ['01.jpg', 'article.json']
+    assert (folder / '01.jpg').read_bytes() == _JPEG
+    assert json.loads((folder / 'article.json').read_text(encoding='utf-8'))['picture_count'] == 9
+    assert fake_db.queue[(47, _CREATE_TIME + 47)]['status'] == 'done'
+    (notification,) = notifications
+    assert notification['title'] == '每日分享'
+    assert notification['body'] == '小叶菌ovo | 1 of 9 images (the rest are behind a WeChat captcha) | From wxid_sender'
+
+
+def test_a_single_picture_post_behind_the_captcha_is_saved_whole(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _image_post(46, pictures=1))])
+    web = _captcha_web(**{_COVER: httpx.Response(200, content=_JPEG, headers={'content-type': 'image/jpeg'})})
+
+    asyncio.run(_source(inbox, web).update())
+
+    assert notifications[0]['body'] == '小叶菌ovo | 1 image | From wxid_sender'
+
+
+def test_a_second_forward_of_a_saved_article_is_not_saved_again(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _article_message(44)), _event(6, _article_message(52))])
+    web = _article_web()
+
+    asyncio.run(_source(inbox, web).update())
+
+    assert [row[0] for row in fake_db.inserts('wechat_article')] == [44]
+    assert fake_db.queue[(52, _CREATE_TIME + 52)]['status'] == 'done'
+    assert len(notifications) == 1
 
 
 def test_an_article_saved_earlier_is_not_fetched_again(fake_db, tmp_path) -> None:

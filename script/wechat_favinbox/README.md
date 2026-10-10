@@ -140,6 +140,9 @@ the retention). Each is `{seq, kind, at, data}`:
   A shared 公众号 article arrives as `kind: app` (type 49), not `link`: tell it
   apart by `<type>5</type>` inside `<appmsg>`, and fetch the `<url>` exactly as
   given, since the bare `__biz/mid/idx/sn` form is answered with a captcha.
+  Image posts (`<itemshowtype>8</itemshowtype>`) are always answered with
+  Tencent's slider captcha; their share names only the first picture
+  (`coverpicimageurl`, full size) and the count (`piccount`).
 - `new_friend` — `wxid`, `ticket`, `scene`, `info` (pass these to
   `/friend/verify`).
 - `member_change` — `change` (join/left), `room`, `wxid`, `name`.

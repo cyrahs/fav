@@ -13,6 +13,12 @@ their pictures in ``picture_page_info_list`` instead of the body.
 
 The URL has to be the one in the message, with its ``chksm``: the bare
 ``__biz``/``mid``/``idx``/``sn`` form is answered with a captcha page.
+
+Image posts (贴图, ``<itemshowtype>8</itemshowtype>``) are the exception: their
+share link never carries a ``chksm``, and the site answers it with Tencent's
+slider captcha whatever the client. The share itself names the first picture
+at full size (``coverpicimageurl``) and how many there are (``piccount``), so
+that one picture is what can be saved.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from urllib.parse import parse_qs, urlsplit
 _APPMSG_RE = re.compile(r'<appmsg\b.*?</appmsg>', re.DOTALL)
 _ARTICLE_HOST = 'mp.weixin.qq.com'
 _LINK_SHARE_TYPE = '5'
+IMAGE_POST = '8'
 # Paths the site redirects a request it does not trust to.
 CAPTCHA_PATHS = ('/mp/wappoc_appmsgcaptcha', '/mp/verifycode')
 
@@ -42,6 +49,10 @@ class ArticleLink:
     title: str
     description: str = ''
     account: str = ''
+    # From the share's <mmreadershare>: 8 marks an image post.
+    show_type: str = ''
+    picture_count: int = 0
+    cover_url: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +61,8 @@ class ArticlePage:
     account: str
     published_at: datetime | None
     images: list[str] = field(default_factory=list)
+    # How many pictures the post has, when only some of them could be read.
+    picture_count: int = 0
 
 
 def _tag(xml: str, name: str) -> str:
@@ -78,11 +91,29 @@ def parse_article_link(content: str) -> ArticleLink | None:
         return None
     if parts.scheme == 'http':
         url = 'https' + url[4:]
+    cover = _tag(xml, 'coverpicimageurl')
+    count = _tag(xml, 'piccount')
     return ArticleLink(
         url=url,
         title=_tag(xml, 'title'),
         description=_tag(xml, 'des'),
         account=_tag(xml, 'sourcedisplayname'),
+        show_type=_tag(xml, 'itemshowtype'),
+        picture_count=int(count) if count.isdigit() else 0,
+        cover_url=cover if re.fullmatch(_IMAGE_HOST_RE, cover) else '',
+    )
+
+
+def cover_only_page(link: ArticleLink) -> ArticlePage | None:
+    """What can be saved of an image post whose page is behind the captcha: its first picture."""
+    if link.show_type != IMAGE_POST or not link.cover_url:
+        return None
+    return ArticlePage(
+        title=link.title,
+        account=link.account,
+        published_at=None,
+        images=[link.cover_url],
+        picture_count=max(link.picture_count, 1),
     )
 
 
