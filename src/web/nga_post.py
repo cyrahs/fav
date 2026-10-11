@@ -33,7 +33,10 @@ if TYPE_CHECKING:
 # Every hostname NGA serves the forum under; the share card uses bbs.nga.cn.
 NGA_HOSTS = frozenset({'bbs.nga.cn', 'nga.cn', 'ngabbs.com', 'nga.178.com', 'bbs.ngacn.cc', 'g.nga.cn'})
 _READ_URL = 'https://bbs.nga.cn/read.php'
-_ATTACHMENT_BASE = 'https://img.nga.178.com/attachments/'
+# img.nga.178.com, the host older posts and clients name, no longer resolves;
+# img.nga.cn serves the same /attachments/ paths.
+_ATTACHMENT_BASE = 'https://img.nga.cn/attachments/'
+_RETIRED_IMAGE_HOST_RE = re.compile(r'^img\d*\.nga\.178\.com$')
 LOGIN_COOKIES = ('ngaPassportUid', 'ngaPassportCid')
 _TID_RE = re.compile(r'\d{1,12}')
 _IMG_TAG_RE = re.compile(r'\[img\]\s*(.*?)\s*\[/img\]', re.IGNORECASE | re.DOTALL)
@@ -81,8 +84,11 @@ def original_url(src: str) -> str | None:
         src = urljoin(_ATTACHMENT_BASE, src.removeprefix('/attachments/'))
     elif src.startswith('mon_'):
         src = urljoin(_ATTACHMENT_BASE, src)
-    if urlsplit(src).scheme not in {'http', 'https'}:
+    parts = urlsplit(src)
+    if parts.scheme not in {'http', 'https'}:
         return None
+    if _RETIRED_IMAGE_HOST_RE.match(parts.hostname or ''):
+        src = parts._replace(scheme='https', netloc='img.nga.cn').geturl()
     return _RENDITION_RE.sub(r'\1', src)
 
 
