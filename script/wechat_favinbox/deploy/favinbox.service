@@ -30,6 +30,8 @@ Environment=HOME=/root
 Environment=FAVINBOX_ADB_SERIAL=127.0.0.1:5555
 # WeChat's web view cache, in the app's internal data directory (read only).
 Environment=FAVINBOX_XWEB_CACHE=/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache
+# /finder/video reads WeChat's 视频号 cache index and video cache from here (read only).
+Environment=FAVINBOX_WECHAT_DATA=/home/ubuntu/redroid-data/data/com.tencent.mm
 ExecStart=/usr/bin/python3 /opt/favinbox/favinbox_server.py
 Restart=always
 RestartSec=3

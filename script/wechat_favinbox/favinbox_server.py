@@ -11,6 +11,7 @@ the host. This serves that directory to the fav crawler over the frpc tunnel:
     POST /ack/<msg_id>      -> mark the item acked and delete its media file
     *    /wx/<path>         -> forwarded to the plugin's bridge API (see README)
     POST /post/page         -> a 公众号 post's page as WeChat itself loaded it
+    POST /finder/video      -> a 视频号 video as WeChat itself downloaded it
 
 Items are listed from the JSON sidecars. `ack` keeps the JSON as a permanent
 dedupe tombstone (status set to "acked") and deletes only the media file, so the
@@ -33,6 +34,8 @@ Env:
     FAVINBOX_XWEB_CACHE         WeChat's XWeb cache, in the app's internal data
                                 directory (default /home/ubuntu/redroid-data/data/
                                 com.tencent.mm/cache/xweb_cache)
+    FAVINBOX_WECHAT_DATA        WeChat's internal data directory, for /finder/video
+                                (default /home/ubuntu/redroid-data/data/com.tencent.mm)
     FAVINBOX_ADB                adb binary (default adb)
     FAVINBOX_ADB_SERIAL         the redroid device (default 127.0.0.1:5555)
 
@@ -50,6 +53,20 @@ over adb and the cache is polled until the page lands there. The answer is the
 page's HTML (decompressed), or a JSON error: 400 for a link that is not a
 `mp.weixin.qq.com/s?__biz=...&mid=...&idx=...&sn=...` post, 404 when the page
 never reached the cache, 502 when adb failed.
+
+`/finder/video` does the same for 视频号 videos, whose CDN addresses need
+WeChat's login and per-video keys. The body is JSON, `{"object_id": "<the
+share's objectId>", "nonce_id": "<its objectNonceId>", "wait": <seconds,
+default 120>}`. WeChat's video player keeps what it downloads as plain MP4 files
+under `cache/<account>/finder/video/`, and indexes them by feed in the
+account's `FinderMM*.db` (table `FinderMediaCacheInfoV4`: feedId, mediaId =
+file name, totalSize). If the video is cached complete already, that file is
+returned; otherwise the video is opened in WeChat over adb and the index is
+polled until the file is whole. Opening a video also preloads a few
+recommended ones, which is why the file is found through the index rather than
+by what appeared. The answer is the MP4, or a JSON error: 400 for a bad id, 404
+when the video never finished downloading, 502 when adb failed, 503 when no
+logged-in account has a 视频号 database.
 """
 
 from __future__ import annotations
@@ -60,9 +77,12 @@ import http.client
 import json
 import os
 import re
+import shutil
+import sqlite3
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import zlib
@@ -111,6 +131,7 @@ _CHUNK = 65536
 # Not beside FAVINBOX_DIR: the web view caches into WeChat's internal data
 # directory (/data/data/com.tencent.mm), which redroid keeps under data/.
 XWEB_CACHE = Path(os.environ.get('FAVINBOX_XWEB_CACHE', '') or '/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache')
+WECHAT_DATA = Path(os.environ.get('FAVINBOX_WECHAT_DATA', '') or '/home/ubuntu/redroid-data/data/com.tencent.mm')
 ADB = os.environ.get('FAVINBOX_ADB', '') or 'adb'
 ADB_SERIAL = os.environ.get('FAVINBOX_ADB_SERIAL', '') or '127.0.0.1:5555'
 _WEBVIEW = 'com.tencent.mm/.plugin.webview.ui.tools.WebViewUI'
@@ -118,8 +139,18 @@ _POST_HOST = 'mp.weixin.qq.com'
 _DEFAULT_WAIT_SECONDS = 30
 _MAX_WAIT_SECONDS = 90
 _POLL_SECONDS = 2
-# Only one post is opened at a time, so a page found in the cache is the one asked for.
+# Only one post or video is opened at a time, so a page found in the cache is the one asked for.
 _OPEN_LOCK = threading.Lock()
+_FINDER_UI = 'com.tencent.mm/.plugin.finder.ui.FinderShareFeedRelUI'
+_DEFAULT_VIDEO_WAIT_SECONDS = 120
+_MAX_VIDEO_WAIT_SECONDS = 300
+# A 视频号 object id is an unsigned 64-bit number in share messages and a signed one in WeChat.
+_OBJECT_ID_RE = re.compile(r'-?\d{1,20}')
+_NONCE_ID_RE = re.compile(r'[A-Za-z0-9_-]{1,200}')
+_ACCOUNT_RE = re.compile(r'[0-9a-f]{32}')
+_MEDIA_ID_RE = re.compile(r'[A-Za-z0-9_]{1,128}')
+_TABLE_RE = re.compile(r'FinderMediaCacheInfo\w*')
+_MP4_BOX = struct.Struct('>I4s')
 # The post's identity, checked before any of it goes near a shell.
 _POST_FIELDS = {
     '__biz': re.compile(r'[A-Za-z0-9+/=]{4,64}'),
@@ -252,7 +283,7 @@ def _open_in_wechat(post: dict[str, str]) -> None:
         raise RuntimeError(msg)
 
 
-def _close_webview() -> None:
+def _press_back() -> None:
     _adb('shell', 'input', 'keyevent', '4')
 
 
@@ -272,7 +303,135 @@ def _post_page(post: dict[str, str], wait: float) -> tuple[str, str, bool] | Non
                     return (*cached, True)
             return None
         finally:
-            _close_webview()
+            _press_back()
+
+
+def _feed_id(object_id: str) -> int | None:
+    """WeChat's signed form of a 视频号 object id, or None if it is not one."""
+    if not _OBJECT_ID_RE.fullmatch(object_id):
+        return None
+    value = int(object_id)
+    if value >= 1 << 63:
+        value -= 1 << 64
+    return value if -(1 << 63) <= value < 1 << 63 else None
+
+
+def _finder_account() -> tuple[Path, Path]:
+    """(视频号 database, video cache directory) of the account that used it last.
+
+    A new login gets a new account directory and leaves the old one behind, so
+    the account is the one whose database changed most recently.
+    """
+    newest: tuple[float, Path] | None = None
+    for database in (WECHAT_DATA / 'MicroMsg').glob('*/FinderMM*.db'):
+        if not _ACCOUNT_RE.fullmatch(database.parent.name):
+            continue
+        try:
+            changed = max(path.stat().st_mtime for path in database.parent.glob(f'{database.name}*'))
+        except (OSError, ValueError):
+            continue
+        if newest is None or changed > newest[0]:
+            newest = (changed, database)
+    if newest is None:
+        msg = f'no WeChat account under {WECHAT_DATA} has a 视频号 database; is anyone logged in?'
+        raise LookupError(msg)
+    database = newest[1]
+    return database, WECHAT_DATA / 'cache' / database.parent.name / 'finder' / 'video'
+
+
+def _cache_entries(database: Path, feed_id: int) -> list[tuple[str, int]]:
+    """(media id, total size) of the files WeChat cached for one feed, newest first.
+
+    Read from a copy, with its write-ahead log, so WeChat's own writes are never
+    blocked and the latest rows are included.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        for path in database.parent.glob(f'{database.name}*'):
+            shutil.copy2(path, Path(tmp) / path.name)
+        conn = sqlite3.connect(f'file:{Path(tmp) / database.name}?mode=ro', uri=True)
+        try:
+            tables = [
+                row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'FinderMediaCacheInfo%'")
+            ]
+            entries: list[tuple[str, int]] = []
+            # The newest version of the table first; its name only ever passes _TABLE_RE.
+            for table in sorted((name for name in tables if _TABLE_RE.fullmatch(name)), reverse=True):
+                columns = {row[1] for row in conn.execute(f'PRAGMA table_info({table})')}
+                if not {'feedId', 'mediaId', 'totalSize'} <= columns:
+                    continue
+                rows = conn.execute(f'SELECT mediaId, totalSize FROM {table} WHERE feedId = ? ORDER BY rowid DESC', (feed_id,))  # noqa: S608
+                entries.extend((str(media_id), int(total or 0)) for media_id, total in rows)
+            return entries
+        finally:
+            conn.close()
+
+
+def _complete_mp4(path: Path, expected_size: int) -> bool:
+    """Whether a cached file is a whole MP4: its top-level boxes add up to its size."""
+    size = path.stat().st_size
+    if expected_size and size != expected_size:
+        return False
+    seen: set[bytes] = set()
+    offset = 0
+    with path.open('rb') as fh:
+        while offset + _MP4_BOX.size <= size:
+            fh.seek(offset)
+            length, kind = _MP4_BOX.unpack(fh.read(_MP4_BOX.size))
+            header = _MP4_BOX.size
+            if length == 1:
+                length = struct.unpack('>Q', fh.read(8))[0]
+                header += 8
+            elif length == 0:
+                length = size - offset
+            if length < header:
+                return False
+            seen.add(kind)
+            offset += length
+    return offset == size and {b'ftyp', b'moov', b'mdat'} <= seen
+
+
+def _cached_video(feed_id: int) -> tuple[Path, str] | None:
+    """(file, media id) of a complete cached copy of the feed's video."""
+    database, video_dir = _finder_account()
+    for media_id, total in _cache_entries(database, feed_id):
+        if not _MEDIA_ID_RE.fullmatch(media_id):
+            continue
+        path = video_dir / media_id
+        try:
+            if path.is_file() and _complete_mp4(path, total):
+                return path, media_id
+        except OSError:
+            continue
+    return None
+
+
+def _open_feed(feed_id: int, nonce_id: str) -> None:
+    subprocess.run([ADB, 'connect', ADB_SERIAL], capture_output=True, timeout=30, check=False)  # noqa: S603
+    # Both values matched their patterns, so they hold no quote or shell character.
+    result = _adb('shell', f'su 0 -c "am start -n {_FINDER_UI} --el feed_object_id {feed_id} --es feed_object_nonceId {nonce_id}"')
+    output = f'{result.stdout}\n{result.stderr}'.strip()
+    if result.returncode != 0 or 'Error' in output:
+        msg = f'adb could not open the video in WeChat: {output[-300:]}'
+        raise RuntimeError(msg)
+
+
+def _finder_video(feed_id: int, nonce_id: str, wait: float) -> tuple[Path, str, bool] | None:
+    """(file, media id, whether WeChat had to open it), or None if it never finished downloading."""
+    with _OPEN_LOCK:
+        cached = _cached_video(feed_id)
+        if cached is not None:
+            return (*cached, False)
+        _open_feed(feed_id, nonce_id)
+        try:
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                time.sleep(_POLL_SECONDS)
+                cached = _cached_video(feed_id)
+                if cached is not None:
+                    return (*cached, True)
+            return None
+        finally:
+            _press_back()
 
 
 def _load_meta(msg_id: str) -> dict | None:
@@ -345,6 +504,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == '/post/page':
             self._post_page()
+            return
+        if path == '/finder/video':
+            self._finder_video()
             return
         if path.startswith('/wx/'):
             self._forward()
@@ -434,6 +596,48 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Opened', '1' if opened else '0')
         self.end_headers()
         self.wfile.write(body)
+
+    def _finder_video(self) -> None:
+        length = int(self.headers.get('Content-Length') or 0)
+        try:
+            request = json.loads(self.rfile.read(length) or b'{}')
+            feed_id = _feed_id(str(request.get('object_id', '')))
+            nonce_id = str(request.get('nonce_id', ''))
+            wait = min(float(request.get('wait', _DEFAULT_VIDEO_WAIT_SECONDS)), _MAX_VIDEO_WAIT_SECONDS)
+        except (ValueError, AttributeError, TypeError):
+            feed_id, nonce_id, wait = None, '', 0
+        if feed_id is None or not _NONCE_ID_RE.fullmatch(nonce_id):
+            self._send_json(HTTPStatus.BAD_REQUEST, {'error': 'object_id must be a 视频号 object id and nonce_id its objectNonceId'})
+            return
+        try:
+            found = _finder_video(feed_id, nonce_id, wait)
+        except LookupError as exc:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {'error': str(exc)})
+            return
+        except (RuntimeError, OSError, subprocess.SubprocessError, sqlite3.Error) as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, {'error': str(exc)})
+            return
+        if found is None:
+            self._send_json(HTTPStatus.NOT_FOUND, {'error': f'WeChat opened the video but had not downloaded all of it after {wait:.0f}s'})
+            return
+        path, media_id, opened = found
+        try:
+            fh = path.open('rb')
+            size = os.fstat(fh.fileno()).st_size
+        except OSError as exc:
+            self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {'error': str(exc)})
+            return
+        with fh:
+            self.send_response(HTTPStatus.OK)
+            self.send_header('Content-Type', 'video/mp4')
+            self.send_header('Content-Length', str(size))
+            self.send_header('X-Media-Id', media_id)
+            self.send_header('X-Opened', '1' if opened else '0')
+            self.end_headers()
+            remaining = size
+            while remaining > 0 and (chunk := fh.read(min(_CHUNK, remaining))):
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def _items(self, *, include_acked: bool) -> list[dict]:
         items: list[dict] = []

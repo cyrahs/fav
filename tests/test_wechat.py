@@ -25,9 +25,11 @@ from src.web.wechat import (
     queued_message,
     relative_path,
     sniff_extension,
+    video_wait,
     work_for,
 )
 from src.web.wechat_article import canonical_url, image_extension, original_image_url, parse_article_link, parse_article_page
+from src.web.wechat_channels import parse_channel_video, video_title
 
 # 2025-10-05 03:13:20 UTC, in milliseconds as WeChat stores it.
 _CREATE_TIME = 1_759_634_000_000
@@ -72,6 +74,8 @@ class _FakeDatabase:
         self.article_urls: set[str] = set()
         self.state: dict[str, str] = {}
         self.queue: dict[tuple[int, int], dict] = {}
+        self.videos: set[tuple[int, int]] = set()
+        self.video_objects: set[str] = set()
 
     async def query_db(self, query: str, params: tuple = ()) -> list[dict]:
         self.calls.append((query, params))
@@ -111,6 +115,12 @@ class _FakeDatabase:
             return [{'?column?': 1}] if (msg_id, create_time) in self.articles or url in self.article_urls else []
         elif sql.startswith('INSERT INTO wechat_inbox'):
             self.stored.add((params[0], params[1]))
+        elif sql.startswith('SELECT 1 FROM wechat_channel_video'):
+            msg_id, create_time, object_id = params
+            return [{'?column?': 1}] if (msg_id, create_time) in self.videos or object_id in self.video_objects else []
+        elif sql.startswith('INSERT INTO wechat_channel_video'):
+            self.videos.add((params[0], params[1]))
+            self.video_objects.add(params[5])
         elif sql.startswith('INSERT INTO wechat_article'):
             self.articles.add((params[0], params[1]))
             self.article_urls.add(params[5])
@@ -133,9 +143,11 @@ class _FakeInbox:
         events_status: int = 200,
         images: dict[int, bytes] | None = None,
         post_page: httpx.Response | None = None,
+        finder_video: httpx.Response | None = None,
     ) -> None:
         self.items = items
         self.post_page = post_page
+        self.finder_video = finder_video
         self.files = files if files is not None else {item['msg_id']: _JPEG for item in items if isinstance(item, dict)}
         self.list_status = list_status
         self.events = events or []
@@ -165,6 +177,10 @@ class _FakeInbox:
             return httpx.Response(200, content=self.images[msg_id], headers={'content-type': 'application/octet-stream'})
         if path == '/post/page' and request.method == 'POST':
             return self.post_page or httpx.Response(404, json={'error': 'the post was not in the XWeb cache after 30s'})
+        if path == '/finder/video' and request.method == 'POST':
+            return self.finder_video or httpx.Response(
+                404, json={'error': 'WeChat opened the video but had not downloaded all of it after 90s'}
+            )
         if path == '/items':
             return httpx.Response(self.list_status, json=self.items)
         if path.startswith('/file/'):
@@ -476,7 +492,7 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert not [request for request in inbox.requests if request.url.path.startswith('/file/')]
     image_request = next(request for request in inbox.requests if request.url.path == '/wx/image')
     assert dict(image_request.url.params) == {'talker': 'wxid_sender', 'msg_id': '45', 'create_time': str(_CREATE_TIME + 45)}
-    assert fake_db.state == {'events_after': '7', 'work_version': '2'}
+    assert fake_db.state == {'events_after': '7', 'work_version': '3'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
 
@@ -954,8 +970,133 @@ def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications,
     assert inbox.event_requests() == [0, 6]
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
-    assert fake_db.state == {'events_after': '6', 'work_version': '2'}
+    assert fake_db.state == {'events_after': '6', 'work_version': '3'}
     assert len(notifications) == 1
+
+
+# ---------- 视频号 videos ----------
+
+_OBJECT_ID = '14983747958594083406'
+_NONCE_ID = '12832287456652343062_0_25_90_26_1791657144215330_efda1c2e-c4d8-11f1-83d0-83b106a41c8a'
+_COVER_URL = 'https://wxapp.tc.qq.com/251/20304/stodownload?encfilekey=abc&amp;token=cover-token'
+_MP4 = b'\x00\x00\x00\x20ftypisom' + b'\x00' * 20 + b'video-bytes'
+
+
+def _finder_share(*, media_type: str = '4', live_id: str = '0', object_id: str = _OBJECT_ID) -> str:
+    return (
+        '<msg><appmsg appid="" sdkver="0"><title>当前版本不支持展示该内容</title><type>51</type>'
+        '<url>https://support.weixin.qq.com/update/</url>'
+        f'<finderFeed><objectId>{object_id}</objectId><feedType>4</feedType><nickname>jiang57l</nickname>'
+        '<avatar><![CDATA[https://wx.qlogo.cn/finderhead/ver_1/x/0]]></avatar>'
+        '<desc>镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨</desc><mediaCount>1</mediaCount>'
+        f'<objectNonceId>{_NONCE_ID}</objectNonceId><liveId>{live_id}</liveId>'
+        '<username>v2_0600@finder</username><mediaList><media>'
+        f'<thumbUrl>{_COVER_URL}</thumbUrl><videoPlayDuration>9</videoPlayDuration>'
+        '<url>http://wxapp.tc.qq.com/251/20302/stodownload?encfilekey=def&amp;m=1</url>'
+        f'<coverUrl>{_COVER_URL}</coverUrl><height>1920</height><mediaType>{media_type}</mediaType><width>1080</width>'
+        '</media></mediaList><megaVideo><objectId></objectId><objectNonceId></objectNonceId></megaVideo>'
+        '</finderFeed></appmsg><fromusername>wxid_sender</fromusername></msg>'
+    )
+
+
+def _video_message(msg_id: int = 65, **updates: object) -> dict:
+    return _message(msg_id, type=754974769, kind='channel_video', content=_finder_share(), image=None, **updates)
+
+
+def _video_web() -> _FakeWeb:
+    return _FakeWeb({_COVER_URL.replace('&amp;', '&'): httpx.Response(200, content=_JPEG, headers={'content-type': 'image/jpeg'})})
+
+
+def _mp4_response(body: bytes = _MP4) -> httpx.Response:
+    return httpx.Response(200, content=body, headers={'content-type': 'video/mp4', 'x-media-id': 'finder_video_xWT111_b23a'})
+
+
+def test_a_channels_video_share_names_its_feed() -> None:
+    video = parse_channel_video(_finder_share())
+
+    assert video is not None
+    assert (video.object_id, video.nonce_id) == (_OBJECT_ID, _NONCE_ID)
+    assert (video.author, video.duration, video.width, video.height) == ('jiang57l', 9, 1080, 1920)
+    assert video.cover_url == _COVER_URL.replace('&amp;', '&')
+    assert video_title(video) == '镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨'
+    assert work_for(_event(1, _video_message())) == 'channel_video'
+    assert queued_message(_video_message(), 'channel_video')['content'] == _finder_share()
+
+
+def test_channels_image_feeds_lives_and_broken_ids_are_not_videos() -> None:
+    assert parse_channel_video(_finder_share(media_type='2')) is None
+    assert parse_channel_video(_finder_share(live_id='2054')) is None
+    assert parse_channel_video(_finder_share(object_id='99999999999999999999')) is None
+    assert parse_channel_video(_share()) is None
+
+
+def test_wechat_gets_a_few_times_a_video_s_length_to_download_it() -> None:
+    video = parse_channel_video(_finder_share())
+
+    assert video_wait(video) == 90
+    assert video_wait(parse_channel_video(_finder_share().replace('>9<', '>73<'))) == 279
+    assert video_wait(parse_channel_video(_finder_share().replace('>9<', '>600<'))) == 300
+
+
+def test_a_channels_video_is_saved_with_its_cover(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(1, _video_message())], finder_video=_mp4_response())
+    source = _source(inbox, _video_web())
+
+    asyncio.run(source.update())
+
+    [request] = [request for request in inbox.requests if request.url.path == '/finder/video']
+    assert json.loads(request.content) == {'object_id': _OBJECT_ID, 'nonce_id': _NONCE_ID, 'wait': 90}
+    stem = '2025-10-05 031320 镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨 [65]'
+    assert (tmp_path / '2025-10' / f'{stem}.mp4').read_bytes() == _MP4
+    assert (tmp_path / '2025-10' / f'{stem}.jpg').read_bytes() == _JPEG
+    assert not list(tmp_path.rglob('*.part'))
+    [row] = fake_db.inserts('wechat_channel_video')
+    assert row[5:11] == (_OBJECT_ID, video_title(parse_channel_video(_finder_share())), 'jiang57l', 9, len(_MP4), f'2025-10/{stem}.mp4')
+    assert json.loads(row[11])['nonce_id'] == _NONCE_ID
+    assert fake_db.queue[(65, _CREATE_TIME + 65)]['status'] == 'done'
+    [note] = notifications
+    assert note['title'] == video_title(parse_channel_video(_finder_share()))
+    assert note['body'] == 'jiang57l | 9s | 0.0 MB | From wxid_sender'
+    assert note['payload']['image_path'] == str(tmp_path / '2025-10' / f'{stem}.jpg')
+
+
+def test_a_second_forward_of_a_saved_video_is_not_fetched_again(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    events = [_event(1, _video_message(65)), _event(2, _video_message(70))]
+    inbox = _FakeInbox([], events=events, finder_video=_mp4_response())
+    source = _source(inbox, _video_web())
+
+    asyncio.run(source.update())
+
+    assert len([request for request in inbox.requests if request.url.path == '/finder/video']) == 1
+    assert {row['status'] for row in fake_db.queue.values()} == {'done'}
+    assert len(notifications) == 1
+
+
+def test_a_video_wechat_has_not_downloaded_yet_is_retried_without_writing_anything(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(1, _video_message())])
+    source = _source(inbox, _video_web())
+
+    with pytest.raises(WechatInboxError, match='had not downloaded all of it'):
+        asyncio.run(source.update())
+
+    assert fake_db.queue[(65, _CREATE_TIME + 65)]['status'] == 'pending'
+    assert not any(path.is_file() for path in tmp_path.rglob('*'))
+
+
+def test_an_answer_that_is_not_an_mp4_is_not_kept(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(1, _video_message())], finder_video=_mp4_response(b'<html>oops</html>'))
+    source = _source(inbox, _video_web())
+
+    with pytest.raises(WechatInboxError, match='something other than an MP4'):
+        asyncio.run(source.update())
+
+    assert fake_db.queue[(65, _CREATE_TIME + 65)]['status'] == 'pending'
+    assert not any(path.is_file() for path in tmp_path.rglob('*'))
+    assert not fake_db.inserts('wechat_channel_video')
 
 
 # ---------- registration ----------
@@ -986,6 +1127,14 @@ def test_the_archive_lists_wechat_rows_without_an_external_link() -> None:
     # The removed iLink source left a `wechat` table with another schema behind.
     assert source.table == 'wechat_inbox'
     assert _external_url(source, {'msg_id': 1, 'create_time': _CREATE_TIME}) is None
+
+
+def test_the_archive_lists_channels_videos() -> None:
+    source = ARCHIVE_SOURCES['wechat_channel_video']
+
+    assert source.table == 'wechat_channel_video'
+    assert source.id_columns == ('msg_id', 'create_time')
+    assert _external_url(source, {'msg_id': 65, 'create_time': _CREATE_TIME}) is None
 
 
 def test_the_archive_links_articles_to_their_canonical_url() -> None:

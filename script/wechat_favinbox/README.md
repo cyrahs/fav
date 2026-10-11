@@ -58,6 +58,7 @@ drain the inbox over the frpc tunnel. It runs on the oracle host, binds
 | GET | `/file/<msg_id>` | the image bytes |
 | POST | `/ack/<msg_id>` | mark acked, delete the media file, keep the JSON |
 | POST | `/post/page` | a 公众号 post's page, as WeChat itself loads it |
+| POST | `/finder/video` | a 视频号 video, as WeChat's player cached it |
 
 `ack` keeps `<msg_id>.json` (with `status: acked`) as a permanent dedupe
 tombstone so the plugin's backfill never re-saves an item fav already has, and
@@ -68,7 +69,8 @@ Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
 (default `127.0.0.1`), `FAVINBOX_PORT` (default `9970`), `FAVINBOX_XWEB_CACHE`
 (default `/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache`, the
 host side of WeChat's internal `/data/data/com.tencent.mm/cache/xweb_cache`), `FAVINBOX_ADB`
-(default `adb`), `FAVINBOX_ADB_SERIAL` (default `127.0.0.1:5555`).
+(default `adb`), `FAVINBOX_ADB_SERIAL` (default `127.0.0.1:5555`), `FAVINBOX_WECHAT_DATA` (default
+`/home/ubuntu/redroid-data/data/com.tencent.mm`, the host side of `/data/data/com.tencent.mm`).
 
 `/post/page` is for image posts (贴图), which mp.weixin.qq.com hides behind a
 slider captcha from every client but WeChat. It takes
@@ -83,6 +85,26 @@ as received (gzip or brotli) and the response headers. Brotli needs
 `python3-brotli` on the host. Errors: 400 for a link without
 `__biz`/`mid`/`idx`/`sn`, 404 when the page never reached the cache, 502 when
 adb failed.
+
+`/finder/video` is for 视频号 videos. The share message names the feed
+(`objectId`, `objectNonceId`) but its video address carries no token or key, so
+only WeChat can fetch it. The endpoint takes
+`{"object_id": "<objectId>", "nonce_id": "<objectNonceId>", "wait": 120}` (at
+most 300) and answers with the MP4. WeChat's player caches what it downloads as
+plain MP4 files in `cache/<account>/finder/video/`, indexed per feed in the
+account's `MicroMsg/<account>/FinderMM*.db`, table `FinderMediaCacheInfoV4`
+(`feedId` = the object id as a signed 64-bit number, `mediaId` = the file name,
+`totalSize`). The server reads that index from a copy of the database (with its
+WAL), and returns the file once its MP4 boxes add up to its size. If it is not
+there yet, it runs, over adb,
+`am start -n com.tencent.mm/.plugin.finder.ui.FinderShareFeedRelUI --el feed_object_id <signed id> --es feed_object_nonceId <nonce>`,
+polls the index until the file is whole, then presses Back. Opening a video
+also preloads a few recommended ones into the same directory, which is why the
+file is found through the index. The account is the one whose `FinderMM*.db`
+changed last, so a new login is picked up on its own. 视频号 only works for an
+account registered in mainland China: an overseas one gets empty feeds and
+「轻触重试」. Errors: 400 for a bad id, 404 when the video was not whole within
+`wait`, 502 when adb failed, 503 when no account has a 视频号 database.
 
 ### Deploy on oracle
 

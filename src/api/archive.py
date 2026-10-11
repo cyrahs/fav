@@ -139,6 +139,16 @@ ARCHIVE_SOURCES: dict[str, ArchiveSource] = {
             subtitle_columns=('account', 'sent_at'),
         ),
         ArchiveSource(
+            key='wechat_channel_video',
+            name='WeChat Channels',
+            table='wechat_channel_video',
+            id_columns=('msg_id', 'create_time'),
+            title_column='title',
+            columns=('author', 'sender', 'sent_at', 'duration', 'size', 'local_path', 'object_id'),
+            search_columns=('title', 'author', 'object_id'),
+            subtitle_columns=('author', 'sent_at'),
+        ),
+        ArchiveSource(
             key='kemono',
             name='Kemono',
             table='kemono',
