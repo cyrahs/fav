@@ -1,4 +1,4 @@
-"""Images and 公众号 articles forwarded to the agent's WeChat account.
+"""Images, 公众号 articles and Tieba posts forwarded to the agent's WeChat account.
 
 WeChat runs in redroid on another host, with the WAuxiliary FavInbox plugin
 inside it (script/wechat_favinbox). A small HTTP service next to it answers two
@@ -19,8 +19,9 @@ works that queue. An image is fetched through the bridge, or from the inbox when
 the bridge cannot; an article is fetched straight from mp.weixin.qq.com with
 every image at full size. Image posts, which the site puts behind a captcha,
 come from the service's ``POST /post/page`` instead: it has the agent's WeChat
-open the post and returns the page from WeChat's web view cache. A failed item
-is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
+open the post and returns the page from WeChat's web view cache. A shared Tieba
+post is saved the same way as an article, from the Tieba client API (see
+``tieba_post``). A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
 logs while it is loaded.
 
@@ -47,6 +48,7 @@ from src.core import logger, settings
 from src.tool import database
 from src.tool.filename import ensure_unique_path, sanitize
 from src.tool.notifications import enqueue_notification
+from src.web.tieba_post import TiebaError, fetch_tieba_post, parse_tieba_link, thread_id
 from src.web.wechat_article import (
     ArticleLink,
     ArticlePage,
@@ -78,6 +80,9 @@ _MAX_ATTEMPTS = 5
 # How long the FavInbox service waits for WeChat to load an image post it opened.
 _OPEN_WAIT_SECONDS = 30
 _CURSOR_KEY = 'events_after'
+# What work_for() recognises; see there.
+_WORK_VERSION = '2'
+_WORK_VERSION_KEY = 'work_version'
 # A phone browser, as the share link would open in. mp.weixin.qq.com serves the
 # full page to it without a login.
 _ARTICLE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
@@ -116,6 +121,10 @@ def pending_images(items: list[Any]) -> list[dict[str, Any]]:
 def work_for(event: Any) -> str | None:
     """What a bridge event asks of this source: an image, an article, or nothing.
 
+    Articles are 公众号 articles and Tieba posts. Whenever this learns a new kind
+    of message, bump ``_WORK_VERSION`` so the event log is read again from the
+    start and messages skipped before are picked up.
+
     Only messages the account received in a private chat count, the same as the
     inbox: group chats and 公众号 pushes are not things anyone forwarded.
     """
@@ -128,7 +137,8 @@ def work_for(event: Any) -> str | None:
         return None
     if message.get('kind') == 'image':
         return WORK_IMAGE
-    if parse_article_link(str(message.get('content') or '')) is not None:
+    content = str(message.get('content') or '')
+    if parse_article_link(content) is not None or parse_tieba_link(content) is not None:
         return WORK_ARTICLE
     return None
 
@@ -313,10 +323,24 @@ class Wechat:
         return int(rows[0]['value']) if rows else 0
 
     async def _save_cursor(self, seq: int) -> None:
+        await self._save_state(_CURSOR_KEY, str(seq))
+
+    async def _save_state(self, key: str, value: str) -> None:
         await database.query_db(
             'INSERT INTO wechat_state (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value;',
-            (_CURSOR_KEY, str(seq)),
+            (key, value),
         )
+
+    async def _rescan_for_new_work(self) -> None:
+        """Read the event log from the start once work_for() recognises more than it did."""
+        rows = await database.query_db('SELECT value FROM wechat_state WHERE key = ?;', (_WORK_VERSION_KEY,))
+        if rows and rows[0]['value'] == _WORK_VERSION:
+            return
+        if await self._cursor():
+            # Already-queued messages keep their row: the queue's key makes a re-read harmless.
+            log.info('WeChat source learned new kinds of messages; reading the bridge event log again from the start')
+            await self._save_cursor(0)
+        await self._save_state(_WORK_VERSION_KEY, _WORK_VERSION)
 
     async def _fetch_events(self, after: int) -> tuple[int, list[dict[str, Any]]]:
         try:
@@ -336,19 +360,23 @@ class Wechat:
         events = [event for event in payload['events'] if isinstance(event, dict) and isinstance(event.get('seq'), int)]
         return payload['last_seq'], events
 
-    async def _queue(self, event: dict[str, Any], work: str) -> None:
+    async def _queue(self, event: dict[str, Any], work: str) -> bool:
+        """Queue one message; False when it was queued before."""
         message = event['data']
-        await database.query_db(
+        rows = await database.query_db(
             """
             INSERT INTO wechat_events (msg_id, create_time, work, seq, message)
             VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (msg_id, create_time) DO NOTHING;
+            ON CONFLICT (msg_id, create_time) DO NOTHING
+            RETURNING msg_id;
             """,
             (message['msg_id'], message['create_time'], work, event['seq'], json.dumps(queued_message(message, work), ensure_ascii=False)),
         )
+        return bool(rows)
 
     async def _read_events(self) -> int:
         """Queue the new events worth keeping and move the cursor past all of them."""
+        await self._rescan_for_new_work()
         cursor = await self._cursor()
         queued = 0
         while True:
@@ -368,8 +396,7 @@ class Wechat:
                 log.warning('WeChat bridge events %d-%d were rotated out before this source read them', cursor + 1, events[0]['seq'] - 1)
             for event in events:
                 work = work_for(event)
-                if work is not None:
-                    await self._queue(event, work)
+                if work is not None and await self._queue(event, work):
                     queued += 1
             cursor = max(event['seq'] for event in events)
             await self._save_cursor(cursor)
@@ -587,6 +614,10 @@ class Wechat:
                 log.info('Article image %s failed: %s', candidate, exc)
                 continue
             content_type = response.headers.get('content-type', '')
+            if response.headers.get('error-message'):
+                # Tieba's answer to an expired grant: its logo, with this header.
+                log.info('Article image %s refused: %s', candidate, response.headers['error-message'])
+                continue
             if response.content and content_type.lower().startswith('image/'):
                 return response.content, sniff_extension(response.content) or image_extension(candidate, content_type)
         return None
@@ -671,20 +702,28 @@ class Wechat:
             log.warning('WeChat image post %s: %s; saving its first picture only', canonical_url(link.url), exc)
             return cover, ''
 
+    async def _article_page(self, link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
+        """The shared page and its HTML, if any was kept: a 公众号 article or a Tieba post."""
+        if thread_id(link.url) is not None:
+            try:
+                return await fetch_tieba_post(self.web, link), ''
+            except TiebaError as exc:
+                raise WechatInboxError(str(exc)) from exc
+        response = await self.web.get(link.url)
+        if is_captcha(str(response.url)):
+            return await self._image_post(link, final_attempt=final_attempt)
+        response.raise_for_status()
+        return parse_article_page(response.text), response.text
+
     async def _save_article(self, message: dict[str, Any], *, final_attempt: bool = False) -> None:
-        link = parse_article_link(str(message.get('content') or ''))
+        content = str(message.get('content') or '')
+        link = parse_article_link(content) or parse_tieba_link(content)
         if link is None:
             msg = f'message {message["msg_id"]} is not an article share'
             raise WechatInboxError(msg)
         if await self._article_stored(message, link):
             return
-        response = await self.web.get(link.url)
-        page_html = response.text
-        if is_captcha(str(response.url)):
-            page, page_html = await self._image_post(link, final_attempt=final_attempt)
-        else:
-            response.raise_for_status()
-            page = parse_article_page(page_html)
+        page, page_html = await self._article_page(link, final_attempt=final_attempt)
         if not page.title and not page.images:
             msg = f'{canonical_url(link.url)} has no title or images; the article may have been deleted'
             raise WechatInboxError(msg)

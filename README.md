@@ -313,8 +313,12 @@ Every run (`*/15 * * * *` by default) reads the bridge's message events after it
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>` and recorded in `wechat_inbox`. An article is
 fetched from mp.weixin.qq.com with every body image at full size into
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <title> [<msg_id>]/`, beside the page and an `article.json`, and
-recorded in `wechat_article`. Both tables are keyed `(msg_id, create_time)`. A failed item is retried
-on the next runs, five times at most. The run then drains the inbox as a fallback: it downloads what
+recorded in `wechat_article`. Image posts (贴图), which mp.weixin.qq.com hides behind a captcha, are
+read through the service's `/post/page`, which has the account's WeChat open them. A shared Baidu Tieba
+post is kept the same way: its first floor is read through the Tieba client API (replies are left out), and its
+pictures saved at original size. Both tables are keyed `(msg_id, create_time)`. A failed item is
+retried on the next runs, five times at most. When the source learns a new kind of message, it reads
+the bridge's event log again from the start once, so earlier messages of that kind are picked up. The run then drains the inbox as a fallback: it downloads what
 is not stored yet, and acknowledges each item, which deletes the host's copy. Videos and files are not
 collected yet.
 

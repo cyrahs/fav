@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import html
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlsplit
 
@@ -92,8 +92,8 @@ def _tag(xml: str, name: str) -> str:
     return html.unescape(text).strip()
 
 
-def parse_article_link(content: str) -> ArticleLink | None:
-    """The 公众号 article a message shares, or None for anything else."""
+def appmsg_link(content: str) -> ArticleLink | None:
+    """The link a link-card message shares, whatever site it points at, or None for anything else."""
     appmsg = _APPMSG_RE.search(content or '')
     if appmsg is None:
         return None
@@ -102,11 +102,8 @@ def parse_article_link(content: str) -> ArticleLink | None:
     if _tag(xml, 'type') != _LINK_SHARE_TYPE:
         return None
     url = _tag(xml, 'url')
-    parts = urlsplit(url)
-    if parts.scheme not in {'http', 'https'} or parts.hostname != _ARTICLE_HOST:
+    if urlsplit(url).scheme not in {'http', 'https'}:
         return None
-    if parts.scheme == 'http':
-        url = 'https' + url[4:]
     cover = _tag(xml, 'coverpicimageurl')
     count = _tag(xml, 'piccount')
     return ArticleLink(
@@ -118,6 +115,16 @@ def parse_article_link(content: str) -> ArticleLink | None:
         picture_count=int(count) if count.isdigit() else 0,
         cover_url=cover if re.fullmatch(_IMAGE_HOST_RE, cover) else '',
     )
+
+
+def parse_article_link(content: str) -> ArticleLink | None:
+    """The 公众号 article a message shares, or None for anything else."""
+    link = appmsg_link(content)
+    if link is None or urlsplit(link.url).hostname != _ARTICLE_HOST:
+        return None
+    if link.url.startswith('http:'):
+        return replace(link, url='https' + link.url[4:])
+    return link
 
 
 def cover_only_page(link: ArticleLink) -> ArticlePage | None:
@@ -140,6 +147,8 @@ def canonical_url(url: str) -> str:
     URL from the message, which carries the ``chksm`` the site checks.
     """
     parts = urlsplit(url)
+    if parts.hostname != _ARTICLE_HOST:
+        return f'{parts.scheme}://{parts.netloc}{parts.path}'
     query = parse_qs(parts.query)
     keys = ('__biz', 'mid', 'idx', 'sn')
     if parts.path != '/s' or not all(query.get(key) for key in keys):

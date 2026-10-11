@@ -1,8 +1,10 @@
 # ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, C901, EM101, INP001, PLR0911, PLR0913, PLR2004, S101, S105, S106, TRY003
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -13,6 +15,7 @@ from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.api.settings_masking import MASK_SUFFIX, mask_section, unmask_section
 from src.core import settings
+from src.web.tieba_post import parse_tieba_link
 from src.web.wechat import (
     Wechat,
     WechatInboxError,
@@ -79,6 +82,8 @@ class _FakeDatabase:
             self.state[params[0]] = params[1]
         elif sql.startswith('INSERT INTO wechat_events'):
             msg_id, create_time, work, seq, message = params
+            if (msg_id, create_time) in self.queue:
+                return []
             self.queue.setdefault(
                 (msg_id, create_time),
                 {
@@ -92,6 +97,7 @@ class _FakeDatabase:
                     'last_error': '',
                 },
             )
+            return [{'msg_id': msg_id}]
         elif sql.startswith('SELECT msg_id, create_time, work, message, attempts FROM wechat_events'):
             rows = sorted(self.queue.values(), key=lambda row: (row['create_time'], row['msg_id']))
             return [dict(row) for row in rows if row['status'] == 'pending']
@@ -470,7 +476,7 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert not [request for request in inbox.requests if request.url.path.startswith('/file/')]
     image_request = next(request for request in inbox.requests if request.url.path == '/wx/image')
     assert dict(image_request.url.params) == {'talker': 'wxid_sender', 'msg_id': '45', 'create_time': str(_CREATE_TIME + 45)}
-    assert fake_db.state == {'events_after': '7'}
+    assert fake_db.state == {'events_after': '7', 'work_version': '2'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
 
@@ -532,7 +538,7 @@ def test_a_bridge_that_is_down_still_lets_the_inbox_drain(fake_db, tmp_path) -> 
     assert 'connection refused' in str(excinfo.value)
     assert [params[0] for params in fake_db.inserts()] == [1]
     assert inbox.acked == [1]
-    assert fake_db.state == {}
+    assert 'events_after' not in fake_db.state
 
 
 # ---------- articles ----------
@@ -802,6 +808,154 @@ def test_an_article_saved_earlier_is_not_fetched_again(fake_db, tmp_path) -> Non
 
     assert web.requests == []
     assert fake_db.queue[(44, _CREATE_TIME + 44)]['status'] == 'done'
+
+
+# ---------- tieba ----------
+
+_TIEBA_SHARE_URL = (
+    'https://tieba.baidu.com/p/11093034639?&amp;share=9105&amp;fr=sharewise&amp;is_video=false'
+    '&amp;unique=F9676370&amp;st=1791654528&amp;client_type=1&amp;sfc=weixin&amp;share_from=post'
+)
+_TIEBA_URL = 'https://tieba.baidu.com/p/11093034639'
+_TIEBA_API = 'http://c.tieba.baidu.com/c/f/pb/page'
+_TIEBA_PIC = 'http://tiebapic.baidu.com/forum/pic/item/{}.jpg?tbpicau=2026-10-12-05_grant'
+
+
+def _tieba_message(msg_id: int = 63) -> dict:
+    content = _share(url=_TIEBA_SHARE_URL).replace('<title>每日分享</title>', '<title>其实HDR比dlss5重要</title>')
+    return _message(msg_id, type=49, kind='app', content=content, image=None)
+
+
+def _floor(floor: int, author: str, *pictures: str) -> dict:
+    content = [{'type': '0', 'text': f'floor {floor}'}]
+    content += [
+        {'type': '3', 'origin_src': _TIEBA_PIC.format(name), 'big_cdn_src': f'http://tiebapic.baidu.com/big/{name}.jpg'}
+        for name in pictures
+    ]
+    return {'floor': str(floor), 'author': {'id': author}, 'content': content}
+
+
+class _TiebaWeb(_FakeWeb):
+    """The Tieba client API, one JSON page per ``pn``, in front of the usual fake web."""
+
+    def __init__(self, pages: dict[str, dict], responses: dict[str, httpx.Response] | None = None) -> None:
+        super().__init__(responses)
+        self.pages = pages
+        self.forms: list[dict[str, str]] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.method == 'POST' and str(request.url) == _TIEBA_API:
+            self.requests.append(request)
+            form = {key: values[0] for key, values in parse_qs(request.content.decode()).items()}
+            self.forms.append(form)
+            return httpx.Response(200, json=self.pages[form['pn']])
+        return super().__call__(request)
+
+
+def _tieba_pages() -> dict[str, dict]:
+    head = {
+        'error_code': '0',
+        'thread': {'title': '其实HDR比dlss5重要', 'create_time': '1791654000', 'author': {'id': '7'}},
+        'forum': {'name': '显卡'},
+    }
+    return {'1': {**head, 'post_list': [_floor(1, '7', 'A', 'B', 'C', 'B'), _floor(2, '7', 'LATER')]}}
+
+
+def _tieba_web(**overrides: httpx.Response) -> _TiebaWeb:
+    jpeg = {'content-type': 'image/jpeg'}
+    responses = {_TIEBA_PIC.format(name): httpx.Response(200, content=_JPEG, headers=jpeg) for name in 'ABC'}
+    responses.update(overrides)
+    return _TiebaWeb(_tieba_pages(), responses)
+
+
+def test_a_tieba_share_names_its_post() -> None:
+    link = parse_tieba_link(_tieba_message()['content'])
+
+    assert link is not None
+    assert (link.url, link.title) == (_TIEBA_URL, '其实HDR比dlss5重要')
+    assert canonical_url(link.url) == _TIEBA_URL
+    assert parse_tieba_link(_share()) is None
+    assert parse_article_link(_tieba_message()['content']) is None
+    assert parse_tieba_link(_share(url='https://tieba.baidu.com/f?kw=x')) is None
+
+
+def test_a_tieba_post_keeps_the_pictures_of_its_first_floor(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _tieba_message())])
+    web = _tieba_web()
+
+    asyncio.run(_source(inbox, web).update())
+
+    (form,) = web.forms
+    assert (form['kz'], form['pn']) == ('11093034639', '1')
+    unsigned = {key: value for key, value in form.items() if key != 'sign'}
+    raw = ''.join(f'{key}={unsigned[key]}' for key in sorted(unsigned)) + 'tiebaclient!!!'
+    assert form['sign'] == hashlib.md5(raw.encode()).hexdigest().upper()  # noqa: S324
+
+    (row,) = fake_db.inserts('wechat_article')
+    assert row[5:10] == (_TIEBA_URL, '其实HDR比dlss5重要', '显卡吧', '2026-10-10 17:40:00', 3)
+    folder = tmp_path / row[10]
+    assert sorted(path.name for path in folder.iterdir()) == ['01.jpg', '02.jpg', '03.jpg', 'article.json']
+    summary = json.loads((folder / 'article.json').read_text(encoding='utf-8'))
+    assert [entry['url'] for entry in summary['images']] == [_TIEBA_PIC.format(name) for name in 'ABC']
+    assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
+    (notification,) = notifications
+    assert notification['link_url'] == _TIEBA_URL
+    assert notification['body'] == '显卡吧 | 3 images | From wxid_sender'
+
+
+def test_an_expired_tieba_grant_is_not_saved_as_a_picture(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _tieba_message())])
+    logo = httpx.Response(200, content=_JPEG, headers={'content-type': 'image/jpeg', 'error-message': 'img not auth'})
+    web = _tieba_web(**{_TIEBA_PIC.format('C'): logo})
+
+    asyncio.run(_source(inbox, web).update())
+
+    (row,) = fake_db.inserts('wechat_article')
+    assert row[9] == 2
+    assert notifications[0]['body'] == '显卡吧 | 2 of 3 images | From wxid_sender'
+
+
+def test_a_deleted_tieba_post_is_retried_without_writing_anything(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _tieba_message())])
+    web = _TiebaWeb({'1': {'error_code': '4', 'error_msg': '贴子可能已被删除'}})
+
+    with pytest.raises(WechatInboxError) as excinfo:
+        asyncio.run(_source(inbox, web).update())
+
+    assert '贴子可能已被删除' in str(excinfo.value)
+    assert fake_db.inserts('wechat_article') == []
+    assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'pending'
+    assert not any(tmp_path.rglob('*'))
+
+
+def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    # An earlier version read up to seq 6 and kept only the image.
+    fake_db.state['events_after'] = '6'
+    fake_db.queue[(45, _CREATE_TIME + 45)] = {
+        'msg_id': 45,
+        'create_time': _CREATE_TIME + 45,
+        'work': 'image',
+        'seq': 4,
+        'message': {},
+        'status': 'done',
+        'attempts': 0,
+        'last_error': '',
+    }
+    inbox = _FakeInbox([], events=[_event(4, _message(45)), _event(5, _tieba_message()), _event(6, _message(46, kind='text'))])
+    source = _source(inbox, _tieba_web())
+
+    asyncio.run(source.update())
+    asyncio.run(source.update())
+
+    assert inbox.event_requests() == [0, 6]
+    assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
+    assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
+    assert fake_db.state == {'events_after': '6', 'work_version': '2'}
+    assert len(notifications) == 1
 
 
 # ---------- registration ----------
