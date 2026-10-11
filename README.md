@@ -316,7 +316,10 @@ fetched from mp.weixin.qq.com with every body image at full size into
 recorded in `wechat_article`. Image posts (贴图), which mp.weixin.qq.com hides behind a captcha, are
 read through the service's `/post/page`, which has the account's WeChat open them. A shared Baidu Tieba
 post is kept the same way: its first floor is read through the Tieba client API (replies are left out), and its
-pictures saved at original size. A 视频号 (Channels) video comes from the service's `/finder/video`,
+pictures saved at original size. So is a shared NGA thread, whose first floor is read from `read.php`'s JSON
+with the NGA login (`ngaPassportUid`, `ngaPassportCid`) of the CookieCloud config named in
+`web.wechat.nga_cookiecloud`: NGA shows most boards to members only. Until that login works, the thread
+waits without using up its tries. A 视频号 (Channels) video comes from the service's `/finder/video`,
 which has WeChat open the video and returns the MP4 its player cached; it is saved as
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <caption> [<msg_id>].mp4` with its cover beside it, recorded in
 `wechat_channel_video`, and a second forward of the same video (by object id) is skipped. All three

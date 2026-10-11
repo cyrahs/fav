@@ -148,7 +148,9 @@ def canonical_url(url: str) -> str:
     """
     parts = urlsplit(url)
     if parts.hostname != _ARTICLE_HOST:
-        return f'{parts.scheme}://{parts.netloc}{parts.path}'
+        # Links to other sites are built canonical by their parsers; an NGA
+        # thread is named by its query.
+        return parts._replace(fragment='').geturl()
     query = parse_qs(parts.query)
     keys = ('__biz', 'mid', 'idx', 'sn')
     if parts.path != '/s' or not all(query.get(key) for key in keys):

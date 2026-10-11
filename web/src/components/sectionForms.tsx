@@ -748,6 +748,18 @@ function WechatForm(props: SectionFormProps) {
         onChange={(next) => set('token', next)}
         hint={token.includes('•') ? undefined : 'oracle 上 /etc/favinbox.env 里的 FAVINBOX_TOKEN。'}
       />
+
+      <div className="subsection">
+        <h4>NGA 登录</h4>
+        <div className="field-grid">
+          <CookieCloudPicker
+            source="nga"
+            value={str(props.value, 'nga_cookiecloud')}
+            onChange={(next) => set('nga_cookiecloud', next)}
+            hint="转发的 NGA 帖子要登录才能读：浏览器登录 NGA，插件同步 nga.cn 的 ngaPassportUid 和 ngaPassportCid。"
+          />
+        </div>
+      </div>
     </div>
   );
 }
