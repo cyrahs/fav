@@ -988,7 +988,7 @@ def test_a_deleted_tieba_post_is_retried_without_writing_anything(fake_db, tmp_p
 
 _NGA_SHARE_URL = 'https://bbs.nga.cn/read.php?tid=47695975'
 _NGA_READ = 'https://bbs.nga.cn/read.php?tid=47695975&__output=11'
-_NGA_ATTACH = 'https://img.nga.178.com/attachments/mon_202510/11/{}.jpg'
+_NGA_ATTACH = 'https://img.nga.cn/attachments/mon_202510/11/{}.jpg'
 _NGA_LOGIN = {'ngaPassportUid': '42', 'ngaPassportCid': 'session-cid'}
 
 
@@ -1084,7 +1084,9 @@ def test_an_nga_share_names_its_thread() -> None:
 
 def test_nga_pictures_are_the_uploads_behind_the_first_floor_s_renditions() -> None:
     assert original_url('./mon_202510/11/A.jpg.medium.jpg') == _NGA_ATTACH.format('A')
-    assert original_url('./mon_202510/11/A.png.thumb_s.jpg') == 'https://img.nga.178.com/attachments/mon_202510/11/A.png'
+    assert original_url('./mon_202510/11/A.png.thumb_s.jpg') == 'https://img.nga.cn/attachments/mon_202510/11/A.png'
+    # The retired host of older posts is read from the one that still resolves.
+    assert original_url('http://img4.nga.178.com/attachments/mon_202510/11/A.jpg') == _NGA_ATTACH.format('A')
     assert original_url('javascript:alert(1)') is None
     first = _nga_thread()['data']['__R']['0']
     assert floor_images(first) == [_NGA_ATTACH.format(name) for name in 'ABC']
