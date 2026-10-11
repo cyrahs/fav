@@ -144,8 +144,10 @@ class _FakeInbox:
         images: dict[int, bytes] | None = None,
         post_page: httpx.Response | None = None,
         finder_video: httpx.Response | None = None,
+        contacts: dict[str, dict] | None = None,
     ) -> None:
         self.items = items
+        self.contacts = contacts or {}
         self.post_page = post_page
         self.finder_video = finder_video
         self.files = files if files is not None else {item['msg_id']: _JPEG for item in items if isinstance(item, dict)}
@@ -162,19 +164,8 @@ class _FakeInbox:
         self.requests.append(request)
         self.auth_headers.add(request.headers.get('authorization', ''))
         path = request.url.path
-        if path == '/wx/events':
-            if self.events_status != 200:
-                return httpx.Response(self.events_status, json={'error': 'bridge unreachable: connection refused'})
-            after = int(request.url.params['after'])
-            limit = int(request.url.params['limit'])
-            last_seq = self.last_seq if self.last_seq is not None else max((e['seq'] for e in self.events), default=0)
-            page = [event for event in self.events if event['seq'] > after][:limit]
-            return httpx.Response(200, json={'ok': True, 'last_seq': last_seq, 'events': page})
-        if path == '/wx/image':
-            msg_id = int(request.url.params['msg_id'])
-            if msg_id not in self.images:
-                return httpx.Response(500, json={'error': 'download failed'})
-            return httpx.Response(200, content=self.images[msg_id], headers={'content-type': 'application/octet-stream'})
+        if path.startswith('/wx/'):
+            return self._bridge(request, path)
         if path == '/post/page' and request.method == 'POST':
             return self.post_page or httpx.Response(404, json={'error': 'the post was not in the XWeb cache after 30s'})
         if path == '/finder/video' and request.method == 'POST':
@@ -194,6 +185,27 @@ class _FakeInbox:
                 return httpx.Response(404, json={'error': 'unknown msg_id'})
             self.acked.append(msg_id)
             return httpx.Response(200, json={'ok': True})
+        return httpx.Response(404)
+
+    def _bridge(self, request: httpx.Request, path: str) -> httpx.Response:
+        if path == '/wx/events':
+            if self.events_status != 200:
+                return httpx.Response(self.events_status, json={'error': 'bridge unreachable: connection refused'})
+            after = int(request.url.params['after'])
+            limit = int(request.url.params['limit'])
+            last_seq = self.last_seq if self.last_seq is not None else max((e['seq'] for e in self.events), default=0)
+            page = [event for event in self.events if event['seq'] > after][:limit]
+            return httpx.Response(200, json={'ok': True, 'last_seq': last_seq, 'events': page})
+        if path == '/wx/image':
+            msg_id = int(request.url.params['msg_id'])
+            if msg_id not in self.images:
+                return httpx.Response(500, json={'error': 'download failed'})
+            return httpx.Response(200, content=self.images[msg_id], headers={'content-type': 'application/octet-stream'})
+        if path == '/wx/contact':
+            wxid = request.url.params['wxid']
+            if wxid not in self.contacts:
+                return httpx.Response(500, json={'error': 'no such contact'})
+            return httpx.Response(200, json={'ok': True, 'wxid': wxid, **self.contacts[wxid]})
         return httpx.Response(404)
 
     def event_requests(self) -> list[int]:
@@ -495,6 +507,30 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert fake_db.state == {'events_after': '7', 'work_version': '3'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
+
+
+def test_notifications_name_the_sender_as_the_account_knows_them(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    contacts = {'wxid_sender': {'remark_name': '', 'name': 'Max', 'nick_name': 'max_nick'}}
+    events = [_event(1, _message(45)), _event(2, _message(46))]
+    inbox = _FakeInbox([], events=events, images={45: _PNG, 46: _PNG}, contacts=contacts)
+
+    asyncio.run(_source(inbox).update())
+
+    assert [n['body'] for n in notifications] == ['From Max | Message ID 45', 'From Max | Message ID 46']
+    assert [n['payload']['sender'] for n in notifications] == ['wxid_sender', 'wxid_sender']
+    assert len([request for request in inbox.requests if request.url.path == '/wx/contact']) == 1
+
+
+def test_a_remark_wins_over_the_nickname_in_notifications(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    contacts = {'wxid_sender': {'remark_name': '我自己', 'name': 'Max', 'nick_name': 'max_nick'}}
+    inbox = _FakeInbox([], events=[_event(1, _video_message())], finder_video=_mp4_response(), contacts=contacts)
+
+    asyncio.run(_source(inbox, _video_web()).update())
+
+    [note] = notifications
+    assert note['body'] == 'jiang57l | 9s | 0.0 MB | From 我自己'
 
 
 def test_an_image_the_bridge_cannot_fetch_comes_from_the_inbox(fake_db, tmp_path) -> None:
