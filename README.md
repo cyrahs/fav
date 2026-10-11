@@ -298,9 +298,9 @@ not replaceable. The QR is a live credential for the few minutes it lasts, so se
 private chat rather than a shared group. And unliking a note does not delete what was already
 downloaded.
 
-#### WeChat forwarded images and articles
+#### WeChat forwarded images, articles and videos
 
-`web.wechat` collects the images and 公众号 articles forwarded to a WeChat account that runs in redroid
+`web.wechat` collects the images, 公众号 articles and 视频号 videos forwarded to a WeChat account that runs in redroid
 on another host. The WAuxiliary plugin in `script/wechat_favinbox/` exposes WeChat over HTTP (the
 bridge) and also saves the original of every image a private chat receives (the inbox);
 `favinbox_server.py` beside it serves both behind one bearer token (`FAVINBOX_TOKEN` on that host),
@@ -316,11 +316,15 @@ fetched from mp.weixin.qq.com with every body image at full size into
 recorded in `wechat_article`. Image posts (贴图), which mp.weixin.qq.com hides behind a captcha, are
 read through the service's `/post/page`, which has the account's WeChat open them. A shared Baidu Tieba
 post is kept the same way: its first floor is read through the Tieba client API (replies are left out), and its
-pictures saved at original size. Both tables are keyed `(msg_id, create_time)`. A failed item is
+pictures saved at original size. A 视频号 (Channels) video comes from the service's `/finder/video`,
+which has WeChat open the video and returns the MP4 its player cached; it is saved as
+`<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <caption> [<msg_id>].mp4` with its cover beside it, recorded in
+`wechat_channel_video`, and a second forward of the same video (by object id) is skipped. All three
+tables are keyed `(msg_id, create_time)`. A failed item is
 retried on the next runs, five times at most. When the source learns a new kind of message, it reads
 the bridge's event log again from the start once, so earlier messages of that kind are picked up. The run then drains the inbox as a fallback: it downloads what
-is not stored yet, and acknowledges each item, which deletes the host's copy. Videos and files are not
-collected yet.
+is not stored yet, and acknowledges each item, which deletes the host's copy. Chat videos and files
+are not collected yet.
 
 Every section is constructible from defaults, so an empty database boots with all sources disabled.
 Required fields are enforced by `validate_runnable()` only when a source is enabled: the API reports

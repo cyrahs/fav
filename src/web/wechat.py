@@ -1,4 +1,4 @@
-"""Images, 公众号 articles and Tieba posts forwarded to the agent's WeChat account.
+"""Images, 公众号 articles, Tieba posts and 视频号 videos forwarded to the agent's WeChat account.
 
 WeChat runs in redroid on another host, with the WAuxiliary FavInbox plugin
 inside it (script/wechat_favinbox). A small HTTP service next to it answers two
@@ -21,7 +21,9 @@ every image at full size. Image posts, which the site puts behind a captcha,
 come from the service's ``POST /post/page`` instead: it has the agent's WeChat
 open the post and returns the page from WeChat's web view cache. A shared Tieba
 post is saved the same way as an article, from the Tieba client API (see
-``tieba_post``). A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
+``tieba_post``). A 视频号 video comes from ``POST /finder/video``: the service has
+WeChat open it and returns the MP4 WeChat's player cached (see ``wechat_channels``).
+A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
 logs while it is loaded.
 
@@ -60,6 +62,7 @@ from src.web.wechat_article import (
     parse_article_link,
     parse_article_page,
 )
+from src.web.wechat_channels import ChannelVideo, parse_channel_video, video_title
 
 log = logger.get('wechat')
 
@@ -81,14 +84,20 @@ _MAX_ATTEMPTS = 5
 _OPEN_WAIT_SECONDS = 30
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
-_WORK_VERSION = '2'
+_WORK_VERSION = '3'
 _WORK_VERSION_KEY = 'work_version'
+# How long the FavInbox service waits for WeChat to download a video it opened:
+# a few times the video's length, as the player fetches it while it plays.
+_VIDEO_MIN_WAIT_SECONDS = 90
+_VIDEO_MAX_WAIT_SECONDS = 300
+_VIDEO_WAIT_PER_SECOND = 3
 # A phone browser, as the share link would open in. mp.weixin.qq.com serves the
 # full page to it without a login.
 _ARTICLE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
 
 WORK_IMAGE = 'image'
 WORK_ARTICLE = 'article'
+WORK_CHANNEL_VIDEO = 'channel_video'
 
 
 class WechatInboxError(RuntimeError):
@@ -119,7 +128,7 @@ def pending_images(items: list[Any]) -> list[dict[str, Any]]:
 
 
 def work_for(event: Any) -> str | None:
-    """What a bridge event asks of this source: an image, an article, or nothing.
+    """What a bridge event asks of this source: an image, an article, a 视频号 video, or nothing.
 
     Articles are 公众号 articles and Tieba posts. Whenever this learns a new kind
     of message, bump ``_WORK_VERSION`` so the event log is read again from the
@@ -140,7 +149,7 @@ def work_for(event: Any) -> str | None:
     content = str(message.get('content') or '')
     if parse_article_link(content) is not None or parse_tieba_link(content) is not None:
         return WORK_ARTICLE
-    return None
+    return WORK_CHANNEL_VIDEO if parse_channel_video(content) is not None else None
 
 
 def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
@@ -150,7 +159,7 @@ def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
     key; the bridge finds the image by id, so neither is stored.
     """
     kept = {key: message.get(key) for key in ('msg_id', 'create_time', 'type', 'kind', 'talker', 'sender')}
-    if work == WORK_ARTICLE:
+    if work in {WORK_ARTICLE, WORK_CHANNEL_VIDEO}:
         kept['content'] = message.get('content')
     image = message.get('image')
     if work == WORK_IMAGE and isinstance(image, dict):
@@ -207,6 +216,24 @@ def article_directory(message: dict[str, Any], title: str) -> Path:
     when = sent_at(message['create_time'])
     name = ' '.join(part for part in (f'{when:%Y-%m-%d %H%M%S}', sanitize(title, max_bytes=120), f'[{message["msg_id"]}]') if part)
     return Path(when.strftime('%Y-%m')) / name
+
+
+def video_path(message: dict[str, Any], video: ChannelVideo) -> Path:
+    """Where a 视频号 video is stored: named like an article's folder, as one file."""
+    when = sent_at(message['create_time'])
+    name = ' '.join(
+        part for part in (f'{when:%Y-%m-%d %H%M%S}', sanitize(video_title(video), max_bytes=120), f'[{message["msg_id"]}]') if part
+    )
+    return Path(when.strftime('%Y-%m')) / f'{name}.mp4'
+
+
+def video_wait(video: ChannelVideo) -> int:
+    return max(_VIDEO_MIN_WAIT_SECONDS, min(_VIDEO_MAX_WAIT_SECONDS, video.duration * _VIDEO_WAIT_PER_SECOND + 60))
+
+
+def _file_head(path: Path) -> bytes:
+    with path.open('rb') as fh:
+        return fh.read(16)
 
 
 def _unused_directory(path: Path) -> Path:
@@ -281,6 +308,24 @@ class Wechat:
                 account TEXT NOT NULL DEFAULT '',
                 published_at TEXT NOT NULL DEFAULT '',
                 image_count INTEGER NOT NULL DEFAULT 0,
+                local_path TEXT NOT NULL DEFAULT '',
+                metadata JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (msg_id, create_time)
+            );
+        """)
+        await database.query_db("""
+            CREATE TABLE IF NOT EXISTS wechat_channel_video (
+                msg_id BIGINT NOT NULL,
+                create_time BIGINT NOT NULL,
+                talker TEXT NOT NULL DEFAULT '',
+                sender TEXT NOT NULL DEFAULT '',
+                sent_at TEXT NOT NULL DEFAULT '',
+                object_id TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                author TEXT NOT NULL DEFAULT '',
+                duration INTEGER NOT NULL DEFAULT 0,
+                size BIGINT,
                 local_path TEXT NOT NULL DEFAULT '',
                 metadata JSONB,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -429,6 +474,8 @@ class Wechat:
             try:
                 if row['work'] == WORK_ARTICLE:
                     await self._save_article(message, final_attempt=int(row['attempts']) + 1 >= _MAX_ATTEMPTS)
+                elif row['work'] == WORK_CHANNEL_VIDEO:
+                    await self._save_channel_video(message)
                 else:
                     await self._save_bridge_image(message)
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
@@ -809,6 +856,133 @@ class Wechat:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue wechat article notification for message %s: %s', message['msg_id'], exc)
+
+    # ---------- 视频号 videos ----------
+
+    async def _video_stored(self, message: dict[str, Any], video: ChannelVideo) -> bool:
+        """Whether this message, or an earlier forward of the same video, was saved already."""
+        rows = await database.query_db(
+            'SELECT 1 FROM wechat_channel_video WHERE (msg_id = ? AND create_time = ?) OR object_id = ?;',
+            (message['msg_id'], message['create_time'], video.object_id),
+        )
+        return bool(rows)
+
+    async def _download_video(self, video: ChannelVideo, partial: Path) -> int:
+        """Stream the video WeChat cached into ``partial`` and return its size."""
+        wait = video_wait(video)
+        failure = f'FavInbox could not get 视频号 video {video.object_id} from WeChat'
+        try:
+            async with self.client.stream(
+                'POST',
+                self._url('/finder/video'),
+                json={'object_id': video.object_id, 'nonce_id': video.nonce_id, 'wait': wait},
+                timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=wait + _REQUEST_TIMEOUT_SECONDS),
+            ) as response:
+                if response.status_code == httpx.codes.UNAUTHORIZED:
+                    raise self._unauthorized()
+                if response.status_code != httpx.codes.OK:
+                    await response.aread()
+                    msg = f'{failure}: HTTP {response.status_code}{_error_detail(response)}'
+                    raise WechatInboxError(msg)
+                await asyncio.to_thread(partial.parent.mkdir, parents=True, exist_ok=True)
+                fh = await asyncio.to_thread(partial.open, 'wb')
+                try:
+                    async for chunk in response.aiter_bytes():
+                        await asyncio.to_thread(fh.write, chunk)
+                finally:
+                    await asyncio.to_thread(fh.close)
+        except httpx.HTTPError as exc:
+            # A transfer cut short leaves a partial file nothing else would clean up.
+            await asyncio.to_thread(partial.unlink, missing_ok=True)
+            msg = f'{failure}: {exc}'
+            raise WechatInboxError(msg) from exc
+        head = await asyncio.to_thread(_file_head, partial)
+        if head[4:8] != b'ftyp':
+            await asyncio.to_thread(partial.unlink, missing_ok=True)
+            msg = f'FavInbox answered 视频号 video {video.object_id} with something other than an MP4'
+            raise WechatInboxError(msg)
+        return (await asyncio.to_thread(partial.stat)).st_size
+
+    async def _video_cover(self, video: ChannelVideo) -> tuple[bytes, str] | None:
+        if not video.cover_url:
+            return None
+        try:
+            response = await self.web.get(video.cover_url)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            log.info('视频号 cover of %s failed: %s', video.object_id, exc)
+            return None
+        ext = sniff_extension(response.content)
+        if not response.content or ext is None:
+            return None
+        return response.content, ext
+
+    async def _save_channel_video(self, message: dict[str, Any]) -> None:
+        video = parse_channel_video(str(message.get('content') or ''))
+        if video is None:
+            msg = f'message {message["msg_id"]} is not a 视频号 video share'
+            raise WechatInboxError(msg)
+        if await self._video_stored(message, video):
+            return
+        destination = await asyncio.to_thread(ensure_unique_path, self.cfg.path / video_path(message, video))
+        partial = destination.with_name(f'{destination.name}.part')
+        size = await self._download_video(video, partial)
+        await asyncio.to_thread(partial.replace, destination)
+        local_path = destination.relative_to(self.cfg.path)
+        cover_path: Path | None = None
+        cover = await self._video_cover(video)
+        if cover is not None:
+            cover_path = destination.with_suffix(f'.{cover[1]}')
+            await asyncio.to_thread(cover_path.write_bytes, cover[0])
+        await self._record_video(message, video, local_path, size)
+        log.info('Saved WeChat 视频号 video %s (%s, %d bytes) as %s', message['msg_id'], video.object_id, size, local_path)
+        await self._notify_video(message, video, destination, size, cover_path)
+
+    async def _record_video(self, message: dict[str, Any], video: ChannelVideo, local_path: Path, size: int) -> None:
+        await database.query_db(
+            """
+            INSERT INTO wechat_channel_video (
+                msg_id, create_time, talker, sender, sent_at, object_id, title, author, duration, size, local_path, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (msg_id, create_time) DO NOTHING;
+            """,
+            (
+                message['msg_id'],
+                message['create_time'],
+                str(message.get('talker') or ''),
+                str(message.get('sender') or message.get('talker') or ''),
+                sent_at(message['create_time']).strftime('%Y-%m-%d %H:%M:%S'),
+                video.object_id,
+                video_title(video),
+                video.author,
+                video.duration,
+                size,
+                str(local_path),
+                json.dumps(
+                    {'nonce_id': video.nonce_id, 'description': video.description, 'width': video.width, 'height': video.height},
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+
+    async def _notify_video(self, message: dict[str, Any], video: ChannelVideo, saved: Path, size: int, cover: Path | None) -> None:
+        """One message per video, showing its cover."""
+        sender = message.get('sender') or message.get('talker') or 'unknown'
+        payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': str(sender), 'saved_path': str(saved)}
+        if cover is not None:
+            payload['image_path'] = str(cover)
+        parts = (video.author, f'{video.duration}s' if video.duration else '', f'{size / 1_000_000:.1f} MB', f'From {sender}')
+        try:
+            await enqueue_notification(
+                kind='download_completed',
+                source='wechat',
+                header='WeChat',
+                title=video_title(video),
+                body=' | '.join(part for part in parts if part),
+                payload=payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue wechat video notification for message %s: %s', message['msg_id'], exc)
 
     # ---------- run ----------
 
