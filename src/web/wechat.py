@@ -1,4 +1,4 @@
-"""Images, 公众号 articles, Tieba posts and 视频号 videos forwarded to the agent's WeChat account.
+"""Images, 公众号 articles, Tieba and NGA posts and 视频号 videos forwarded to the agent's WeChat account.
 
 WeChat runs in redroid on another host, with the WAuxiliary FavInbox plugin
 inside it (script/wechat_favinbox). A small HTTP service next to it answers two
@@ -21,7 +21,8 @@ every image at full size. Image posts, which the site puts behind a captcha,
 come from the service's ``POST /post/page`` instead: it has the agent's WeChat
 open the post and returns the page from WeChat's web view cache. A shared Tieba
 post is saved the same way as an article, from the Tieba client API (see
-``tieba_post``). A 视频号 video comes from ``POST /finder/video``: the service has
+``tieba_post``), and so is a shared NGA thread, read with the NGA login of a
+CookieCloud vault (see ``nga_post``). A 视频号 video comes from ``POST /finder/video``: the service has
 WeChat open it and returns the MP4 WeChat's player cached (see ``wechat_channels``).
 A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
@@ -48,8 +49,10 @@ import httpx
 
 from src.core import logger, settings
 from src.tool import database
+from src.tool.cookiecloud import NGA_PROFILE, CookieCloudClient
 from src.tool.filename import ensure_unique_path, sanitize
 from src.tool.notifications import enqueue_notification
+from src.web.nga_post import LOGIN_COOKIES, NgaError, NgaLoginError, fetch_nga_post, nga_thread_id, parse_nga_link
 from src.web.tieba_post import TiebaError, fetch_tieba_post, parse_tieba_link, thread_id
 from src.web.wechat_article import (
     ArticleLink,
@@ -84,8 +87,9 @@ _MAX_ATTEMPTS = 5
 _OPEN_WAIT_SECONDS = 30
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
-_WORK_VERSION = '3'
+_WORK_VERSION = '4'
 _WORK_VERSION_KEY = 'work_version'
+_NGA_LOGIN_KEY = 'wechat:nga-login'
 # How long the FavInbox service waits for WeChat to download a video it opened:
 # a few times the video's length, as the player fetches it while it plays.
 _VIDEO_MIN_WAIT_SECONDS = 90
@@ -130,7 +134,7 @@ def pending_images(items: list[Any]) -> list[dict[str, Any]]:
 def work_for(event: Any) -> str | None:
     """What a bridge event asks of this source: an image, an article, a 视频号 video, or nothing.
 
-    Articles are 公众号 articles and Tieba posts. Whenever this learns a new kind
+    Articles are 公众号 articles, Tieba posts and NGA threads. Whenever this learns a new kind
     of message, bump ``_WORK_VERSION`` so the event log is read again from the
     start and messages skipped before are picked up.
 
@@ -147,9 +151,14 @@ def work_for(event: Any) -> str | None:
     if message.get('kind') == 'image':
         return WORK_IMAGE
     content = str(message.get('content') or '')
-    if parse_article_link(content) is not None or parse_tieba_link(content) is not None:
+    if shared_link(content) is not None:
         return WORK_ARTICLE
     return WORK_CHANNEL_VIDEO if parse_channel_video(content) is not None else None
+
+
+def shared_link(content: str) -> ArticleLink | None:
+    """The article or forum post a link card shares, if it is one this source saves."""
+    return parse_article_link(content) or parse_tieba_link(content) or parse_nga_link(content)
 
 
 def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
@@ -274,6 +283,7 @@ class Wechat:
             trust_env=False,
         )
         self._sender_names: dict[str, str] = {}
+        self._nga_login: dict[str, str] | None = None
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -454,9 +464,13 @@ class Wechat:
             "SELECT msg_id, create_time, work, message, attempts FROM wechat_events WHERE status = 'pending' ORDER BY create_time, msg_id;",
         )
 
-    async def _finish_work(self, row: dict[str, Any], error: str = '') -> bool:
-        """Record the outcome of one queued item; True when it will not be tried again."""
-        attempts = int(row['attempts']) + (1 if error else 0)
+    async def _finish_work(self, row: dict[str, Any], error: str = '', *, counted: bool = True) -> bool:
+        """Record the outcome of one queued item; True when it will not be tried again.
+
+        An error that is not ``counted`` leaves the attempts alone: the item waits
+        for a setting to be fixed rather than running out of tries.
+        """
+        attempts = int(row['attempts']) + (1 if error and counted else 0)
         status = 'done' if not error else ('failed' if attempts >= _MAX_ATTEMPTS else 'pending')
         await database.query_db(
             """
@@ -482,7 +496,9 @@ class Wechat:
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
                 error = str(exc) or type(exc).__name__
                 log.warning('Failed to save WeChat %s %s: %s', row['work'], row['msg_id'], error)
-                gave_up = await self._finish_work(row, error)
+                # A missing NGA login is a setting to fix, not a failed try.
+                waits = isinstance(exc, WechatInboxError) and exc.notification_dedupe_key == _NGA_LOGIN_KEY
+                gave_up = await self._finish_work(row, error, counted=not waits)
                 failures.append(f'{row["work"]} {row["msg_id"]}{" (gave up)" if gave_up else ""}: {error[:200]}')
                 continue
             await self._finish_work(row)
@@ -769,11 +785,18 @@ class Wechat:
             return cover, ''
 
     async def _article_page(self, link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
-        """The shared page and its HTML, if any was kept: a 公众号 article or a Tieba post."""
+        """The shared page and its HTML, if any was kept: a 公众号 article, a Tieba post or an NGA thread."""
         if thread_id(link.url) is not None:
             try:
                 return await fetch_tieba_post(self.web, link), ''
             except TiebaError as exc:
+                raise WechatInboxError(str(exc)) from exc
+        if nga_thread_id(link.url) is not None:
+            try:
+                return await fetch_nga_post(self.web, link, await self._nga_cookies()), ''
+            except NgaLoginError as exc:
+                raise WechatInboxError(str(exc), notification_dedupe_key=_NGA_LOGIN_KEY) from exc
+            except NgaError as exc:
                 raise WechatInboxError(str(exc)) from exc
         response = await self.web.get(link.url)
         if is_captcha(str(response.url)):
@@ -781,9 +804,46 @@ class Wechat:
         response.raise_for_status()
         return parse_article_page(response.text), response.text
 
+    def _read_nga_cookies(self) -> dict[str, str]:
+        name = self.cfg.nga_cookiecloud.strip()
+        if not name:
+            msg = 'An NGA thread needs an NGA login: pick the CookieCloud config that carries it in the WeChat settings'
+            raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY)
+        try:
+            vault = settings.resolve_cookiecloud(name)
+        except ValueError as exc:
+            raise WechatInboxError(str(exc), notification_dedupe_key=_NGA_LOGIN_KEY) from exc
+        client = CookieCloudClient(vault.server_url, vault.uuid, vault.password)
+        try:
+            jar = client.get_cookies()
+        except (ConnectionError, ValueError, KeyError) as exc:
+            msg = f'Could not read CookieCloud config {name!r}: {exc}'
+            raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY) from exc
+        finally:
+            client.client.close()
+        wanted = {cookie.lower(): cookie for cookie in LOGIN_COOKIES}
+        cookies: dict[str, str] = {}
+        for domain, entries in jar.items():
+            if domain.lstrip('.') not in NGA_PROFILE.domains:
+                continue
+            for entry in entries:
+                cookie = wanted.get(str(entry.get('name') or '').lower()) if isinstance(entry, dict) else None
+                if cookie and entry.get('value'):
+                    cookies.setdefault(cookie, str(entry['value']))
+        if len(cookies) < len(LOGIN_COOKIES):
+            msg = f'CookieCloud config {name!r} has no NGA login; sign in to NGA in the browser and re-sync the extension'
+            raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY)
+        return cookies
+
+    async def _nga_cookies(self) -> dict[str, str]:
+        """The NGA login from CookieCloud, read once a run, so it tracks the browser."""
+        if self._nga_login is None:
+            self._nga_login = await asyncio.to_thread(self._read_nga_cookies)
+        return self._nga_login
+
     async def _save_article(self, message: dict[str, Any], *, final_attempt: bool = False) -> None:
         content = str(message.get('content') or '')
-        link = parse_article_link(content) or parse_tieba_link(content)
+        link = shared_link(content)
         if link is None:
             msg = f'message {message["msg_id"]} is not an article share'
             raise WechatInboxError(msg)

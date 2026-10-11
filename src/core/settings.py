@@ -795,7 +795,7 @@ class RedNote(ScheduleJob):
 
 
 class Wechat(ScheduleJob):
-    """Images and 公众号 articles forwarded to the agent's WeChat account.
+    """Images, articles, forum posts and 视频号 videos forwarded to the agent's WeChat account.
 
     WeChat itself runs in redroid on another host, where the WAuxiliary FavInbox
     plugin exposes it over HTTP and keeps an inbox of incoming originals, both
@@ -812,6 +812,9 @@ class Wechat(ScheduleJob):
     api_url: str = 'http://favinbox-oracle.proxy.svc'
     # FAVINBOX_TOKEN from /etc/favinbox.env on the host running the service.
     token: str = ''
+    # Name of an entry in the shared `cookiecloud` section carrying an NGA login.
+    # Only shared NGA threads need it: NGA shows most boards to members only.
+    nga_cookiecloud: str = ''
 
     @field_validator('api_url')
     @classmethod

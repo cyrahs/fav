@@ -46,10 +46,17 @@ PIXIV_PROFILE = CookieProfile(
     domains=('pixiv.net', 'www.pixiv.net'),
     required_cookies=('phpsessid',),
 )
+# NGA sets its login on .nga.cn; a browser that signed in on another of the
+# forum's hostnames files it there instead.
+NGA_PROFILE = CookieProfile(
+    domains=('nga.cn', 'bbs.nga.cn', 'ngabbs.com', 'nga.178.com'),
+    required_cookies=('ngapassportuid', 'ngapassportcid'),
+)
 PROFILES: dict[str, CookieProfile] = {
     'bilibili': BILIBILI_PROFILE,
     'twitter': TWITTER_PROFILE,
     'pixiv': PIXIV_PROFILE,
+    'nga': NGA_PROFILE,
 }
 
 

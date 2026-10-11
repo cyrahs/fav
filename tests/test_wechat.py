@@ -15,6 +15,7 @@ from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.api.settings_masking import MASK_SUFFIX, mask_section, unmask_section
 from src.core import settings
+from src.web.nga_post import floor_images, nga_thread_id, original_url, parse_nga_link
 from src.web.tieba_post import parse_tieba_link
 from src.web.wechat import (
     Wechat,
@@ -504,7 +505,7 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert not [request for request in inbox.requests if request.url.path.startswith('/file/')]
     image_request = next(request for request in inbox.requests if request.url.path == '/wx/image')
     assert dict(image_request.url.params) == {'talker': 'wxid_sender', 'msg_id': '45', 'create_time': str(_CREATE_TIME + 45)}
-    assert fake_db.state == {'events_after': '7', 'work_version': '3'}
+    assert fake_db.state == {'events_after': '7', 'work_version': '4'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
 
@@ -983,6 +984,155 @@ def test_a_deleted_tieba_post_is_retried_without_writing_anything(fake_db, tmp_p
     assert not any(tmp_path.rglob('*'))
 
 
+# ---------- nga ----------
+
+_NGA_SHARE_URL = 'https://bbs.nga.cn/read.php?tid=47695975'
+_NGA_READ = 'https://bbs.nga.cn/read.php?tid=47695975&__output=11'
+_NGA_ATTACH = 'https://img.nga.178.com/attachments/mon_202510/11/{}.jpg'
+_NGA_LOGIN = {'ngaPassportUid': '42', 'ngaPassportCid': 'session-cid'}
+
+
+def _nga_message(msg_id: int = 81) -> dict:
+    content = _share(url=_NGA_SHARE_URL).replace('<title>每日分享</title>', '<title>[同人搬运]贪吃蛇</title>')
+    return _message(msg_id, type=49, kind='app', content=content, image=None)
+
+
+def _nga_thread() -> dict:
+    first = {
+        'lou': 0,
+        'subject': '',
+        'postdatetimestamp': 1791654000,
+        'content': (
+            'text<br/>[img]./mon_202510/11/A.jpg.medium.jpg[/img]'
+            '[img]https://img.nga.178.com/attachments/mon_202510/11/B.jpg[/img][img]./mon_202510/11/A.jpg[/img]'
+        ),
+        'attachs': {'0': {'attachurl': 'mon_202510/11/C.jpg', 'type': 'img'}, '1': {'attachurl': 'mon_202510/11/x.zip', 'type': 'zip'}},
+    }
+    reply = {'lou': 1, 'content': '[img]./mon_202510/11/LATER.jpg[/img]'}
+    return {
+        'data': {
+            '__R': {'0': first, '1': reply},
+            '__T': {'subject': '[同人搬运]贪吃蛇 &amp; 更多', 'postdate': 1791654000},
+            '__F': {'name': '二次元国家地理'},
+        },
+        'time': 1791654100,
+    }
+
+
+class _NgaWeb(_FakeWeb):
+    """NGA's read.php JSON, which answers only a signed-in session, in front of the usual fake web."""
+
+    def __init__(self, thread: dict | None = None, responses: dict[str, httpx.Response] | None = None) -> None:
+        super().__init__(responses)
+        self.thread = thread or _nga_thread()
+        self.cookies: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if str(request.url) == _NGA_READ:
+            self.requests.append(request)
+            cookie = request.headers.get('cookie', '')
+            self.cookies.append(cookie)
+            if 'ngaPassportCid=session-cid' not in cookie:
+                return httpx.Response(403, json={'error': ['1:未登录', '<br/><a href=/nuke.php>[登录]</a>'], 'data': {'__MESSAGE': {}}})
+            return httpx.Response(200, json=self.thread)
+        return super().__call__(request)
+
+
+def _nga_web(**overrides: httpx.Response) -> _NgaWeb:
+    jpeg = {'content-type': 'image/jpeg'}
+    responses = {_NGA_ATTACH.format(name): httpx.Response(200, content=_JPEG, headers=jpeg) for name in 'ABC'}
+    responses.update(overrides)
+    return _NgaWeb(responses=responses)
+
+
+@pytest.fixture
+def nga_vault(monkeypatch) -> dict[str, list[dict]]:
+    """A CookieCloud vault named 'browser' holding an NGA login, as the extension files it."""
+    jar = {
+        '.nga.cn': [{'name': name, 'value': value} for name, value in _NGA_LOGIN.items()],
+        'pixiv.net': [{'name': 'PHPSESSID', 'value': 'other-site'}],
+    }
+
+    class _Vault:
+        def __init__(self, *_credentials) -> None:
+            self.client = httpx.Client()
+
+        def get_cookies(self) -> dict[str, list[dict]]:
+            return jar
+
+    monkeypatch.setattr(wechat_module, 'CookieCloudClient', _Vault)
+    monkeypatch.setattr(
+        wechat_module.settings,
+        'resolve_cookiecloud',
+        lambda name: settings.CookieCloudEntry(name=name, server_url='https://cc', uuid='u', password='p'),
+    )
+    return jar
+
+
+def test_an_nga_share_names_its_thread() -> None:
+    link = parse_nga_link(_nga_message()['content'])
+
+    assert link is not None
+    assert (link.url, link.title) == (_NGA_SHARE_URL, '[同人搬运]贪吃蛇')
+    assert canonical_url(link.url) == _NGA_SHARE_URL
+    assert work_for(_event(1, _nga_message())) == 'article'
+    assert nga_thread_id('https://ngabbs.com/read.php?tid=123&amp;rand=5'.replace('&amp;', '&')) == '123'
+    assert nga_thread_id('https://bbs.nga.cn/thread.php?fid=-7') is None
+    assert nga_thread_id('https://evil.example/read.php?tid=1') is None
+    assert parse_nga_link(_share()) is None
+
+
+def test_nga_pictures_are_the_uploads_behind_the_first_floor_s_renditions() -> None:
+    assert original_url('./mon_202510/11/A.jpg.medium.jpg') == _NGA_ATTACH.format('A')
+    assert original_url('./mon_202510/11/A.png.thumb_s.jpg') == 'https://img.nga.178.com/attachments/mon_202510/11/A.png'
+    assert original_url('javascript:alert(1)') is None
+    first = _nga_thread()['data']['__R']['0']
+    assert floor_images(first) == [_NGA_ATTACH.format(name) for name in 'ABC']
+
+
+def test_an_nga_thread_keeps_the_pictures_of_its_first_floor(fake_db, notifications, nga_vault, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', nga_cookiecloud='browser')
+    inbox = _FakeInbox([], events=[_event(5, _nga_message())])
+    web = _nga_web()
+
+    asyncio.run(_source(inbox, web).update())
+
+    assert web.cookies == ['ngaPassportUid=42; ngaPassportCid=session-cid']
+    (row,) = fake_db.inserts('wechat_article')
+    assert row[5:10] == (_NGA_SHARE_URL, '[同人搬运]贪吃蛇 & 更多', '二次元国家地理', '2026-10-10 17:40:00', 3)
+    folder = tmp_path / row[10]
+    assert sorted(path.name for path in folder.iterdir()) == ['01.jpg', '02.jpg', '03.jpg', 'article.json']
+    assert fake_db.queue[(81, _CREATE_TIME + 81)]['status'] == 'done'
+    (notification,) = notifications
+    assert notification['link_url'] == _NGA_SHARE_URL
+    assert notification['body'] == '二次元国家地理 | 3 images | From wxid_sender'
+
+
+def test_an_nga_thread_waits_for_a_login_without_using_up_its_tries(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', nga_cookiecloud='')
+    inbox = _FakeInbox([], events=[_event(5, _nga_message())])
+
+    with pytest.raises(WechatInboxError, match='NGA login'):
+        asyncio.run(_source(inbox, _nga_web()).update())
+
+    row = fake_db.queue[(81, _CREATE_TIME + 81)]
+    assert (row['status'], row['attempts']) == ('pending', 0)
+    assert not any(tmp_path.rglob('*'))
+
+
+def test_an_expired_nga_login_is_reported_as_a_login_problem(fake_db, nga_vault, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', nga_cookiecloud='browser')
+    nga_vault['.nga.cn'] = [{'name': 'ngaPassportUid', 'value': '42'}, {'name': 'ngaPassportCid', 'value': 'stale'}]
+    inbox = _FakeInbox([], events=[_event(5, _nga_message())])
+
+    with pytest.raises(WechatInboxError, match='signed-in session'):
+        asyncio.run(_source(inbox, _nga_web()).update())
+
+    row = fake_db.queue[(81, _CREATE_TIME + 81)]
+    assert (row['status'], row['attempts']) == ('pending', 0)
+    assert '未登录' in row['last_error']
+
+
 def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications, tmp_path) -> None:
     _configure_wechat(path=tmp_path, token='secret')
     # An earlier version read up to seq 6 and kept only the image.
@@ -1006,7 +1156,7 @@ def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications,
     assert inbox.event_requests() == [0, 6]
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
-    assert fake_db.state == {'events_after': '6', 'work_version': '3'}
+    assert fake_db.state == {'events_after': '6', 'work_version': '4'}
     assert len(notifications) == 1
 
 
