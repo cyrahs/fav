@@ -273,6 +273,7 @@ class Wechat:
             follow_redirects=True,
             trust_env=False,
         )
+        self._sender_names: dict[str, str] = {}
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -567,16 +568,34 @@ class Wechat:
         except httpx.HTTPError as exc:
             log.warning('Could not acknowledge WeChat message %s; the next run retries: %s', item['msg_id'], exc)
 
+    async def _sender_name(self, wxid: str) -> str:
+        """How the account knows a sender: the remark it gave them, else their nickname, else the wxid."""
+        if not wxid:
+            return 'unknown'
+        if wxid not in self._sender_names:
+            name = ''
+            try:
+                response = await self.client.get(self._url('/wx/contact'), params={'wxid': wxid})
+                if response.status_code == httpx.codes.OK:
+                    contact = response.json()
+                    if isinstance(contact, dict):
+                        name = next((str(contact[key]).strip() for key in ('remark_name', 'name', 'nick_name') if contact.get(key)), '')
+            except (httpx.HTTPError, ValueError) as exc:
+                log.debug('Could not look up WeChat contact %s: %s', wxid, exc)
+            self._sender_names[wxid] = name or wxid
+        return self._sender_names[wxid]
+
     async def _notify_download(self, item: dict[str, Any], local_path: Path) -> None:
         """One message per image, sent as the photo itself, as the Telegram source does."""
         saved_path = self.cfg.path / local_path
+        sender = await self._sender_name(str(item.get('sender') or item.get('talker') or ''))
         try:
             await enqueue_notification(
                 kind='download_completed',
                 source='wechat',
                 header='WeChat',
                 title=local_path.name,
-                body=f'From {item.get("sender") or item.get("talker") or "unknown"} | Message ID {item["msg_id"]}',
+                body=f'From {sender} | Message ID {item["msg_id"]}',
                 payload={
                     'msg_id': item['msg_id'],
                     'sender': str(item.get('sender') or ''),
@@ -840,8 +859,9 @@ class Wechat:
         count = f'{len(files)} {noun}' if len(files) == total else f'{len(files)} of {total} {noun}'
         if page.picture_count > len(entries):
             count += ' (WeChat could not open the rest)'
-        sender = message.get('sender') or message.get('talker') or 'unknown'
-        payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': str(sender), 'saved_path': str(folder)}
+        sender = str(message.get('sender') or message.get('talker') or '')
+        payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': sender, 'saved_path': str(folder)}
+        name = await self._sender_name(sender)
         if files:
             payload['image_path'] = str(folder / files[0])
         try:
@@ -851,7 +871,7 @@ class Wechat:
                 header='WeChat',
                 title=page.title or link.title or local_path.name,
                 link_url=canonical_url(link.url),
-                body=' | '.join(part for part in (page.account or link.account, count, f'From {sender}') if part),
+                body=' | '.join(part for part in (page.account or link.account, count, f'From {name}') if part),
                 payload=payload,
             )
         except Exception as exc:  # noqa: BLE001
@@ -967,11 +987,16 @@ class Wechat:
 
     async def _notify_video(self, message: dict[str, Any], video: ChannelVideo, saved: Path, size: int, cover: Path | None) -> None:
         """One message per video, showing its cover."""
-        sender = message.get('sender') or message.get('talker') or 'unknown'
-        payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': str(sender), 'saved_path': str(saved)}
+        sender = str(message.get('sender') or message.get('talker') or '')
+        payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': sender, 'saved_path': str(saved)}
         if cover is not None:
             payload['image_path'] = str(cover)
-        parts = (video.author, f'{video.duration}s' if video.duration else '', f'{size / 1_000_000:.1f} MB', f'From {sender}')
+        parts = (
+            video.author,
+            f'{video.duration}s' if video.duration else '',
+            f'{size / 1_000_000:.1f} MB',
+            f'From {await self._sender_name(sender)}',
+        )
         try:
             await enqueue_notification(
                 kind='download_completed',
