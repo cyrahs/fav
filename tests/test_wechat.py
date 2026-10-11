@@ -857,12 +857,8 @@ def _tieba_pages() -> dict[str, dict]:
         'error_code': '0',
         'thread': {'title': '其实HDR比dlss5重要', 'create_time': '1791654000', 'author': {'id': '7'}},
         'forum': {'name': '显卡'},
-        'page': {'total_page': '2'},
     }
-    return {
-        '1': {**head, 'post_list': [_floor(1, '7', 'A', 'B'), _floor(3, '9', 'OTHER')]},
-        '2': {**head, 'post_list': [_floor(5, '7', 'B', 'C')]},
-    }
+    return {'1': {**head, 'post_list': [_floor(1, '7', 'A', 'B', 'C', 'B'), _floor(2, '7', 'LATER')]}}
 
 
 def _tieba_web(**overrides: httpx.Response) -> _TiebaWeb:
@@ -883,16 +879,15 @@ def test_a_tieba_share_names_its_post() -> None:
     assert parse_tieba_link(_share(url='https://tieba.baidu.com/f?kw=x')) is None
 
 
-def test_a_tieba_post_keeps_the_pictures_of_its_author_floors(fake_db, notifications, tmp_path) -> None:
+def test_a_tieba_post_keeps_the_pictures_of_its_first_floor(fake_db, notifications, tmp_path) -> None:
     _configure_wechat(path=tmp_path, token='secret')
     inbox = _FakeInbox([], events=[_event(5, _tieba_message())])
     web = _tieba_web()
 
     asyncio.run(_source(inbox, web).update())
 
-    assert [form['pn'] for form in web.forms] == ['1', '2']
-    form = web.forms[0]
-    assert (form['kz'], form['lz']) == ('11093034639', '1')
+    (form,) = web.forms
+    assert (form['kz'], form['pn']) == ('11093034639', '1')
     unsigned = {key: value for key, value in form.items() if key != 'sign'}
     raw = ''.join(f'{key}={unsigned[key]}' for key in sorted(unsigned)) + 'tiebaclient!!!'
     assert form['sign'] == hashlib.md5(raw.encode()).hexdigest().upper()  # noqa: S324
