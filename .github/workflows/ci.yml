@@ -155,6 +155,9 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          FAV_GIT_COMMIT=${{ github.sha }}
+          FAV_BUILD_TIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 

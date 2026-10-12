@@ -323,6 +323,9 @@ class FavApiService:
     def list_jobs(self) -> list[dict[str, str | bool]]:
         return [serialize_job(job) for job in self._job_provider()]
 
+    def scheduled_jobs(self) -> list[ScheduledJob]:
+        return self._job_provider()
+
     def create_job_request(self, target: str) -> dict[str, object]:
         normalized_target = target.strip().lower()
         valid_targets = {job.key for job in self._job_provider()}

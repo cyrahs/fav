@@ -93,6 +93,12 @@ Three moving parts, all coordinating through PostgreSQL rather than through memo
   job key, so pass it rather than a prettier label, or the toggle will not find its section. Call
   sites that pass a `source` which is not a job key (`run.py` passes `worker`) gate themselves.
 
+The API process also serves an MCP endpoint at `/mcp` (`src/api/mcp_server.py`, queries in
+`src/api/ops.py`), registered in the cluster's LiteLLM MCP gateway as `fav`. It is how a developer
+session reads runtime state (deployed commit, runs, logs, WeChat state) and performs repairs without
+a shell in the pod; see the README's "MCP endpoint". When a source grows state worth inspecting or
+resetting, add a fixed-query tool there rather than a raw SQL escape hatch.
+
 A source is a duck type, not a base class. `JobSpec.factory()` must return an object with an
 `async update()`; an optional `async aclose()` is called afterwards if present.
 

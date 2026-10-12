@@ -72,4 +72,12 @@ COPY --from=web-builder /web/dist web/dist
 # Compile application code to bytecode
 RUN python -m compileall src/ script/ run.py
 
+# Reported by the MCP get_runtime tool, so a deploy can be checked without the
+# cluster. Last, because they change on every build and would bust the cache
+# of any layer after them.
+ARG FAV_GIT_COMMIT=""
+ARG FAV_BUILD_TIME=""
+ENV FAV_GIT_COMMIT=${FAV_GIT_COMMIT} \
+    FAV_BUILD_TIME=${FAV_BUILD_TIME}
+
 CMD ["python", "-m", "src.service"]
