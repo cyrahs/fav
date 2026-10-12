@@ -99,6 +99,11 @@ session reads runtime state (deployed commit, runs, logs, WeChat state) and perf
 a shell in the pod; see the README's "MCP endpoint". When a source grows state worth inspecting or
 resetting, add a fixed-query tool there rather than a raw SQL escape hatch.
 
+`.mcp.json` points Claude Code at `https://llm.s117.me/mcp/fav` (the gateway's credentials come from the
+environment, e.g. the cloud session's proxy), and `.claude/settings.json` enables it, so sessions in
+this repo get the tools as `mcp__fav__*`. Where they are not loaded, `script/fav_mcp.sh <tool> '<json>'`
+calls the same server with curl.
+
 A source is a duck type, not a base class. `JobSpec.factory()` must return an object with an
 `async update()`; an optional `async aclose()` is called afterwards if present.
 

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fav": {
+      "type": "http",
+      "url": "https://llm.s117.me/mcp/fav"
+    }
+  }
+}
