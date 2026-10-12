@@ -16,6 +16,7 @@ from src.core import logger
 from .config import load_config_from_env
 from .constants import API_DESCRIPTION, API_TITLE, APP_VERSION, DOCS_URL, HEALTH_ENDPOINT, OPENAPI_URL, READINESS_ENDPOINT, TAG_SYSTEM
 from .errors import ApiError
+from .mcp_server import build_mcp_server
 from .routes import router as api_router
 from .schemas import ErrorResponse, HealthResponse, ReadinessResponse
 from .service import FavApiService
@@ -24,7 +25,7 @@ log = logger.get('fav-api')
 
 # Paths owned by the backend. The SPA fallback must not answer for these, or a
 # mistyped API route would return an HTML page with status 200.
-_NON_SPA_PREFIXES = ('api', 'static', 'docs', 'openapi.json', 'healthz', 'readyz')
+_NON_SPA_PREFIXES = ('api', 'mcp', 'static', 'docs', 'openapi.json', 'healthz', 'readyz')
 _HTTP_NOT_FOUND = 404
 
 
@@ -94,12 +95,15 @@ def create_app(
 ) -> FastAPI:
     resolved_config = config if config is not None else (load_config_from_env() if service is None else None)
     owned_service = service is None
+    mcp = build_mcp_server(lambda: app.state.api_service)
+    mcp_app = mcp.streamable_http_app()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ANN202
         app.state.api_service = service or FavApiService(dsn=resolved_config.dsn, token=resolved_config.token)
         try:
-            yield
+            async with mcp.session_manager.run():
+                yield
         finally:
             if owned_service:
                 app.state.api_service.close()
@@ -122,6 +126,9 @@ def create_app(
         )
     _register_exception_handlers(app)
     app.include_router(api_router)
+    # The MCP endpoint is a plain ASGI route next to the API rather than a mount,
+    # so it answers at /mcp itself instead of redirecting to /mcp/.
+    app.router.routes.extend(mcp_app.routes)
 
     @app.get(
         HEALTH_ENDPOINT,

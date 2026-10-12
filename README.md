@@ -447,6 +447,22 @@ Azur Lane support is backend-only in this repository. The crawler archives Live2
 
 A painting webp is a tight-packed sprite sheet, not finished artwork, so the crawler also archives the layer index (`painting/<key>.json`), the sibling layer sheets and the per-layer meshes needed to reassemble it. See [docs/azurlane-api.md](docs/azurlane-api.md#reassembling-a-painting).
 
+### MCP endpoint
+
+`/mcp` serves an MCP server (streamable HTTP, stateless, JSON responses) for developing and operating
+fav without a shell in the pod. It takes no token of its own, like the cluster's other MCP servers: the
+LiteLLM MCP gateway reaches it in-cluster, and the public hostname sits behind Cloudflare Access.
+Tools (`src/api/mcp_server.py`, queries in `src/api/ops.py`):
+
+- Read: `get_runtime` (deployed git commit, build time, process start times), `list_jobs`, `list_runs`,
+  `get_run`, `read_logs` (the log files under `log/`, which survive pod restarts), `get_settings`,
+  `wechat_status`, `list_wechat_events`, `list_notifications`, `list_archive_sources`, `search_archive`.
+- Write: `run_job`, `update_settings` (partial, validated like a UI save), `retry_wechat_events`,
+  `set_wechat_state`, `retry_notifications`, `send_test_notification`.
+
+There is no tool for arbitrary SQL. Secret values are masked in settings, and redacted from logs and
+error text. `get_runtime` reads `FAV_GIT_COMMIT` and `FAV_BUILD_TIME`, which CI passes as build args.
+
 ## BD2 L2D Viewer comparison
 
 BD2 is collected from GameKee. To compare the archived GameKee Live2D resource stems with the resources listed by
