@@ -416,6 +416,29 @@ class Wechat:
         events = [event for event in payload['events'] if isinstance(event, dict) and isinstance(event.get('seq'), int)]
         return payload['last_seq'], events
 
+    async def _check_login(self) -> None:
+        """Fail when WeChat itself is gone from behind the bridge.
+
+        The event log is a file the plugin keeps serving after WeChat logs out, so an
+        empty page alone looks like nobody forwarded anything. /wx/status asks WeChat
+        for the logged-in account: the plugin cannot answer it without a session.
+        """
+        try:
+            response = await self.client.get(self._url('/wx/status'))
+        except httpx.HTTPError as exc:
+            msg = f'FavInbox at {self.cfg.api_url} is unreachable: {exc}'
+            raise WechatInboxError(msg, notification_dedupe_key='wechat:unreachable') from exc
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            raise self._unauthorized()
+        payload = response.json() if response.status_code == httpx.codes.OK else None
+        if not isinstance(payload, dict) or not payload.get('login_wxid'):
+            detail = f'HTTP {response.status_code}{_error_detail(response)}' if payload is None else 'no logged-in account'
+            msg = (
+                f'WeChat on the FavInbox phone is not logged in or not answering (/wx/status: {detail}); '
+                'new messages are not reaching fav until WeChat is logged in again'
+            )
+            raise WechatInboxError(msg, notification_dedupe_key='wechat:login')
+
     async def _queue(self, event: dict[str, Any], work: str) -> bool:
         """Queue one message; False when it was queued before."""
         message = event['data']
@@ -1091,6 +1114,11 @@ class Wechat:
             problems.append(exc)
         else:
             log.info('WeChat bridge: queued %d new item(s)', queued)
+            try:
+                await self._check_login()
+            except WechatInboxError as exc:
+                log.warning('WeChat is not usable behind the bridge: %s', exc)
+                problems.append(exc)
 
         saved, failures = await self._work_queue()
         if saved or failures:
