@@ -20,7 +20,9 @@ from src.api.schemas import JobRequestTarget
 from src.core import settings
 from src.core.settings import AzurLane as AzurLaneConfig
 from src.tool.azurlane_l2d_sources import (
+    L2D_SU_AUDIO_BASE_URL,
     L2D_SU_ENGLISH_REGION,
+    L2D_SU_LEGACY_STATIC_BASE_URL,
     L2D_SU_PRIMARY_REGION,
     L2D_SU_STATIC_BASE_URL,
     NAGAMI_MAPPING_URL,
@@ -86,14 +88,14 @@ class FakeAzurLaneDatabase:
                 if row.get('active', True)
             ]
         if sql.startswith('SELECT costume_id, model_type, primary_url'):
-            prefix = str(params[0]).rstrip('%')
+            prefixes = tuple(str(param).rstrip('%') for param in params)
             return [
                 {'costume_id': row.get('costume_id'), 'model_type': row.get('model_type'), 'primary_url': row.get('primary_url', '')}
                 for row in self.models.values()
                 if row.get('costume_id') is not None
                 and row.get('completed')
                 and row.get('model_type') != 'painting'
-                and str(row.get('primary_url', '')).startswith(prefix)
+                and str(row.get('primary_url', '')).startswith(prefixes)
             ]
         if sql.startswith('SELECT ship_group_id, payload->'):
             rows: list[dict[str, Any]] = []
@@ -1123,6 +1125,62 @@ def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, 
     assert fake_db.assets[texture_url]['status'] == 'downloaded'
 
 
+def test_azurlane_update_reuses_blobs_archived_under_the_old_cdn_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CDN moved every asset from /azurlane/ to /al/assets/webp/; the archive must not be fetched again."""
+    fake_db = _install_fake_database(monkeypatch)
+    model3_url = _live2d_url('javelin')
+    moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
+    texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
+    legacy_contents = {
+        model3_url: (_live2d_model3_payload().encode(), 'live2d.model3', 'application/json'),
+        moc_url: (b'archived-moc', 'live2d.moc3', 'application/octet-stream'),
+        texture_url: (b'archived-texture', 'live2d.texture', 'image/webp'),
+    }
+    for url, (content, kind, content_type) in legacy_contents.items():
+        legacy_url = url.replace(L2D_SU_STATIC_BASE_URL, L2D_SU_LEGACY_STATIC_BASE_URL)
+        _seed_downloaded_blob(fake_db=fake_db, root=tmp_path, url=legacy_url, kind=kind, content=content, content_type=content_type)
+    catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url in legacy_contents and request.method == 'GET':
+            pytest.fail(reason=f'{url} should have been reused from the blob archived under the old root')
+        if url == model3_url:
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())
+
+    root = tmp_path / 'javelin - Javelin/assets/live2d/javelin'
+    assert (root / 'javelin.moc3').read_bytes() == b'archived-moc'
+    assert (root / 'textures/texture_00.webp').read_bytes() == b'archived-texture'
+    for url in legacy_contents:
+        assert fake_db.assets[url]['status'] == 'downloaded'
+
+
 def test_azurlane_update_records_failed_asset_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_db = _install_fake_database(monkeypatch)
     model3_url = _live2d_url('javelin')
@@ -1422,7 +1480,7 @@ def test_azurlane_update_downloads_painting_faces_icons_and_voices(  # noqa: C90
     moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
     texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
     detail_url = l2d_su_ship_detail_url(1)
-    voice_url = f'{L2D_SU_STATIC_BASE_URL}/cue/cv-1/detail.ogg'
+    voice_url = f'{L2D_SU_AUDIO_BASE_URL}/cue/cv-1/detail.ogg'
     face_url = f'{L2D_SU_STATIC_BASE_URL}/paintingface/javelin/1.webp'
     icon_urls = {
         f'{L2D_SU_STATIC_BASE_URL}/squareicon/javelin.webp',
@@ -1698,7 +1756,7 @@ def test_azurlane_update_uses_stored_detail_for_voices_without_origin_requests(
     model3_url = _live2d_url('javelin')
     moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
     texture_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/textures/texture_00.webp'
-    voice_url = f'{L2D_SU_STATIC_BASE_URL}/cue/cv-1/detail.ogg'
+    voice_url = f'{L2D_SU_AUDIO_BASE_URL}/cue/cv-1/detail.ogg'
     catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
     _seed_ship_detail(
         fake_db,
@@ -1878,7 +1936,7 @@ def test_azurlane_sends_only_l2d_su_origin_traffic_through_the_origin_client(
 
     # The origin client carries the l2d.su ship data and nothing else: routing CDN assets through a
     # metered proxy would multiply its bandwidth by orders of magnitude.
-    data_prefix = f'{L2D_SU_STATIC_BASE_URL}/data/'
+    data_prefix = 'https://l2d.su/data/'
     assert origin_urls, 'expected the origin client to be used'
     assert all(url.startswith(data_prefix) for url in origin_urls)
     assert not [url for url in direct_urls if url.startswith(data_prefix)]

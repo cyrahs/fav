@@ -24,6 +24,7 @@ from src.core import logger, settings
 from src.tool import database
 from src.tool.azurlane_l2d_sources import (
     DEFAULT_USER_AGENT,
+    L2D_SU_LEGACY_STATIC_BASE_URL,
     L2D_SU_PRIMARY_REGION,
     L2D_SU_REFERER,
     L2D_SU_STATIC_BASE_URL,
@@ -43,8 +44,10 @@ from src.tool.azurlane_l2d_sources import (
     case_variant_urls,
     enumerate_azurlane_model_resources,
     fetch_source_snapshots,
+    l2d_su_asset_url_from_legacy,
     l2d_su_async_origin_transport,
     l2d_su_character_fingerprint,
+    l2d_su_legacy_asset_url,
     l2d_su_origin_transport,
     l2d_su_ship_detail_url,
     model_probe_urls,
@@ -1462,6 +1465,17 @@ class AzurLane:
         return self.path / path
 
     async def _completed_blob_for_url(self, url: str) -> BlobRef | None:
+        """The archived blob for `url`, or for the URL the same file had before the CDN moved.
+
+        Matching the old URL spares re-downloading the whole archive after the move; the file
+        is then recorded under its new URL too, so this lookup only happens once per asset.
+        """
+        blob = await self._completed_blob_for_exact_url(url)
+        if blob is None and (legacy_url := l2d_su_legacy_asset_url(url)):
+            blob = await self._completed_blob_for_exact_url(legacy_url)
+        return blob
+
+    async def _completed_blob_for_exact_url(self, url: str) -> BlobRef | None:
         rows = await database.query_db(
             """
             SELECT
@@ -1821,14 +1835,18 @@ class AzurLane:
         source re-released 304092 (antu_3) as a spine painting after it had been archived as a
         Live2D model, and handing the spine entry the old model3.json URL made every run fail
         to read it as a spine parts manifest.
+
+        Paths archived under the CDN's old root are moved to the current one, so a path
+        corrected before the move is not lost to it.
         """
         rows = await database.query_db(
             """
             SELECT costume_id, model_type, primary_url
             FROM azurlane_models
-            WHERE costume_id IS NOT NULL AND completed_at IS NOT NULL AND model_type <> 'painting' AND primary_url LIKE ?;
+            WHERE costume_id IS NOT NULL AND completed_at IS NOT NULL AND model_type <> 'painting'
+                AND (primary_url LIKE ? OR primary_url LIKE ?);
             """,
-            (f'{L2D_SU_STATIC_BASE_URL}/%',),
+            (f'{L2D_SU_STATIC_BASE_URL}/%', f'{L2D_SU_LEGACY_STATIC_BASE_URL}/%'),
         )
         paths: dict[tuple[int, str], str] = {}
         for row in rows:
@@ -1836,7 +1854,7 @@ class AzurLane:
             model_type = _row_text(row, 'model_type')
             primary_url = _row_text(row, 'primary_url')
             if costume_id is not None and model_type and primary_url:
-                paths[costume_id, model_type] = primary_url
+                paths[costume_id, model_type] = l2d_su_asset_url_from_legacy(primary_url)
         return paths
 
     async def _fetch_ship_detail_from_origin(self, *, client: httpx.AsyncClient, ship_id: int) -> str | None:
