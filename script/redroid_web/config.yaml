@@ -1,0 +1,8 @@
+# ws-scrcpy run configuration (spec: src/types/Configuration.d.ts upstream).
+# Plain HTTP on 8000; install.sh patches the server to bind 127.0.0.1 only
+# (WS_SCRCPY_HOST). TLS and login happen at Cloudflare in front of the cluster.
+runGoogTracker: true
+runApplTracker: false
+server:
+  - secure: false
+    port: 8000
