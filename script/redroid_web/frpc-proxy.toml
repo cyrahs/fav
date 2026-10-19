@@ -1,0 +1,9 @@
+# Append to /etc/frp/frpc.toml on the oracle host, then restart frpc.
+# frps (nas-us) allows 9970-9979; the cluster Service proxy/redroid-oracle
+# targets 9971.
+[[proxies]]
+name = "redroid-web-oracle"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8000
+remotePort = 9971
