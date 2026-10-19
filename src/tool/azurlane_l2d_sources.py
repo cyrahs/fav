@@ -19,12 +19,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
 L2D_SU_HOST = 'l2d.su'
-L2D_SU_STATIC_BASE_URL = 'https://static.l2d.su/azurlane'
-# The ship data used to be served by the l2d.su origin under /data/. Since 2026-10 l2d.su is a
-# generic model viewer that answers every path with its HTML shell (HTTP 200), and the same JSON
-# lives on the CDN next to the assets.
-L2D_SU_SHIP_INDEX_URL_TEMPLATE = f'{L2D_SU_STATIC_BASE_URL}/data/ships-{{region}}.json'
-L2D_SU_SHIP_DETAIL_URL_TEMPLATE = f'{L2D_SU_STATIC_BASE_URL}/data/ships/{{region}}/{{ship_id}}.json'
+# Since 2026-10-15 the CDN keeps the Azur Lane assets in two trees under /al/assets/: webp/ has
+# the images converted to webp (and the model files rewritten to reference them), original/ has
+# the source files. webp/ is laid out exactly like the old /azurlane/ root, so it stays the
+# primary tree; voice audio is only hosted under original/.
+L2D_SU_STATIC_BASE_URL = 'https://static.l2d.su/al/assets/webp'
+L2D_SU_AUDIO_BASE_URL = 'https://static.l2d.su/al/assets/original'
+# The root everything was archived from until 2026-10-15. Assets downloaded from it are reused
+# for their new URLs rather than fetched again (see l2d_su_legacy_asset_url).
+L2D_SU_LEGACY_STATIC_BASE_URL = 'https://static.l2d.su/azurlane'
+# The ship data moved between the origin and the CDN twice: the origin until 2026-10, the CDN
+# under /azurlane/data/ until 2026-10-15, and the origin again since.
+L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://l2d.su/data/ships-{region}.json'
+L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://l2d.su/data/ships/{region}/{ship_id}.json'
 L2D_SU_REFERER = 'https://l2d.su/'
 L2D_SU_PRIMARY_REGION = 'CN'
 L2D_SU_ENGLISH_REGION = 'EN'
@@ -977,6 +984,21 @@ def _entry_with_resolved_path(entry: ModelEntry, paths: Mapping[int, str]) -> Mo
     return replace(entry, resources=replace(entry.resources, primary_url=resolved))
 
 
+def l2d_su_legacy_asset_url(url: str) -> str:
+    """The URL `url` was archived under before the CDN moved, or '' if it is not an l2d.su asset."""
+    for base_url in (L2D_SU_STATIC_BASE_URL, L2D_SU_AUDIO_BASE_URL):
+        if url.startswith(f'{base_url}/'):
+            return f'{L2D_SU_LEGACY_STATIC_BASE_URL}/{url.removeprefix(f"{base_url}/")}'
+    return ''
+
+
+def l2d_su_asset_url_from_legacy(url: str) -> str:
+    """Move an archived model URL from the old CDN root to the current one."""
+    if url.startswith(f'{L2D_SU_LEGACY_STATIC_BASE_URL}/'):
+        return f'{L2D_SU_STATIC_BASE_URL}/{url.removeprefix(f"{L2D_SU_LEGACY_STATIC_BASE_URL}/")}'
+    return url
+
+
 def _l2d_su_static_url(path: str) -> str:
     if path.startswith(('http://', 'https://')):
         return path
@@ -1850,7 +1872,7 @@ def _painting_resource_specs(
             kind='voice.audio',
             source_url=l2d_su_voice_url(line.voice_path),
             fallback_url='',
-            base_url=_l2d_su_relative_base_url(),
+            base_url=_l2d_su_audio_relative_base_url(),
             context=_asset_context(entry, {'painting_field': 'voice', **asdict(line)}),
         )
         for line in voice_lines
@@ -1951,8 +1973,13 @@ def case_variant_urls(url: str) -> tuple[str, ...]:
 
 
 def _l2d_su_relative_base_url() -> str:
-    """Base marker that makes local paths mirror the CDN layout below the azurlane root."""
+    """Base marker that makes local paths mirror the CDN layout below the asset root."""
     return f'{L2D_SU_STATIC_BASE_URL}/marker'
+
+
+def _l2d_su_audio_relative_base_url() -> str:
+    """The same for voice audio, which lives in a tree of its own."""
+    return f'{L2D_SU_AUDIO_BASE_URL}/marker'
 
 
 def _enumerated_resources_from_specs(entry: ModelEntry, specs: tuple[_ResourceSpec, ...]) -> tuple[AzurLaneEnumeratedResource, ...]:
@@ -2959,7 +2986,7 @@ def l2d_su_icon_url(icon_path: str) -> str:
 
 
 def l2d_su_voice_url(voice_path: str) -> str:
-    return f'{L2D_SU_STATIC_BASE_URL}/{voice_path}.ogg'
+    return f'{L2D_SU_AUDIO_BASE_URL}/{voice_path}.ogg'
 
 
 def _parse_l2d_su_new_skins(value: Any) -> tuple[L2DSuNewSkin, ...]:
