@@ -23,6 +23,14 @@ http_server="$BUILD/src/server/services/HttpServer.ts"
 sed -i "s/server.listen(port, () => {/server.listen(port, process.env.WS_SCRCPY_HOST || '127.0.0.1', () => {/" "$http_server"
 grep -q "process.env.WS_SCRCPY_HOST" "$http_server" || { echo "listen patch did not apply" >&2; exit 1; }
 
+# The adb server's emulator scan also lists redroid's 127.0.0.1:5555 as
+# emulator-5554, so the same device would show twice and both entries would
+# race to start scrcpy on its port 8886. Skip serials matching
+# WS_SCRCPY_IGNORE_UDID (set in ws-scrcpy.service).
+control_center="$BUILD/src/server/goog-device/services/ControlCenter.ts"
+sed -i "s/    private handleConnected(udid: string, state: string): void {/&\n        const ignore = process.env.WS_SCRCPY_IGNORE_UDID;\n        if (ignore \&\& new RegExp(ignore).test(udid)) {\n            return;\n        }/" "$control_center"
+grep -q "WS_SCRCPY_IGNORE_UDID" "$control_center" || { echo "ignore patch did not apply" >&2; exit 1; }
+
 # --ignore-scripts skips the Appium postinstall and the node-pty native build;
 # the server bundle uses neither once the remote shell is off.
 (cd "$BUILD" && npm ci --ignore-scripts --no-audit --no-fund && npm run dist)

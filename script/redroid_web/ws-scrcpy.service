@@ -20,6 +20,8 @@ Environment=HOME=/home/ubuntu
 Environment=PATH=/usr/bin:/bin
 Environment=WS_SCRCPY_CONFIG=/opt/ws-scrcpy/config.yaml
 Environment=WS_SCRCPY_HOST=127.0.0.1
+# The emulator scan lists the same redroid again as emulator-5554; hide it.
+Environment=WS_SCRCPY_IGNORE_UDID=^emulator-
 # The device tracker only lists devices the adb server already knows.
 ExecStartPre=-/usr/bin/adb connect 127.0.0.1:5555
 ExecStart=/home/ubuntu/.local/bin/node /opt/ws-scrcpy/index.js
