@@ -244,6 +244,13 @@ sent.
 view's class, screen bounds, text (cut to 16 characters), whether it is
 clickable, and the message or conversation its tag carries.
 
+`GET /ui/selftest` checks how WAuxiliary's BeanShell handles a few control-flow
+forms (try/finally, break, continue): each comes back `ok`, or `nothing` when
+the interpreter loses the method's return value. The UI code avoids those forms
+because v0.4.1's `/ui/open` came back empty under WAuxiliary although it passed
+under BeanShell 2.0b6. A route that returns nothing is now answered with a 500
+naming it, rather than by closing the connection unanswered.
+
 ### Opening messages by tapping
 
 `/ui/open` opens a message the way a person does. It brings WeChat to the front

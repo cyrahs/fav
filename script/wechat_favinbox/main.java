@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.1";
+String PLUGIN_VERSION = "0.4.2";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -756,6 +756,13 @@ void serve(Socket s) {
             result = error(String.valueOf(cause.getMessage() == null ? cause.toString() : cause.getMessage()));
             if (status == 500) log("FavBridge " + req.get("method") + " " + req.get("path") + " failed: " + cause);
         }
+        if (result == null) {
+            // A route that came back empty, which WAuxiliary's BeanShell can do; say so
+            // instead of failing on the answer and closing the connection unanswered.
+            status = 500;
+            result = error(req.get("method") + " " + req.get("path") + " returned nothing");
+            log("FavBridge " + req.get("method") + " " + req.get("path") + " returned nothing");
+        }
         if (result instanceof File) {
             sendFile(out, (File) result);
             ((File) result).delete();
@@ -1031,6 +1038,7 @@ Object route(Map req, InputStream in) {
         if (path.equals("/contact")) return contact(req);
         if (path.equals("/labels")) return beansJson(getContactLabelList());
         if (path.equals("/ui/dump")) return uiDump();
+        if (path.equals("/ui/selftest")) return uiSelftest();
         if (path.equals("/label/contacts")) {
             String id = q(req, "id", null);
             return beansJson(id != null ? getContactByLabelId(id) : getContactByLabelName(qRequired(req, "name")));
@@ -1792,6 +1800,7 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
         if (n != null && n.length() > 0 && !names.contains(n)) names.add(n);
     }
     boolean opened = false;
+    boolean done = false;
     String[] foundBy = new String[1];
     int nav = 0;
     int taps = 0;
@@ -1804,24 +1813,24 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
     String lastScreen = null;
     boolean tappedHomeTab = false;
     uiForeground(steps);
-    while (!opened && nav < UI_MAX_STEPS) {
+    // One action per pass, chosen by an if/else chain: WAuxiliary's BeanShell
+    // is not trusted with break and continue here.
+    while (!done && !opened && nav < UI_MAX_STEPS) {
         Map snap = uiSnapshot();
         android.app.Activity act = getTopActivity();
-        if (!Boolean.TRUE.equals(snap.get("focused")) || !uiIsMainScreen(act)) {
+        boolean elsewhere = !Boolean.TRUE.equals(snap.get("focused")) || !uiIsMainScreen(act);
+        String inChat = elsewhere ? null : uiChatTalker(snap);
+        boolean otherChat = inChat != null && !inChat.equals(talker);
+        Map target = elsewhere || otherChat ? null : uiFindMessage(snap, msgId, texts, foundBy);
+        if (elsewhere) {
             steps.add("Back from " + snap.get("activity") + " (" + uiBack() + ")");
             nav++;
             uiSleep(700, 1200);
-            continue;
-        }
-        String inChat = uiChatTalker(snap);
-        if (inChat != null && !inChat.equals(talker)) {
+        } else if (otherChat) {
             steps.add("Back from another chat (" + uiBack() + ")");
             nav++;
             uiSleep(600, 1000);
-            continue;
-        }
-        Map target = uiFindMessage(snap, msgId, texts, foundBy);
-        if (target != null) {
+        } else if (target != null) {
             if (scrollsUp + scrollsDown > 0) steps.add("scrolled the chat " + scrollsUp + " times up, " + scrollsDown + " down");
             uiSleep(400, 900);
             uiTap((android.graphics.Rect) target.get("rect"));
@@ -1836,78 +1845,78 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
                 steps.add("the chat stayed in front; tapping again");
                 uiDispatchOnly.set(true);
             } else {
-                break;
+                done = true;
             }
-            continue;
-        }
-        if (uiInChat(snap)) {
+        } else if (uiInChat(snap)) {
             // Older messages are above. When the send times on screen say the
             // message is below them, go back down, in shorter swipes once the
             // direction has changed so the two do not overshoot each other.
             float direction = 1f;
+            boolean missing = false;
             long[] range = uiVisibleTimes(snap);
             if (createTime > 0 && range != null) {
                 if (range[1] < createTime) {
                     direction = -1f;
                 } else if (range[0] <= createTime) {
                     // The screen spans its send time and it is not there: hidden or deleted.
-                    if (++straddled >= 2) {
-                        steps.add("the chat shows the messages around it, but not this one");
-                        break;
-                    }
+                    straddled++;
+                    missing = straddled >= 2;
                 }
             }
             String screen = uiVisibleIds(snap);
             stuck = screen.equals(lastScreen) ? stuck + 1 : 0;
             lastScreen = screen;
-            if (stuck >= UI_STUCK_SWIPES) {
+            if (missing) {
+                steps.add("the chat shows the messages around it, but not this one");
+                done = true;
+            } else if (stuck >= UI_STUCK_SWIPES) {
                 steps.add("reached the " + (direction > 0 ? "top" : "bottom") + " of the chat after " + (scrollsUp + scrollsDown) + " swipes");
-                break;
-            }
-            if (scrollsUp + scrollsDown >= UI_MAX_CHAT_SCROLLS) {
+                done = true;
+            } else if (scrollsUp + scrollsDown >= UI_MAX_CHAT_SCROLLS) {
                 steps.add("gave up after " + UI_MAX_CHAT_SCROLLS + " swipes");
-                break;
+                done = true;
+            } else {
+                boolean turned = lastDirection != 0f && direction != lastDirection;
+                float size = turned || (scrollsUp > 0 && scrollsDown > 0) ? 0.2f : 0.45f;
+                uiSwipe(snap, direction * size);
+                lastDirection = direction;
+                if (direction > 0) scrollsUp++;
+                else scrollsDown++;
+                // A screen that did not move may be WeChat loading older messages.
+                if (stuck > 0) uiSleep(1500, 2500);
+                else uiSleep(500, 900);
             }
-            boolean turned = lastDirection != 0f && direction != lastDirection;
-            uiSwipe(snap, direction * (turned || (scrollsUp > 0 && scrollsDown > 0) ? 0.2f : 0.45f));
-            lastDirection = direction;
-            if (direction > 0) scrollsUp++;
-            else scrollsDown++;
-            // A screen that did not move may be WeChat loading older messages.
-            if (stuck > 0) uiSleep(1500, 2500);
-            else uiSleep(500, 900);
-            continue;
-        }
-        // The chat list: find the conversation and tap it.
-        Map row = uiPickTarget(snap, uiNodesWith(snap, "field_username", talker), "field_username");
-        if (row == null) {
-            Map nameNode = uiTextNode(snap, names, 0.1f, 0.9f);
-            if (nameNode != null) row = uiClickableAncestor(snap, nameNode);
-        }
-        if (row != null) {
-            uiSleep(300, 700);
-            uiTap((android.graphics.Rect) row.get("rect"));
-            nav++;
-            steps.add("tapped the chat");
-            uiSleep(900, 1500);
-            continue;
-        }
-        if (!tappedHomeTab) {
-            Map tab = uiTextNode(snap, Arrays.asList(new String[] {"微信", "WeChat", "Chats"}), 0.85f, 1f);
-            if (tab != null) {
+        } else {
+            // The chat list: find the conversation and tap it.
+            Map row = uiPickTarget(snap, uiNodesWith(snap, "field_username", talker), "field_username");
+            if (row == null) {
+                Map nameNode = uiTextNode(snap, names, 0.1f, 0.9f);
+                if (nameNode != null) row = uiClickableAncestor(snap, nameNode);
+            }
+            Map tab = null;
+            if (row == null && !tappedHomeTab) tab = uiTextNode(snap, Arrays.asList(new String[] {"微信", "WeChat", "Chats"}), 0.85f, 1f);
+            if (row != null) {
+                uiSleep(300, 700);
+                uiTap((android.graphics.Rect) row.get("rect"));
+                nav++;
+                steps.add("tapped the chat");
+                uiSleep(900, 1500);
+            } else if (tab != null) {
                 uiTap((android.graphics.Rect) uiClickableAncestor(snap, tab).get("rect"));
                 tappedHomeTab = true;
                 nav++;
                 steps.add("tapped the 微信 tab");
                 uiSleep(600, 1000);
-                continue;
+            } else if (listScrolls >= UI_MAX_LIST_SCROLLS) {
+                steps.add("the chat is not in the chat list");
+                done = true;
+            } else {
+                uiSwipe(snap, -0.35f);
+                listScrolls++;
+                steps.add("scrolled down the chat list");
+                uiSleep(600, 1000);
             }
         }
-        if (listScrolls >= UI_MAX_LIST_SCROLLS) break;
-        uiSwipe(snap, -0.35f);
-        listScrolls++;
-        steps.add("scrolled down the chat list");
-        uiSleep(600, 1000);
     }
     JSONObject result = ok();
     JSONArray stepsJson = new JSONArray();
@@ -1926,23 +1935,30 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
 // message is closed and its chat shows).
 JSONObject uiClose(boolean home) {
     JSONArray steps = new JSONArray();
-    for (int i = 0; i < UI_MAX_STEPS; i++) {
+    boolean done = false;
+    int i = 0;
+    while (!done && i < UI_MAX_STEPS) {
         android.app.Activity act = getTopActivity();
         boolean focused = act != null && act.hasWindowFocus();
-        if (focused && uiIsMainScreen(act)) {
-            if (!home || !uiInChat(uiSnapshot())) break;
+        if (focused && uiIsMainScreen(act) && (!home || !uiInChat(uiSnapshot()))) {
+            done = true;
+        } else {
+            steps.put("Back from " + (focused ? act.getClass().getName() : "another window") + " (" + uiBack() + ")");
+            uiSleep(700, 1200);
         }
-        steps.put("Back from " + (focused ? act.getClass().getName() : "another window") + " (" + uiBack() + ")");
-        uiSleep(700, 1200);
+        i++;
     }
     JSONObject j = ok();
     j.put("steps", steps);
     return j;
 }
 
+// One UI action at a time. No try/finally: the lock is released on both paths
+// by hand, and an empty answer is reported rather than passed on.
 JSONObject uiLocked(String what, JSONObject b) {
     if (!uiLock.tryLock(15, java.util.concurrent.TimeUnit.MINUTES)) throw new IllegalStateException("another UI action is running");
-    JSONObject result = null;
+    Object[] box = new Object[1];
+    Throwable failure = null;
     try {
         if (what.equals("open")) {
             List texts = new ArrayList();
@@ -1951,14 +1967,85 @@ JSONObject uiLocked(String what, JSONObject b) {
                 String t = a.optString(i, "").trim();
                 if (t.length() > 0) texts.add(t);
             }
-            result = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
+            box[0] = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
         } else {
-            result = uiClose(b.optBoolean("home", true));
+            box[0] = uiClose(b.optBoolean("home", true));
+        }
+    } catch (Throwable e) {
+        failure = e;
+    }
+    uiLock.unlock();
+    if (failure != null) throw failure;
+    if (box[0] == null) throw new IllegalStateException("ui " + what + " returned nothing");
+    return (JSONObject) box[0];
+}
+
+// Which control-flow forms come back with their value in this BeanShell. Each
+// probe returns "ok"; a form the interpreter mishandles shows as "nothing".
+String uiProbeFinally() {
+    String s = null;
+    try {
+        s = "ok";
+    } finally {
+        uiFieldCache.size();
+    }
+    return s;
+}
+
+String uiProbeBreak() {
+    int i = 0;
+    while (i < 5) {
+        if (i == 2) {
+            if (i > 0) break;
+        }
+        i++;
+    }
+    return "ok";
+}
+
+String uiProbeContinue() {
+    int i = 0;
+    int n = 0;
+    while (i < 5) {
+        i++;
+        if (i % 2 == 0) continue;
+        n++;
+    }
+    return "ok";
+}
+
+String uiProbeForBreak() {
+    for (int i = 0; i < 5; i++) {
+        if (i == 2) break;
+    }
+    return "ok";
+}
+
+JSONObject uiProbeLockedFinally() {
+    java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+    JSONObject result = null;
+    lock.lock();
+    try {
+        if (lock.isHeldByCurrentThread()) {
+            List l = new ArrayList();
+            result = ok();
+        } else {
+            result = ok();
         }
     } finally {
-        uiLock.unlock();
+        lock.unlock();
     }
     return result;
+}
+
+JSONObject uiSelftest() {
+    JSONObject j = ok();
+    j.put("finally", uiProbeFinally() == null ? "nothing" : "ok");
+    j.put("while_break", uiProbeBreak() == null ? "nothing" : "ok");
+    j.put("while_continue", uiProbeContinue() == null ? "nothing" : "ok");
+    j.put("for_break", uiProbeForBreak() == null ? "nothing" : "ok");
+    j.put("lock_finally", uiProbeLockedFinally() == null ? "nothing" : "ok");
+    return j;
 }
 
 // What the plugin sees on screen, for working out why a message was not found.
