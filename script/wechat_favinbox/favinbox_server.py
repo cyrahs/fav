@@ -351,7 +351,7 @@ def _open_message(target: dict) -> list[str]:
     return steps
 
 
-def _close_message(home: bool = False) -> None:
+def _close_message(*, home: bool = False) -> None:
     """Back out of what was opened, to its chat (with `home`, to WeChat's chat list).
 
     Staying in the chat keeps the next message of that chat a few swipes away;
