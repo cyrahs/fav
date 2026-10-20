@@ -1592,6 +1592,16 @@ Map uiTextNode(Map snap, List texts, float fromTop, float toTop) {
     return best;
 }
 
+// The screen bounds of the first view whose class name ends with `suffix`.
+android.graphics.Rect uiRectOf(Map snap, String suffix) {
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        if (n.get("view").getClass().getName().endsWith(suffix)) return (android.graphics.Rect) n.get("rect");
+    }
+    return null;
+}
+
 boolean uiInChat(Map snap) {
     List nodes = (List) snap.get("nodes");
     for (int i = 0; i < nodes.size(); i++) {
@@ -1906,9 +1916,14 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
             // The chat list: find the conversation and tap it.
             Map row = uiPickTarget(snap, uiNodesWith(snap, "field_username", talker), "field_username");
             if (row == null) {
-                // Below the title bar only; the first chat row starts about 8% down.
+                // The first chat row starts about 8% down the screen. Only a name inside
+                // the chat list counts, never a title bar showing the same name.
                 Map nameNode = uiTextNode(snap, names, 0.05f, 0.9f);
-                if (nameNode != null) row = uiClickableAncestor(snap, nameNode);
+                android.graphics.Rect list = uiRectOf(snap, "ConversationListView");
+                android.graphics.Rect at = nameNode == null ? null : (android.graphics.Rect) nameNode.get("rect");
+                if (at != null && list != null && list.contains(at.centerX(), at.centerY())) {
+                    row = uiClickableAncestor(snap, nameNode);
+                }
             }
             Map tab = null;
             if (row == null && !tappedHomeTab) tab = uiTextNode(snap, Arrays.asList(new String[] {"微信", "WeChat", "Chats"}), 0.85f, 1f);
