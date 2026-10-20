@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.7";
+String PLUGIN_VERSION = "0.4.8";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -2018,6 +2018,22 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
     return result;
 }
 
+// What has the focus: the top activity's class, or "another window".
+String uiFocusName() {
+    android.app.Activity act = getTopActivity();
+    return act != null && act.hasWindowFocus() ? act.getClass().getName() : "another window";
+}
+
+// Waits up to `ms` for the focus to leave `from`; whether it did.
+boolean uiWaitForChange(String from, long ms) {
+    long end = System.currentTimeMillis() + ms;
+    while (System.currentTimeMillis() < end) {
+        Thread.sleep(150);
+        if (!uiFocusName().equals(from)) return true;
+    }
+    return false;
+}
+
 // Back until WeChat is on its chat list (or, without `home`, until the opened
 // message is closed and its chat shows).
 JSONObject uiClose(boolean home) {
@@ -2030,8 +2046,12 @@ JSONObject uiClose(boolean home) {
         if (focused && uiIsMainScreen(act) && (!home || !uiInChat(uiSnapshot()))) {
             done = true;
         } else {
-            steps.put("Back from " + (focused ? act.getClass().getName() : "another window") + " (" + uiBack() + ")");
-            uiSleep(700, 1200);
+            String from = focused ? act.getClass().getName() : "another window";
+            steps.put("Back from " + from + " (" + uiBack() + ")");
+            // A page can take a while to go; a second Back before it has would
+            // close the chat under it too.
+            if (!uiWaitForChange(from, 4000)) steps.put("still on " + from + " after 4s");
+            uiSleep(300, 600);
         }
         i++;
     }

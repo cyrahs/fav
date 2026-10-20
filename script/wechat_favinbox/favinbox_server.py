@@ -165,11 +165,13 @@ _LINK_DWELL_SECONDS = 3
 # Only one post or video is opened at a time, so a page found in the cache is the one asked for.
 _OPEN_LOCK = threading.Lock()
 # After an open, WeChat is left in that chat so the next message of the chat is
-# near. The chat it was left in (guarded by _OPEN_LOCK), and how long it may sit
-# there unused before Back takes it to the chat list, so messages arriving later
-# are not marked read.
-_LEFT_IN_CHAT: dict[str, object] = {'talker': None, 'timer': None}
+# near. The chat it was left in (guarded by _OPEN_LOCK; '' when unknown, as
+# after a restart), and how long it may sit there unused before Back takes it to
+# the chat list, so messages arriving later are not marked read. Each close
+# starts a new generation, which retires the idle timers of the ones before.
+_LEFT_IN_CHAT: dict[str, object] = {'talker': '', 'timer': None, 'generation': 0}
 _IDLE_HOME_SECONDS = 120
+_IDLE_RETRY_SECONDS = 10
 _DEFAULT_VIDEO_WAIT_SECONDS = 120
 _MAX_VIDEO_WAIT_SECONDS = 300
 # A 视频号 object id is an unsigned 64-bit number in share messages and a signed one in WeChat.
@@ -375,17 +377,11 @@ def _close_message(*, home: bool = False) -> None:
     message again. A chat left unused for _IDLE_HOME_SECONDS is backed out of
     too. Call with _OPEN_LOCK held. A failure is only logged.
     """
-    timer = _LEFT_IN_CHAT['timer']
-    if isinstance(timer, threading.Timer):
-        timer.cancel()
-    _LEFT_IN_CHAT['timer'] = None
     if home:
         _LEFT_IN_CHAT['talker'] = None
+        _arm_idle_timer(None)
     else:
-        timer = threading.Timer(_IDLE_HOME_SECONDS, _leave_idle_chat)
-        timer.daemon = True
-        timer.start()
-        _LEFT_IN_CHAT['timer'] = timer
+        _arm_idle_timer(_IDLE_HOME_SECONDS)
     try:
         status, answer = _bridge_call('/ui/close', {'home': home})
     except OpenError as exc:
@@ -393,14 +389,41 @@ def _close_message(*, home: bool = False) -> None:
         return
     if status != HTTPStatus.OK:
         sys.stderr.write(f'closing in WeChat failed: HTTP {status} {answer.get("error", "")}\n')
+        return
+    steps = [str(step) for step in answer.get('steps') or []]
+    sys.stderr.write(f'close to {"chat list" if home else "chat"}: {"; ".join(steps) or "no steps"}\n')
 
 
-def _leave_idle_chat() -> None:
-    """Take WeChat from the chat it was left in back to its chat list, unless something is being opened."""
+def _arm_idle_timer(delay: float | None) -> None:
+    """Retire the idle timer and, with a delay, start a new one. Call with _OPEN_LOCK held."""
+    timer = _LEFT_IN_CHAT['timer']
+    if isinstance(timer, threading.Timer):
+        timer.cancel()
+    _LEFT_IN_CHAT['timer'] = None
+    _LEFT_IN_CHAT['generation'] = generation = int(_LEFT_IN_CHAT['generation']) + 1
+    if delay is not None:
+        _start_idle_timer(delay, generation)
+
+
+def _start_idle_timer(delay: float, generation: int) -> None:
+    timer = threading.Timer(delay, _leave_idle_chat, args=(generation,))
+    timer.daemon = True
+    timer.start()
+    _LEFT_IN_CHAT['timer'] = timer
+
+
+def _leave_idle_chat(generation: int) -> None:
+    """Take WeChat from the chat it was left in back to its chat list.
+
+    Does nothing once a later open or close has taken over; while another
+    request holds WeChat, tries again shortly.
+    """
     if not _OPEN_LOCK.acquire(blocking=False):
+        if _LEFT_IN_CHAT['generation'] == generation:
+            _start_idle_timer(_IDLE_RETRY_SECONDS, generation)
         return
     try:
-        if _LEFT_IN_CHAT['talker'] is not None:
+        if _LEFT_IN_CHAT['generation'] == generation and _LEFT_IN_CHAT['talker'] is not None:
             _close_message(home=True)
     finally:
         _OPEN_LOCK.release()
@@ -903,6 +926,9 @@ def main() -> None:
     port = int(os.environ.get('FAVINBOX_PORT', '9970'))
     server = ThreadingHTTPServer((host, port), Handler)
     sys.stderr.write(f'favinbox serving {DIR} on {host}:{port}\n')
+    # WeChat may have been left in some chat before this start; take it back to the chat list.
+    with _OPEN_LOCK:
+        _arm_idle_timer(_IDLE_RETRY_SECONDS)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
