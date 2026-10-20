@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.2";
+String PLUGIN_VERSION = "0.4.3";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -741,6 +741,14 @@ void serve(Socket s) {
         Map req = null;
         try {
             req = readRequest(in);
+            // The body is read here rather than inside the route: under WAuxiliary
+            // the route runs in a scripted Callable, which every POST used to leave
+            // empty-handed. /upload streams its body, so it gets the stream instead.
+            if (req != null) {
+                String m = (String) req.get("method");
+                if (req.get("path").equals("/upload")) req.put("stream", in);
+                else if (m.equals("POST") || m.equals("PUT")) req.put("json", jsonBody(req, in));
+            }
         } catch (Throwable e) {
             sendJson(out, 400, error("bad request: " + e.getMessage()));
             return;
@@ -749,7 +757,7 @@ void serve(Socket s) {
         Object result;
         int status = 200;
         try {
-            result = guarded(req, in);
+            result = guarded(req);
         } catch (Throwable e) {
             Throwable cause = rootCause(e);
             status = statusFor(cause);
@@ -780,20 +788,27 @@ void serve(Socket s) {
     }
 }
 
-// Runs a route behind a Java-level Callable. A WAuxiliary function this host
-// version lacks fails as a BeanShell EvalError, which a script catch does not
-// see; through the Callable it arrives as an ExecutionException instead of
-// killing the worker thread.
-Object guarded(Map req, InputStream in) {
+// Runs a route behind a Java-level Callable, so a WAuxiliary function this host
+// version lacks cannot kill the worker thread. The route's failure is caught
+// inside the Callable and handed back as an ExecutionException: WAuxiliary's
+// BeanShell can otherwise turn a script error there into a plain null.
+Object guarded(Map req) {
     final Map r = req;
-    final InputStream input = in;
     java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(new java.util.concurrent.Callable() {
         public Object call() {
-            return route(r, input);
+            Object answer = null;
+            try {
+                answer = route(r);
+            } catch (Throwable e) {
+                answer = new java.util.concurrent.ExecutionException(e);
+            }
+            return answer;
         }
     });
     task.run();
-    return task.get();
+    Object result = task.get();
+    if (result instanceof java.util.concurrent.ExecutionException) throw (Throwable) result;
+    return result;
 }
 
 Throwable rootCause(Throwable e) {
@@ -1003,7 +1018,7 @@ String uploadedPath(JSONObject j, String key) {
 // Bridge: routes
 // ---------------------------------------------------------------------------
 
-Object route(Map req, InputStream in) {
+Object route(Map req) {
     String method = (String) req.get("method");
     String path = (String) req.get("path");
     if (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
@@ -1046,8 +1061,8 @@ Object route(Map req, InputStream in) {
         throw new java.io.FileNotFoundException("no route GET " + path);
     }
     if (!method.equals("POST") && !method.equals("PUT")) throw new IllegalArgumentException("unsupported method " + method);
-    if (path.equals("/upload")) return upload(req, in);
-    JSONObject b = jsonBody(req, in);
+    if (path.equals("/upload")) return upload(req, (InputStream) req.get("stream"));
+    JSONObject b = (JSONObject) req.get("json");
     if (path.startsWith("/send/")) return send(path.substring(6), b);
     if (path.equals("/ui/open")) return uiLocked("open", b);
     if (path.equals("/ui/close")) return uiLocked("close", b);
@@ -2038,6 +2053,38 @@ JSONObject uiProbeLockedFinally() {
     return result;
 }
 
+// A local captured by a scripted Callable, read back through FutureTask, as
+// guarded() used to pass the request body's stream.
+String uiProbeCaptured(String value) {
+    final String input = value;
+    java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(new java.util.concurrent.Callable() {
+        public Object call() {
+            return input.length() > 0 ? "ok" : "empty";
+        }
+    });
+    task.run();
+    return (String) task.get();
+}
+
+// A script error inside a scripted Callable: "thrown" when it surfaces as an
+// exception, "nothing" when the interpreter turns it into a null.
+String uiProbeCallableError() {
+    java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(new java.util.concurrent.Callable() {
+        public Object call() {
+            String missing = null;
+            return missing.trim();
+        }
+    });
+    task.run();
+    String answer = "thrown";
+    try {
+        if (task.get() == null) answer = "nothing";
+    } catch (Throwable e) {
+        answer = "thrown";
+    }
+    return answer;
+}
+
 JSONObject uiSelftest() {
     JSONObject j = ok();
     j.put("finally", uiProbeFinally() == null ? "nothing" : "ok");
@@ -2045,6 +2092,8 @@ JSONObject uiSelftest() {
     j.put("while_continue", uiProbeContinue() == null ? "nothing" : "ok");
     j.put("for_break", uiProbeForBreak() == null ? "nothing" : "ok");
     j.put("lock_finally", uiProbeLockedFinally() == null ? "nothing" : "ok");
+    j.put("captured", String.valueOf(uiProbeCaptured("x")));
+    j.put("callable_error", uiProbeCallableError());
     return j;
 }
 

@@ -244,12 +244,14 @@ sent.
 view's class, screen bounds, text (cut to 16 characters), whether it is
 clickable, and the message or conversation its tag carries.
 
-`GET /ui/selftest` checks how WAuxiliary's BeanShell handles a few control-flow
-forms (try/finally, break, continue): each comes back `ok`, or `nothing` when
-the interpreter loses the method's return value. The UI code avoids those forms
-because v0.4.1's `/ui/open` came back empty under WAuxiliary although it passed
-under BeanShell 2.0b6. A route that returns nothing is now answered with a 500
-naming it, rather than by closing the connection unanswered.
+`GET /ui/selftest` checks how WAuxiliary's BeanShell handles a few forms the
+bridge relies on: try/finally, break, continue, a local captured by a scripted
+`Callable`, and a script error inside one (`thrown` when it surfaces as an
+exception, `nothing` when the interpreter turns it into a null). Up to v0.4.2
+every POST route came back empty under WAuxiliary although each passed under
+BeanShell 2.0b6, so the bridge now reads a request's body before handing the
+request to its route, catches the route's failure inside the `Callable` that
+runs it, and answers a route that still returns nothing with a 500 naming it.
 
 ### Opening messages by tapping
 
