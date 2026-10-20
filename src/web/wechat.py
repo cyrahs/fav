@@ -20,9 +20,9 @@ the bridge cannot; an article is fetched straight from mp.weixin.qq.com with
 every image at full size. Image posts, which the site puts behind a captcha,
 come from the service's ``POST /post/page`` instead: it has the agent's WeChat
 open the post and returns the page from WeChat's web view cache. A shared Tieba
-post is saved the same way as an article, from the Tieba client API (see
-``tieba_post``), and so is a shared NGA thread, read with the NGA login of a
-CookieCloud vault (see ``nga_post``). A 视频号 video comes from ``POST /finder/video``: the service has
+post is saved the same way as an article, from the Tieba client API, with its
+videos next to its pictures (see ``tieba_post``), and so is a shared NGA thread,
+read with the NGA login of a CookieCloud vault (see ``nga_post``). A 视频号 video comes from ``POST /finder/video``: the service has
 WeChat open it and returns the MP4 WeChat's player cached (see ``wechat_channels``).
 A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
@@ -43,7 +43,7 @@ import shutil
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 
@@ -57,6 +57,7 @@ from src.web.tieba_post import TiebaError, fetch_tieba_post, parse_tieba_link, t
 from src.web.wechat_article import (
     ArticleLink,
     ArticlePage,
+    PostVideo,
     canonical_url,
     cover_only_page,
     image_extension,
@@ -87,7 +88,7 @@ _MAX_ATTEMPTS = 5
 _OPEN_WAIT_SECONDS = 30
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
-_WORK_VERSION = '4'
+_WORK_VERSION = '5'
 _WORK_VERSION_KEY = 'work_version'
 _NGA_LOGIN_KEY = 'wechat:nga-login'
 # How long the FavInbox service waits for WeChat to download a video it opened:
@@ -95,6 +96,8 @@ _NGA_LOGIN_KEY = 'wechat:nga-login'
 _VIDEO_MIN_WAIT_SECONDS = 90
 _VIDEO_MAX_WAIT_SECONDS = 300
 _VIDEO_WAIT_PER_SECOND = 3
+# How long a post's video may take to download from its CDN.
+_POST_VIDEO_READ_SECONDS = 600
 # A phone browser, as the share link would open in. mp.weixin.qq.com serves the
 # full page to it without a login.
 _ARTICLE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
@@ -102,6 +105,28 @@ _ARTICLE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML
 WORK_IMAGE = 'image'
 WORK_ARTICLE = 'article'
 WORK_CHANNEL_VIDEO = 'channel_video'
+
+
+class _FetchedVideo(NamedTuple):
+    """A post's video, downloaded beside the folder it goes in, and its cover."""
+
+    file: Path
+    cover: tuple[bytes, str] | None
+
+
+class _FetchedMedia(NamedTuple):
+    """An article's images and videos as downloaded, in page order; None for one that failed."""
+
+    images: list[tuple[bytes, str] | None]
+    videos: list[_FetchedVideo | None]
+
+
+class _SavedArticle(NamedTuple):
+    """Where an article was written, with an entry per image and per video."""
+
+    local_path: Path
+    images: list[dict[str, Any]]
+    videos: list[dict[str, Any]]
 
 
 class WechatInboxError(RuntimeError):
@@ -243,6 +268,26 @@ def video_wait(video: ChannelVideo) -> int:
 def _file_head(path: Path) -> bytes:
     with path.open('rb') as fh:
         return fh.read(16)
+
+
+def _is_mp4(head: bytes) -> bool:
+    return head[4:8] == b'ftyp'
+
+
+async def _write_stream(response: httpx.Response, path: Path) -> None:
+    """Write a streamed response body to ``path``, creating its folder."""
+    await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+    fh = await asyncio.to_thread(path.open, 'wb')
+    try:
+        async for chunk in response.aiter_bytes():
+            await asyncio.to_thread(fh.write, chunk)
+    finally:
+        await asyncio.to_thread(fh.close)
+
+
+def post_video_name(index: int, count: int) -> str:
+    """A post's video file name without its extension: ``video``, or ``video-01`` and on when there are several."""
+    return 'video' if count == 1 else f'video-{index:02d}'
 
 
 def _unused_directory(path: Path) -> Path:
@@ -710,24 +755,36 @@ class Wechat:
         link: ArticleLink,
         page: ArticlePage,
         page_html: str,
-        images: list[tuple[bytes, str] | None],
-    ) -> tuple[Path, list[dict[str, Any]]]:
-        """Write the images, the page and a summary into the article's folder, all or nothing."""
+        media: _FetchedMedia,
+    ) -> _SavedArticle:
+        """Write the images, the videos, the page and a summary into the article's folder, all or nothing."""
         title = page.title or link.title
         destination = _unused_directory(self.cfg.path / article_directory(message, title))
         partial = destination.with_name(f'{destination.name}.part')
         if partial.exists():
             shutil.rmtree(partial)
         partial.mkdir(parents=True)
-        width = max(2, len(str(len(images))))
+        width = max(2, len(str(len(media.images))))
         entries: list[dict[str, Any]] = []
-        for index, (source, fetched) in enumerate(zip(page.images, images, strict=True), start=1):
+        for index, (source, fetched) in enumerate(zip(page.images, media.images, strict=True), start=1):
             entry: dict[str, Any] = {'url': source}
             if fetched is not None:
                 content, ext = fetched
                 entry['file'] = f'{index:0{width}d}.{ext}'
                 (partial / entry['file']).write_bytes(content)
             entries.append(entry)
+        video_entries: list[dict[str, Any]] = []
+        for index, (video, fetched_video) in enumerate(zip(page.videos, media.videos, strict=True), start=1):
+            video_entry: dict[str, Any] = {'url': video.url}
+            if fetched_video is not None:
+                name = post_video_name(index, len(media.videos))
+                video_entry['file'] = f'{name}.mp4'
+                fetched_video.file.replace(partial / video_entry['file'])
+                if fetched_video.cover is not None:
+                    content, ext = fetched_video.cover
+                    video_entry['cover'] = f'{name}.{ext}'
+                    (partial / video_entry['cover']).write_bytes(content)
+            video_entries.append(video_entry)
         if page_html:
             (partial / 'article.html').write_text(page_html, encoding='utf-8')
         summary = {
@@ -743,9 +800,11 @@ class Wechat:
             'picture_count': max(page.picture_count, len(entries)),
             'images': entries,
         }
+        if video_entries:
+            summary['videos'] = video_entries
         (partial / 'article.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
         partial.replace(destination)
-        return destination.relative_to(self.cfg.path), entries
+        return _SavedArticle(destination.relative_to(self.cfg.path), entries, video_entries)
 
     async def _page_in_wechat(self, link: ArticleLink) -> tuple[ArticlePage, str]:
         """An image post as the agent's WeChat loads it, through the FavInbox service."""
@@ -850,8 +909,8 @@ class Wechat:
         if await self._article_stored(message, link):
             return
         page, page_html = await self._article_page(link, final_attempt=final_attempt)
-        if not page.title and not page.images:
-            msg = f'{canonical_url(link.url)} has no title or images; the article may have been deleted'
+        if not page.title and not page.images and not page.videos:
+            msg = f'{canonical_url(link.url)} has no title, images or videos; the article may have been deleted'
             raise WechatInboxError(msg)
 
         images = [await self._article_image(url) for url in page.images]
@@ -859,19 +918,62 @@ class Wechat:
         if page.images and not saved:
             msg = f'none of the {len(page.images)} images of {canonical_url(link.url)} could be downloaded'
             raise WechatInboxError(msg)
-        local_path, entries = await asyncio.to_thread(self._write_article, message, link, page, page_html, images)
-        await self._record_article(message, link, page, local_path, entries)
-        log.info('Saved WeChat article %s (%d of %d images) as %s', message['msg_id'], saved, len(images), local_path)
-        await self._notify_article(message, link, page, local_path, entries)
+        staging = self.cfg.path / article_directory(message, page.title or link.title)
+        videos: list[_FetchedVideo | None] = []
+        try:
+            for index, video in enumerate(page.videos, start=1):
+                videos.append(await self._post_video(video, staging.with_name(f'{staging.name}.video-{index}.part')))
+            if page.videos and not any(videos):
+                msg = f'none of the {len(page.videos)} videos of {canonical_url(link.url)} could be downloaded'
+                raise WechatInboxError(msg)
+            article = await asyncio.to_thread(self._write_article, message, link, page, page_html, _FetchedMedia(images, videos))
+        finally:
+            # Whatever the folder did not take in.
+            for fetched in videos:
+                if fetched is not None:
+                    await asyncio.to_thread(fetched.file.unlink, missing_ok=True)
+        await self._record_article(message, link, page, article)
+        counts = f'{saved} of {len(images)} images'
+        if videos:
+            counts += f', {sum(1 for video in videos if video is not None)} of {len(videos)} videos'
+        log.info('Saved WeChat article %s (%s) as %s', message['msg_id'], counts, article.local_path)
+        await self._notify_article(message, link, page, article)
+
+    async def _post_video(self, video: PostVideo, partial: Path) -> _FetchedVideo | None:
+        """Download one of a post's videos to ``partial``, with its cover; None when it does not load as an MP4."""
+        try:
+            async with self.web.stream(
+                'GET', video.url, timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_POST_VIDEO_READ_SECONDS)
+            ) as response:
+                response.raise_for_status()
+                await _write_stream(response, partial)
+        except httpx.HTTPError as exc:
+            log.info('Post video %s failed: %s', video.url, exc)
+            await asyncio.to_thread(partial.unlink, missing_ok=True)
+            return None
+        if not _is_mp4(await asyncio.to_thread(_file_head, partial)):
+            log.info('Post video %s is not an MP4', video.url)
+            await asyncio.to_thread(partial.unlink, missing_ok=True)
+            return None
+        cover = await self._article_image(video.cover_url) if video.cover_url else None
+        return _FetchedVideo(partial, cover)
 
     async def _record_article(
         self,
         message: dict[str, Any],
         link: ArticleLink,
         page: ArticlePage,
-        local_path: Path,
-        entries: list[dict[str, Any]],
+        article: _SavedArticle,
     ) -> None:
+        entries, video_entries = article.images, article.videos
+        metadata: dict[str, Any] = {
+            'share_url': link.url,
+            'description': link.description,
+            'picture_count': max(page.picture_count, len(entries)),
+            'images': entries,
+        }
+        if video_entries:
+            metadata['videos'] = video_entries
         await database.query_db(
             """
             INSERT INTO wechat_article (
@@ -890,16 +992,8 @@ class Wechat:
                 page.account or link.account,
                 page.published_at.strftime('%Y-%m-%d %H:%M:%S') if page.published_at else '',
                 sum(1 for entry in entries if 'file' in entry),
-                str(local_path),
-                json.dumps(
-                    {
-                        'share_url': link.url,
-                        'description': link.description,
-                        'picture_count': max(page.picture_count, len(entries)),
-                        'images': entries,
-                    },
-                    ensure_ascii=False,
-                ),
+                str(article.local_path),
+                json.dumps(metadata, ensure_ascii=False),
             ),
         )
 
@@ -908,22 +1002,30 @@ class Wechat:
         message: dict[str, Any],
         link: ArticleLink,
         page: ArticlePage,
-        local_path: Path,
-        entries: list[dict[str, Any]],
+        article: _SavedArticle,
     ) -> None:
-        """One message per article, linking to it and showing its first image."""
+        """One message per article, linking to it and showing its first image, else its first video's cover."""
+        local_path, entries, video_entries = article
         files = [entry['file'] for entry in entries if 'file' in entry]
         folder = self.cfg.path / local_path
+        counts: list[str] = []
         total = max(page.picture_count, len(entries))
-        noun = 'image' if total == 1 else 'images'
-        count = f'{len(files)} {noun}' if len(files) == total else f'{len(files)} of {total} {noun}'
-        if page.picture_count > len(entries):
-            count += ' (WeChat could not open the rest)'
+        if total or not video_entries:
+            noun = 'image' if total == 1 else 'images'
+            count = f'{len(files)} {noun}' if len(files) == total else f'{len(files)} of {total} {noun}'
+            if page.picture_count > len(entries):
+                count += ' (WeChat could not open the rest)'
+            counts.append(count)
+        if video_entries:
+            videos = sum(1 for entry in video_entries if 'file' in entry)
+            noun = 'video' if len(video_entries) == 1 else 'videos'
+            counts.append(f'{videos} {noun}' if videos == len(video_entries) else f'{videos} of {len(video_entries)} {noun}')
         sender = str(message.get('sender') or message.get('talker') or '')
         payload: dict[str, Any] = {'msg_id': message['msg_id'], 'sender': sender, 'saved_path': str(folder)}
         name = await self._sender_name(sender)
-        if files:
-            payload['image_path'] = str(folder / files[0])
+        covers = [entry['cover'] for entry in video_entries if 'cover' in entry]
+        if files or covers:
+            payload['image_path'] = str(folder / (files or covers)[0])
         try:
             await enqueue_notification(
                 kind='download_completed',
@@ -931,7 +1033,7 @@ class Wechat:
                 header='WeChat',
                 title=page.title or link.title or local_path.name,
                 link_url=canonical_url(link.url),
-                body=' | '.join(part for part in (page.account or link.account, count, f'From {name}') if part),
+                body=' | '.join(part for part in (page.account or link.account, *counts, f'From {name}') if part),
                 payload=payload,
             )
         except Exception as exc:  # noqa: BLE001
@@ -964,20 +1066,13 @@ class Wechat:
                     await response.aread()
                     msg = f'{failure}: HTTP {response.status_code}{_error_detail(response)}'
                     raise WechatInboxError(msg)
-                await asyncio.to_thread(partial.parent.mkdir, parents=True, exist_ok=True)
-                fh = await asyncio.to_thread(partial.open, 'wb')
-                try:
-                    async for chunk in response.aiter_bytes():
-                        await asyncio.to_thread(fh.write, chunk)
-                finally:
-                    await asyncio.to_thread(fh.close)
+                await _write_stream(response, partial)
         except httpx.HTTPError as exc:
             # A transfer cut short leaves a partial file nothing else would clean up.
             await asyncio.to_thread(partial.unlink, missing_ok=True)
             msg = f'{failure}: {exc}'
             raise WechatInboxError(msg) from exc
-        head = await asyncio.to_thread(_file_head, partial)
-        if head[4:8] != b'ftyp':
+        if not _is_mp4(await asyncio.to_thread(_file_head, partial)):
             await asyncio.to_thread(partial.unlink, missing_ok=True)
             msg = f'FavInbox answered 视频号 video {video.object_id} with something other than an MP4'
             raise WechatInboxError(msg)
