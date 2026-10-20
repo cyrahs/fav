@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.4";
+String PLUGIN_VERSION = "0.4.5";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1369,18 +1369,23 @@ int UI_MAX_CHAT_SCROLLS = 400;
 int UI_MAX_LIST_SCROLLS = 20;
 // Swipes in a row that change nothing on screen: the end of the chat.
 int UI_STUCK_SWIPES = 3;
-int UI_TAG_DEPTH = 3;
-int UI_TAG_BUDGET = 80;
+int UI_TAG_DEPTH = 4;
+int UI_TAG_BUDGET = 200;
 int UI_DUMP_LIMIT = 400;
 
 void uiSleep(long min, long max) {
     Thread.sleep(min + (long) (uiRandom.nextDouble() * (max - min)));
 }
 
+// Runs `c` on the UI thread. WAuxiliary turns a script error inside a scripted
+// Callable into a null, so the Callables catch their own and return it, and it
+// is thrown here.
 Object onUi(java.util.concurrent.Callable c) {
     java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(c);
     new android.os.Handler(android.os.Looper.getMainLooper()).post(task);
-    return task.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    Object result = task.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    if (result instanceof Throwable) throw (Throwable) result;
+    return result;
 }
 
 // Every field of a class and its superclasses, made accessible, cached per class.
@@ -1404,14 +1409,28 @@ List uiFields(Class c) {
     return fields;
 }
 
+// WeChat's own classes are obfuscated, many into short packages (kn5.m7), so
+// "WeChat's" means anything outside the platform and the standard libraries.
+String[] UI_FOREIGN_PREFIXES = new String[] {"java.", "javax.", "android.", "androidx.", "kotlin.", "kotlinx.", "dalvik.", "sun.", "libcore.", "org.json.", "com.android."};
+
+boolean uiWeChatObject(Object o) {
+    if (o instanceof android.content.Context || o instanceof android.view.View) return false;
+    Class c = o.getClass();
+    if (c.isArray() || c.isPrimitive()) return false;
+    String cls = c.getName();
+    for (int i = 0; i < UI_FOREIGN_PREFIXES.length; i++) {
+        if (cls.startsWith(UI_FOREIGN_PREFIXES[i])) return false;
+    }
+    return true;
+}
+
 // Looks through `o` and the WeChat objects it refers to (up to UI_TAG_DEPTH deep)
 // for the fields named in `wanted`; fills `found` with the first value of each,
 // and `<name>#depth` with how much depth was left where it was found (higher is
 // nearer the tag: a bubble's own message, not one its tag merely reaches).
 void uiScan(Object o, String[] wanted, Map found, java.util.IdentityHashMap seen, int depth, int[] budget) {
     if (o == null || depth < 0 || budget[0] <= 0 || seen.containsKey(o)) return;
-    String cls = o.getClass().getName();
-    if (!cls.startsWith("com.tencent.mm")) return;
+    if (!uiWeChatObject(o)) return;
     seen.put(o, Boolean.TRUE);
     budget[0]--;
     List fields = uiFields(o.getClass());
@@ -1475,34 +1494,39 @@ Map uiSnapshot() {
     final Map s = snap;
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
         public Object call() {
-            android.view.View decor = act.getWindow().getDecorView();
-            s.put("focused", Boolean.valueOf(act.hasWindowFocus()));
-            s.put("width", Integer.valueOf(decor.getWidth()));
-            s.put("height", Integer.valueOf(decor.getHeight()));
-            int[] origin = new int[2];
-            decor.getLocationOnScreen(origin);
-            List stack = new ArrayList();
-            stack.add(decor);
-            List out = (List) s.get("nodes");
-            while (!stack.isEmpty()) {
-                android.view.View v = (android.view.View) stack.remove(stack.size() - 1);
-                if (!v.isShown()) continue;
-                android.graphics.Rect r = new android.graphics.Rect();
-                if (!v.getGlobalVisibleRect(r) || r.isEmpty()) continue;
-                r.offset(origin[0], origin[1]);
-                Map node = new HashMap();
-                node.put("view", v);
-                node.put("rect", r);
-                node.put("text", uiText(v));
-                node.put("clickable", Boolean.valueOf(v.isClickable()));
-                node.putAll(uiTagInfo(v));
-                out.add(node);
-                if (v instanceof android.view.ViewGroup) {
-                    android.view.ViewGroup g = (android.view.ViewGroup) v;
-                    for (int i = g.getChildCount() - 1; i >= 0; i--) stack.add(g.getChildAt(i));
+            Object failure = null;
+            try {
+                android.view.View decor = act.getWindow().getDecorView();
+                s.put("focused", Boolean.valueOf(act.hasWindowFocus()));
+                s.put("width", Integer.valueOf(decor.getWidth()));
+                s.put("height", Integer.valueOf(decor.getHeight()));
+                int[] origin = new int[2];
+                decor.getLocationOnScreen(origin);
+                List stack = new ArrayList();
+                stack.add(decor);
+                List out = (List) s.get("nodes");
+                while (!stack.isEmpty()) {
+                    android.view.View v = (android.view.View) stack.remove(stack.size() - 1);
+                    if (!v.isShown()) continue;
+                    android.graphics.Rect r = new android.graphics.Rect();
+                    if (!v.getGlobalVisibleRect(r) || r.isEmpty()) continue;
+                    r.offset(origin[0], origin[1]);
+                    Map node = new HashMap();
+                    node.put("view", v);
+                    node.put("rect", r);
+                    node.put("text", uiText(v));
+                    node.put("clickable", Boolean.valueOf(v.isClickable()));
+                    node.putAll(uiTagInfo(v));
+                    out.add(node);
+                    if (v instanceof android.view.ViewGroup) {
+                        android.view.ViewGroup g = (android.view.ViewGroup) v;
+                        for (int i = g.getChildCount() - 1; i >= 0; i--) stack.add(g.getChildAt(i));
+                    }
                 }
+            } catch (Throwable e) {
+                failure = e;
             }
-            return null;
+            return failure;
         }
     };
     onUi(uiTask);
@@ -1602,12 +1626,14 @@ android.graphics.Rect uiRectOf(Map snap, String suffix) {
     return null;
 }
 
+// In a chat: a bubble carries a message, or the chat's message list is on screen
+// (a chat opened from the chat list stays inside LauncherUI).
 boolean uiInChat(Map snap) {
     List nodes = (List) snap.get("nodes");
     for (int i = 0; i < nodes.size(); i++) {
         if (((Map) nodes.get(i)).containsKey("field_msgId")) return true;
     }
-    return false;
+    return uiRectOf(snap, "MMChattingListView") != null;
 }
 
 String uiChatTalker(Map snap) {
@@ -1695,9 +1721,14 @@ void uiSend(android.view.MotionEvent ev) {
     if (act == null) throw new IllegalStateException("WeChat has no activity on screen");
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
         public Object call() {
-            act.dispatchTouchEvent(event);
-            event.recycle();
-            return null;
+            Object failure = null;
+            try {
+                act.dispatchTouchEvent(event);
+                event.recycle();
+            } catch (Throwable e) {
+                failure = e;
+            }
+            return failure;
         }
     };
     onUi(uiTask);
@@ -1754,8 +1785,13 @@ String uiBack() {
     }
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
         public Object call() {
-            act.onBackPressed();
-            return null;
+            Object failure = null;
+            try {
+                act.onBackPressed();
+            } catch (Throwable e) {
+                failure = e;
+            }
+            return failure;
         }
     };
     onUi(uiTask);
