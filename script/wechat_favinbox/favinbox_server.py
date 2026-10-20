@@ -164,6 +164,12 @@ _MAX_LINK_WAIT_SECONDS = 60
 _LINK_DWELL_SECONDS = 3
 # Only one post or video is opened at a time, so a page found in the cache is the one asked for.
 _OPEN_LOCK = threading.Lock()
+# After an open, WeChat is left in that chat so the next message of the chat is
+# near. The chat it was left in (guarded by _OPEN_LOCK), and how long it may sit
+# there unused before Back takes it to the chat list, so messages arriving later
+# are not marked read.
+_LEFT_IN_CHAT: dict[str, object] = {'talker': None, 'timer': None}
+_IDLE_HOME_SECONDS = 120
 _DEFAULT_VIDEO_WAIT_SECONDS = 120
 _MAX_VIDEO_WAIT_SECONDS = 300
 # A 视频号 object id is an unsigned 64-bit number in share messages and a signed one in WeChat.
@@ -339,7 +345,11 @@ def _bridge_call(path: str, payload: dict, timeout: float = BRIDGE_TIMEOUT_SECON
 
 
 def _open_message(target: dict) -> list[str]:
-    """Have the plugin tap the message open in WeChat; the steps it took."""
+    """Have the plugin tap the message open in WeChat; the steps it took. Call with _OPEN_LOCK held."""
+    left_in = _LEFT_IN_CHAT['talker']
+    if left_in is not None and left_in != target['talker']:
+        # The plugin cannot always tell which chat it is in, so leave another chat first.
+        _close_message(home=True)
     status, answer = _bridge_call('/ui/open', target, OPEN_TIMEOUT_SECONDS)
     steps = [str(step) for step in answer.get('steps') or []]
     if status != HTTPStatus.OK or not answer.get('opened'):
@@ -348,6 +358,7 @@ def _open_message(target: dict) -> list[str]:
         detail = answer.get('error') or f'HTTP {status}'
         msg = f'WeChat did not open message {target["msg_id"]}: {detail} (steps: {"; ".join(steps) or "none"})'
         raise OpenError(msg)
+    _LEFT_IN_CHAT['talker'] = target['talker']
     return steps
 
 
@@ -356,8 +367,20 @@ def _close_message(*, home: bool = False) -> None:
 
     Staying in the chat keeps the next message of that chat a few swipes away;
     back on the chat list, reopening the chat would start from its newest
-    message again. A failure is only logged.
+    message again. A chat left unused for _IDLE_HOME_SECONDS is backed out of
+    too. Call with _OPEN_LOCK held. A failure is only logged.
     """
+    timer = _LEFT_IN_CHAT['timer']
+    if isinstance(timer, threading.Timer):
+        timer.cancel()
+    _LEFT_IN_CHAT['timer'] = None
+    if home:
+        _LEFT_IN_CHAT['talker'] = None
+    else:
+        timer = threading.Timer(_IDLE_HOME_SECONDS, _leave_idle_chat)
+        timer.daemon = True
+        timer.start()
+        _LEFT_IN_CHAT['timer'] = timer
     try:
         status, answer = _bridge_call('/ui/close', {'home': home})
     except OpenError as exc:
@@ -365,6 +388,17 @@ def _close_message(*, home: bool = False) -> None:
         return
     if status != HTTPStatus.OK:
         sys.stderr.write(f'closing in WeChat failed: HTTP {status} {answer.get("error", "")}\n')
+
+
+def _leave_idle_chat() -> None:
+    """Take WeChat from the chat it was left in back to its chat list, unless something is being opened."""
+    if not _OPEN_LOCK.acquire(blocking=False):
+        return
+    try:
+        if _LEFT_IN_CHAT['talker'] is not None:
+            _close_message(home=True)
+    finally:
+        _OPEN_LOCK.release()
 
 
 def _post_page(post: dict[str, str], target: dict | None, wait: float) -> tuple[str, str, bool] | None:

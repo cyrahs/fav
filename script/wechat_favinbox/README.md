@@ -273,7 +273,10 @@ chat shows again); it never presses Back on the chat list itself, which would
 send WeChat to the background. The host service closes to the chat after a
 successful open, so the next message of the same chat is a few swipes away
 instead of a scroll up from the newest message, and to the chat list after a
-failed one.
+failed one. Before opening a message of another chat it first backs out to the
+chat list (the plugin cannot always tell which chat it is in), and a chat left
+unused for two minutes is backed out of too, so later messages there are not
+marked read.
 
 Views are recognised by what they carry, not by WeChat's obfuscated class
 names: a bubble's tag holds its message (an object with a public
