@@ -25,6 +25,7 @@ from src.web.wechat import (
     pending_images,
     queued_message,
     relative_path,
+    shared_link,
     sniff_extension,
     video_wait,
     work_for,
@@ -145,9 +146,11 @@ class _FakeInbox:
         images: dict[int, bytes] | None = None,
         post_page: httpx.Response | None = None,
         finder_video: httpx.Response | None = None,
+        link_open: httpx.Response | None = None,
         contacts: dict[str, dict] | None = None,
     ) -> None:
         self.items = items
+        self.link_open = link_open
         self.contacts = contacts or {}
         self.post_page = post_page
         self.finder_video = finder_video
@@ -167,6 +170,8 @@ class _FakeInbox:
         path = request.url.path
         if path.startswith('/wx/'):
             return self._bridge(request, path)
+        if path == '/link/open' and request.method == 'POST':
+            return self.link_open or httpx.Response(200, json={'loaded': True, 'seconds': 7.2})
         if path == '/post/page' and request.method == 'POST':
             return self.post_page or httpx.Response(404, json={'error': 'the post was not in the XWeb cache after 30s'})
         if path == '/finder/video' and request.method == 'POST':
@@ -685,6 +690,63 @@ def test_an_article_is_saved_with_every_image_at_full_size(fake_db, notification
     assert notification['payload']['image_path'] == str(folder / '01.jpg')
 
 
+def test_an_article_is_opened_in_wechat_before_it_is_fetched(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    message = _article_message(44)
+    inbox = _FakeInbox([], events=[_event(5, message)])
+    web = _article_web()
+    order: list[str] = []
+
+    def record(handler, name):
+        def call(request: httpx.Request) -> httpx.Response:
+            order.append(f'{name} {request.url.path}')
+            return handler(request)
+
+        return call
+
+    source = _source(record(inbox, 'inbox'), record(web, 'web'))
+    asyncio.run(source.update())
+
+    (opened,) = [request for request in inbox.requests if request.url.path == '/link/open']
+    link = shared_link(message['content'])
+    # The service taps the message open, so it is named, with the card title its bubble shows.
+    assert json.loads(opened.content) == {
+        'url': link.url,
+        'message': {'talker': 'wxid_sender', 'msg_id': 44, 'create_time': _CREATE_TIME + 44, 'texts': [link.title]},
+        'wait': 20,
+    }
+    assert order.index('inbox /link/open') < order.index('web /s')
+    assert fake_db.queue[(44, _CREATE_TIME + 44)]['status'] == 'done'
+
+
+def test_a_link_that_never_reports_loaded_is_still_saved(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _article_message(44))], link_open=httpx.Response(200, json={'loaded': False, 'seconds': 20}))
+
+    asyncio.run(_source(inbox, _article_web()).update())
+
+    assert fake_db.queue[(44, _CREATE_TIME + 44)]['status'] == 'done'
+
+
+def test_a_link_wechat_cannot_open_is_retried_without_being_fetched(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox(
+        [],
+        events=[_event(5, _article_message(44))],
+        link_open=httpx.Response(502, json={'error': 'adb could not open the link in WeChat: device offline'}),
+    )
+    web = _article_web()
+
+    with pytest.raises(WechatInboxError) as excinfo:
+        asyncio.run(_source(inbox, web).update())
+
+    assert 'device offline' in str(excinfo.value)
+    assert web.requests == []
+    assert fake_db.queue[(44, _CREATE_TIME + 44)]['status'] == 'pending'
+    assert fake_db.queue[(44, _CREATE_TIME + 44)]['attempts'] == 1
+    assert not any(tmp_path.rglob('*'))
+
+
 def test_an_image_that_will_not_load_at_any_size_is_skipped(fake_db, notifications, tmp_path) -> None:
     _configure_wechat(path=tmp_path, token='secret')
     inbox = _FakeInbox([], events=[_event(5, _article_message(44))])
@@ -772,7 +834,11 @@ def test_an_image_post_behind_the_captcha_is_read_from_wechat(fake_db, notificat
     asyncio.run(_source(inbox, web).update())
 
     (opened,) = [request for request in inbox.requests if request.url.path == '/post/page']
-    assert json.loads(opened.content) == {'url': _IMAGE_POST_FETCH + '#rd', 'wait': 30}
+    assert json.loads(opened.content) == {
+        'url': _IMAGE_POST_FETCH + '#rd',
+        'message': {'talker': 'wxid_sender', 'msg_id': 47, 'create_time': _CREATE_TIME + 47, 'texts': ['每日分享']},
+        'wait': 30,
+    }
     (row,) = fake_db.inserts('wechat_article')
     assert row[8:10] == ('2025-10-09 08:53:20', 3)
     folder = tmp_path / row[10]
@@ -1312,7 +1378,16 @@ def test_a_channels_video_is_saved_with_its_cover(fake_db, notifications, tmp_pa
     asyncio.run(source.update())
 
     [request] = [request for request in inbox.requests if request.url.path == '/finder/video']
-    assert json.loads(request.content) == {'object_id': _OBJECT_ID, 'nonce_id': _NONCE_ID, 'wait': 90}
+    assert json.loads(request.content) == {
+        'object_id': _OBJECT_ID,
+        'message': {
+            'talker': 'wxid_sender',
+            'msg_id': 65,
+            'create_time': _CREATE_TIME + 65,
+            'texts': ['镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨', 'jiang57l'],
+        },
+        'wait': 90,
+    }
     stem = '2025-10-05 031320 镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨 [65]'
     assert (tmp_path / '2025-10' / f'{stem}.mp4').read_bytes() == _MP4
     assert (tmp_path / '2025-10' / f'{stem}.jpg').read_bytes() == _JPEG

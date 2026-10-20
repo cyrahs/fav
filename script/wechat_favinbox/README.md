@@ -29,6 +29,8 @@ It is not imported by the fav app; it runs inside WeChat via WAuxiliary/LSPosed.
 - Long-pressing a conversation adds a **"FavInbox 补抓图片"** menu item that
   pages back through the conversation's history and saves any images not saved
   yet.
+- `/ui/open` and `/ui/close` (bridge) open a message the way a person does,
+  with taps; see "Opening messages by tapping" below.
 
 Inbox directory (inside the container):
 `/sdcard/Android/data/com.tencent.mm/files/FavInbox`, which on the host is
@@ -57,6 +59,7 @@ drain the inbox over the frpc tunnel. It runs on the oracle host, binds
 | GET | `/items[?include_acked=1]` | list items from the JSON sidecars |
 | GET | `/file/<msg_id>` | the image bytes |
 | POST | `/ack/<msg_id>` | mark acked, delete the media file, keep the JSON |
+| POST | `/link/open` | open a link in WeChat, wait for it to load, close it |
 | POST | `/post/page` | a 公众号 post's page, as WeChat itself loads it |
 | POST | `/finder/video` | a 视频号 video, as WeChat's player cached it |
 
@@ -68,43 +71,58 @@ JSON is WeChat's own value and does not match the saved bytes.
 Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
 (default `127.0.0.1`), `FAVINBOX_PORT` (default `9970`), `FAVINBOX_XWEB_CACHE`
 (default `/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache`, the
-host side of WeChat's internal `/data/data/com.tencent.mm/cache/xweb_cache`), `FAVINBOX_ADB`
-(default `adb`), `FAVINBOX_ADB_SERIAL` (default `127.0.0.1:5555`), `FAVINBOX_WECHAT_DATA` (default
+host side of WeChat's internal `/data/data/com.tencent.mm/cache/xweb_cache`), `FAVINBOX_WECHAT_DATA` (default
 `/home/ubuntu/redroid-data/data/com.tencent.mm`, the host side of `/data/data/com.tencent.mm`).
+
+`/link/open`, `/post/page` and `/finder/video` get WeChat to open a message by
+having the plugin tap it (bridge `POST /ui/open`, then `POST /ui/close`), so
+each names the message: `"message": {"talker": "<wxid>", "msg_id": <id>,
+"create_time": <ms>, "texts": ["<the card's title>", ...]}`. Nothing is started
+over adb, and nothing is fetched without being opened first, however old the
+message; reaching an old one can take minutes of scrolling.
+
+`/link/open` is how fav reads a shared link (公众号 article, Tieba post, NGA
+thread) the way the account's owner would: before fetching it, fav has WeChat
+open it. It takes `{"url": "<share link>", "message": {...}, "wait": 20}` (at
+most 60), taps the message open, polls the web view's HTTP cache until it holds
+a complete response for the link's host and path written after the open, leaves
+the page up a few seconds more, then backs out to the chat list. It answers
+`{"loaded": true, "seconds": 7.2, "steps": [...]}`; a page that never reaches
+the cache (uncacheable, or redirected to another host) is closed after `wait`
+with `loaded: false`. Errors: 400 for anything but an http(s) URL of printable
+ASCII or a missing message, 502 when the message could not be opened (the
+plugin's steps are in the error).
 
 `/post/page` is for image posts (贴图), which mp.weixin.qq.com hides behind a
 slider captcha from every client but WeChat. It takes
-`{"url": "<share link>", "wait": 30}` and answers with the post's HTML. If
-WeChat's web view (XWeb) has the post in its HTTP cache, that copy is used;
-otherwise the server runs, over adb,
-`am start -n com.tencent.mm/.plugin.webview.ui.tools.WebViewUI --es rawUrl <post>`
-(as root inside redroid), polls the cache until the page arrives, then presses
-Back. The cache is Chromium's Simple Cache: `<hash>_0` files under
+`{"url": "<share link>", "message": {...}, "wait": 30}` and answers with the
+post's HTML. If WeChat's web view (XWeb) has the post in its HTTP cache, that
+copy is used; otherwise the message is tapped open, the cache polled until the
+page arrives, and WeChat backed out to its chat list. The cache is Chromium's Simple Cache: `<hash>_0` files under
 `xweb_cache/<profile>/HTTP Cache/Cache_Data/`, each holding the URL, the body
 as received (gzip or brotli) and the response headers. Brotli needs
 `python3-brotli` on the host. Errors: 400 for a link without
 `__biz`/`mid`/`idx`/`sn`, 404 when the page never reached the cache, 502 when
-adb failed.
+the message could not be opened.
 
 `/finder/video` is for 视频号 videos. The share message names the feed
 (`objectId`, `objectNonceId`) but its video address carries no token or key, so
 only WeChat can fetch it. The endpoint takes
-`{"object_id": "<objectId>", "nonce_id": "<objectNonceId>", "wait": 120}` (at
-most 300) and answers with the MP4. WeChat's player caches what it downloads as
+`{"object_id": "<objectId>", "message": {...}, "wait": 120}` (at most 300) and answers with the MP4. WeChat's player caches what it downloads as
 plain MP4 files in `cache/<account>/finder/video/`, indexed per feed in the
 account's `MicroMsg/<account>/FinderMM*.db`, table `FinderMediaCacheInfoV4`
 (`feedId` = the object id as a signed 64-bit number, `mediaId` = the file name,
 `totalSize`). The server reads that index from a copy of the database (with its
 WAL), and returns the file once its MP4 boxes add up to its size. If it is not
-there yet, it runs, over adb,
-`am start -n com.tencent.mm/.plugin.finder.ui.FinderShareFeedRelUI --el feed_object_id <signed id> --es feed_object_nonceId <nonce>`,
-polls the index until the file is whole, then presses Back. Opening a video
+there yet, the message is tapped open and the index polled until the file is
+whole, then WeChat is backed out to its chat list. Opening a video
 also preloads a few recommended ones into the same directory, which is why the
 file is found through the index. The account is the one whose `FinderMM*.db`
 changed last, so a new login is picked up on its own. 视频号 only works for an
 account registered in mainland China: an overseas one gets empty feeds and
 「轻触重试」. Errors: 400 for a bad id, 404 when the video was not whole within
-`wait`, 502 when adb failed, 503 when no account has a 视频号 database.
+`wait`, 502 when the message could not be opened, 503 when no account has a
+视频号 database.
 
 ### Deploy on oracle
 
@@ -219,6 +237,44 @@ sent.
 | `/audio/mp3-to-silk` | `path` → `{code, path}` |
 | `/toast` | `text` |
 | `/device-step` | `step` |
+| `/ui/open` | `talker, msg_id[, create_time, texts]` → `{opened, found_by, steps}` |
+| `/ui/close` | `[home]` (default true) → `{steps}` |
+
+`GET /ui/dump` lists what the plugin sees in WeChat's top activity: each shown
+view's class, screen bounds, text (cut to 16 characters), whether it is
+clickable, and the message or conversation its tag carries.
+
+### Opening messages by tapping
+
+`/ui/open` opens a message the way a person does. It brings WeChat to the front
+if it is not (as its launcher icon would), taps Back until WeChat shows its chat
+list or the right chat, taps the conversation, finds the message's bubble and
+taps it. When the bubble is not on screen it scrolls the chat until it is,
+however far back the message is: up by default, and down when the send times of
+the bubbles on screen (their tags' `field_createTime`) say the message's
+`create_time` is below them. It stops only when a few swipes move nothing (the
+top or bottom of the chat), when the bubbles on screen span the message's send
+time but it is not among them (hidden or deleted), or after 400 swipes. It
+answers once the chat has lost the focus to what opened; when a tap changes nothing it taps once
+more, then gives up with `opened: false` and the steps it took. `/ui/close`
+taps Back until the chat list shows again; it never presses Back on the chat
+list itself, which would send WeChat to the background.
+
+Views are recognised by what they carry, not by WeChat's obfuscated class
+names: a bubble's tag holds its message (an object with a public
+`field_msgId` and `field_talker`), and a chat list row may hold its
+conversation (`field_username`). When tags do not tell, visible text does: the
+contact's name in the chat list (below the title bar), the card's title
+(`texts`) in the chat. Of several views carrying the message, the largest
+clickable one that is not avatar-sized is tapped.
+
+Touches are real `MotionEvent`s (finger, touchscreen, a few pixels of drift, a
+press of 70-150 ms) injected with `Instrumentation`, which Android accepts for
+windows of the injecting app; if the system refuses, or an injected tap changes
+nothing, later ones are dispatched straight into the activity's window. Back is
+an injected `KEYCODE_BACK`; without injection it is the activity's own
+`onBackPressed()`, or, when the window on top belongs to another WeChat process
+(the web view), WeChat's launcher intent with `FLAG_ACTIVITY_CLEAR_TOP`.
 
 Not exposed: downloading videos, voice and files (WAuxiliary has no API for
 them; their CDN fields are in the event), and WAuxiliary's `eval`, hook,

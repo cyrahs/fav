@@ -33,7 +33,8 @@ import org.json.JSONObject;
 //
 // 2. Bridge: an HTTP API inside the WeChat process that exposes WAuxiliary's
 //    capabilities (message events, history, original images, contacts, groups,
-//    sending, Moments) so fav decides what to do with them. It listens on
+//    sending, Moments, and opening a message by tapping it) so fav decides what
+//    to do with them. It listens on
 //    BRIDGE_PORT inside the container and requires the token the plugin keeps in
 //    FavBridge/token; the host's favinbox_server.py reads that file and forwards
 //    /wx/* to it, so fav only ever talks to the host service. See README.md.
@@ -43,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.3.0";
+String PLUGIN_VERSION = "0.4.1";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1029,6 +1030,7 @@ Object route(Map req, InputStream in) {
         }
         if (path.equals("/contact")) return contact(req);
         if (path.equals("/labels")) return beansJson(getContactLabelList());
+        if (path.equals("/ui/dump")) return uiDump();
         if (path.equals("/label/contacts")) {
             String id = q(req, "id", null);
             return beansJson(id != null ? getContactByLabelId(id) : getContactByLabelName(qRequired(req, "name")));
@@ -1039,6 +1041,8 @@ Object route(Map req, InputStream in) {
     if (path.equals("/upload")) return upload(req, in);
     JSONObject b = jsonBody(req, in);
     if (path.startsWith("/send/")) return send(path.substring(6), b);
+    if (path.equals("/ui/open")) return uiLocked("open", b);
+    if (path.equals("/ui/close")) return uiLocked("close", b);
     if (path.equals("/msg/revoke")) {
         revokeMsg(b.getLong("msg_id"));
         return ok();
@@ -1311,5 +1315,679 @@ JSONObject send(String what, JSONObject b) {
     } else {
         throw new java.io.FileNotFoundException("no send type " + what);
     }
+    return j;
+}
+
+// ---------------------------------------------------------------------------
+// UI: opening a message with taps, the way a person would
+// ---------------------------------------------------------------------------
+//
+// fav reads some messages (shared links, 贴图, 视频号 videos) only after WeChat
+// has opened them. Rather than starting WeChat's activities with intents, the
+// plugin taps through WeChat's own screens: back to the chat list, the chat,
+// the message bubble, and later Back again. Touches are injected with
+// Instrumentation, which the input system accepts for windows of the injecting
+// app; if it refuses, they are dispatched into the activity's window instead.
+//
+// Views are found by what they hold rather than by WeChat's obfuscated class
+// names: a message bubble's tag carries the message (an object with a public
+// `field_msgId`), a chat list row may carry the conversation (`field_username`).
+// When tags do not tell, visible text does: the contact's name in the chat
+// list, the card's title in the chat. GET /ui/dump shows what the plugin sees.
+
+java.util.concurrent.locks.ReentrantLock uiLock = new java.util.concurrent.locks.ReentrantLock();
+java.util.Random uiRandom = new java.util.Random();
+java.util.concurrent.atomic.AtomicBoolean uiDispatchOnly = new java.util.concurrent.atomic.AtomicBoolean(false);
+Map uiFieldCache = new java.util.concurrent.ConcurrentHashMap();
+int UI_MAX_STEPS = 10;
+// A chat is scrolled until the message shows, however far back it is; these only
+// stop a runaway.
+int UI_MAX_CHAT_SCROLLS = 400;
+int UI_MAX_LIST_SCROLLS = 20;
+// Swipes in a row that change nothing on screen: the end of the chat.
+int UI_STUCK_SWIPES = 3;
+int UI_TAG_DEPTH = 3;
+int UI_TAG_BUDGET = 80;
+int UI_DUMP_LIMIT = 400;
+
+void uiSleep(long min, long max) {
+    Thread.sleep(min + (long) (uiRandom.nextDouble() * (max - min)));
+}
+
+Object onUi(java.util.concurrent.Callable c) {
+    java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(c);
+    new android.os.Handler(android.os.Looper.getMainLooper()).post(task);
+    return task.get(10, java.util.concurrent.TimeUnit.SECONDS);
+}
+
+// Every field of a class and its superclasses, made accessible, cached per class.
+List uiFields(Class c) {
+    List fields = (List) uiFieldCache.get(c);
+    if (fields != null) return fields;
+    fields = new ArrayList();
+    Class k = c;
+    while (k != null && k != Object.class) {
+        java.lang.reflect.Field[] declared = k.getDeclaredFields();
+        for (int i = 0; i < declared.length; i++) {
+            if (java.lang.reflect.Modifier.isStatic(declared[i].getModifiers())) continue;
+            try {
+                declared[i].setAccessible(true);
+                fields.add(declared[i]);
+            } catch (Throwable e) {}
+        }
+        k = k.getSuperclass();
+    }
+    uiFieldCache.put(c, fields);
+    return fields;
+}
+
+// Looks through `o` and the WeChat objects it refers to (up to UI_TAG_DEPTH deep)
+// for the fields named in `wanted`; fills `found` with the first value of each,
+// and `<name>#depth` with how much depth was left where it was found (higher is
+// nearer the tag: a bubble's own message, not one its tag merely reaches).
+void uiScan(Object o, String[] wanted, Map found, java.util.IdentityHashMap seen, int depth, int[] budget) {
+    if (o == null || depth < 0 || budget[0] <= 0 || seen.containsKey(o)) return;
+    String cls = o.getClass().getName();
+    if (!cls.startsWith("com.tencent.mm")) return;
+    seen.put(o, Boolean.TRUE);
+    budget[0]--;
+    List fields = uiFields(o.getClass());
+    for (int i = 0; i < fields.size(); i++) {
+        java.lang.reflect.Field f = (java.lang.reflect.Field) fields.get(i);
+        for (int w = 0; w < wanted.length; w++) {
+            if (f.getName().equals(wanted[w]) && !found.containsKey(wanted[w])) {
+                try {
+                    Object v = f.get(o);
+                    if (v != null) {
+                        found.put(wanted[w], v);
+                        found.put(wanted[w] + "#depth", Integer.valueOf(depth));
+                    }
+                } catch (Throwable e) {}
+            }
+        }
+    }
+    if (found.size() == 2 * wanted.length) return;
+    for (int i = 0; i < fields.size(); i++) {
+        java.lang.reflect.Field f = (java.lang.reflect.Field) fields.get(i);
+        if (f.getType().isPrimitive()) continue;
+        try {
+            Object v = f.get(o);
+            if (v != null && !(v instanceof android.view.View)) uiScan(v, wanted, found, seen, depth - 1, budget);
+        } catch (Throwable e) {}
+        if (budget[0] <= 0) return;
+    }
+}
+
+String[] UI_TAG_FIELDS = new String[] {"field_msgId", "field_talker", "field_createTime", "field_username"};
+
+Map uiTagInfo(android.view.View v) {
+    Map found = new HashMap();
+    Object tag = v.getTag();
+    if (tag == null) return found;
+    int[] budget = new int[] {UI_TAG_BUDGET};
+    uiScan(tag, UI_TAG_FIELDS, found, new java.util.IdentityHashMap(), UI_TAG_DEPTH, budget);
+    return found;
+}
+
+String uiText(android.view.View v) {
+    Object t = null;
+    if (v instanceof android.widget.TextView) t = ((android.widget.TextView) v).getText();
+    else t = getter(v, "getText");
+    if (t == null || String.valueOf(t).trim().length() == 0) t = v.getContentDescription();
+    if (t == null) return null;
+    String s = String.valueOf(t).trim();
+    return s.length() == 0 ? null : s;
+}
+
+// What is on screen in the top activity: one entry per shown view, in screen
+// coordinates, with its text and what its tag holds. Runs on the UI thread.
+Map uiSnapshot() {
+    final android.app.Activity act = getTopActivity();
+    Map snap = new HashMap();
+    List nodes = new ArrayList();
+    snap.put("nodes", nodes);
+    snap.put("activity", act == null ? null : act.getClass().getName());
+    snap.put("focused", Boolean.FALSE);
+    if (act == null) return snap;
+    final Map s = snap;
+    java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
+        public Object call() {
+            android.view.View decor = act.getWindow().getDecorView();
+            s.put("focused", Boolean.valueOf(act.hasWindowFocus()));
+            s.put("width", Integer.valueOf(decor.getWidth()));
+            s.put("height", Integer.valueOf(decor.getHeight()));
+            int[] origin = new int[2];
+            decor.getLocationOnScreen(origin);
+            List stack = new ArrayList();
+            stack.add(decor);
+            List out = (List) s.get("nodes");
+            while (!stack.isEmpty()) {
+                android.view.View v = (android.view.View) stack.remove(stack.size() - 1);
+                if (!v.isShown()) continue;
+                android.graphics.Rect r = new android.graphics.Rect();
+                if (!v.getGlobalVisibleRect(r) || r.isEmpty()) continue;
+                r.offset(origin[0], origin[1]);
+                Map node = new HashMap();
+                node.put("view", v);
+                node.put("rect", r);
+                node.put("text", uiText(v));
+                node.put("clickable", Boolean.valueOf(v.isClickable()));
+                node.putAll(uiTagInfo(v));
+                out.add(node);
+                if (v instanceof android.view.ViewGroup) {
+                    android.view.ViewGroup g = (android.view.ViewGroup) v;
+                    for (int i = g.getChildCount() - 1; i >= 0; i--) stack.add(g.getChildAt(i));
+                }
+            }
+            return null;
+        }
+    };
+    onUi(uiTask);
+    return snap;
+}
+
+int uiArea(Map node) {
+    android.graphics.Rect r = (android.graphics.Rect) node.get("rect");
+    return r.width() * r.height();
+}
+
+boolean uiIsAvatarSized(Map node) {
+    android.graphics.Rect r = (android.graphics.Rect) node.get("rect");
+    float density = hostContext.getResources().getDisplayMetrics().density;
+    return Math.abs(r.width() - r.height()) <= 4 * density && r.width() <= 64 * density;
+}
+
+// The best view to tap among `nodes` (all carrying the same `key`): those that
+// carry it nearest their tag, clickable ones first, never one the size of an
+// avatar (tapping that opens a profile) or of half the screen (a container),
+// the largest of what is left.
+Map uiPickTarget(Map snap, List nodes, String key) {
+    int screen = ((Integer) snap.get("width")).intValue() * ((Integer) snap.get("height")).intValue();
+    int nearest = -1;
+    for (int i = 0; i < nodes.size(); i++) {
+        Object d = ((Map) nodes.get(i)).get(key + "#depth");
+        if (d != null) nearest = Math.max(nearest, ((Integer) d).intValue());
+    }
+    Map best = null;
+    for (int pass = 0; pass < 2 && best == null; pass++) {
+        for (int i = 0; i < nodes.size(); i++) {
+            Map n = (Map) nodes.get(i);
+            Object d = n.get(key + "#depth");
+            if (d != null && ((Integer) d).intValue() < nearest) continue;
+            if (pass == 0 && !Boolean.TRUE.equals(n.get("clickable"))) continue;
+            if (uiIsAvatarSized(n) || uiArea(n) > screen / 2) continue;
+            if (best == null || uiArea(n) > uiArea(best)) best = n;
+        }
+    }
+    return best;
+}
+
+// The nearest clickable ancestor of a node, as a node, or the node itself.
+Map uiClickableAncestor(Map snap, Map node) {
+    List nodes = (List) snap.get("nodes");
+    android.view.View v = (android.view.View) node.get("view");
+    android.view.ViewParent p = v;
+    for (int depth = 0; depth < 8 && p instanceof android.view.View; depth++) {
+        android.view.View pv = (android.view.View) p;
+        if (pv.isClickable()) {
+            for (int i = 0; i < nodes.size(); i++) {
+                Map n = (Map) nodes.get(i);
+                if (n.get("view") == pv) return n;
+            }
+        }
+        p = pv.getParent();
+    }
+    return node;
+}
+
+List uiNodesWith(Map snap, String key, Object value) {
+    List out = new ArrayList();
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        Object v = n.get(key);
+        if (v != null && String.valueOf(v).equals(String.valueOf(value))) out.add(n);
+    }
+    return out;
+}
+
+// The lowest node whose text is one of `texts` and whose top edge lies between
+// the two fractions of the screen's height (the title bar is the top tenth).
+Map uiTextNode(Map snap, List texts, float fromTop, float toTop) {
+    Map best = null;
+    List nodes = (List) snap.get("nodes");
+    int height = ((Integer) snap.get("height")).intValue();
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        String t = (String) n.get("text");
+        if (t == null || !texts.contains(t)) continue;
+        android.graphics.Rect r = (android.graphics.Rect) n.get("rect");
+        if (r.top < height * fromTop || r.top > height * toTop) continue;
+        if (best == null || r.top > ((android.graphics.Rect) best.get("rect")).top) best = n;
+    }
+    return best;
+}
+
+boolean uiInChat(Map snap) {
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        if (((Map) nodes.get(i)).containsKey("field_msgId")) return true;
+    }
+    return false;
+}
+
+String uiChatTalker(Map snap) {
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        if (n.containsKey("field_msgId") && n.get("field_talker") != null) return String.valueOf(n.get("field_talker"));
+    }
+    return null;
+}
+
+// [oldest, newest] send time (ms) of the messages on screen, or null when their
+// views do not tell.
+long[] uiVisibleTimes(Map snap) {
+    long[] range = null;
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        Object t = n.get("field_createTime");
+        if (!n.containsKey("field_msgId") || !(t instanceof Number)) continue;
+        long v = ((Number) t).longValue();
+        if (range == null) range = new long[] {v, v};
+        range[0] = Math.min(range[0], v);
+        range[1] = Math.max(range[1], v);
+    }
+    return range;
+}
+
+// The messages on screen, as one string, to notice a swipe that moved nothing.
+String uiVisibleIds(Map snap) {
+    java.util.TreeSet ids = new java.util.TreeSet();
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        if (n.containsKey("field_msgId")) ids.add(String.valueOf(n.get("field_msgId")));
+        else if (n.get("text") != null) ids.add("t:" + n.get("text"));
+    }
+    return ids.toString();
+}
+
+int uiTouchDevice() {
+    int[] ids = android.view.InputDevice.getDeviceIds();
+    for (int i = 0; i < ids.length; i++) {
+        android.view.InputDevice d = android.view.InputDevice.getDevice(ids[i]);
+        if (d != null && (d.getSources() & android.view.InputDevice.SOURCE_TOUCHSCREEN) == android.view.InputDevice.SOURCE_TOUCHSCREEN) {
+            return ids[i];
+        }
+    }
+    return 0;
+}
+
+android.view.MotionEvent uiTouch(long downTime, int action, float x, float y) {
+    android.view.MotionEvent.PointerProperties[] props = new android.view.MotionEvent.PointerProperties[1];
+    props[0] = new android.view.MotionEvent.PointerProperties();
+    props[0].id = 0;
+    props[0].toolType = android.view.MotionEvent.TOOL_TYPE_FINGER;
+    android.view.MotionEvent.PointerCoords[] coords = new android.view.MotionEvent.PointerCoords[1];
+    coords[0] = new android.view.MotionEvent.PointerCoords();
+    coords[0].x = x;
+    coords[0].y = y;
+    coords[0].pressure = 0.35f + uiRandom.nextFloat() * 0.4f;
+    coords[0].size = 0.05f + uiRandom.nextFloat() * 0.05f;
+    coords[0].touchMajor = 12f + uiRandom.nextFloat() * 8f;
+    coords[0].touchMinor = coords[0].touchMajor * (0.8f + uiRandom.nextFloat() * 0.2f);
+    return android.view.MotionEvent.obtain(downTime, android.os.SystemClock.uptimeMillis(), action, 1, props, coords, 0, 0,
+        1f, 1f, uiTouchDevice(), 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0);
+}
+
+// Delivers one touch event: through the input system, or, once that has been
+// refused, straight into the top activity's window.
+void uiSend(android.view.MotionEvent ev) {
+    if (!uiDispatchOnly.get()) {
+        try {
+            new android.app.Instrumentation().sendPointerSync(ev);
+            ev.recycle();
+            return;
+        } catch (RuntimeException e) {
+            // SecurityException or IllegalStateException: injection needs INJECT_EVENTS after all.
+            log("FavBridge cannot inject touches (" + e + "); dispatching them into the window instead");
+            uiDispatchOnly.set(true);
+        }
+    }
+    final android.app.Activity act = getTopActivity();
+    final android.view.MotionEvent event = ev;
+    if (act == null) throw new IllegalStateException("WeChat has no activity on screen");
+    java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
+        public Object call() {
+            act.dispatchTouchEvent(event);
+            event.recycle();
+            return null;
+        }
+    };
+    onUi(uiTask);
+}
+
+// A tap somewhere inside the middle half of a view, held as long as a finger would.
+void uiTap(android.graphics.Rect r) {
+    float x = r.left + r.width() * (0.25f + uiRandom.nextFloat() * 0.5f);
+    float y = r.top + r.height() * (0.25f + uiRandom.nextFloat() * 0.5f);
+    long down = android.os.SystemClock.uptimeMillis();
+    uiSend(uiTouch(down, android.view.MotionEvent.ACTION_DOWN, x, y));
+    uiSleep(40, 80);
+    uiSend(uiTouch(down, android.view.MotionEvent.ACTION_MOVE, x + uiRandom.nextFloat() * 2f, y + uiRandom.nextFloat() * 2f));
+    uiSleep(30, 70);
+    uiSend(uiTouch(down, android.view.MotionEvent.ACTION_UP, x + uiRandom.nextFloat() * 2f, y + uiRandom.nextFloat() * 2f));
+}
+
+// A vertical swipe across the middle of the screen; a positive `fraction` drags
+// the content down, which shows older messages or the top of a list.
+void uiSwipe(Map snap, float fraction) {
+    int width = ((Integer) snap.get("width")).intValue();
+    int height = ((Integer) snap.get("height")).intValue();
+    float x = width * (0.4f + uiRandom.nextFloat() * 0.2f);
+    float y0 = height * (fraction > 0 ? 0.35f : 0.7f);
+    float y1 = y0 + height * fraction;
+    long down = android.os.SystemClock.uptimeMillis();
+    uiSend(uiTouch(down, android.view.MotionEvent.ACTION_DOWN, x, y0));
+    int moves = 8 + uiRandom.nextInt(5);
+    for (int i = 1; i <= moves; i++) {
+        Thread.sleep(25);
+        uiSend(uiTouch(down, android.view.MotionEvent.ACTION_MOVE, x + uiRandom.nextFloat() * 3f, y0 + (y1 - y0) * i / moves));
+    }
+    uiSend(uiTouch(down, android.view.MotionEvent.ACTION_UP, x, y1));
+}
+
+// Back, as the navigation bar would send it. Returns how it was delivered.
+String uiBack() {
+    if (!uiDispatchOnly.get()) {
+        try {
+            new android.app.Instrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            return "key";
+        } catch (RuntimeException e) {
+            log("FavBridge cannot inject Back (" + e + ")");
+            uiDispatchOnly.set(true);
+        }
+    }
+    final android.app.Activity act = getTopActivity();
+    if (act == null || !act.hasWindowFocus()) {
+        // What is on top lives in another WeChat process (the web view); bring the chat list back over it.
+        android.content.Intent home = hostContext.getPackageManager().getLaunchIntentForPackage(hostContext.getPackageName());
+        home.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        hostContext.startActivity(home);
+        return "launcher";
+    }
+    java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
+        public Object call() {
+            act.onBackPressed();
+            return null;
+        }
+    };
+    onUi(uiTask);
+    return "activity";
+}
+
+boolean uiIsMainScreen(android.app.Activity act) {
+    if (act == null) return false;
+    String name = act.getClass().getName();
+    return name.endsWith(".LauncherUI") || name.indexOf("ChattingUI") >= 0;
+}
+
+// Brings WeChat to the front the way its launcher icon does.
+void uiForeground(List steps) {
+    android.app.Activity act = getTopActivity();
+    if (act != null && act.hasWindowFocus()) return;
+    if (act != null && !uiIsMainScreen(act)) return;
+    android.content.Intent launch = hostContext.getPackageManager().getLaunchIntentForPackage(hostContext.getPackageName());
+    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+    hostContext.startActivity(launch);
+    steps.add("brought WeChat to the front");
+    uiSleep(1500, 2500);
+}
+
+String uiName(String talker, String which) {
+    try {
+        Object v = which.equals("remark") ? getFriendRemarkName(talker) : which.equals("nick") ? getFriendNickName(talker) : getFriendName(talker);
+        return v == null ? null : String.valueOf(v).trim();
+    } catch (Throwable e) {
+        return null;
+    }
+}
+
+// The message's bubble on screen: by the message its view carries, else by the
+// text it shows.
+Map uiFindMessage(Map snap, long msgId, List texts, String[] foundBy) {
+    Map target = uiPickTarget(snap, uiNodesWith(snap, "field_msgId", Long.valueOf(msgId)), "field_msgId");
+    if (target != null) {
+        foundBy[0] = "tag";
+        return target;
+    }
+    if (texts.isEmpty()) return null;
+    Map textNode = uiTextNode(snap, texts, 0.1f, 0.95f);
+    if (textNode == null) return null;
+    foundBy[0] = "text";
+    return uiClickableAncestor(snap, textNode);
+}
+
+// Whether a tap on the bubble opened something: the chat no longer has the
+// focus, or another activity took over.
+boolean uiLeftChat(String chatActivity) {
+    android.app.Activity act = getTopActivity();
+    if (act == null || !act.hasWindowFocus()) return true;
+    return !act.getClass().getName().equals(chatActivity);
+}
+
+// Taps through to message `msgId` of chat `talker` and opens it. `createTime`
+// (ms, 0 when unknown) says which way to scroll the chat; `texts` are what its
+// bubble may show (a card's title), for when its view does not carry it. The
+// chat is scrolled until the message shows, however old it is, and only gives
+// up at the end of the chat.
+JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts) {
+    List steps = new ArrayList();
+    List names = new ArrayList();
+    String[] kinds = new String[] {"name", "remark", "nick"};
+    for (int i = 0; i < kinds.length; i++) {
+        String n = uiName(talker, kinds[i]);
+        if (n != null && n.length() > 0 && !names.contains(n)) names.add(n);
+    }
+    boolean opened = false;
+    String[] foundBy = new String[1];
+    int nav = 0;
+    int taps = 0;
+    int listScrolls = 0;
+    int scrollsUp = 0;
+    int scrollsDown = 0;
+    int stuck = 0;
+    int straddled = 0;
+    float lastDirection = 0f;
+    String lastScreen = null;
+    boolean tappedHomeTab = false;
+    uiForeground(steps);
+    while (!opened && nav < UI_MAX_STEPS) {
+        Map snap = uiSnapshot();
+        android.app.Activity act = getTopActivity();
+        if (!Boolean.TRUE.equals(snap.get("focused")) || !uiIsMainScreen(act)) {
+            steps.add("Back from " + snap.get("activity") + " (" + uiBack() + ")");
+            nav++;
+            uiSleep(700, 1200);
+            continue;
+        }
+        String inChat = uiChatTalker(snap);
+        if (inChat != null && !inChat.equals(talker)) {
+            steps.add("Back from another chat (" + uiBack() + ")");
+            nav++;
+            uiSleep(600, 1000);
+            continue;
+        }
+        Map target = uiFindMessage(snap, msgId, texts, foundBy);
+        if (target != null) {
+            if (scrollsUp + scrollsDown > 0) steps.add("scrolled the chat " + scrollsUp + " times up, " + scrollsDown + " down");
+            uiSleep(400, 900);
+            uiTap((android.graphics.Rect) target.get("rect"));
+            taps++;
+            nav++;
+            steps.add("tapped the message (found by " + foundBy[0] + (uiDispatchOnly.get() ? ", dispatched" : ", injected") + ")");
+            uiSleep(1500, 2500);
+            if (uiLeftChat(act.getClass().getName())) {
+                opened = true;
+            } else if (taps < 2) {
+                // The tap changed nothing; deliver the next one straight into the window.
+                steps.add("the chat stayed in front; tapping again");
+                uiDispatchOnly.set(true);
+            } else {
+                break;
+            }
+            continue;
+        }
+        if (uiInChat(snap)) {
+            // Older messages are above. When the send times on screen say the
+            // message is below them, go back down, in shorter swipes once the
+            // direction has changed so the two do not overshoot each other.
+            float direction = 1f;
+            long[] range = uiVisibleTimes(snap);
+            if (createTime > 0 && range != null) {
+                if (range[1] < createTime) {
+                    direction = -1f;
+                } else if (range[0] <= createTime) {
+                    // The screen spans its send time and it is not there: hidden or deleted.
+                    if (++straddled >= 2) {
+                        steps.add("the chat shows the messages around it, but not this one");
+                        break;
+                    }
+                }
+            }
+            String screen = uiVisibleIds(snap);
+            stuck = screen.equals(lastScreen) ? stuck + 1 : 0;
+            lastScreen = screen;
+            if (stuck >= UI_STUCK_SWIPES) {
+                steps.add("reached the " + (direction > 0 ? "top" : "bottom") + " of the chat after " + (scrollsUp + scrollsDown) + " swipes");
+                break;
+            }
+            if (scrollsUp + scrollsDown >= UI_MAX_CHAT_SCROLLS) {
+                steps.add("gave up after " + UI_MAX_CHAT_SCROLLS + " swipes");
+                break;
+            }
+            boolean turned = lastDirection != 0f && direction != lastDirection;
+            uiSwipe(snap, direction * (turned || (scrollsUp > 0 && scrollsDown > 0) ? 0.2f : 0.45f));
+            lastDirection = direction;
+            if (direction > 0) scrollsUp++;
+            else scrollsDown++;
+            // A screen that did not move may be WeChat loading older messages.
+            if (stuck > 0) uiSleep(1500, 2500);
+            else uiSleep(500, 900);
+            continue;
+        }
+        // The chat list: find the conversation and tap it.
+        Map row = uiPickTarget(snap, uiNodesWith(snap, "field_username", talker), "field_username");
+        if (row == null) {
+            Map nameNode = uiTextNode(snap, names, 0.1f, 0.9f);
+            if (nameNode != null) row = uiClickableAncestor(snap, nameNode);
+        }
+        if (row != null) {
+            uiSleep(300, 700);
+            uiTap((android.graphics.Rect) row.get("rect"));
+            nav++;
+            steps.add("tapped the chat");
+            uiSleep(900, 1500);
+            continue;
+        }
+        if (!tappedHomeTab) {
+            Map tab = uiTextNode(snap, Arrays.asList(new String[] {"微信", "WeChat", "Chats"}), 0.85f, 1f);
+            if (tab != null) {
+                uiTap((android.graphics.Rect) uiClickableAncestor(snap, tab).get("rect"));
+                tappedHomeTab = true;
+                nav++;
+                steps.add("tapped the 微信 tab");
+                uiSleep(600, 1000);
+                continue;
+            }
+        }
+        if (listScrolls >= UI_MAX_LIST_SCROLLS) break;
+        uiSwipe(snap, -0.35f);
+        listScrolls++;
+        steps.add("scrolled down the chat list");
+        uiSleep(600, 1000);
+    }
+    JSONObject result = ok();
+    JSONArray stepsJson = new JSONArray();
+    for (int i = 0; i < steps.size(); i++) stepsJson.put(steps.get(i));
+    result.put("opened", opened);
+    result.put("found_by", nn(foundBy[0]));
+    result.put("steps", stepsJson);
+    if (!opened) {
+        result.put("ok", false);
+        result.put("error", "could not open message " + msgId + " of " + talker + " by tapping it; see steps and GET /ui/dump");
+    }
+    return result;
+}
+
+// Back until WeChat is on its chat list (or, without `home`, until the opened
+// message is closed and its chat shows).
+JSONObject uiClose(boolean home) {
+    JSONArray steps = new JSONArray();
+    for (int i = 0; i < UI_MAX_STEPS; i++) {
+        android.app.Activity act = getTopActivity();
+        boolean focused = act != null && act.hasWindowFocus();
+        if (focused && uiIsMainScreen(act)) {
+            if (!home || !uiInChat(uiSnapshot())) break;
+        }
+        steps.put("Back from " + (focused ? act.getClass().getName() : "another window") + " (" + uiBack() + ")");
+        uiSleep(700, 1200);
+    }
+    JSONObject j = ok();
+    j.put("steps", steps);
+    return j;
+}
+
+JSONObject uiLocked(String what, JSONObject b) {
+    if (!uiLock.tryLock(15, java.util.concurrent.TimeUnit.MINUTES)) throw new IllegalStateException("another UI action is running");
+    JSONObject result = null;
+    try {
+        if (what.equals("open")) {
+            List texts = new ArrayList();
+            JSONArray a = b.optJSONArray("texts");
+            for (int i = 0; a != null && i < a.length(); i++) {
+                String t = a.optString(i, "").trim();
+                if (t.length() > 0) texts.add(t);
+            }
+            result = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
+        } else {
+            result = uiClose(b.optBoolean("home", true));
+        }
+    } finally {
+        uiLock.unlock();
+    }
+    return result;
+}
+
+// What the plugin sees on screen, for working out why a message was not found.
+JSONObject uiDump() {
+    Map snap = uiSnapshot();
+    JSONObject j = ok();
+    j.put("activity", nn(snap.get("activity")));
+    j.put("focused", snap.get("focused"));
+    j.put("touch_injection", !uiDispatchOnly.get());
+    JSONArray views = new JSONArray();
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size() && i < UI_DUMP_LIMIT; i++) {
+        Map n = (Map) nodes.get(i);
+        android.graphics.Rect r = (android.graphics.Rect) n.get("rect");
+        JSONObject v = new JSONObject();
+        android.view.View view = (android.view.View) n.get("view");
+        v.put("class", view.getClass().getName());
+        v.put("rect", r.toShortString());
+        v.put("clickable", n.get("clickable"));
+        String text = (String) n.get("text");
+        if (text != null) v.put("text", text.length() > 16 ? text.substring(0, 16) + "…" : text);
+        if (view.getTag() != null) v.put("tag", view.getTag().getClass().getName());
+        if (n.containsKey("field_msgId")) v.put("msg_id", n.get("field_msgId"));
+        if (n.containsKey("field_talker")) v.put("talker", String.valueOf(n.get("field_talker")));
+        if (n.containsKey("field_username")) v.put("username", String.valueOf(n.get("field_username")));
+        if (n.containsKey("field_msgId#depth")) v.put("msg_depth", n.get("field_msgId#depth"));
+        if (n.containsKey("field_createTime")) v.put("create_time", n.get("field_createTime"));
+        views.put(v);
+    }
+    j.put("views", views);
     return j;
 }
