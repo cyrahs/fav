@@ -21,7 +21,9 @@ reader would before anything is saved: the service's ``POST /link/open`` opens
 it, waits for it to load and closes it again. Then an article is fetched
 straight from mp.weixin.qq.com with every image at full size. Image posts, which the site puts behind a captcha,
 come from the service's ``POST /post/page`` instead: it has the agent's WeChat
-open the post and returns the page from WeChat's web view cache. A shared Tieba
+open the post and returns the page from WeChat's web view cache. WeChat opens
+nothing on command: the plugin taps through its screens to the message and taps
+that, as a person would, so each of these requests names the message. A shared Tieba
 post is saved the same way as an article, from the Tieba client API, with its
 videos next to its pictures (see ``tieba_post``), and so is a shared NGA thread,
 read with the NGA login of a CookieCloud vault (see ``nga_post``). A 视频号 video comes from ``POST /finder/video``: the service has
@@ -263,6 +265,15 @@ def video_path(message: dict[str, Any], video: ChannelVideo) -> Path:
         part for part in (f'{when:%Y-%m-%d %H%M%S}', sanitize(video_title(video), max_bytes=120), f'[{message["msg_id"]}]') if part
     )
     return Path(when.strftime('%Y-%m')) / f'{name}.mp4'
+
+
+def open_target(message: dict[str, Any], texts: tuple[str, ...]) -> dict[str, Any]:
+    """The message the FavInbox service has WeChat tap open, with what its bubble may show."""
+    return {
+        'talker': str(message.get('talker') or ''),
+        'msg_id': message['msg_id'],
+        'texts': [text for text in dict.fromkeys(texts) if text],
+    }
 
 
 def video_wait(video: ChannelVideo) -> int:
@@ -810,12 +821,12 @@ class Wechat:
         partial.replace(destination)
         return _SavedArticle(destination.relative_to(self.cfg.path), entries, video_entries)
 
-    async def _open_link(self, link: ArticleLink) -> None:
+    async def _open_link(self, message: dict[str, Any], link: ArticleLink) -> None:
         """Open the link in the agent's WeChat, let it load and close it again, as its reader would."""
         try:
             response = await self.client.post(
                 self._url('/link/open'),
-                json={'url': link.url, 'wait': _LINK_WAIT_SECONDS},
+                json={'url': link.url, 'message': open_target(message, (link.title,)), 'wait': _LINK_WAIT_SECONDS},
                 timeout=_LINK_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS,
             )
         except httpx.HTTPError as exc:
@@ -834,12 +845,12 @@ class Wechat:
             # Only a missing cache entry, not a failure: some pages are never cached.
             log.info('WeChat opened %s but did not report it loaded within %ds', canonical_url(link.url), _LINK_WAIT_SECONDS)
 
-    async def _page_in_wechat(self, link: ArticleLink) -> tuple[ArticlePage, str]:
+    async def _page_in_wechat(self, message: dict[str, Any], link: ArticleLink) -> tuple[ArticlePage, str]:
         """An image post as the agent's WeChat loads it, through the FavInbox service."""
         try:
             response = await self.client.post(
                 self._url('/post/page'),
-                json={'url': link.url, 'wait': _OPEN_WAIT_SECONDS},
+                json={'url': link.url, 'message': open_target(message, (link.title,)), 'wait': _OPEN_WAIT_SECONDS},
                 timeout=_OPEN_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS,
             )
         except httpx.HTTPError as exc:
@@ -856,14 +867,14 @@ class Wechat:
             raise WechatInboxError(msg)
         return replace(page, picture_count=max(link.picture_count, len(page.images))), response.text
 
-    async def _image_post(self, link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
+    async def _image_post(self, message: dict[str, Any], link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
         """An image post the site put behind its captcha: all of it from WeChat, else its first picture."""
         cover = cover_only_page(link)
         if cover is None:
             msg = f'mp.weixin.qq.com answered {canonical_url(link.url)} with a captcha page'
             raise WechatInboxError(msg)
         try:
-            return await self._page_in_wechat(link)
+            return await self._page_in_wechat(message, link)
         except WechatInboxError as exc:
             # Retried while attempts remain; the first picture beats nothing at all.
             if not final_attempt or exc.notification_dedupe_key == 'wechat:auth':
@@ -871,7 +882,7 @@ class Wechat:
             log.warning('WeChat image post %s: %s; saving its first picture only', canonical_url(link.url), exc)
             return cover, ''
 
-    async def _article_page(self, link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
+    async def _article_page(self, message: dict[str, Any], link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
         """The shared page and its HTML, if any was kept: a 公众号 article, a Tieba post or an NGA thread."""
         if thread_id(link.url) is not None:
             try:
@@ -887,7 +898,7 @@ class Wechat:
                 raise WechatInboxError(str(exc)) from exc
         response = await self.web.get(link.url)
         if is_captcha(str(response.url)):
-            return await self._image_post(link, final_attempt=final_attempt)
+            return await self._image_post(message, link, final_attempt=final_attempt)
         response.raise_for_status()
         return parse_article_page(response.text), response.text
 
@@ -936,8 +947,8 @@ class Wechat:
             raise WechatInboxError(msg)
         if await self._article_stored(message, link):
             return
-        await self._open_link(link)
-        page, page_html = await self._article_page(link, final_attempt=final_attempt)
+        await self._open_link(message, link)
+        page, page_html = await self._article_page(message, link, final_attempt=final_attempt)
         if not page.title and not page.images and not page.videos:
             msg = f'{canonical_url(link.url)} has no title, images or videos; the article may have been deleted'
             raise WechatInboxError(msg)
@@ -1078,7 +1089,7 @@ class Wechat:
         )
         return bool(rows)
 
-    async def _download_video(self, video: ChannelVideo, partial: Path) -> int:
+    async def _download_video(self, message: dict[str, Any], video: ChannelVideo, partial: Path) -> int:
         """Stream the video WeChat cached into ``partial`` and return its size."""
         wait = video_wait(video)
         failure = f'FavInbox could not get 视频号 video {video.object_id} from WeChat'
@@ -1086,7 +1097,7 @@ class Wechat:
             async with self.client.stream(
                 'POST',
                 self._url('/finder/video'),
-                json={'object_id': video.object_id, 'nonce_id': video.nonce_id, 'wait': wait},
+                json={'object_id': video.object_id, 'message': open_target(message, (video.description, video.author)), 'wait': wait},
                 timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=wait + _REQUEST_TIMEOUT_SECONDS),
             ) as response:
                 if response.status_code == httpx.codes.UNAUTHORIZED:
@@ -1130,7 +1141,7 @@ class Wechat:
             return
         destination = await asyncio.to_thread(ensure_unique_path, self.cfg.path / video_path(message, video))
         partial = destination.with_name(f'{destination.name}.part')
-        size = await self._download_video(video, partial)
+        size = await self._download_video(message, video, partial)
         await asyncio.to_thread(partial.replace, destination)
         local_path = destination.relative_to(self.cfg.path)
         cover_path: Path | None = None

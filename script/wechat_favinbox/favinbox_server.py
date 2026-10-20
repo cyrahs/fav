@@ -37,47 +37,54 @@ Env:
                                 com.tencent.mm/cache/xweb_cache)
     FAVINBOX_WECHAT_DATA        WeChat's internal data directory, for /finder/video
                                 (default /home/ubuntu/redroid-data/data/com.tencent.mm)
-    FAVINBOX_ADB                adb binary (default adb)
-    FAVINBOX_ADB_SERIAL         the redroid device (default 127.0.0.1:5555)
 
 `/wx/*` takes the same bearer token as everything else here, then calls the
 bridge with the plugin's own token, so fav never needs that second secret. The
 token file is re-read on every request because the plugin creates it on first
 load and may be reinstalled.
 
-`/link/open` opens any shared link in WeChat's web view the way a reader would
-before fav fetches it: the body is JSON, `{"url": "<the link>", "wait":
-<seconds, default 20>}`. The page counts as loaded once the web view's HTTP
-cache holds a complete response for the link's host and path, written after it
-was opened; the page then stays up a few seconds more, and Back closes it. The
-answer is `{"loaded": true|false, "seconds": <how long it was open>}`; a page
-that never reaches the cache (one served uncacheable, or redirected elsewhere)
-is closed after `wait` and answers `loaded: false`. Errors: 400 for anything but
-an http(s) URL of printable ASCII, 502 when adb failed.
+Opening something in WeChat is done the way a person does it, with taps: the
+plugin's `POST /ui/open` goes back to the chat list, taps the chat the message
+is in, finds the message's bubble and taps it; `POST /ui/close` taps Back until
+the chat list shows again. Every request that may open something therefore
+names the message: `"message": {"talker": "<wxid>", "msg_id": <id>, "texts":
+["<what its bubble shows>", ...]}`. Nothing here starts WeChat's activities or
+uses adb.
+
+`/link/open` opens a shared link the way a reader would before fav fetches it:
+the body is JSON, `{"url": "<the link>", "message": {...}, "wait": <seconds,
+default 20>}`. The page counts as loaded once the web view's HTTP cache holds a
+complete response for the link's host and path, written after it was opened;
+the page then stays up a few seconds more, and is closed. The answer is
+`{"loaded": true|false, "seconds": <how long it was open>, "steps": [...]}`; a
+page that never reaches the cache (one served uncacheable, or redirected
+elsewhere) is closed after `wait` and answers `loaded: false`. Errors: 400 for
+anything but an http(s) URL of printable ASCII or a missing message, 502 when
+the message could not be opened (the plugin's steps are in the error).
 
 `/post/page` exists for image posts (贴图): mp.weixin.qq.com answers their share
 links with a slider captcha for any outside client, but WeChat opens them
 normally with its login. The body is JSON, `{"url": "<the share link>",
-"wait": <seconds, default 30>}`. If WeChat's web view has the post in its HTTP
-cache already, that copy is returned; otherwise the post is opened in WeChat
-over adb and the cache is polled until the page lands there. The answer is the
-page's HTML (decompressed), or a JSON error: 400 for a link that is not a
+"message": {...}, "wait": <seconds, default 30>}`. If WeChat's web view has the
+post in its HTTP cache already, that copy is returned; otherwise the message is
+opened in WeChat and the cache is polled until the page lands there. The answer
+is the page's HTML (decompressed), or a JSON error: 400 for a link that is not a
 `mp.weixin.qq.com/s?__biz=...&mid=...&idx=...&sn=...` post, 404 when the page
-never reached the cache, 502 when adb failed.
+never reached the cache (or is not cached and no message was named), 502 when
+the message could not be opened.
 
 `/finder/video` does the same for 视频号 videos, whose CDN addresses need
 WeChat's login and per-video keys. The body is JSON, `{"object_id": "<the
-share's objectId>", "nonce_id": "<its objectNonceId>", "wait": <seconds,
-default 120>}`. WeChat's video player keeps what it downloads as plain MP4 files
+share's objectId>", "message": {...}, "wait": <seconds, default 120>}`. WeChat's video player keeps what it downloads as plain MP4 files
 under `cache/<account>/finder/video/`, and indexes them by feed in the
 account's `FinderMM*.db` (table `FinderMediaCacheInfoV4`: feedId, mediaId =
 file name, totalSize). If the video is cached complete already, that file is
-returned; otherwise the video is opened in WeChat over adb and the index is
-polled until the file is whole. Opening a video also preloads a few
+returned; otherwise the message is opened in WeChat and the index is polled
+until the file is whole. Opening a video also preloads a few
 recommended ones, which is why the file is found through the index rather than
 by what appeared. The answer is the MP4, or a JSON error: 400 for a bad id, 404
-when the video never finished downloading, 502 when adb failed, 503 when no
-logged-in account has a 视频号 database.
+when the video never finished downloading, 502 when the message could not be
+opened, 503 when no logged-in account has a 视频号 database.
 """
 
 from __future__ import annotations
@@ -88,7 +95,6 @@ import http.client
 import json
 import os
 import re
-import shlex
 import shutil
 import sqlite3
 import struct
@@ -144,9 +150,6 @@ _CHUNK = 65536
 # directory (/data/data/com.tencent.mm), which redroid keeps under data/.
 XWEB_CACHE = Path(os.environ.get('FAVINBOX_XWEB_CACHE', '') or '/home/ubuntu/redroid-data/data/com.tencent.mm/cache/xweb_cache')
 WECHAT_DATA = Path(os.environ.get('FAVINBOX_WECHAT_DATA', '') or '/home/ubuntu/redroid-data/data/com.tencent.mm')
-ADB = os.environ.get('FAVINBOX_ADB', '') or 'adb'
-ADB_SERIAL = os.environ.get('FAVINBOX_ADB_SERIAL', '') or '127.0.0.1:5555'
-_WEBVIEW = 'com.tencent.mm/.plugin.webview.ui.tools.WebViewUI'
 _POST_HOST = 'mp.weixin.qq.com'
 _DEFAULT_WAIT_SECONDS = 30
 _MAX_WAIT_SECONDS = 90
@@ -158,12 +161,13 @@ _MAX_LINK_WAIT_SECONDS = 60
 _LINK_DWELL_SECONDS = 3
 # Only one post or video is opened at a time, so a page found in the cache is the one asked for.
 _OPEN_LOCK = threading.Lock()
-_FINDER_UI = 'com.tencent.mm/.plugin.finder.ui.FinderShareFeedRelUI'
 _DEFAULT_VIDEO_WAIT_SECONDS = 120
 _MAX_VIDEO_WAIT_SECONDS = 300
 # A 视频号 object id is an unsigned 64-bit number in share messages and a signed one in WeChat.
 _OBJECT_ID_RE = re.compile(r'-?\d{1,20}')
-_NONCE_ID_RE = re.compile(r'[A-Za-z0-9_-]{1,200}')
+_TALKER_RE = re.compile(r'[A-Za-z0-9_@.-]{1,80}')
+_MAX_TEXTS = 4
+_MAX_TEXT_CHARS = 200
 _ACCOUNT_RE = re.compile(r'[0-9a-f]{32}')
 _MEDIA_ID_RE = re.compile(r'[A-Za-z0-9_]{1,128}')
 _TABLE_RE = re.compile(r'FinderMediaCacheInfo\w*')
@@ -284,38 +288,81 @@ def _cached_post(post: dict[str, str]) -> tuple[str, str] | None:
     return None
 
 
-def _adb(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([ADB, '-s', ADB_SERIAL, *args], capture_output=True, text=True, timeout=30, check=False)  # noqa: S603
+class OpenError(RuntimeError):
+    """WeChat could not be made to open the message."""
 
 
-def _open_url(url: str, what: str) -> None:
-    """Have WeChat's web view open ``url``."""
-    # The adb server forgets the network device whenever it restarts.
-    subprocess.run([ADB, 'connect', ADB_SERIAL], capture_output=True, timeout=30, check=False)  # noqa: S603
-    # Quoted twice: once for the shell su starts, once for the device's own shell.
-    command = f'am start -n {_WEBVIEW} --es rawUrl {shlex.quote(url)}'
-    result = _adb('shell', f'su 0 -c {shlex.quote(command)}')
-    output = f'{result.stdout}\n{result.stderr}'.strip()
-    if result.returncode != 0 or 'Error' in output:
-        msg = f'adb could not open the {what} in WeChat: {output[-300:]}'
-        raise RuntimeError(msg)
+def _target(request: object) -> dict | None:
+    """The message a request names for opening, validated, or None."""
+    message = request.get('message') if isinstance(request, dict) else None
+    if not isinstance(message, dict):
+        return None
+    talker, msg_id = message.get('talker'), message.get('msg_id')
+    if not isinstance(talker, str) or not _TALKER_RE.fullmatch(talker) or not isinstance(msg_id, int) or isinstance(msg_id, bool):
+        return None
+    texts = message.get('texts') if isinstance(message.get('texts'), list) else []
+    texts = [text.strip()[:_MAX_TEXT_CHARS] for text in texts if isinstance(text, str) and text.strip()][:_MAX_TEXTS]
+    return {'talker': talker, 'msg_id': msg_id, 'texts': texts}
 
 
-def _open_in_wechat(post: dict[str, str]) -> None:
-    _open_url(f'https://{_POST_HOST}/s?' + '&'.join(f'{name}={post[name]}' for name in _POST_FIELDS), 'post')
+def _bridge_call(path: str, payload: dict) -> tuple[int, dict]:
+    """POST to the plugin's bridge and return its status and JSON answer."""
+    try:
+        bridge_token = BRIDGE_TOKEN_FILE.read_text(encoding='utf-8').strip()
+    except OSError as exc:
+        msg = 'bridge token not found; is the plugin loaded?'
+        raise OpenError(msg) from exc
+    body = json.dumps(payload).encode('utf-8')
+    conn = http.client.HTTPConnection(BRIDGE.hostname, BRIDGE.port or 80, timeout=BRIDGE_TIMEOUT_SECONDS)
+    try:
+        conn.request('POST', path, body, {'Authorization': f'Bearer {bridge_token}', 'Content-Type': 'application/json'})
+        response = conn.getresponse()
+        raw = response.read()
+    except OSError as exc:
+        msg = f'bridge unreachable: {exc}'
+        raise OpenError(msg) from exc
+    finally:
+        conn.close()
+    try:
+        answer = json.loads(raw or b'{}')
+    except ValueError:
+        answer = {}
+    return response.status, answer if isinstance(answer, dict) else {}
 
 
-def _press_back() -> None:
-    _adb('shell', 'input', 'keyevent', '4')
+def _open_message(target: dict) -> list[str]:
+    """Have the plugin tap the message open in WeChat; the steps it took."""
+    status, answer = _bridge_call('/ui/open', target)
+    steps = [str(step) for step in answer.get('steps') or []]
+    if status != HTTPStatus.OK or not answer.get('opened'):
+        # Whatever the taps got to, leave WeChat on its chat list.
+        _close_message()
+        detail = answer.get('error') or f'HTTP {status}'
+        msg = f'WeChat did not open message {target["msg_id"]}: {detail} (steps: {"; ".join(steps) or "none"})'
+        raise OpenError(msg)
+    return steps
 
 
-def _post_page(post: dict[str, str], wait: float) -> tuple[str, str, bool] | None:
+def _close_message() -> None:
+    """Back out of what was opened, to WeChat's chat list. A failure is only logged."""
+    try:
+        status, answer = _bridge_call('/ui/close', {'home': True})
+    except OpenError as exc:
+        sys.stderr.write(f'closing in WeChat failed: {exc}\n')
+        return
+    if status != HTTPStatus.OK:
+        sys.stderr.write(f'closing in WeChat failed: HTTP {status} {answer.get("error", "")}\n')
+
+
+def _post_page(post: dict[str, str], target: dict | None, wait: float) -> tuple[str, str, bool] | None:
     """(entry name, page, whether WeChat had to open it), or None if it never got cached."""
     with _OPEN_LOCK:
         cached = _cached_post(post)
         if cached is not None:
             return (*cached, False)
-        _open_in_wechat(post)
+        if target is None:
+            return None
+        _open_message(target)
         try:
             deadline = time.monotonic() + wait
             while time.monotonic() < deadline:
@@ -325,7 +372,7 @@ def _post_page(post: dict[str, str], wait: float) -> tuple[str, str, bool] | Non
                     return (*cached, True)
             return None
         finally:
-            _press_back()
+            _close_message()
 
 
 def _entry_complete(path: Path, key_length: int) -> bool:
@@ -359,23 +406,23 @@ def _cached_since(url: str, since: float) -> bool:
     return False
 
 
-def _open_link(url: str, wait: float) -> tuple[bool, float]:
-    """Open a link in WeChat, wait for it to load, close it: (whether it loaded, seconds it was open)."""
+def _open_link(url: str, target: dict, wait: float) -> tuple[bool, float, list[str]]:
+    """Open a shared link in WeChat, wait for it to load, close it: (loaded, seconds it was open, steps)."""
     with _OPEN_LOCK:
         # Whole seconds: cache files' mtimes may be truncated to them.
         since = int(time.time())
+        steps = _open_message(target)
         started = time.monotonic()
-        _open_url(url, 'link')
         try:
             deadline = started + wait
             while time.monotonic() < deadline:
                 time.sleep(_POLL_SECONDS)
                 if _cached_since(url, since):
                     time.sleep(_LINK_DWELL_SECONDS)
-                    return True, time.monotonic() - started
-            return False, time.monotonic() - started
+                    return True, time.monotonic() - started, steps
+            return False, time.monotonic() - started, steps
         finally:
-            _press_back()
+            _close_message()
 
 
 def _feed_id(object_id: str) -> int | None:
@@ -477,23 +524,15 @@ def _cached_video(feed_id: int) -> tuple[Path, str] | None:
     return None
 
 
-def _open_feed(feed_id: int, nonce_id: str) -> None:
-    subprocess.run([ADB, 'connect', ADB_SERIAL], capture_output=True, timeout=30, check=False)  # noqa: S603
-    # Both values matched their patterns, so they hold no quote or shell character.
-    result = _adb('shell', f'su 0 -c "am start -n {_FINDER_UI} --el feed_object_id {feed_id} --es feed_object_nonceId {nonce_id}"')
-    output = f'{result.stdout}\n{result.stderr}'.strip()
-    if result.returncode != 0 or 'Error' in output:
-        msg = f'adb could not open the video in WeChat: {output[-300:]}'
-        raise RuntimeError(msg)
-
-
-def _finder_video(feed_id: int, nonce_id: str, wait: float) -> tuple[Path, str, bool] | None:
+def _finder_video(feed_id: int, target: dict | None, wait: float) -> tuple[Path, str, bool] | None:
     """(file, media id, whether WeChat had to open it), or None if it never finished downloading."""
     with _OPEN_LOCK:
         cached = _cached_video(feed_id)
         if cached is not None:
             return (*cached, False)
-        _open_feed(feed_id, nonce_id)
+        if target is None:
+            return None
+        _open_message(target)
         try:
             deadline = time.monotonic() + wait
             while time.monotonic() < deadline:
@@ -503,7 +542,7 @@ def _finder_video(feed_id: int, nonce_id: str, wait: float) -> tuple[Path, str, 
                     return (*cached, True)
             return None
         finally:
-            _press_back()
+            _close_message()
 
 
 def _load_meta(msg_id: str) -> dict | None:
@@ -645,40 +684,47 @@ class Handler(BaseHTTPRequestHandler):
         try:
             request = json.loads(self.rfile.read(length) or b'{}')
             url = str(request.get('url', ''))
+            target = _target(request)
             wait = min(float(request.get('wait', _DEFAULT_LINK_WAIT_SECONDS)), _MAX_LINK_WAIT_SECONDS)
         except (ValueError, AttributeError, TypeError):
-            url, wait = '', 0
-        if not _LINK_RE.fullmatch(url):
-            self._send_json(HTTPStatus.BAD_REQUEST, {'error': 'url must be an http(s) URL of printable ASCII'})
+            url, target, wait = '', None, 0
+        if not _LINK_RE.fullmatch(url) or target is None:
+            self._send_json(HTTPStatus.BAD_REQUEST, {'error': 'url must be an http(s) URL of printable ASCII, and message must name it'})
             return
         try:
-            loaded, seconds = _open_link(url, wait)
-        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            loaded, seconds, steps = _open_link(url, target, wait)
+        except (OpenError, OSError) as exc:
             self._send_json(HTTPStatus.BAD_GATEWAY, {'error': str(exc)})
             return
-        self._send_json(HTTPStatus.OK, {'loaded': loaded, 'seconds': round(seconds, 1)})
+        self._send_json(HTTPStatus.OK, {'loaded': loaded, 'seconds': round(seconds, 1), 'steps': steps})
 
     def _post_page(self) -> None:
         length = int(self.headers.get('Content-Length') or 0)
         try:
             request = json.loads(self.rfile.read(length) or b'{}')
             post = _post_id(str(request.get('url', '')))
+            target = _target(request)
             wait = min(float(request.get('wait', _DEFAULT_WAIT_SECONDS)), _MAX_WAIT_SECONDS)
         except (ValueError, AttributeError, TypeError):
-            post, wait = None, 0
+            post, target, wait = None, None, 0
         if post is None:
             self._send_json(HTTPStatus.BAD_REQUEST, {'error': 'url must be a mp.weixin.qq.com/s link with __biz, mid, idx and sn'})
             return
         try:
-            found = _post_page(post, wait)
-        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            found = _post_page(post, target, wait)
+        except (OpenError, OSError) as exc:
             self._send_json(HTTPStatus.BAD_GATEWAY, {'error': str(exc)})
             return
         except ValueError as exc:
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {'error': str(exc)})
             return
         if found is None:
-            self._send_json(HTTPStatus.NOT_FOUND, {'error': f'WeChat opened the post but it was not in the XWeb cache after {wait:.0f}s'})
+            error = (
+                f'WeChat opened the post but it was not in the XWeb cache after {wait:.0f}s'
+                if target
+                else 'the post is not in the XWeb cache'
+            )
+            self._send_json(HTTPStatus.NOT_FOUND, {'error': error})
             return
         entry, page, opened = found
         body = page.encode('utf-8')
@@ -695,23 +741,26 @@ class Handler(BaseHTTPRequestHandler):
         try:
             request = json.loads(self.rfile.read(length) or b'{}')
             feed_id = _feed_id(str(request.get('object_id', '')))
-            nonce_id = str(request.get('nonce_id', ''))
+            target = _target(request)
             wait = min(float(request.get('wait', _DEFAULT_VIDEO_WAIT_SECONDS)), _MAX_VIDEO_WAIT_SECONDS)
         except (ValueError, AttributeError, TypeError):
-            feed_id, nonce_id, wait = None, '', 0
-        if feed_id is None or not _NONCE_ID_RE.fullmatch(nonce_id):
-            self._send_json(HTTPStatus.BAD_REQUEST, {'error': 'object_id must be a 视频号 object id and nonce_id its objectNonceId'})
+            feed_id, target, wait = None, None, 0
+        if feed_id is None:
+            self._send_json(HTTPStatus.BAD_REQUEST, {'error': 'object_id must be a 视频号 object id'})
             return
         try:
-            found = _finder_video(feed_id, nonce_id, wait)
+            found = _finder_video(feed_id, target, wait)
         except LookupError as exc:
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {'error': str(exc)})
             return
-        except (RuntimeError, OSError, subprocess.SubprocessError, sqlite3.Error) as exc:
+        except (OpenError, OSError, sqlite3.Error) as exc:
             self._send_json(HTTPStatus.BAD_GATEWAY, {'error': str(exc)})
             return
         if found is None:
-            self._send_json(HTTPStatus.NOT_FOUND, {'error': f'WeChat opened the video but had not downloaded all of it after {wait:.0f}s'})
+            error = (
+                f'WeChat opened the video but had not downloaded all of it after {wait:.0f}s' if target else 'the video is not cached whole'
+            )
+            self._send_json(HTTPStatus.NOT_FOUND, {'error': error})
             return
         path, media_id, opened = found
         try:

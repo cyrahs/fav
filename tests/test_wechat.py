@@ -708,7 +708,13 @@ def test_an_article_is_opened_in_wechat_before_it_is_fetched(fake_db, notificati
     asyncio.run(source.update())
 
     (opened,) = [request for request in inbox.requests if request.url.path == '/link/open']
-    assert json.loads(opened.content) == {'url': shared_link(message['content']).url, 'wait': 20}
+    link = shared_link(message['content'])
+    # The service taps the message open, so it is named, with the card title its bubble shows.
+    assert json.loads(opened.content) == {
+        'url': link.url,
+        'message': {'talker': 'wxid_sender', 'msg_id': 44, 'texts': [link.title]},
+        'wait': 20,
+    }
     assert order.index('inbox /link/open') < order.index('web /s')
     assert fake_db.queue[(44, _CREATE_TIME + 44)]['status'] == 'done'
 
@@ -828,7 +834,11 @@ def test_an_image_post_behind_the_captcha_is_read_from_wechat(fake_db, notificat
     asyncio.run(_source(inbox, web).update())
 
     (opened,) = [request for request in inbox.requests if request.url.path == '/post/page']
-    assert json.loads(opened.content) == {'url': _IMAGE_POST_FETCH + '#rd', 'wait': 30}
+    assert json.loads(opened.content) == {
+        'url': _IMAGE_POST_FETCH + '#rd',
+        'message': {'talker': 'wxid_sender', 'msg_id': 47, 'texts': ['每日分享']},
+        'wait': 30,
+    }
     (row,) = fake_db.inserts('wechat_article')
     assert row[8:10] == ('2025-10-09 08:53:20', 3)
     folder = tmp_path / row[10]
@@ -1368,7 +1378,11 @@ def test_a_channels_video_is_saved_with_its_cover(fake_db, notifications, tmp_pa
     asyncio.run(source.update())
 
     [request] = [request for request in inbox.requests if request.url.path == '/finder/video']
-    assert json.loads(request.content) == {'object_id': _OBJECT_ID, 'nonce_id': _NONCE_ID, 'wait': 90}
+    assert json.loads(request.content) == {
+        'object_id': _OBJECT_ID,
+        'message': {'talker': 'wxid_sender', 'msg_id': 65, 'texts': ['镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨', 'jiang57l']},
+        'wait': 90,
+    }
     stem = '2025-10-05 031320 镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨 [65]'
     assert (tmp_path / '2025-10' / f'{stem}.mp4').read_bytes() == _MP4
     assert (tmp_path / '2025-10' / f'{stem}.jpg').read_bytes() == _JPEG
