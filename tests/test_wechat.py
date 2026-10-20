@@ -142,6 +142,7 @@ class _FakeInbox:
         list_status: int = 200,
         events: list[dict] | None = None,
         events_status: int = 200,
+        status: httpx.Response | None = None,
         images: dict[int, bytes] | None = None,
         post_page: httpx.Response | None = None,
         finder_video: httpx.Response | None = None,
@@ -156,6 +157,7 @@ class _FakeInbox:
         self.events = events or []
         self.last_seq: int | None = None
         self.events_status = events_status
+        self.status = status or httpx.Response(200, json={'ok': True, 'version': '0.3.0', 'login_wxid': 'wxid_fav'})
         self.images = images or {}
         self.acked: list[int] = []
         self.auth_headers: set[str] = set()
@@ -189,6 +191,8 @@ class _FakeInbox:
         return httpx.Response(404)
 
     def _bridge(self, request: httpx.Request, path: str) -> httpx.Response:
+        if path == '/wx/status':
+            return self.status
         if path == '/wx/events':
             if self.events_status != 200:
                 return httpx.Response(self.events_status, json={'error': 'bridge unreachable: connection refused'})
@@ -592,6 +596,34 @@ def test_a_bridge_that_is_down_still_lets_the_inbox_drain(fake_db, tmp_path) -> 
     assert [params[0] for params in fake_db.inserts()] == [1]
     assert inbox.acked == [1]
     assert 'events_after' not in fake_db.state
+
+
+def test_a_logged_out_wechat_fails_the_run_after_reading_events(fake_db, tmp_path) -> None:
+    # WeChat on the phone sat on its login screen: the plugin still served its event
+    # log, but could not answer /wx/status, and the runs kept succeeding silently.
+    _configure_wechat(path=tmp_path, token='secret')
+    status = httpx.Response(502, json={'error': 'bridge unreachable: Remote end closed connection without response'})
+    inbox = _FakeInbox([], events=[_event(1, _message(45))], images={45: _JPEG}, status=status)
+
+    with pytest.raises(WechatInboxError) as excinfo:
+        asyncio.run(_source(inbox).update())
+
+    assert excinfo.value.notification_dedupe_key == 'wechat:login'
+    assert 'not logged in' in str(excinfo.value)
+    assert 'HTTP 502' in str(excinfo.value)
+    # What the log already held is still saved.
+    assert [params[0] for params in fake_db.inserts('wechat_events')] == [45]
+
+
+def test_a_status_without_a_logged_in_account_fails_the_run(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], status=httpx.Response(200, json={'ok': True, 'login_wxid': ''}))
+
+    with pytest.raises(WechatInboxError) as excinfo:
+        asyncio.run(_source(inbox).update())
+
+    assert excinfo.value.notification_dedupe_key == 'wechat:login'
+    assert 'no logged-in account' in str(excinfo.value)
 
 
 # ---------- articles ----------
