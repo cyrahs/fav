@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.0";
+String PLUGIN_VERSION = "0.4.1";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1340,7 +1340,12 @@ java.util.Random uiRandom = new java.util.Random();
 java.util.concurrent.atomic.AtomicBoolean uiDispatchOnly = new java.util.concurrent.atomic.AtomicBoolean(false);
 Map uiFieldCache = new java.util.concurrent.ConcurrentHashMap();
 int UI_MAX_STEPS = 10;
-int UI_MAX_SCROLLS = 4;
+// A chat is scrolled until the message shows, however far back it is; these only
+// stop a runaway.
+int UI_MAX_CHAT_SCROLLS = 400;
+int UI_MAX_LIST_SCROLLS = 20;
+// Swipes in a row that change nothing on screen: the end of the chat.
+int UI_STUCK_SWIPES = 3;
 int UI_TAG_DEPTH = 3;
 int UI_TAG_BUDGET = 80;
 int UI_DUMP_LIMIT = 400;
@@ -1413,7 +1418,7 @@ void uiScan(Object o, String[] wanted, Map found, java.util.IdentityHashMap seen
     }
 }
 
-String[] UI_TAG_FIELDS = new String[] {"field_msgId", "field_talker", "field_username"};
+String[] UI_TAG_FIELDS = new String[] {"field_msgId", "field_talker", "field_createTime", "field_username"};
 
 Map uiTagInfo(android.view.View v) {
     Map found = new HashMap();
@@ -1580,6 +1585,35 @@ String uiChatTalker(Map snap) {
     return null;
 }
 
+// [oldest, newest] send time (ms) of the messages on screen, or null when their
+// views do not tell.
+long[] uiVisibleTimes(Map snap) {
+    long[] range = null;
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        Object t = n.get("field_createTime");
+        if (!n.containsKey("field_msgId") || !(t instanceof Number)) continue;
+        long v = ((Number) t).longValue();
+        if (range == null) range = new long[] {v, v};
+        range[0] = Math.min(range[0], v);
+        range[1] = Math.max(range[1], v);
+    }
+    return range;
+}
+
+// The messages on screen, as one string, to notice a swipe that moved nothing.
+String uiVisibleIds(Map snap) {
+    java.util.TreeSet ids = new java.util.TreeSet();
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        if (n.containsKey("field_msgId")) ids.add(String.valueOf(n.get("field_msgId")));
+        else if (n.get("text") != null) ids.add("t:" + n.get("text"));
+    }
+    return ids.toString();
+}
+
 int uiTouchDevice() {
     int[] ids = android.view.InputDevice.getDeviceIds();
     for (int i = 0; i < ids.length; i++) {
@@ -1744,9 +1778,12 @@ boolean uiLeftChat(String chatActivity) {
     return !act.getClass().getName().equals(chatActivity);
 }
 
-// Taps through to message `msgId` of chat `talker` and opens it. `texts` are what
-// its bubble may show (a card's title), for when its view does not carry it.
-JSONObject uiOpenMessage(String talker, long msgId, List texts) {
+// Taps through to message `msgId` of chat `talker` and opens it. `createTime`
+// (ms, 0 when unknown) says which way to scroll the chat; `texts` are what its
+// bubble may show (a card's title), for when its view does not carry it. The
+// chat is scrolled until the message shows, however old it is, and only gives
+// up at the end of the chat.
+JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts) {
     List steps = new ArrayList();
     List names = new ArrayList();
     String[] kinds = new String[] {"name", "remark", "nick"};
@@ -1756,29 +1793,40 @@ JSONObject uiOpenMessage(String talker, long msgId, List texts) {
     }
     boolean opened = false;
     String[] foundBy = new String[1];
-    int scrolls = 0;
+    int nav = 0;
     int taps = 0;
+    int listScrolls = 0;
+    int scrollsUp = 0;
+    int scrollsDown = 0;
+    int stuck = 0;
+    int straddled = 0;
+    float lastDirection = 0f;
+    String lastScreen = null;
     boolean tappedHomeTab = false;
     uiForeground(steps);
-    for (int step = 0; step < UI_MAX_STEPS + UI_MAX_SCROLLS && !opened; step++) {
+    while (!opened && nav < UI_MAX_STEPS) {
         Map snap = uiSnapshot();
         android.app.Activity act = getTopActivity();
         if (!Boolean.TRUE.equals(snap.get("focused")) || !uiIsMainScreen(act)) {
             steps.add("Back from " + snap.get("activity") + " (" + uiBack() + ")");
+            nav++;
             uiSleep(700, 1200);
             continue;
         }
         String inChat = uiChatTalker(snap);
         if (inChat != null && !inChat.equals(talker)) {
             steps.add("Back from another chat (" + uiBack() + ")");
+            nav++;
             uiSleep(600, 1000);
             continue;
         }
         Map target = uiFindMessage(snap, msgId, texts, foundBy);
         if (target != null) {
+            if (scrollsUp + scrollsDown > 0) steps.add("scrolled the chat " + scrollsUp + " times up, " + scrollsDown + " down");
             uiSleep(400, 900);
             uiTap((android.graphics.Rect) target.get("rect"));
             taps++;
+            nav++;
             steps.add("tapped the message (found by " + foundBy[0] + (uiDispatchOnly.get() ? ", dispatched" : ", injected") + ")");
             uiSleep(1500, 2500);
             if (uiLeftChat(act.getClass().getName())) {
@@ -1793,11 +1841,41 @@ JSONObject uiOpenMessage(String talker, long msgId, List texts) {
             continue;
         }
         if (uiInChat(snap)) {
-            if (scrolls >= UI_MAX_SCROLLS) break;
-            uiSwipe(snap, 0.35f);
-            scrolls++;
-            steps.add("scrolled up the chat");
-            uiSleep(600, 1000);
+            // Older messages are above. When the send times on screen say the
+            // message is below them, go back down, in shorter swipes once the
+            // direction has changed so the two do not overshoot each other.
+            float direction = 1f;
+            long[] range = uiVisibleTimes(snap);
+            if (createTime > 0 && range != null) {
+                if (range[1] < createTime) {
+                    direction = -1f;
+                } else if (range[0] <= createTime) {
+                    // The screen spans its send time and it is not there: hidden or deleted.
+                    if (++straddled >= 2) {
+                        steps.add("the chat shows the messages around it, but not this one");
+                        break;
+                    }
+                }
+            }
+            String screen = uiVisibleIds(snap);
+            stuck = screen.equals(lastScreen) ? stuck + 1 : 0;
+            lastScreen = screen;
+            if (stuck >= UI_STUCK_SWIPES) {
+                steps.add("reached the " + (direction > 0 ? "top" : "bottom") + " of the chat after " + (scrollsUp + scrollsDown) + " swipes");
+                break;
+            }
+            if (scrollsUp + scrollsDown >= UI_MAX_CHAT_SCROLLS) {
+                steps.add("gave up after " + UI_MAX_CHAT_SCROLLS + " swipes");
+                break;
+            }
+            boolean turned = lastDirection != 0f && direction != lastDirection;
+            uiSwipe(snap, direction * (turned || (scrollsUp > 0 && scrollsDown > 0) ? 0.2f : 0.45f));
+            lastDirection = direction;
+            if (direction > 0) scrollsUp++;
+            else scrollsDown++;
+            // A screen that did not move may be WeChat loading older messages.
+            if (stuck > 0) uiSleep(1500, 2500);
+            else uiSleep(500, 900);
             continue;
         }
         // The chat list: find the conversation and tap it.
@@ -1809,6 +1887,7 @@ JSONObject uiOpenMessage(String talker, long msgId, List texts) {
         if (row != null) {
             uiSleep(300, 700);
             uiTap((android.graphics.Rect) row.get("rect"));
+            nav++;
             steps.add("tapped the chat");
             uiSleep(900, 1500);
             continue;
@@ -1818,14 +1897,15 @@ JSONObject uiOpenMessage(String talker, long msgId, List texts) {
             if (tab != null) {
                 uiTap((android.graphics.Rect) uiClickableAncestor(snap, tab).get("rect"));
                 tappedHomeTab = true;
+                nav++;
                 steps.add("tapped the 微信 tab");
                 uiSleep(600, 1000);
                 continue;
             }
         }
-        if (scrolls >= UI_MAX_SCROLLS) break;
+        if (listScrolls >= UI_MAX_LIST_SCROLLS) break;
         uiSwipe(snap, -0.35f);
-        scrolls++;
+        listScrolls++;
         steps.add("scrolled down the chat list");
         uiSleep(600, 1000);
     }
@@ -1861,7 +1941,7 @@ JSONObject uiClose(boolean home) {
 }
 
 JSONObject uiLocked(String what, JSONObject b) {
-    if (!uiLock.tryLock(120, java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException("another UI action is running");
+    if (!uiLock.tryLock(15, java.util.concurrent.TimeUnit.MINUTES)) throw new IllegalStateException("another UI action is running");
     JSONObject result = null;
     try {
         if (what.equals("open")) {
@@ -1871,7 +1951,7 @@ JSONObject uiLocked(String what, JSONObject b) {
                 String t = a.optString(i, "").trim();
                 if (t.length() > 0) texts.add(t);
             }
-            result = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), texts);
+            result = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
         } else {
             result = uiClose(b.optBoolean("home", true));
         }
@@ -1905,6 +1985,7 @@ JSONObject uiDump() {
         if (n.containsKey("field_talker")) v.put("talker", String.valueOf(n.get("field_talker")));
         if (n.containsKey("field_username")) v.put("username", String.valueOf(n.get("field_username")));
         if (n.containsKey("field_msgId#depth")) v.put("msg_depth", n.get("field_msgId#depth"));
+        if (n.containsKey("field_createTime")) v.put("create_time", n.get("field_createTime"));
         views.put(v);
     }
     j.put("views", views);

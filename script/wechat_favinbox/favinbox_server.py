@@ -144,6 +144,8 @@ BRIDGE = urlsplit(os.environ.get('FAVINBOX_BRIDGE_URL', 'http://172.17.0.2:9971'
 BRIDGE_TOKEN_FILE = Path(os.environ.get('FAVINBOX_BRIDGE_TOKEN_FILE', '') or DIR.parent / 'FavBridge' / 'token')
 # Long enough for an /events long-poll (60s at most) and a large image download.
 BRIDGE_TIMEOUT_SECONDS = 180
+# Long enough for the plugin to scroll a long chat back to an old message.
+OPEN_TIMEOUT_SECONDS = 1200
 _CHUNK = 65536
 
 # Not beside FAVINBOX_DIR: the web view caches into WeChat's internal data
@@ -302,10 +304,15 @@ def _target(request: object) -> dict | None:
         return None
     texts = message.get('texts') if isinstance(message.get('texts'), list) else []
     texts = [text.strip()[:_MAX_TEXT_CHARS] for text in texts if isinstance(text, str) and text.strip()][:_MAX_TEXTS]
-    return {'talker': talker, 'msg_id': msg_id, 'texts': texts}
+    target = {'talker': talker, 'msg_id': msg_id, 'texts': texts}
+    create_time = message.get('create_time')
+    if isinstance(create_time, int) and not isinstance(create_time, bool) and create_time > 0:
+        # Its send time (ms) tells the plugin which way to scroll the chat.
+        target['create_time'] = create_time
+    return target
 
 
-def _bridge_call(path: str, payload: dict) -> tuple[int, dict]:
+def _bridge_call(path: str, payload: dict, timeout: float = BRIDGE_TIMEOUT_SECONDS) -> tuple[int, dict]:
     """POST to the plugin's bridge and return its status and JSON answer."""
     try:
         bridge_token = BRIDGE_TOKEN_FILE.read_text(encoding='utf-8').strip()
@@ -313,7 +320,7 @@ def _bridge_call(path: str, payload: dict) -> tuple[int, dict]:
         msg = 'bridge token not found; is the plugin loaded?'
         raise OpenError(msg) from exc
     body = json.dumps(payload).encode('utf-8')
-    conn = http.client.HTTPConnection(BRIDGE.hostname, BRIDGE.port or 80, timeout=BRIDGE_TIMEOUT_SECONDS)
+    conn = http.client.HTTPConnection(BRIDGE.hostname, BRIDGE.port or 80, timeout=timeout)
     try:
         conn.request('POST', path, body, {'Authorization': f'Bearer {bridge_token}', 'Content-Type': 'application/json'})
         response = conn.getresponse()
@@ -332,7 +339,7 @@ def _bridge_call(path: str, payload: dict) -> tuple[int, dict]:
 
 def _open_message(target: dict) -> list[str]:
     """Have the plugin tap the message open in WeChat; the steps it took."""
-    status, answer = _bridge_call('/ui/open', target)
+    status, answer = _bridge_call('/ui/open', target, OPEN_TIMEOUT_SECONDS)
     steps = [str(step) for step in answer.get('steps') or []]
     if status != HTTPStatus.OK or not answer.get('opened'):
         # Whatever the taps got to, leave WeChat on its chat list.

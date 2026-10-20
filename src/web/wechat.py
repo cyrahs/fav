@@ -92,6 +92,9 @@ _MAX_ATTEMPTS = 5
 _OPEN_WAIT_SECONDS = 30
 # How long it waits for WeChat to load any other link it opened before closing it.
 _LINK_WAIT_SECONDS = 20
+# How long WeChat may take to reach a message before opening it: it scrolls the
+# chat back as far as the message is, however old.
+_TAP_OPEN_SECONDS = 1200
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
 _WORK_VERSION = '5'
@@ -272,6 +275,7 @@ def open_target(message: dict[str, Any], texts: tuple[str, ...]) -> dict[str, An
     return {
         'talker': str(message.get('talker') or ''),
         'msg_id': message['msg_id'],
+        'create_time': message['create_time'],
         'texts': [text for text in dict.fromkeys(texts) if text],
     }
 
@@ -827,7 +831,7 @@ class Wechat:
             response = await self.client.post(
                 self._url('/link/open'),
                 json={'url': link.url, 'message': open_target(message, (link.title,)), 'wait': _LINK_WAIT_SECONDS},
-                timeout=_LINK_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS,
+                timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_TAP_OPEN_SECONDS + _LINK_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS),
             )
         except httpx.HTTPError as exc:
             msg = f'FavInbox could not open the link in WeChat: {exc}'
@@ -851,7 +855,7 @@ class Wechat:
             response = await self.client.post(
                 self._url('/post/page'),
                 json={'url': link.url, 'message': open_target(message, (link.title,)), 'wait': _OPEN_WAIT_SECONDS},
-                timeout=_OPEN_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS,
+                timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_TAP_OPEN_SECONDS + _OPEN_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS),
             )
         except httpx.HTTPError as exc:
             msg = f'FavInbox could not open the image post in WeChat: {exc}'
@@ -1098,7 +1102,7 @@ class Wechat:
                 'POST',
                 self._url('/finder/video'),
                 json={'object_id': video.object_id, 'message': open_target(message, (video.description, video.author)), 'wait': wait},
-                timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=wait + _REQUEST_TIMEOUT_SECONDS),
+                timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_TAP_OPEN_SECONDS + wait + _REQUEST_TIMEOUT_SECONDS),
             ) as response:
                 if response.status_code == httpx.codes.UNAUTHORIZED:
                     raise self._unauthorized()

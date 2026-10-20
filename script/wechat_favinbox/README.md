@@ -77,7 +77,9 @@ host side of WeChat's internal `/data/data/com.tencent.mm/cache/xweb_cache`), `F
 `/link/open`, `/post/page` and `/finder/video` get WeChat to open a message by
 having the plugin tap it (bridge `POST /ui/open`, then `POST /ui/close`), so
 each names the message: `"message": {"talker": "<wxid>", "msg_id": <id>,
-"texts": ["<the card's title>", ...]}`. Nothing is started over adb.
+"create_time": <ms>, "texts": ["<the card's title>", ...]}`. Nothing is started
+over adb, and nothing is fetched without being opened first, however old the
+message; reaching an old one can take minutes of scrolling.
 
 `/link/open` is how fav reads a shared link (公众号 article, Tieba post, NGA
 thread) the way the account's owner would: before fetching it, fav has WeChat
@@ -235,7 +237,7 @@ sent.
 | `/audio/mp3-to-silk` | `path` → `{code, path}` |
 | `/toast` | `text` |
 | `/device-step` | `step` |
-| `/ui/open` | `talker, msg_id[, texts]` → `{opened, found_by, steps}` |
+| `/ui/open` | `talker, msg_id[, create_time, texts]` → `{opened, found_by, steps}` |
 | `/ui/close` | `[home]` (default true) → `{steps}` |
 
 `GET /ui/dump` lists what the plugin sees in WeChat's top activity: each shown
@@ -247,8 +249,13 @@ clickable, and the message or conversation its tag carries.
 `/ui/open` opens a message the way a person does. It brings WeChat to the front
 if it is not (as its launcher icon would), taps Back until WeChat shows its chat
 list or the right chat, taps the conversation, finds the message's bubble and
-taps it, scrolling a few times when it is not on screen. It answers once the
-chat has lost the focus to what opened; when a tap changes nothing it taps once
+taps it. When the bubble is not on screen it scrolls the chat until it is,
+however far back the message is: up by default, and down when the send times of
+the bubbles on screen (their tags' `field_createTime`) say the message's
+`create_time` is below them. It stops only when a few swipes move nothing (the
+top or bottom of the chat), when the bubbles on screen span the message's send
+time but it is not among them (hidden or deleted), or after 400 swipes. It
+answers once the chat has lost the focus to what opened; when a tap changes nothing it taps once
 more, then gives up with `opened: false` and the steps it took. `/ui/close`
 taps Back until the chat list shows again; it never presses Back on the chat
 list itself, which would send WeChat to the background.

@@ -712,7 +712,7 @@ def test_an_article_is_opened_in_wechat_before_it_is_fetched(fake_db, notificati
     # The service taps the message open, so it is named, with the card title its bubble shows.
     assert json.loads(opened.content) == {
         'url': link.url,
-        'message': {'talker': 'wxid_sender', 'msg_id': 44, 'texts': [link.title]},
+        'message': {'talker': 'wxid_sender', 'msg_id': 44, 'create_time': _CREATE_TIME + 44, 'texts': [link.title]},
         'wait': 20,
     }
     assert order.index('inbox /link/open') < order.index('web /s')
@@ -836,7 +836,7 @@ def test_an_image_post_behind_the_captcha_is_read_from_wechat(fake_db, notificat
     (opened,) = [request for request in inbox.requests if request.url.path == '/post/page']
     assert json.loads(opened.content) == {
         'url': _IMAGE_POST_FETCH + '#rd',
-        'message': {'talker': 'wxid_sender', 'msg_id': 47, 'texts': ['每日分享']},
+        'message': {'talker': 'wxid_sender', 'msg_id': 47, 'create_time': _CREATE_TIME + 47, 'texts': ['每日分享']},
         'wait': 30,
     }
     (row,) = fake_db.inserts('wechat_article')
@@ -1380,7 +1380,12 @@ def test_a_channels_video_is_saved_with_its_cover(fake_db, notifications, tmp_pa
     [request] = [request for request in inbox.requests if request.url.path == '/finder/video']
     assert json.loads(request.content) == {
         'object_id': _OBJECT_ID,
-        'message': {'talker': 'wxid_sender', 'msg_id': 65, 'texts': ['镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨', 'jiang57l']},
+        'message': {
+            'talker': 'wxid_sender',
+            'msg_id': 65,
+            'create_time': _CREATE_TIME + 65,
+            'texts': ['镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨', 'jiang57l'],
+        },
         'wait': 90,
     }
     stem = '2025-10-05 031320 镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨 [65]'
