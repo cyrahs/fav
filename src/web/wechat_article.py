@@ -38,7 +38,9 @@ from urllib.parse import parse_qs, urlsplit
 
 _APPMSG_RE = re.compile(r'<appmsg\b.*?</appmsg>', re.DOTALL)
 _ARTICLE_HOST = 'mp.weixin.qq.com'
-_LINK_SHARE_TYPE = '5'
+LINK_SHARE_TYPE = '5'
+# A video link card, as the Tieba app shares a video post.
+VIDEO_SHARE_TYPE = '4'
 IMAGE_POST = '8'
 # Paths the site redirects a request it does not trust to.
 CAPTCHA_PATHS = ('/mp/wappoc_appmsgcaptcha', '/mp/verifycode')
@@ -72,6 +74,12 @@ class ArticleLink:
 
 
 @dataclass(frozen=True, slots=True)
+class PostVideo:
+    url: str
+    cover_url: str = ''
+
+
+@dataclass(frozen=True, slots=True)
 class ArticlePage:
     title: str
     account: str
@@ -79,6 +87,7 @@ class ArticlePage:
     images: list[str] = field(default_factory=list)
     # How many pictures the post has, when only some of them could be read.
     picture_count: int = 0
+    videos: list[PostVideo] = field(default_factory=list)
 
 
 def _tag(xml: str, name: str) -> str:
@@ -92,14 +101,14 @@ def _tag(xml: str, name: str) -> str:
     return html.unescape(text).strip()
 
 
-def appmsg_link(content: str) -> ArticleLink | None:
-    """The link a link-card message shares, whatever site it points at, or None for anything else."""
+def appmsg_link(content: str, types: tuple[str, ...] = (LINK_SHARE_TYPE,)) -> ArticleLink | None:
+    """The link a link-card message of one of ``types`` shares, whatever site it points at, or None for anything else."""
     appmsg = _APPMSG_RE.search(content or '')
     if appmsg is None:
         return None
     xml = appmsg.group(0)
     # The first <type> belongs to appmsg itself; nested elements come later.
-    if _tag(xml, 'type') != _LINK_SHARE_TYPE:
+    if _tag(xml, 'type') not in types:
         return None
     url = _tag(xml, 'url')
     if urlsplit(url).scheme not in {'http', 'https'}:

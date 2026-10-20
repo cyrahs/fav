@@ -505,7 +505,7 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert not [request for request in inbox.requests if request.url.path.startswith('/file/')]
     image_request = next(request for request in inbox.requests if request.url.path == '/wx/image')
     assert dict(image_request.url.params) == {'talker': 'wxid_sender', 'msg_id': '45', 'create_time': str(_CREATE_TIME + 45)}
-    assert fake_db.state == {'events_after': '7', 'work_version': '4'}
+    assert fake_db.state == {'events_after': '7', 'work_version': '5'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
 
@@ -984,6 +984,84 @@ def test_a_deleted_tieba_post_is_retried_without_writing_anything(fake_db, tmp_p
     assert not any(tmp_path.rglob('*'))
 
 
+_TIEBA_VIDEO = 'http://tb-video.bdstatic.com/tieba-smallvideo-transcode-cae/12_abc_0_cae3.mp4?tbau=2026-10-21_grant&ptid=11104915948'
+_TIEBA_VIDEO_COVER = 'http://tiebapic.baidu.com/forum/w%3D960/sign=x/cover.jpg?tbpicau=2026-10-31-05_grant'
+_MP4 = b'\x00\x00\x00\x18ftypmp42video-bytes'
+
+
+def _tieba_video_message(msg_id: int = 64) -> dict:
+    url = 'https://tieba.baidu.com/p/11104915948?share_from=post&amp;is_video=true&amp;sfc=weixin'
+    content = _share(url=url, kind='4').replace('<title>每日分享</title>', '<title>这个数值够不够还原</title>')
+    return _message(msg_id, type=49, kind='app', content=content, image=None)
+
+
+def _tieba_video_pages(*, in_floor: bool = True) -> dict[str, dict]:
+    first = _floor(1, '7')
+    if in_floor:
+        first['content'].append({'type': 5, 'link': _TIEBA_VIDEO, 'src': _TIEBA_VIDEO_COVER, 'during_time': 13})
+    thread = {
+        'title': '这个数值够不够还原',
+        'create_time': '1791984959',
+        'video_info': {'video_url': _TIEBA_VIDEO, 'thumbnail_url': _TIEBA_VIDEO_COVER, 'video_duration': 13},
+    }
+    return {'1': {'error_code': '0', 'thread': thread, 'forum': {'name': '绝区零内鬼'}, 'post_list': [first]}}
+
+
+def _tieba_video_web(*, in_floor: bool = True, video: httpx.Response | None = None) -> _TiebaWeb:
+    responses = {
+        _TIEBA_VIDEO: video or httpx.Response(200, content=_MP4, headers={'content-type': 'video/mp4'}),
+        _TIEBA_VIDEO_COVER: httpx.Response(200, content=_JPEG, headers={'content-type': 'image/jpeg'}),
+    }
+    return _TiebaWeb(_tieba_video_pages(in_floor=in_floor), responses)
+
+
+def test_a_tieba_video_share_names_its_post() -> None:
+    content = _tieba_video_message()['content']
+    link = parse_tieba_link(content)
+
+    assert link is not None
+    assert (link.url, link.title) == ('https://tieba.baidu.com/p/11104915948', '这个数值够不够还原')
+    assert work_for(_event(9, _tieba_video_message())) == 'article'
+    # Only Tieba shares video cards this source reads.
+    assert parse_article_link(_share(kind='4')) is None
+    assert work_for(_event(10, _message(10, kind='app', content=_share(kind='4')))) is None
+
+
+@pytest.mark.parametrize('in_floor', [True, False])
+def test_a_tieba_video_post_keeps_its_video_and_cover(fake_db, notifications, tmp_path, in_floor) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _tieba_video_message())])
+
+    asyncio.run(_source(inbox, _tieba_video_web(in_floor=in_floor)).update())
+
+    (row,) = fake_db.inserts('wechat_article')
+    assert row[5:10] == ('https://tieba.baidu.com/p/11104915948', '这个数值够不够还原', '绝区零内鬼吧', '2026-10-14 13:35:59', 0)
+    assert json.loads(row[11])['videos'] == [{'url': _TIEBA_VIDEO, 'file': 'video.mp4', 'cover': 'video.jpg'}]
+    folder = tmp_path / row[10]
+    assert sorted(path.name for path in folder.iterdir()) == ['article.json', 'video.jpg', 'video.mp4']
+    assert (folder / 'video.mp4').read_bytes() == _MP4
+    assert sorted(path.name for path in folder.parent.iterdir()) == [folder.name]
+    assert fake_db.queue[(64, _CREATE_TIME + 64)]['status'] == 'done'
+    (notification,) = notifications
+    assert notification['body'] == '绝区零内鬼吧 | 1 video | From wxid_sender'
+    assert notification['payload']['image_path'] == str(folder / 'video.jpg')
+
+
+def test_a_tieba_video_that_will_not_download_is_retried_without_writing_anything(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(5, _tieba_video_message())])
+    web = _tieba_video_web(video=httpx.Response(401, text='<html>401 Authorization Required</html>'))
+
+    with pytest.raises(WechatInboxError):
+        asyncio.run(_source(inbox, web).update())
+
+    assert fake_db.inserts('wechat_article') == []
+    assert 'none of the 1 videos' in fake_db.queue[(64, _CREATE_TIME + 64)]['last_error']
+    assert fake_db.queue[(64, _CREATE_TIME + 64)]['status'] == 'pending'
+    assert not [path for path in tmp_path.rglob('*') if path.is_file()]
+    assert notifications == []
+
+
 # ---------- nga ----------
 
 _NGA_SHARE_URL = 'https://bbs.nga.cn/read.php?tid=47695975'
@@ -1158,7 +1236,7 @@ def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications,
     assert inbox.event_requests() == [0, 6]
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
-    assert fake_db.state == {'events_after': '6', 'work_version': '4'}
+    assert fake_db.state == {'events_after': '6', 'work_version': '5'}
     assert len(notifications) == 1
 
 
