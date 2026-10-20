@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.5";
+String PLUGIN_VERSION = "0.4.6";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1778,9 +1778,7 @@ String uiBack() {
     final android.app.Activity act = getTopActivity();
     if (act == null || !act.hasWindowFocus()) {
         // What is on top lives in another WeChat process (the web view); bring the chat list back over it.
-        android.content.Intent home = hostContext.getPackageManager().getLaunchIntentForPackage(hostContext.getPackageName());
-        home.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        hostContext.startActivity(home);
+        uiStartLauncher(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
         return "launcher";
     }
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
@@ -1809,11 +1807,25 @@ void uiForeground(List steps) {
     android.app.Activity act = getTopActivity();
     if (act != null && act.hasWindowFocus()) return;
     if (act != null && !uiIsMainScreen(act)) return;
-    android.content.Intent launch = hostContext.getPackageManager().getLaunchIntentForPackage(hostContext.getPackageName());
-    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-    hostContext.startActivity(launch);
-    steps.add("brought WeChat to the front");
+    uiStartLauncher(0);
     uiSleep(1500, 2500);
+    act = getTopActivity();
+    if (act == null || !act.hasWindowFocus()) {
+        steps.add("asked WeChat to come to the front, but it did not");
+        throw new IllegalStateException("WeChat is not on screen and did not come to the front; open WeChat on the device");
+    }
+    steps.add("brought WeChat to the front");
+}
+
+// Starts WeChat's main screen as its launcher icon does. The package manager
+// gives no launch intent for WeChat inside its own process here, so the main
+// screen is named directly.
+void uiStartLauncher(int flags) {
+    android.content.Intent launch = new android.content.Intent(android.content.Intent.ACTION_MAIN);
+    launch.addCategory(android.content.Intent.CATEGORY_LAUNCHER);
+    launch.setClassName(hostContext.getPackageName(), "com.tencent.mm.ui.LauncherUI");
+    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | flags);
+    hostContext.startActivity(launch);
 }
 
 String uiName(String talker, String which) {
