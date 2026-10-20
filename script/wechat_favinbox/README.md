@@ -261,9 +261,11 @@ list or the right chat, taps the conversation, finds the message's bubble and
 taps it. When the bubble is not on screen it scrolls the chat until it is,
 however far back the message is: up by default, and down when the send times of
 the bubbles on screen (their tags' `field_createTime`) say the message's
-`create_time` is below them. It stops only when a few swipes move nothing (the
-top or bottom of the chat), when the bubbles on screen span the message's send
-time but it is not among them (hidden or deleted), or after 400 swipes. It
+`create_time` is below them. WeChat 8.0.78 leaves `field_createTime` at 0 on the
+bubbles, so it then compares message ids instead, which WeChat hands out in
+arrival order. It stops only when a few swipes move nothing (the top or bottom
+of the chat), when the bubbles on screen span the message's send time (or id)
+but it is not among them (hidden or deleted), or after 400 swipes. It
 answers once the chat has lost the focus to what opened; when a tap changes nothing it taps once
 more, then gives up with `opened: false` and the steps it took. `/ui/close`
 taps Back until the chat list shows again; it never presses Back on the chat

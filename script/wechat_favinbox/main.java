@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.6";
+String PLUGIN_VERSION = "0.4.7";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1645,15 +1645,16 @@ String uiChatTalker(Map snap) {
     return null;
 }
 
-// [oldest, newest] send time (ms) of the messages on screen, or null when their
-// views do not tell.
-long[] uiVisibleTimes(Map snap) {
+// [lowest, highest] value of `field` (field_createTime or field_msgId) among the
+// messages on screen, or null when their views do not tell. The bubbles WeChat
+// 8.0.78 shows carry field_createTime 0, so a zero counts as unknown.
+long[] uiVisibleRange(Map snap, String field) {
     long[] range = null;
     List nodes = (List) snap.get("nodes");
     for (int i = 0; i < nodes.size(); i++) {
         Map n = (Map) nodes.get(i);
-        Object t = n.get("field_createTime");
-        if (!n.containsKey("field_msgId") || !(t instanceof Number)) continue;
+        Object t = n.get(field);
+        if (!n.containsKey("field_msgId") || !(t instanceof Number) || ((Number) t).longValue() <= 0) continue;
         long v = ((Number) t).longValue();
         if (range == null) range = new long[] {v, v};
         range[0] = Math.min(range[0], v);
@@ -1922,16 +1923,22 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
                 done = true;
             }
         } else if (uiInChat(snap)) {
-            // Older messages are above. When the send times on screen say the
+            // Older messages are above. When the send times on screen (else the
+            // message ids, which WeChat hands out in arrival order) say the
             // message is below them, go back down, in shorter swipes once the
             // direction has changed so the two do not overshoot each other.
             float direction = 1f;
             boolean missing = false;
-            long[] range = uiVisibleTimes(snap);
-            if (createTime > 0 && range != null) {
-                if (range[1] < createTime) {
+            long want = createTime;
+            long[] range = createTime > 0 ? uiVisibleRange(snap, "field_createTime") : null;
+            if (range == null) {
+                want = msgId;
+                range = uiVisibleRange(snap, "field_msgId");
+            }
+            if (range != null) {
+                if (range[1] < want) {
                     direction = -1f;
-                } else if (range[0] <= createTime) {
+                } else if (range[0] <= want) {
                     // The screen spans its send time and it is not there: hidden or deleted.
                     straddled++;
                     missing = straddled >= 2;
