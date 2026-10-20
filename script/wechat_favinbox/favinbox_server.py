@@ -46,7 +46,8 @@ load and may be reinstalled.
 Opening something in WeChat is done the way a person does it, with taps: the
 plugin's `POST /ui/open` goes back to the chat list, taps the chat the message
 is in, finds the message's bubble and taps it; `POST /ui/close` taps Back until
-the chat list shows again. Every request that may open something therefore
+the chat shows again, where the next message of that chat is a few swipes away
+(after a failed open, until the chat list shows). Every request that may open something therefore
 names the message: `"message": {"talker": "<wxid>", "msg_id": <id>, "texts":
 ["<what its bubble shows>", ...]}`. Nothing here starts WeChat's activities or
 uses adb.
@@ -343,17 +344,22 @@ def _open_message(target: dict) -> list[str]:
     steps = [str(step) for step in answer.get('steps') or []]
     if status != HTTPStatus.OK or not answer.get('opened'):
         # Whatever the taps got to, leave WeChat on its chat list.
-        _close_message()
+        _close_message(home=True)
         detail = answer.get('error') or f'HTTP {status}'
         msg = f'WeChat did not open message {target["msg_id"]}: {detail} (steps: {"; ".join(steps) or "none"})'
         raise OpenError(msg)
     return steps
 
 
-def _close_message() -> None:
-    """Back out of what was opened, to WeChat's chat list. A failure is only logged."""
+def _close_message(home: bool = False) -> None:
+    """Back out of what was opened, to its chat (with `home`, to WeChat's chat list).
+
+    Staying in the chat keeps the next message of that chat a few swipes away;
+    back on the chat list, reopening the chat would start from its newest
+    message again. A failure is only logged.
+    """
     try:
-        status, answer = _bridge_call('/ui/close', {'home': True})
+        status, answer = _bridge_call('/ui/close', {'home': home})
     except OpenError as exc:
         sys.stderr.write(f'closing in WeChat failed: {exc}\n')
         return

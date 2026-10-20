@@ -268,8 +268,12 @@ of the chat), when the bubbles on screen span the message's send time (or id)
 but it is not among them (hidden or deleted), or after 400 swipes. It
 answers once the chat has lost the focus to what opened; when a tap changes nothing it taps once
 more, then gives up with `opened: false` and the steps it took. `/ui/close`
-taps Back until the chat list shows again; it never presses Back on the chat
-list itself, which would send WeChat to the background.
+taps Back until the chat list shows again (with `"home": false`, until the
+chat shows again); it never presses Back on the chat list itself, which would
+send WeChat to the background. The host service closes to the chat after a
+successful open, so the next message of the same chat is a few swipes away
+instead of a scroll up from the newest message, and to the chat list after a
+failed one.
 
 Views are recognised by what they carry, not by WeChat's obfuscated class
 names: a bubble's tag holds its message (an object with a public
