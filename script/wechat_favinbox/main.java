@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.3";
+String PLUGIN_VERSION = "0.4.4";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1549,7 +1549,8 @@ Map uiPickTarget(Map snap, List nodes, String key) {
 Map uiClickableAncestor(Map snap, Map node) {
     List nodes = (List) snap.get("nodes");
     android.view.View v = (android.view.View) node.get("view");
-    android.view.ViewParent p = v;
+    // Object, not ViewParent: a plain View is not a ViewParent, only its parents are.
+    Object p = v;
     for (int depth = 0; depth < 8 && p instanceof android.view.View; depth++) {
         android.view.View pv = (android.view.View) p;
         if (pv.isClickable()) {
@@ -1905,7 +1906,8 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
             // The chat list: find the conversation and tap it.
             Map row = uiPickTarget(snap, uiNodesWith(snap, "field_username", talker), "field_username");
             if (row == null) {
-                Map nameNode = uiTextNode(snap, names, 0.1f, 0.9f);
+                // Below the title bar only; the first chat row starts about 8% down.
+                Map nameNode = uiTextNode(snap, names, 0.05f, 0.9f);
                 if (nameNode != null) row = uiClickableAncestor(snap, nameNode);
             }
             Map tab = null;
