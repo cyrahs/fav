@@ -57,6 +57,7 @@ drain the inbox over the frpc tunnel. It runs on the oracle host, binds
 | GET | `/items[?include_acked=1]` | list items from the JSON sidecars |
 | GET | `/file/<msg_id>` | the image bytes |
 | POST | `/ack/<msg_id>` | mark acked, delete the media file, keep the JSON |
+| POST | `/link/open` | open a link in WeChat, wait for it to load, close it |
 | POST | `/post/page` | a 公众号 post's page, as WeChat itself loads it |
 | POST | `/finder/video` | a 视频号 video, as WeChat's player cached it |
 
@@ -71,6 +72,18 @@ Env: `FAVINBOX_DIR` (required), `FAVINBOX_TOKEN` (required), `FAVINBOX_HOST`
 host side of WeChat's internal `/data/data/com.tencent.mm/cache/xweb_cache`), `FAVINBOX_ADB`
 (default `adb`), `FAVINBOX_ADB_SERIAL` (default `127.0.0.1:5555`), `FAVINBOX_WECHAT_DATA` (default
 `/home/ubuntu/redroid-data/data/com.tencent.mm`, the host side of `/data/data/com.tencent.mm`).
+
+`/link/open` is how fav reads a shared link (公众号 article, Tieba post, NGA
+thread) the way the account's owner would: before fetching it, fav has WeChat
+open it. It takes `{"url": "<share link>", "wait": 20}` (at most 60) and runs,
+over adb, `am start -n com.tencent.mm/.plugin.webview.ui.tools.WebViewUI --es rawUrl <link>`
+(as root inside redroid, the URL shell-quoted), polls the web view's HTTP cache
+until it holds a complete response for the link's host and path written after
+the open, leaves the page up a few seconds more, then presses Back. It answers
+`{"loaded": true, "seconds": 7.2}`; a page that never reaches the cache
+(uncacheable, or redirected to another host) is closed after `wait` with
+`loaded: false`. Errors: 400 for anything but an http(s) URL of printable
+ASCII, 502 when adb failed.
 
 `/post/page` is for image posts (贴图), which mp.weixin.qq.com hides behind a
 slider captcha from every client but WeChat. It takes

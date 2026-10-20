@@ -310,7 +310,9 @@ the bridge under `/wx/`. frp tunnels it into the cluster, where fav reaches it a
 Every run (`*/15 * * * *` by default) reads the bridge's message events after its cursor
 (`wechat_state`) and queues the images and article shares received in private chats in
 `wechat_events`. An image is fetched through `/wx/image` (or from the inbox when that fails) into
-`<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>` and recorded in `wechat_inbox`. An article is
+`<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>` and recorded in `wechat_inbox`. Every shared
+link is first opened in the account's WeChat through the service's `/link/open`, which waits for the
+page to load and closes it again, so the account reads what it is sent before fav saves it. An article is
 fetched from mp.weixin.qq.com with every body image at full size into
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <title> [<msg_id>]/`, beside the page and an `article.json`, and
 recorded in `wechat_article`. Image posts (贴图), which mp.weixin.qq.com hides behind a captcha, are

@@ -10,6 +10,7 @@ the host. This serves that directory to the fav crawler over the frpc tunnel:
     GET  /file/<msg_id>     -> the image bytes
     POST /ack/<msg_id>      -> mark the item acked and delete its media file
     *    /wx/<path>         -> forwarded to the plugin's bridge API (see README)
+    POST /link/open         -> open a link in WeChat, wait for it to load, close it
     POST /post/page         -> a 公众号 post's page as WeChat itself loaded it
     POST /finder/video      -> a 视频号 video as WeChat itself downloaded it
 
@@ -44,6 +45,16 @@ bridge with the plugin's own token, so fav never needs that second secret. The
 token file is re-read on every request because the plugin creates it on first
 load and may be reinstalled.
 
+`/link/open` opens any shared link in WeChat's web view the way a reader would
+before fav fetches it: the body is JSON, `{"url": "<the link>", "wait":
+<seconds, default 20>}`. The page counts as loaded once the web view's HTTP
+cache holds a complete response for the link's host and path, written after it
+was opened; the page then stays up a few seconds more, and Back closes it. The
+answer is `{"loaded": true|false, "seconds": <how long it was open>}`; a page
+that never reaches the cache (one served uncacheable, or redirected elsewhere)
+is closed after `wait` and answers `loaded: false`. Errors: 400 for anything but
+an http(s) URL of printable ASCII, 502 when adb failed.
+
 `/post/page` exists for image posts (贴图): mp.weixin.qq.com answers their share
 links with a slider captcha for any outside client, but WeChat opens them
 normally with its login. The body is JSON, `{"url": "<the share link>",
@@ -77,6 +88,7 @@ import http.client
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import struct
@@ -139,6 +151,11 @@ _POST_HOST = 'mp.weixin.qq.com'
 _DEFAULT_WAIT_SECONDS = 30
 _MAX_WAIT_SECONDS = 90
 _POLL_SECONDS = 2
+_LINK_RE = re.compile(r'https?://[\x21-\x7e]{1,2040}')
+_DEFAULT_LINK_WAIT_SECONDS = 20
+_MAX_LINK_WAIT_SECONDS = 60
+# How long a loaded page stays up before Back closes it, as a reader would glance at it.
+_LINK_DWELL_SECONDS = 3
 # Only one post or video is opened at a time, so a page found in the cache is the one asked for.
 _OPEN_LOCK = threading.Lock()
 _FINDER_UI = 'com.tencent.mm/.plugin.finder.ui.FinderShareFeedRelUI'
@@ -271,16 +288,21 @@ def _adb(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([ADB, '-s', ADB_SERIAL, *args], capture_output=True, text=True, timeout=30, check=False)  # noqa: S603
 
 
-def _open_in_wechat(post: dict[str, str]) -> None:
-    url = f'https://{_POST_HOST}/s?' + '&'.join(f'{name}={post[name]}' for name in _POST_FIELDS)
+def _open_url(url: str, what: str) -> None:
+    """Have WeChat's web view open ``url``."""
     # The adb server forgets the network device whenever it restarts.
     subprocess.run([ADB, 'connect', ADB_SERIAL], capture_output=True, timeout=30, check=False)  # noqa: S603
-    # Every part of the URL matched _POST_FIELDS, so it holds no quote or shell character.
-    result = _adb('shell', f'su 0 -c "am start -n {_WEBVIEW} --es rawUrl \'{url}\'"')
+    # Quoted twice: once for the shell su starts, once for the device's own shell.
+    command = f'am start -n {_WEBVIEW} --es rawUrl {shlex.quote(url)}'
+    result = _adb('shell', f'su 0 -c {shlex.quote(command)}')
     output = f'{result.stdout}\n{result.stderr}'.strip()
     if result.returncode != 0 or 'Error' in output:
-        msg = f'adb could not open the post in WeChat: {output[-300:]}'
+        msg = f'adb could not open the {what} in WeChat: {output[-300:]}'
         raise RuntimeError(msg)
+
+
+def _open_in_wechat(post: dict[str, str]) -> None:
+    _open_url(f'https://{_POST_HOST}/s?' + '&'.join(f'{name}={post[name]}' for name in _POST_FIELDS), 'post')
 
 
 def _press_back() -> None:
@@ -302,6 +324,56 @@ def _post_page(post: dict[str, str], wait: float) -> tuple[str, str, bool] | Non
                 if cached is not None:
                     return (*cached, True)
             return None
+        finally:
+            _press_back()
+
+
+def _entry_complete(path: Path, key_length: int) -> bool:
+    """Whether a cache entry holds a whole response: its body's EOF record is there."""
+    return path.read_bytes().find(_SIMPLE_EOF, _SIMPLE_HEADER.size + key_length) >= 0
+
+
+def _cached_since(url: str, since: float) -> bool:
+    """Whether the web view cached a whole response for the link's host and path after ``since``."""
+    wanted = urlsplit(url)
+    host, path = (wanted.hostname or '').lower(), wanted.path or '/'
+    if not XWEB_CACHE.is_dir():
+        return False
+    for directory in XWEB_CACHE.glob('*/HTTP Cache/Cache_Data'):
+        for entry in directory.glob('*_0'):
+            try:
+                if entry.stat().st_mtime < since:
+                    continue
+                key = _cache_key(entry)
+                if key is None:
+                    continue
+                found = urlsplit(key.rsplit(' ', 1)[-1])
+                if (
+                    (found.hostname or '').lower() == host
+                    and (found.path or '/') == path
+                    and _entry_complete(entry, len(key.encode('utf-8')))
+                ):
+                    return True
+            except (OSError, ValueError):
+                continue
+    return False
+
+
+def _open_link(url: str, wait: float) -> tuple[bool, float]:
+    """Open a link in WeChat, wait for it to load, close it: (whether it loaded, seconds it was open)."""
+    with _OPEN_LOCK:
+        # Whole seconds: cache files' mtimes may be truncated to them.
+        since = int(time.time())
+        started = time.monotonic()
+        _open_url(url, 'link')
+        try:
+            deadline = started + wait
+            while time.monotonic() < deadline:
+                time.sleep(_POLL_SECONDS)
+                if _cached_since(url, since):
+                    time.sleep(_LINK_DWELL_SECONDS)
+                    return True, time.monotonic() - started
+            return False, time.monotonic() - started
         finally:
             _press_back()
 
@@ -502,6 +574,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/ack/'):
             self._ack(path[len('/ack/') :])
             return
+        if path == '/link/open':
+            self._open_link()
+            return
         if path == '/post/page':
             self._post_page()
             return
@@ -564,6 +639,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
         finally:
             conn.close()
+
+    def _open_link(self) -> None:
+        length = int(self.headers.get('Content-Length') or 0)
+        try:
+            request = json.loads(self.rfile.read(length) or b'{}')
+            url = str(request.get('url', ''))
+            wait = min(float(request.get('wait', _DEFAULT_LINK_WAIT_SECONDS)), _MAX_LINK_WAIT_SECONDS)
+        except (ValueError, AttributeError, TypeError):
+            url, wait = '', 0
+        if not _LINK_RE.fullmatch(url):
+            self._send_json(HTTPStatus.BAD_REQUEST, {'error': 'url must be an http(s) URL of printable ASCII'})
+            return
+        try:
+            loaded, seconds = _open_link(url, wait)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, {'error': str(exc)})
+            return
+        self._send_json(HTTPStatus.OK, {'loaded': loaded, 'seconds': round(seconds, 1)})
 
     def _post_page(self) -> None:
         length = int(self.headers.get('Content-Length') or 0)

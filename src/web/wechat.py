@@ -16,8 +16,10 @@ A run reads the events after its cursor in ``wechat_state`` and queues the ones
 worth keeping -- images and shared articles received in a private chat -- in
 ``wechat_events``, so the cursor moves on even when saving an item fails. It then
 works that queue. An image is fetched through the bridge, or from the inbox when
-the bridge cannot; an article is fetched straight from mp.weixin.qq.com with
-every image at full size. Image posts, which the site puts behind a captcha,
+the bridge cannot. A shared link is first opened in the agent's WeChat, as its
+reader would before anything is saved: the service's ``POST /link/open`` opens
+it, waits for it to load and closes it again. Then an article is fetched
+straight from mp.weixin.qq.com with every image at full size. Image posts, which the site puts behind a captcha,
 come from the service's ``POST /post/page`` instead: it has the agent's WeChat
 open the post and returns the page from WeChat's web view cache. A shared Tieba
 post is saved the same way as an article, from the Tieba client API, with its
@@ -86,6 +88,8 @@ _EVENT_PAGE_SIZE = 200
 _MAX_ATTEMPTS = 5
 # How long the FavInbox service waits for WeChat to load an image post it opened.
 _OPEN_WAIT_SECONDS = 30
+# How long it waits for WeChat to load any other link it opened before closing it.
+_LINK_WAIT_SECONDS = 20
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
 _WORK_VERSION = '5'
@@ -806,6 +810,30 @@ class Wechat:
         partial.replace(destination)
         return _SavedArticle(destination.relative_to(self.cfg.path), entries, video_entries)
 
+    async def _open_link(self, link: ArticleLink) -> None:
+        """Open the link in the agent's WeChat, let it load and close it again, as its reader would."""
+        try:
+            response = await self.client.post(
+                self._url('/link/open'),
+                json={'url': link.url, 'wait': _LINK_WAIT_SECONDS},
+                timeout=_LINK_WAIT_SECONDS + _REQUEST_TIMEOUT_SECONDS,
+            )
+        except httpx.HTTPError as exc:
+            msg = f'FavInbox could not open the link in WeChat: {exc}'
+            raise WechatInboxError(msg) from exc
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            raise self._unauthorized()
+        if response.status_code != httpx.codes.OK:
+            msg = f'FavInbox could not open the link in WeChat: HTTP {response.status_code}{_error_detail(response)}'
+            raise WechatInboxError(msg)
+        try:
+            loaded = bool(response.json().get('loaded'))
+        except (ValueError, AttributeError):
+            loaded = False
+        if not loaded:
+            # Only a missing cache entry, not a failure: some pages are never cached.
+            log.info('WeChat opened %s but did not report it loaded within %ds', canonical_url(link.url), _LINK_WAIT_SECONDS)
+
     async def _page_in_wechat(self, link: ArticleLink) -> tuple[ArticlePage, str]:
         """An image post as the agent's WeChat loads it, through the FavInbox service."""
         try:
@@ -908,6 +936,7 @@ class Wechat:
             raise WechatInboxError(msg)
         if await self._article_stored(message, link):
             return
+        await self._open_link(link)
         page, page_html = await self._article_page(link, final_attempt=final_attempt)
         if not page.title and not page.images and not page.videos:
             msg = f'{canonical_url(link.url)} has no title, images or videos; the article may have been deleted'
