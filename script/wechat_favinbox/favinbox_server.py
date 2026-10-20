@@ -350,8 +350,13 @@ def _open_message(target: dict) -> list[str]:
     if left_in is not None and left_in != target['talker']:
         # The plugin cannot always tell which chat it is in, so leave another chat first.
         _close_message(home=True)
+    started = time.monotonic()
     status, answer = _bridge_call('/ui/open', target, OPEN_TIMEOUT_SECONDS)
     steps = [str(step) for step in answer.get('steps') or []]
+    sys.stderr.write(
+        f'open {target["msg_id"]}: {"opened" if answer.get("opened") else "not opened"} '
+        f'after {time.monotonic() - started:.0f}s ({"; ".join(steps) or "no steps"})\n'
+    )
     if status != HTTPStatus.OK or not answer.get('opened'):
         # Whatever the taps got to, leave WeChat on its chat list.
         _close_message(home=True)
