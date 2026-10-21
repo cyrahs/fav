@@ -250,8 +250,23 @@ def _decompress(body: bytes, encoding: str) -> bytes:
                 msg = 'the page is brotli-compressed; install python3-brotli on this host'
                 raise ValueError(msg) from exc
         return brotli.decompress(body)
+    if encoding == 'zstd':
+        return _zstd_decompress(body)
     msg = f'unknown content-encoding {encoding}'
     raise ValueError(msg)
+
+
+def _zstd_decompress(body: bytes) -> bytes:
+    """zstd, which XWeb now serves 贴图 pages in: the standard library from Python 3.14, else the zstd tool."""
+    try:
+        from compression import zstd  # noqa: PLC0415  (Python 3.14+)
+    except ImportError:
+        try:
+            return subprocess.run(['zstd', '-d', '-c'], input=body, capture_output=True, check=True, timeout=30).stdout  # noqa: S607
+        except (OSError, subprocess.SubprocessError) as exc:
+            msg = 'the page is zstd-compressed; install the zstd package on this host'
+            raise ValueError(msg) from exc
+    return zstd.decompress(body)
 
 
 def _cache_page(path: Path, key_length: int) -> str | None:

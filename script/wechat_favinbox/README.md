@@ -100,8 +100,8 @@ post's HTML. If WeChat's web view (XWeb) has the post in its HTTP cache, that
 copy is used; otherwise the message is tapped open, the cache polled until the
 page arrives, and WeChat backed out to its chat list. The cache is Chromium's Simple Cache: `<hash>_0` files under
 `xweb_cache/<profile>/HTTP Cache/Cache_Data/`, each holding the URL, the body
-as received (gzip or brotli) and the response headers. Brotli needs
-`python3-brotli` on the host. Errors: 400 for a link without
+as received (gzip, brotli or zstd) and the response headers. Brotli needs
+`python3-brotli` on the host, and zstd either Python 3.14 or the `zstd` tool. Errors: 400 for a link without
 `__biz`/`mid`/`idx`/`sn`, 404 when the page never reached the cache, 502 when
 the message could not be opened.
 
