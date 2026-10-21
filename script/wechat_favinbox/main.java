@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.8";
+String PLUGIN_VERSION = "0.4.9";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1361,6 +1361,10 @@ JSONObject send(String what, JSONObject b) {
 java.util.concurrent.locks.ReentrantLock uiLock = new java.util.concurrent.locks.ReentrantLock();
 java.util.Random uiRandom = new java.util.Random();
 java.util.concurrent.atomic.AtomicBoolean uiDispatchOnly = new java.util.concurrent.atomic.AtomicBoolean(false);
+// Back is injected as a key until that fails. Kept apart from taps: a tap that
+// seemed to change nothing says nothing about keys, and only an injected Back
+// reaches a page in WeChat's web view process without resetting the chat.
+java.util.concurrent.atomic.AtomicBoolean uiBackLauncherOnly = new java.util.concurrent.atomic.AtomicBoolean(false);
 Map uiFieldCache = new java.util.concurrent.ConcurrentHashMap();
 int UI_MAX_STEPS = 10;
 // A chat is scrolled until the message shows, however far back it is; these only
@@ -1767,13 +1771,13 @@ void uiSwipe(Map snap, float fraction) {
 
 // Back, as the navigation bar would send it. Returns how it was delivered.
 String uiBack() {
-    if (!uiDispatchOnly.get()) {
+    if (!uiBackLauncherOnly.get()) {
         try {
             new android.app.Instrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
             return "key";
         } catch (RuntimeException e) {
             log("FavBridge cannot inject Back (" + e + ")");
-            uiDispatchOnly.set(true);
+            uiBackLauncherOnly.set(true);
         }
     }
     final android.app.Activity act = getTopActivity();

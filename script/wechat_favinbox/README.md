@@ -290,9 +290,11 @@ Touches are real `MotionEvent`s (finger, touchscreen, a few pixels of drift, a
 press of 70-150 ms) injected with `Instrumentation`, which Android accepts for
 windows of the injecting app; if the system refuses, or an injected tap changes
 nothing, later ones are dispatched straight into the activity's window. Back is
-an injected `KEYCODE_BACK`; without injection it is the activity's own
-`onBackPressed()`, or, when the window on top belongs to another WeChat process
-(the web view), WeChat's launcher intent with `FLAG_ACTIVITY_CLEAR_TOP`.
+an injected `KEYCODE_BACK`, whatever happened to taps, since only that closes a
+page in WeChat's web view process and leaves the chat as it was; only if the
+system refuses it is Back the activity's own `onBackPressed()`, or, when the
+window on top belongs to another WeChat process (the web view), WeChat's
+launcher intent with `FLAG_ACTIVITY_CLEAR_TOP`, which also resets the chat.
 
 Not exposed: downloading videos, voice and files (WAuxiliary has no API for
 them; their CDN fields are in the event), and WAuxiliary's `eval`, hook,
