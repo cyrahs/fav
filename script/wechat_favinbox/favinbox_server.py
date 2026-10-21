@@ -46,7 +46,8 @@ load and may be reinstalled.
 Opening something in WeChat is done the way a person does it, with taps: the
 plugin's `POST /ui/open` goes back to the chat list, taps the chat the message
 is in, finds the message's bubble and taps it; `POST /ui/close` taps Back until
-the chat list shows again. Every request that may open something therefore
+the chat shows again, where the next message of that chat is a few swipes away
+(after a failed open, until the chat list shows). Every request that may open something therefore
 names the message: `"message": {"talker": "<wxid>", "msg_id": <id>, "texts":
 ["<what its bubble shows>", ...]}`. Nothing here starts WeChat's activities or
 uses adb.
@@ -163,6 +164,14 @@ _MAX_LINK_WAIT_SECONDS = 60
 _LINK_DWELL_SECONDS = 3
 # Only one post or video is opened at a time, so a page found in the cache is the one asked for.
 _OPEN_LOCK = threading.Lock()
+# After an open, WeChat is left in that chat so the next message of the chat is
+# near. The chat it was left in (guarded by _OPEN_LOCK; '' when unknown, as
+# after a restart), and how long it may sit there unused before Back takes it to
+# the chat list, so messages arriving later are not marked read. Each close
+# starts a new generation, which retires the idle timers of the ones before.
+_LEFT_IN_CHAT: dict[str, object] = {'talker': '', 'timer': None, 'generation': 0}
+_IDLE_HOME_SECONDS = 120
+_IDLE_RETRY_SECONDS = 10
 _DEFAULT_VIDEO_WAIT_SECONDS = 120
 _MAX_VIDEO_WAIT_SECONDS = 300
 # A 视频号 object id is an unsigned 64-bit number in share messages and a signed one in WeChat.
@@ -241,8 +250,23 @@ def _decompress(body: bytes, encoding: str) -> bytes:
                 msg = 'the page is brotli-compressed; install python3-brotli on this host'
                 raise ValueError(msg) from exc
         return brotli.decompress(body)
+    if encoding == 'zstd':
+        return _zstd_decompress(body)
     msg = f'unknown content-encoding {encoding}'
     raise ValueError(msg)
+
+
+def _zstd_decompress(body: bytes) -> bytes:
+    """zstd, which XWeb now serves 贴图 pages in: the standard library from Python 3.14, else the zstd tool."""
+    try:
+        from compression import zstd  # noqa: PLC0415  (Python 3.14+)
+    except ImportError:
+        try:
+            return subprocess.run(['zstd', '-d', '-c'], input=body, capture_output=True, check=True, timeout=30).stdout  # noqa: S607
+        except (OSError, subprocess.SubprocessError) as exc:
+            msg = 'the page is zstd-compressed; install the zstd package on this host'
+            raise ValueError(msg) from exc
+    return zstd.decompress(body)
 
 
 def _cache_page(path: Path, key_length: int) -> str | None:
@@ -338,27 +362,86 @@ def _bridge_call(path: str, payload: dict, timeout: float = BRIDGE_TIMEOUT_SECON
 
 
 def _open_message(target: dict) -> list[str]:
-    """Have the plugin tap the message open in WeChat; the steps it took."""
+    """Have the plugin tap the message open in WeChat; the steps it took. Call with _OPEN_LOCK held."""
+    left_in = _LEFT_IN_CHAT['talker']
+    if left_in is not None and left_in != target['talker']:
+        # The plugin cannot always tell which chat it is in, so leave another chat first.
+        _close_message(home=True)
+    started = time.monotonic()
     status, answer = _bridge_call('/ui/open', target, OPEN_TIMEOUT_SECONDS)
     steps = [str(step) for step in answer.get('steps') or []]
+    sys.stderr.write(
+        f'open {target["msg_id"]}: {"opened" if answer.get("opened") else "not opened"} '
+        f'after {time.monotonic() - started:.0f}s ({"; ".join(steps) or "no steps"})\n'
+    )
     if status != HTTPStatus.OK or not answer.get('opened'):
         # Whatever the taps got to, leave WeChat on its chat list.
-        _close_message()
+        _close_message(home=True)
         detail = answer.get('error') or f'HTTP {status}'
         msg = f'WeChat did not open message {target["msg_id"]}: {detail} (steps: {"; ".join(steps) or "none"})'
         raise OpenError(msg)
+    _LEFT_IN_CHAT['talker'] = target['talker']
     return steps
 
 
-def _close_message() -> None:
-    """Back out of what was opened, to WeChat's chat list. A failure is only logged."""
+def _close_message(*, home: bool = False) -> None:
+    """Back out of what was opened, to its chat (with `home`, to WeChat's chat list).
+
+    Staying in the chat keeps the next message of that chat a few swipes away;
+    back on the chat list, reopening the chat would start from its newest
+    message again. A chat left unused for _IDLE_HOME_SECONDS is backed out of
+    too. Call with _OPEN_LOCK held. A failure is only logged.
+    """
+    if home:
+        _LEFT_IN_CHAT['talker'] = None
+        _arm_idle_timer(None)
+    else:
+        _arm_idle_timer(_IDLE_HOME_SECONDS)
     try:
-        status, answer = _bridge_call('/ui/close', {'home': True})
+        status, answer = _bridge_call('/ui/close', {'home': home})
     except OpenError as exc:
         sys.stderr.write(f'closing in WeChat failed: {exc}\n')
         return
     if status != HTTPStatus.OK:
         sys.stderr.write(f'closing in WeChat failed: HTTP {status} {answer.get("error", "")}\n')
+        return
+    steps = [str(step) for step in answer.get('steps') or []]
+    sys.stderr.write(f'close to {"chat list" if home else "chat"}: {"; ".join(steps) or "no steps"}\n')
+
+
+def _arm_idle_timer(delay: float | None) -> None:
+    """Retire the idle timer and, with a delay, start a new one. Call with _OPEN_LOCK held."""
+    timer = _LEFT_IN_CHAT['timer']
+    if isinstance(timer, threading.Timer):
+        timer.cancel()
+    _LEFT_IN_CHAT['timer'] = None
+    _LEFT_IN_CHAT['generation'] = generation = int(_LEFT_IN_CHAT['generation']) + 1
+    if delay is not None:
+        _start_idle_timer(delay, generation)
+
+
+def _start_idle_timer(delay: float, generation: int) -> None:
+    timer = threading.Timer(delay, _leave_idle_chat, args=(generation,))
+    timer.daemon = True
+    timer.start()
+    _LEFT_IN_CHAT['timer'] = timer
+
+
+def _leave_idle_chat(generation: int) -> None:
+    """Take WeChat from the chat it was left in back to its chat list.
+
+    Does nothing once a later open or close has taken over; while another
+    request holds WeChat, tries again shortly.
+    """
+    if not _OPEN_LOCK.acquire(blocking=False):
+        if _LEFT_IN_CHAT['generation'] == generation:
+            _start_idle_timer(_IDLE_RETRY_SECONDS, generation)
+        return
+    try:
+        if _LEFT_IN_CHAT['generation'] == generation and _LEFT_IN_CHAT['talker'] is not None:
+            _close_message(home=True)
+    finally:
+        _OPEN_LOCK.release()
 
 
 def _post_page(post: dict[str, str], target: dict | None, wait: float) -> tuple[str, str, bool] | None:
@@ -858,6 +941,9 @@ def main() -> None:
     port = int(os.environ.get('FAVINBOX_PORT', '9970'))
     server = ThreadingHTTPServer((host, port), Handler)
     sys.stderr.write(f'favinbox serving {DIR} on {host}:{port}\n')
+    # WeChat may have been left in some chat before this start; take it back to the chat list.
+    with _OPEN_LOCK:
+        _arm_idle_timer(_IDLE_RETRY_SECONDS)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

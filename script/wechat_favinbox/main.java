@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.1";
+String PLUGIN_VERSION = "0.4.10";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -741,6 +741,14 @@ void serve(Socket s) {
         Map req = null;
         try {
             req = readRequest(in);
+            // The body is read here rather than inside the route: under WAuxiliary
+            // the route runs in a scripted Callable, which every POST used to leave
+            // empty-handed. /upload streams its body, so it gets the stream instead.
+            if (req != null) {
+                String m = (String) req.get("method");
+                if (req.get("path").equals("/upload")) req.put("stream", in);
+                else if (m.equals("POST") || m.equals("PUT")) req.put("json", jsonBody(req, in));
+            }
         } catch (Throwable e) {
             sendJson(out, 400, error("bad request: " + e.getMessage()));
             return;
@@ -749,12 +757,19 @@ void serve(Socket s) {
         Object result;
         int status = 200;
         try {
-            result = guarded(req, in);
+            result = guarded(req);
         } catch (Throwable e) {
             Throwable cause = rootCause(e);
             status = statusFor(cause);
             result = error(String.valueOf(cause.getMessage() == null ? cause.toString() : cause.getMessage()));
             if (status == 500) log("FavBridge " + req.get("method") + " " + req.get("path") + " failed: " + cause);
+        }
+        if (result == null) {
+            // A route that came back empty, which WAuxiliary's BeanShell can do; say so
+            // instead of failing on the answer and closing the connection unanswered.
+            status = 500;
+            result = error(req.get("method") + " " + req.get("path") + " returned nothing");
+            log("FavBridge " + req.get("method") + " " + req.get("path") + " returned nothing");
         }
         if (result instanceof File) {
             sendFile(out, (File) result);
@@ -773,20 +788,27 @@ void serve(Socket s) {
     }
 }
 
-// Runs a route behind a Java-level Callable. A WAuxiliary function this host
-// version lacks fails as a BeanShell EvalError, which a script catch does not
-// see; through the Callable it arrives as an ExecutionException instead of
-// killing the worker thread.
-Object guarded(Map req, InputStream in) {
+// Runs a route behind a Java-level Callable, so a WAuxiliary function this host
+// version lacks cannot kill the worker thread. The route's failure is caught
+// inside the Callable and handed back as an ExecutionException: WAuxiliary's
+// BeanShell can otherwise turn a script error there into a plain null.
+Object guarded(Map req) {
     final Map r = req;
-    final InputStream input = in;
     java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(new java.util.concurrent.Callable() {
         public Object call() {
-            return route(r, input);
+            Object answer = null;
+            try {
+                answer = route(r);
+            } catch (Throwable e) {
+                answer = new java.util.concurrent.ExecutionException(e);
+            }
+            return answer;
         }
     });
     task.run();
-    return task.get();
+    Object result = task.get();
+    if (result instanceof java.util.concurrent.ExecutionException) throw (Throwable) result;
+    return result;
 }
 
 Throwable rootCause(Throwable e) {
@@ -996,7 +1018,7 @@ String uploadedPath(JSONObject j, String key) {
 // Bridge: routes
 // ---------------------------------------------------------------------------
 
-Object route(Map req, InputStream in) {
+Object route(Map req) {
     String method = (String) req.get("method");
     String path = (String) req.get("path");
     if (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
@@ -1031,6 +1053,7 @@ Object route(Map req, InputStream in) {
         if (path.equals("/contact")) return contact(req);
         if (path.equals("/labels")) return beansJson(getContactLabelList());
         if (path.equals("/ui/dump")) return uiDump();
+        if (path.equals("/ui/selftest")) return uiSelftest();
         if (path.equals("/label/contacts")) {
             String id = q(req, "id", null);
             return beansJson(id != null ? getContactByLabelId(id) : getContactByLabelName(qRequired(req, "name")));
@@ -1038,8 +1061,8 @@ Object route(Map req, InputStream in) {
         throw new java.io.FileNotFoundException("no route GET " + path);
     }
     if (!method.equals("POST") && !method.equals("PUT")) throw new IllegalArgumentException("unsupported method " + method);
-    if (path.equals("/upload")) return upload(req, in);
-    JSONObject b = jsonBody(req, in);
+    if (path.equals("/upload")) return upload(req, (InputStream) req.get("stream"));
+    JSONObject b = (JSONObject) req.get("json");
     if (path.startsWith("/send/")) return send(path.substring(6), b);
     if (path.equals("/ui/open")) return uiLocked("open", b);
     if (path.equals("/ui/close")) return uiLocked("close", b);
@@ -1346,18 +1369,23 @@ int UI_MAX_CHAT_SCROLLS = 400;
 int UI_MAX_LIST_SCROLLS = 20;
 // Swipes in a row that change nothing on screen: the end of the chat.
 int UI_STUCK_SWIPES = 3;
-int UI_TAG_DEPTH = 3;
-int UI_TAG_BUDGET = 80;
+int UI_TAG_DEPTH = 4;
+int UI_TAG_BUDGET = 200;
 int UI_DUMP_LIMIT = 400;
 
 void uiSleep(long min, long max) {
     Thread.sleep(min + (long) (uiRandom.nextDouble() * (max - min)));
 }
 
+// Runs `c` on the UI thread. WAuxiliary turns a script error inside a scripted
+// Callable into a null, so the Callables catch their own and return it, and it
+// is thrown here.
 Object onUi(java.util.concurrent.Callable c) {
     java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(c);
     new android.os.Handler(android.os.Looper.getMainLooper()).post(task);
-    return task.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    Object result = task.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    if (result instanceof Throwable) throw (Throwable) result;
+    return result;
 }
 
 // Every field of a class and its superclasses, made accessible, cached per class.
@@ -1381,14 +1409,28 @@ List uiFields(Class c) {
     return fields;
 }
 
+// WeChat's own classes are obfuscated, many into short packages (kn5.m7), so
+// "WeChat's" means anything outside the platform and the standard libraries.
+String[] UI_FOREIGN_PREFIXES = new String[] {"java.", "javax.", "android.", "androidx.", "kotlin.", "kotlinx.", "dalvik.", "sun.", "libcore.", "org.json.", "com.android."};
+
+boolean uiWeChatObject(Object o) {
+    if (o instanceof android.content.Context || o instanceof android.view.View) return false;
+    Class c = o.getClass();
+    if (c.isArray() || c.isPrimitive()) return false;
+    String cls = c.getName();
+    for (int i = 0; i < UI_FOREIGN_PREFIXES.length; i++) {
+        if (cls.startsWith(UI_FOREIGN_PREFIXES[i])) return false;
+    }
+    return true;
+}
+
 // Looks through `o` and the WeChat objects it refers to (up to UI_TAG_DEPTH deep)
 // for the fields named in `wanted`; fills `found` with the first value of each,
 // and `<name>#depth` with how much depth was left where it was found (higher is
 // nearer the tag: a bubble's own message, not one its tag merely reaches).
 void uiScan(Object o, String[] wanted, Map found, java.util.IdentityHashMap seen, int depth, int[] budget) {
     if (o == null || depth < 0 || budget[0] <= 0 || seen.containsKey(o)) return;
-    String cls = o.getClass().getName();
-    if (!cls.startsWith("com.tencent.mm")) return;
+    if (!uiWeChatObject(o)) return;
     seen.put(o, Boolean.TRUE);
     budget[0]--;
     List fields = uiFields(o.getClass());
@@ -1452,34 +1494,39 @@ Map uiSnapshot() {
     final Map s = snap;
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
         public Object call() {
-            android.view.View decor = act.getWindow().getDecorView();
-            s.put("focused", Boolean.valueOf(act.hasWindowFocus()));
-            s.put("width", Integer.valueOf(decor.getWidth()));
-            s.put("height", Integer.valueOf(decor.getHeight()));
-            int[] origin = new int[2];
-            decor.getLocationOnScreen(origin);
-            List stack = new ArrayList();
-            stack.add(decor);
-            List out = (List) s.get("nodes");
-            while (!stack.isEmpty()) {
-                android.view.View v = (android.view.View) stack.remove(stack.size() - 1);
-                if (!v.isShown()) continue;
-                android.graphics.Rect r = new android.graphics.Rect();
-                if (!v.getGlobalVisibleRect(r) || r.isEmpty()) continue;
-                r.offset(origin[0], origin[1]);
-                Map node = new HashMap();
-                node.put("view", v);
-                node.put("rect", r);
-                node.put("text", uiText(v));
-                node.put("clickable", Boolean.valueOf(v.isClickable()));
-                node.putAll(uiTagInfo(v));
-                out.add(node);
-                if (v instanceof android.view.ViewGroup) {
-                    android.view.ViewGroup g = (android.view.ViewGroup) v;
-                    for (int i = g.getChildCount() - 1; i >= 0; i--) stack.add(g.getChildAt(i));
+            Object failure = null;
+            try {
+                android.view.View decor = act.getWindow().getDecorView();
+                s.put("focused", Boolean.valueOf(act.hasWindowFocus()));
+                s.put("width", Integer.valueOf(decor.getWidth()));
+                s.put("height", Integer.valueOf(decor.getHeight()));
+                int[] origin = new int[2];
+                decor.getLocationOnScreen(origin);
+                List stack = new ArrayList();
+                stack.add(decor);
+                List out = (List) s.get("nodes");
+                while (!stack.isEmpty()) {
+                    android.view.View v = (android.view.View) stack.remove(stack.size() - 1);
+                    if (!v.isShown()) continue;
+                    android.graphics.Rect r = new android.graphics.Rect();
+                    if (!v.getGlobalVisibleRect(r) || r.isEmpty()) continue;
+                    r.offset(origin[0], origin[1]);
+                    Map node = new HashMap();
+                    node.put("view", v);
+                    node.put("rect", r);
+                    node.put("text", uiText(v));
+                    node.put("clickable", Boolean.valueOf(v.isClickable()));
+                    node.putAll(uiTagInfo(v));
+                    out.add(node);
+                    if (v instanceof android.view.ViewGroup) {
+                        android.view.ViewGroup g = (android.view.ViewGroup) v;
+                        for (int i = g.getChildCount() - 1; i >= 0; i--) stack.add(g.getChildAt(i));
+                    }
                 }
+            } catch (Throwable e) {
+                failure = e;
             }
-            return null;
+            return failure;
         }
     };
     onUi(uiTask);
@@ -1526,7 +1573,8 @@ Map uiPickTarget(Map snap, List nodes, String key) {
 Map uiClickableAncestor(Map snap, Map node) {
     List nodes = (List) snap.get("nodes");
     android.view.View v = (android.view.View) node.get("view");
-    android.view.ViewParent p = v;
+    // Object, not ViewParent: a plain View is not a ViewParent, only its parents are.
+    Object p = v;
     for (int depth = 0; depth < 8 && p instanceof android.view.View; depth++) {
         android.view.View pv = (android.view.View) p;
         if (pv.isClickable()) {
@@ -1568,12 +1616,24 @@ Map uiTextNode(Map snap, List texts, float fromTop, float toTop) {
     return best;
 }
 
+// The screen bounds of the first view whose class name ends with `suffix`.
+android.graphics.Rect uiRectOf(Map snap, String suffix) {
+    List nodes = (List) snap.get("nodes");
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        if (n.get("view").getClass().getName().endsWith(suffix)) return (android.graphics.Rect) n.get("rect");
+    }
+    return null;
+}
+
+// In a chat: a bubble carries a message, or the chat's message list is on screen
+// (a chat opened from the chat list stays inside LauncherUI).
 boolean uiInChat(Map snap) {
     List nodes = (List) snap.get("nodes");
     for (int i = 0; i < nodes.size(); i++) {
         if (((Map) nodes.get(i)).containsKey("field_msgId")) return true;
     }
-    return false;
+    return uiRectOf(snap, "MMChattingListView") != null;
 }
 
 String uiChatTalker(Map snap) {
@@ -1585,15 +1645,16 @@ String uiChatTalker(Map snap) {
     return null;
 }
 
-// [oldest, newest] send time (ms) of the messages on screen, or null when their
-// views do not tell.
-long[] uiVisibleTimes(Map snap) {
+// [lowest, highest] value of `field` (field_createTime or field_msgId) among the
+// messages on screen, or null when their views do not tell. The bubbles WeChat
+// 8.0.78 shows carry field_createTime 0, so a zero counts as unknown.
+long[] uiVisibleRange(Map snap, String field) {
     long[] range = null;
     List nodes = (List) snap.get("nodes");
     for (int i = 0; i < nodes.size(); i++) {
         Map n = (Map) nodes.get(i);
-        Object t = n.get("field_createTime");
-        if (!n.containsKey("field_msgId") || !(t instanceof Number)) continue;
+        Object t = n.get(field);
+        if (!n.containsKey("field_msgId") || !(t instanceof Number) || ((Number) t).longValue() <= 0) continue;
         long v = ((Number) t).longValue();
         if (range == null) range = new long[] {v, v};
         range[0] = Math.min(range[0], v);
@@ -1661,9 +1722,14 @@ void uiSend(android.view.MotionEvent ev) {
     if (act == null) throw new IllegalStateException("WeChat has no activity on screen");
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
         public Object call() {
-            act.dispatchTouchEvent(event);
-            event.recycle();
-            return null;
+            Object failure = null;
+            try {
+                act.dispatchTouchEvent(event);
+                event.recycle();
+            } catch (Throwable e) {
+                failure = e;
+            }
+            return failure;
         }
     };
     onUi(uiTask);
@@ -1701,31 +1767,59 @@ void uiSwipe(Map snap, float fraction) {
 
 // Back, as the navigation bar would send it. Returns how it was delivered.
 String uiBack() {
-    if (!uiDispatchOnly.get()) {
-        try {
-            new android.app.Instrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
-            return "key";
-        } catch (RuntimeException e) {
-            log("FavBridge cannot inject Back (" + e + ")");
-            uiDispatchOnly.set(true);
-        }
-    }
     final android.app.Activity act = getTopActivity();
     if (act == null || !act.hasWindowFocus()) {
-        // What is on top lives in another WeChat process (the web view); bring the chat list back over it.
-        android.content.Intent home = hostContext.getPackageManager().getLaunchIntentForPackage(hostContext.getPackageName());
-        home.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        hostContext.startActivity(home);
+        // What is on top lives in another WeChat process (the web view), where
+        // Android refuses keys from this one: close that page's own task.
+        String closed = uiFinishOtherTask();
+        if (closed != null) return "closed " + closed;
+        // Last resort; it brings back the chat list, not the chat.
+        uiStartLauncher(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
         return "launcher";
+    }
+    try {
+        new android.app.Instrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        return "key";
+    } catch (RuntimeException e) {
+        log("FavBridge cannot inject Back (" + e + ")");
     }
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
         public Object call() {
-            act.onBackPressed();
-            return null;
+            Object failure = null;
+            try {
+                act.onBackPressed();
+            } catch (Throwable e) {
+                failure = e;
+            }
+            return failure;
         }
     };
     onUi(uiTask);
     return "activity";
+}
+
+// Finishes the newest of WeChat's tasks that is not its main screen's, such as
+// a web page opened in its own task; the class it showed, or null when there is
+// no such task.
+String uiFinishOtherTask() {
+    android.app.ActivityManager am = (android.app.ActivityManager) hostContext.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+    List tasks = am.getAppTasks();
+    for (int i = 0; i < tasks.size(); i++) {
+        Object task = tasks.get(i);
+        String top = null;
+        try {
+            Object info = task.getTaskInfo();
+            String base = info.baseActivity == null ? "" : info.baseActivity.getClassName();
+            if (!base.endsWith(".LauncherUI") && info.topActivity != null) top = info.topActivity.getClassName();
+        } catch (RuntimeException e) {
+            top = null;
+        }
+        if (top != null) {
+            task.finishAndRemoveTask();
+            return top;
+        }
+    }
+    return null;
 }
 
 boolean uiIsMainScreen(android.app.Activity act) {
@@ -1739,11 +1833,25 @@ void uiForeground(List steps) {
     android.app.Activity act = getTopActivity();
     if (act != null && act.hasWindowFocus()) return;
     if (act != null && !uiIsMainScreen(act)) return;
-    android.content.Intent launch = hostContext.getPackageManager().getLaunchIntentForPackage(hostContext.getPackageName());
-    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-    hostContext.startActivity(launch);
-    steps.add("brought WeChat to the front");
+    uiStartLauncher(0);
     uiSleep(1500, 2500);
+    act = getTopActivity();
+    if (act == null || !act.hasWindowFocus()) {
+        steps.add("asked WeChat to come to the front, but it did not");
+        throw new IllegalStateException("WeChat is not on screen and did not come to the front; open WeChat on the device");
+    }
+    steps.add("brought WeChat to the front");
+}
+
+// Starts WeChat's main screen as its launcher icon does. The package manager
+// gives no launch intent for WeChat inside its own process here, so the main
+// screen is named directly.
+void uiStartLauncher(int flags) {
+    android.content.Intent launch = new android.content.Intent(android.content.Intent.ACTION_MAIN);
+    launch.addCategory(android.content.Intent.CATEGORY_LAUNCHER);
+    launch.setClassName(hostContext.getPackageName(), "com.tencent.mm.ui.LauncherUI");
+    launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | flags);
+    hostContext.startActivity(launch);
 }
 
 String uiName(String talker, String which) {
@@ -1792,6 +1900,7 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
         if (n != null && n.length() > 0 && !names.contains(n)) names.add(n);
     }
     boolean opened = false;
+    boolean done = false;
     String[] foundBy = new String[1];
     int nav = 0;
     int taps = 0;
@@ -1804,24 +1913,24 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
     String lastScreen = null;
     boolean tappedHomeTab = false;
     uiForeground(steps);
-    while (!opened && nav < UI_MAX_STEPS) {
+    // One action per pass, chosen by an if/else chain: WAuxiliary's BeanShell
+    // is not trusted with break and continue here.
+    while (!done && !opened && nav < UI_MAX_STEPS) {
         Map snap = uiSnapshot();
         android.app.Activity act = getTopActivity();
-        if (!Boolean.TRUE.equals(snap.get("focused")) || !uiIsMainScreen(act)) {
+        boolean elsewhere = !Boolean.TRUE.equals(snap.get("focused")) || !uiIsMainScreen(act);
+        String inChat = elsewhere ? null : uiChatTalker(snap);
+        boolean otherChat = inChat != null && !inChat.equals(talker);
+        Map target = elsewhere || otherChat ? null : uiFindMessage(snap, msgId, texts, foundBy);
+        if (elsewhere) {
             steps.add("Back from " + snap.get("activity") + " (" + uiBack() + ")");
             nav++;
             uiSleep(700, 1200);
-            continue;
-        }
-        String inChat = uiChatTalker(snap);
-        if (inChat != null && !inChat.equals(talker)) {
+        } else if (otherChat) {
             steps.add("Back from another chat (" + uiBack() + ")");
             nav++;
             uiSleep(600, 1000);
-            continue;
-        }
-        Map target = uiFindMessage(snap, msgId, texts, foundBy);
-        if (target != null) {
+        } else if (target != null) {
             if (scrollsUp + scrollsDown > 0) steps.add("scrolled the chat " + scrollsUp + " times up, " + scrollsDown + " down");
             uiSleep(400, 900);
             uiTap((android.graphics.Rect) target.get("rect"));
@@ -1836,78 +1945,90 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
                 steps.add("the chat stayed in front; tapping again");
                 uiDispatchOnly.set(true);
             } else {
-                break;
+                done = true;
             }
-            continue;
-        }
-        if (uiInChat(snap)) {
-            // Older messages are above. When the send times on screen say the
+        } else if (uiInChat(snap)) {
+            // Older messages are above. When the send times on screen (else the
+            // message ids, which WeChat hands out in arrival order) say the
             // message is below them, go back down, in shorter swipes once the
             // direction has changed so the two do not overshoot each other.
             float direction = 1f;
-            long[] range = uiVisibleTimes(snap);
-            if (createTime > 0 && range != null) {
-                if (range[1] < createTime) {
+            boolean missing = false;
+            long want = createTime;
+            long[] range = createTime > 0 ? uiVisibleRange(snap, "field_createTime") : null;
+            if (range == null) {
+                want = msgId;
+                range = uiVisibleRange(snap, "field_msgId");
+            }
+            if (range != null) {
+                if (range[1] < want) {
                     direction = -1f;
-                } else if (range[0] <= createTime) {
+                } else if (range[0] <= want) {
                     // The screen spans its send time and it is not there: hidden or deleted.
-                    if (++straddled >= 2) {
-                        steps.add("the chat shows the messages around it, but not this one");
-                        break;
-                    }
+                    straddled++;
+                    missing = straddled >= 2;
                 }
             }
             String screen = uiVisibleIds(snap);
             stuck = screen.equals(lastScreen) ? stuck + 1 : 0;
             lastScreen = screen;
-            if (stuck >= UI_STUCK_SWIPES) {
+            if (missing) {
+                steps.add("the chat shows the messages around it, but not this one");
+                done = true;
+            } else if (stuck >= UI_STUCK_SWIPES) {
                 steps.add("reached the " + (direction > 0 ? "top" : "bottom") + " of the chat after " + (scrollsUp + scrollsDown) + " swipes");
-                break;
-            }
-            if (scrollsUp + scrollsDown >= UI_MAX_CHAT_SCROLLS) {
+                done = true;
+            } else if (scrollsUp + scrollsDown >= UI_MAX_CHAT_SCROLLS) {
                 steps.add("gave up after " + UI_MAX_CHAT_SCROLLS + " swipes");
-                break;
+                done = true;
+            } else {
+                boolean turned = lastDirection != 0f && direction != lastDirection;
+                float size = turned || (scrollsUp > 0 && scrollsDown > 0) ? 0.2f : 0.45f;
+                uiSwipe(snap, direction * size);
+                lastDirection = direction;
+                if (direction > 0) scrollsUp++;
+                else scrollsDown++;
+                // A screen that did not move may be WeChat loading older messages.
+                if (stuck > 0) uiSleep(1500, 2500);
+                else uiSleep(500, 900);
             }
-            boolean turned = lastDirection != 0f && direction != lastDirection;
-            uiSwipe(snap, direction * (turned || (scrollsUp > 0 && scrollsDown > 0) ? 0.2f : 0.45f));
-            lastDirection = direction;
-            if (direction > 0) scrollsUp++;
-            else scrollsDown++;
-            // A screen that did not move may be WeChat loading older messages.
-            if (stuck > 0) uiSleep(1500, 2500);
-            else uiSleep(500, 900);
-            continue;
-        }
-        // The chat list: find the conversation and tap it.
-        Map row = uiPickTarget(snap, uiNodesWith(snap, "field_username", talker), "field_username");
-        if (row == null) {
-            Map nameNode = uiTextNode(snap, names, 0.1f, 0.9f);
-            if (nameNode != null) row = uiClickableAncestor(snap, nameNode);
-        }
-        if (row != null) {
-            uiSleep(300, 700);
-            uiTap((android.graphics.Rect) row.get("rect"));
-            nav++;
-            steps.add("tapped the chat");
-            uiSleep(900, 1500);
-            continue;
-        }
-        if (!tappedHomeTab) {
-            Map tab = uiTextNode(snap, Arrays.asList(new String[] {"微信", "WeChat", "Chats"}), 0.85f, 1f);
-            if (tab != null) {
+        } else {
+            // The chat list: find the conversation and tap it.
+            Map row = uiPickTarget(snap, uiNodesWith(snap, "field_username", talker), "field_username");
+            if (row == null) {
+                // The first chat row starts about 8% down the screen. Only a name inside
+                // the chat list counts, never a title bar showing the same name.
+                Map nameNode = uiTextNode(snap, names, 0.05f, 0.9f);
+                android.graphics.Rect list = uiRectOf(snap, "ConversationListView");
+                android.graphics.Rect at = nameNode == null ? null : (android.graphics.Rect) nameNode.get("rect");
+                if (at != null && list != null && list.contains(at.centerX(), at.centerY())) {
+                    row = uiClickableAncestor(snap, nameNode);
+                }
+            }
+            Map tab = null;
+            if (row == null && !tappedHomeTab) tab = uiTextNode(snap, Arrays.asList(new String[] {"微信", "WeChat", "Chats"}), 0.85f, 1f);
+            if (row != null) {
+                uiSleep(300, 700);
+                uiTap((android.graphics.Rect) row.get("rect"));
+                nav++;
+                steps.add("tapped the chat");
+                uiSleep(900, 1500);
+            } else if (tab != null) {
                 uiTap((android.graphics.Rect) uiClickableAncestor(snap, tab).get("rect"));
                 tappedHomeTab = true;
                 nav++;
                 steps.add("tapped the 微信 tab");
                 uiSleep(600, 1000);
-                continue;
+            } else if (listScrolls >= UI_MAX_LIST_SCROLLS) {
+                steps.add("the chat is not in the chat list");
+                done = true;
+            } else {
+                uiSwipe(snap, -0.35f);
+                listScrolls++;
+                steps.add("scrolled down the chat list");
+                uiSleep(600, 1000);
             }
         }
-        if (listScrolls >= UI_MAX_LIST_SCROLLS) break;
-        uiSwipe(snap, -0.35f);
-        listScrolls++;
-        steps.add("scrolled down the chat list");
-        uiSleep(600, 1000);
     }
     JSONObject result = ok();
     JSONArray stepsJson = new JSONArray();
@@ -1922,27 +2043,54 @@ JSONObject uiOpenMessage(String talker, long msgId, long createTime, List texts)
     return result;
 }
 
+// What has the focus: the top activity's class, or "another window".
+String uiFocusName() {
+    android.app.Activity act = getTopActivity();
+    return act != null && act.hasWindowFocus() ? act.getClass().getName() : "another window";
+}
+
+// Waits up to `ms` for the focus to leave `from`; whether it did.
+boolean uiWaitForChange(String from, long ms) {
+    long end = System.currentTimeMillis() + ms;
+    while (System.currentTimeMillis() < end) {
+        Thread.sleep(150);
+        if (!uiFocusName().equals(from)) return true;
+    }
+    return false;
+}
+
 // Back until WeChat is on its chat list (or, without `home`, until the opened
 // message is closed and its chat shows).
 JSONObject uiClose(boolean home) {
     JSONArray steps = new JSONArray();
-    for (int i = 0; i < UI_MAX_STEPS; i++) {
+    boolean done = false;
+    int i = 0;
+    while (!done && i < UI_MAX_STEPS) {
         android.app.Activity act = getTopActivity();
         boolean focused = act != null && act.hasWindowFocus();
-        if (focused && uiIsMainScreen(act)) {
-            if (!home || !uiInChat(uiSnapshot())) break;
+        if (focused && uiIsMainScreen(act) && (!home || !uiInChat(uiSnapshot()))) {
+            done = true;
+        } else {
+            String from = focused ? act.getClass().getName() : "another window";
+            steps.put("Back from " + from + " (" + uiBack() + ")");
+            // A page can take a while to go; a second Back before it has would
+            // close the chat under it too.
+            if (!uiWaitForChange(from, 4000)) steps.put("still on " + from + " after 4s");
+            uiSleep(300, 600);
         }
-        steps.put("Back from " + (focused ? act.getClass().getName() : "another window") + " (" + uiBack() + ")");
-        uiSleep(700, 1200);
+        i++;
     }
     JSONObject j = ok();
     j.put("steps", steps);
     return j;
 }
 
+// One UI action at a time. No try/finally: the lock is released on both paths
+// by hand, and an empty answer is reported rather than passed on.
 JSONObject uiLocked(String what, JSONObject b) {
     if (!uiLock.tryLock(15, java.util.concurrent.TimeUnit.MINUTES)) throw new IllegalStateException("another UI action is running");
-    JSONObject result = null;
+    Object[] box = new Object[1];
+    Throwable failure = null;
     try {
         if (what.equals("open")) {
             List texts = new ArrayList();
@@ -1951,14 +2099,119 @@ JSONObject uiLocked(String what, JSONObject b) {
                 String t = a.optString(i, "").trim();
                 if (t.length() > 0) texts.add(t);
             }
-            result = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
+            box[0] = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
         } else {
-            result = uiClose(b.optBoolean("home", true));
+            box[0] = uiClose(b.optBoolean("home", true));
+        }
+    } catch (Throwable e) {
+        failure = e;
+    }
+    uiLock.unlock();
+    if (failure != null) throw failure;
+    if (box[0] == null) throw new IllegalStateException("ui " + what + " returned nothing");
+    return (JSONObject) box[0];
+}
+
+// Which control-flow forms come back with their value in this BeanShell. Each
+// probe returns "ok"; a form the interpreter mishandles shows as "nothing".
+String uiProbeFinally() {
+    String s = null;
+    try {
+        s = "ok";
+    } finally {
+        uiFieldCache.size();
+    }
+    return s;
+}
+
+String uiProbeBreak() {
+    int i = 0;
+    while (i < 5) {
+        if (i == 2) {
+            if (i > 0) break;
+        }
+        i++;
+    }
+    return "ok";
+}
+
+String uiProbeContinue() {
+    int i = 0;
+    int n = 0;
+    while (i < 5) {
+        i++;
+        if (i % 2 == 0) continue;
+        n++;
+    }
+    return "ok";
+}
+
+String uiProbeForBreak() {
+    for (int i = 0; i < 5; i++) {
+        if (i == 2) break;
+    }
+    return "ok";
+}
+
+JSONObject uiProbeLockedFinally() {
+    java.util.concurrent.locks.ReentrantLock lock = new java.util.concurrent.locks.ReentrantLock();
+    JSONObject result = null;
+    lock.lock();
+    try {
+        if (lock.isHeldByCurrentThread()) {
+            List l = new ArrayList();
+            result = ok();
+        } else {
+            result = ok();
         }
     } finally {
-        uiLock.unlock();
+        lock.unlock();
     }
     return result;
+}
+
+// A local captured by a scripted Callable, read back through FutureTask, as
+// guarded() used to pass the request body's stream.
+String uiProbeCaptured(String value) {
+    final String input = value;
+    java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(new java.util.concurrent.Callable() {
+        public Object call() {
+            return input.length() > 0 ? "ok" : "empty";
+        }
+    });
+    task.run();
+    return (String) task.get();
+}
+
+// A script error inside a scripted Callable: "thrown" when it surfaces as an
+// exception, "nothing" when the interpreter turns it into a null.
+String uiProbeCallableError() {
+    java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(new java.util.concurrent.Callable() {
+        public Object call() {
+            String missing = null;
+            return missing.trim();
+        }
+    });
+    task.run();
+    String answer = "thrown";
+    try {
+        if (task.get() == null) answer = "nothing";
+    } catch (Throwable e) {
+        answer = "thrown";
+    }
+    return answer;
+}
+
+JSONObject uiSelftest() {
+    JSONObject j = ok();
+    j.put("finally", uiProbeFinally() == null ? "nothing" : "ok");
+    j.put("while_break", uiProbeBreak() == null ? "nothing" : "ok");
+    j.put("while_continue", uiProbeContinue() == null ? "nothing" : "ok");
+    j.put("for_break", uiProbeForBreak() == null ? "nothing" : "ok");
+    j.put("lock_finally", uiProbeLockedFinally() == null ? "nothing" : "ok");
+    j.put("captured", String.valueOf(uiProbeCaptured("x")));
+    j.put("callable_error", uiProbeCallableError());
+    return j;
 }
 
 // What the plugin sees on screen, for working out why a message was not found.

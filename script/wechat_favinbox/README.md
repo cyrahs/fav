@@ -100,8 +100,8 @@ post's HTML. If WeChat's web view (XWeb) has the post in its HTTP cache, that
 copy is used; otherwise the message is tapped open, the cache polled until the
 page arrives, and WeChat backed out to its chat list. The cache is Chromium's Simple Cache: `<hash>_0` files under
 `xweb_cache/<profile>/HTTP Cache/Cache_Data/`, each holding the URL, the body
-as received (gzip or brotli) and the response headers. Brotli needs
-`python3-brotli` on the host. Errors: 400 for a link without
+as received (gzip, brotli or zstd) and the response headers. Brotli needs
+`python3-brotli` on the host, and zstd either Python 3.14 or the `zstd` tool. Errors: 400 for a link without
 `__biz`/`mid`/`idx`/`sn`, 404 when the page never reached the cache, 502 when
 the message could not be opened.
 
@@ -244,6 +244,15 @@ sent.
 view's class, screen bounds, text (cut to 16 characters), whether it is
 clickable, and the message or conversation its tag carries.
 
+`GET /ui/selftest` checks how WAuxiliary's BeanShell handles a few forms the
+bridge relies on: try/finally, break, continue, a local captured by a scripted
+`Callable`, and a script error inside one (`thrown` when it surfaces as an
+exception, `nothing` when the interpreter turns it into a null). Up to v0.4.2
+every POST route came back empty under WAuxiliary although each passed under
+BeanShell 2.0b6, so the bridge now reads a request's body before handing the
+request to its route, catches the route's failure inside the `Callable` that
+runs it, and answers a route that still returns nothing with a 500 naming it.
+
 ### Opening messages by tapping
 
 `/ui/open` opens a message the way a person does. It brings WeChat to the front
@@ -252,13 +261,22 @@ list or the right chat, taps the conversation, finds the message's bubble and
 taps it. When the bubble is not on screen it scrolls the chat until it is,
 however far back the message is: up by default, and down when the send times of
 the bubbles on screen (their tags' `field_createTime`) say the message's
-`create_time` is below them. It stops only when a few swipes move nothing (the
-top or bottom of the chat), when the bubbles on screen span the message's send
-time but it is not among them (hidden or deleted), or after 400 swipes. It
+`create_time` is below them. WeChat 8.0.78 leaves `field_createTime` at 0 on the
+bubbles, so it then compares message ids instead, which WeChat hands out in
+arrival order. It stops only when a few swipes move nothing (the top or bottom
+of the chat), when the bubbles on screen span the message's send time (or id)
+but it is not among them (hidden or deleted), or after 400 swipes. It
 answers once the chat has lost the focus to what opened; when a tap changes nothing it taps once
 more, then gives up with `opened: false` and the steps it took. `/ui/close`
-taps Back until the chat list shows again; it never presses Back on the chat
-list itself, which would send WeChat to the background.
+taps Back until the chat list shows again (with `"home": false`, until the
+chat shows again); it never presses Back on the chat list itself, which would
+send WeChat to the background. The host service closes to the chat after a
+successful open, so the next message of the same chat is a few swipes away
+instead of a scroll up from the newest message, and to the chat list after a
+failed one. Before opening a message of another chat it first backs out to the
+chat list (the plugin cannot always tell which chat it is in), and a chat left
+unused for two minutes is backed out of too, so later messages there are not
+marked read.
 
 Views are recognised by what they carry, not by WeChat's obfuscated class
 names: a bubble's tag holds its message (an object with a public
@@ -272,9 +290,13 @@ Touches are real `MotionEvent`s (finger, touchscreen, a few pixels of drift, a
 press of 70-150 ms) injected with `Instrumentation`, which Android accepts for
 windows of the injecting app; if the system refuses, or an injected tap changes
 nothing, later ones are dispatched straight into the activity's window. Back is
-an injected `KEYCODE_BACK`; without injection it is the activity's own
-`onBackPressed()`, or, when the window on top belongs to another WeChat process
-(the web view), WeChat's launcher intent with `FLAG_ACTIVITY_CLEAR_TOP`.
+an injected `KEYCODE_BACK`, or the activity's own `onBackPressed()` if the
+system refuses it. A window of another WeChat process (a web page) takes no
+keys from this one (Android requires `INJECT_EVENTS` for that), so such a page
+is closed by finishing its own task (`ActivityManager.getAppTasks()`, the newest
+task whose root is not `LauncherUI`), which leaves the chat as it was; only when
+there is no such task is it WeChat's launcher intent with
+`FLAG_ACTIVITY_CLEAR_TOP`, which also resets the chat to the chat list.
 
 Not exposed: downloading videos, voice and files (WAuxiliary has no API for
 them; their CDN fields are in the event), and WAuxiliary's `eval`, hook,
