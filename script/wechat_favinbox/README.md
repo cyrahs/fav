@@ -283,8 +283,11 @@ names: a bubble's tag holds its message (an object with a public
 `field_msgId` and `field_talker`), and a chat list row may hold its
 conversation (`field_username`). When tags do not tell, visible text does: the
 contact's name in the chat list (below the title bar), the card's title
-(`texts`) in the chat. Of several views carrying the message, the largest
-clickable one that is not avatar-sized is tapped.
+(`texts`) in the chat. A bubble found by its text counts only where the message
+can be: inside no other message's bubble, below every older message the tags
+name and above every newer one, since another message can show the same text
+(another video by the same 视频号 author). Of several views carrying the
+message, the largest clickable one that is not avatar-sized is tapped.
 
 Touches are real `MotionEvent`s (finger, touchscreen, a few pixels of drift, a
 press of 70-150 ms) injected with `Instrumentation`, which Android accepts for
