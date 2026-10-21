@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.10";
+String PLUGIN_VERSION = "0.4.11";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1863,6 +1863,38 @@ String uiName(String talker, String which) {
     }
 }
 
+// The lowest node showing one of `texts` that can be message `msgId`'s bubble:
+// no message the views name lies on the wrong side of it (older ones are
+// above), and it is not inside another message's bubble. Another message can
+// show the same text (the same 视频号 author), and tapping that one opens the
+// wrong thing.
+Map uiMessageTextNode(Map snap, List texts, long msgId) {
+    Map best = null;
+    List nodes = (List) snap.get("nodes");
+    int height = ((Integer) snap.get("height")).intValue();
+    for (int i = 0; i < nodes.size(); i++) {
+        Map n = (Map) nodes.get(i);
+        String t = (String) n.get("text");
+        if (t == null || !texts.contains(t)) continue;
+        android.graphics.Rect r = (android.graphics.Rect) n.get("rect");
+        if (r.top < height * 0.1f || r.top > height * 0.95f) continue;
+        if (best != null && r.top <= ((android.graphics.Rect) best.get("rect")).top) continue;
+        boolean fits = true;
+        for (int j = 0; j < nodes.size() && fits; j++) {
+            Map m = (Map) nodes.get(j);
+            Object id = m.get("field_msgId");
+            if (!(id instanceof Number) || ((Number) id).longValue() == msgId) continue;
+            long other = ((Number) id).longValue();
+            android.graphics.Rect o = (android.graphics.Rect) m.get("rect");
+            if (o.bottom <= r.top) fits = other < msgId;
+            else if (o.top >= r.bottom) fits = other > msgId;
+            else fits = !o.contains(r);
+        }
+        if (fits) best = n;
+    }
+    return best;
+}
+
 // The message's bubble on screen: by the message its view carries, else by the
 // text it shows.
 Map uiFindMessage(Map snap, long msgId, List texts, String[] foundBy) {
@@ -1872,7 +1904,7 @@ Map uiFindMessage(Map snap, long msgId, List texts, String[] foundBy) {
         return target;
     }
     if (texts.isEmpty()) return null;
-    Map textNode = uiTextNode(snap, texts, 0.1f, 0.95f);
+    Map textNode = uiMessageTextNode(snap, texts, msgId);
     if (textNode == null) return null;
     foundBy[0] = "text";
     return uiClickableAncestor(snap, textNode);
