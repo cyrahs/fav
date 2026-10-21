@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.9";
+String PLUGIN_VERSION = "0.4.10";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1361,10 +1361,6 @@ JSONObject send(String what, JSONObject b) {
 java.util.concurrent.locks.ReentrantLock uiLock = new java.util.concurrent.locks.ReentrantLock();
 java.util.Random uiRandom = new java.util.Random();
 java.util.concurrent.atomic.AtomicBoolean uiDispatchOnly = new java.util.concurrent.atomic.AtomicBoolean(false);
-// Back is injected as a key until that fails. Kept apart from taps: a tap that
-// seemed to change nothing says nothing about keys, and only an injected Back
-// reaches a page in WeChat's web view process without resetting the chat.
-java.util.concurrent.atomic.AtomicBoolean uiBackLauncherOnly = new java.util.concurrent.atomic.AtomicBoolean(false);
 Map uiFieldCache = new java.util.concurrent.ConcurrentHashMap();
 int UI_MAX_STEPS = 10;
 // A chat is scrolled until the message shows, however far back it is; these only
@@ -1771,20 +1767,21 @@ void uiSwipe(Map snap, float fraction) {
 
 // Back, as the navigation bar would send it. Returns how it was delivered.
 String uiBack() {
-    if (!uiBackLauncherOnly.get()) {
-        try {
-            new android.app.Instrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
-            return "key";
-        } catch (RuntimeException e) {
-            log("FavBridge cannot inject Back (" + e + ")");
-            uiBackLauncherOnly.set(true);
-        }
-    }
     final android.app.Activity act = getTopActivity();
     if (act == null || !act.hasWindowFocus()) {
-        // What is on top lives in another WeChat process (the web view); bring the chat list back over it.
+        // What is on top lives in another WeChat process (the web view), where
+        // Android refuses keys from this one: close that page's own task.
+        String closed = uiFinishOtherTask();
+        if (closed != null) return "closed " + closed;
+        // Last resort; it brings back the chat list, not the chat.
         uiStartLauncher(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
         return "launcher";
+    }
+    try {
+        new android.app.Instrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        return "key";
+    } catch (RuntimeException e) {
+        log("FavBridge cannot inject Back (" + e + ")");
     }
     java.util.concurrent.Callable uiTask = new java.util.concurrent.Callable() {
         public Object call() {
@@ -1799,6 +1796,30 @@ String uiBack() {
     };
     onUi(uiTask);
     return "activity";
+}
+
+// Finishes the newest of WeChat's tasks that is not its main screen's, such as
+// a web page opened in its own task; the class it showed, or null when there is
+// no such task.
+String uiFinishOtherTask() {
+    android.app.ActivityManager am = (android.app.ActivityManager) hostContext.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+    List tasks = am.getAppTasks();
+    for (int i = 0; i < tasks.size(); i++) {
+        Object task = tasks.get(i);
+        String top = null;
+        try {
+            Object info = task.getTaskInfo();
+            String base = info.baseActivity == null ? "" : info.baseActivity.getClassName();
+            if (!base.endsWith(".LauncherUI") && info.topActivity != null) top = info.topActivity.getClassName();
+        } catch (RuntimeException e) {
+            top = null;
+        }
+        if (top != null) {
+            task.finishAndRemoveTask();
+            return top;
+        }
+    }
+    return null;
 }
 
 boolean uiIsMainScreen(android.app.Activity act) {
