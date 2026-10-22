@@ -21,6 +21,7 @@ from src.web.kemono import (
     retry_after_seconds,
     retry_delay_seconds,
     sha256_from_path,
+    should_retry_exception,
     should_retry_status,
 )
 
@@ -158,6 +159,20 @@ def test_should_retry_status() -> None:
         assert should_retry_status(status) is False
 
 
+def test_should_retry_exception() -> None:
+    request = httpx.Request('GET', 'https://kemono.cr/api/v1/fanbox/user/123')
+    for exc in (
+        httpx.ConnectError('refused', request=request),
+        httpx.ReadError('reset', request=request),
+        httpx.WriteError('broken pipe', request=request),
+        httpx.ReadTimeout('slow', request=request),
+        httpx.RemoteProtocolError('closed', request=request),
+    ):
+        assert should_retry_exception(exc) is True
+    assert should_retry_exception(httpx.UnsupportedProtocol('ftp', request=request)) is False
+    assert should_retry_exception(ValueError('bad json')) is False
+
+
 def test_retry_after_seconds() -> None:
     assert retry_after_seconds(None) is None
     assert retry_after_seconds(httpx.Response(429)) is None
@@ -219,6 +234,33 @@ def test_fetch_new_posts_stops_at_known_id() -> None:
     assert len(requested) == 1
     assert posts is not None
     assert [p.id for p in posts] == ['100', '99']
+
+
+def test_fetch_new_posts_retries_dropped_connection(monkeypatch) -> None:
+    calls = 0
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            msg = 'connection reset'
+            raise httpx.ReadError(msg, request=request)
+        return httpx.Response(200, json=[_post_payload('2'), _post_payload('1')])
+
+    async def _no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(kemono_module.asyncio, 'sleep', _no_sleep)
+    _configure_kemono(sleep_request_seconds=0.0)
+    job = _kemono_job(_handler)
+    try:
+        posts = asyncio.run(job._fetch_new_posts('fanbox', '123', set()))
+    finally:
+        asyncio.run(job.client.aclose())
+
+    assert calls == 2
+    assert posts is not None
+    assert [p.id for p in posts] == ['2', '1']
 
 
 def test_fetch_new_posts_missing_creator() -> None:
