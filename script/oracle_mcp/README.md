@@ -23,8 +23,8 @@ Claude ──https──> llm.s117.me/mcp/oracle | /mcp/oracle_ops   (CF Access 
 
 - Any pod in the cluster can reach frps ports (the `proxy` namespace has no
   NetworkPolicy), so unlike the k8s servers this one checks a bearer token on
-  each endpoint itself. LiteLLM sends it (`auth_type: bearer_token` in
-  `apps/litellm/configmap.yaml`); callers authenticate at LiteLLM with their
+  each endpoint itself. LiteLLM sends it (the servers are registered in the
+  LiteLLM UI with a bearer token, see below); callers authenticate at LiteLLM with their
   key, which needs the server granted under MCP Servers in the LiteLLM UI.
   Grant `oracle_ops` only to trusted keys: it is root on oracle and controls the
   WeChat account.
@@ -44,24 +44,37 @@ Claude ──https──> llm.s117.me/mcp/oracle | /mcp/oracle_ops   (CF Access 
 
 ## Install (once, by hand)
 
-From a nas-gitops checkout:
+nas-gitops is private, so the host cannot fetch this directory itself. Get a
+copy to it (scp from a checkout, or have it fetch the same files from a public
+mirror at a pinned commit and check their sha256), then run as root:
 
 ```sh
-scp -r tools/oracle-mcp <oracle>:/tmp/oracle-mcp
-ssh -t <oracle> sudo bash /tmp/oracle-mcp/install.sh
+sudo bash /tmp/oracle-mcp/install.sh
 ```
 
 `install.sh` builds `/opt/oracle-mcp/.venv` with the system Python from the
 hashed `requirements.txt`, writes `/etc/oracle-mcp.env` with two new tokens if
 it is missing, installs and starts the unit, then adds the `oracle-mcp` proxy
-to `/etc/frp/frpc.toml` and restarts frpc. Then:
+to `/etc/frp/frpc.toml` and restarts frpc.
 
-1. Add `ORACLE_MCP_TOKEN_READ` and `ORACLE_MCP_TOKEN_OPS` (the values from
-   `sudo cat /etc/oracle-mcp.env` on oracle) to LiteLLM's SOPS secret in
-   `apps/litellm/secrets`. LiteLLM reads them at startup, so this has to be in
-   place before the `apps/litellm/configmap.yaml` entries reach the cluster.
-2. In the LiteLLM UI, grant the key `oracle` and `oracle_ops` (Keys > key > MCP
-   Servers).
+Then register both servers in the LiteLLM UI (`litellm.s117.me`, MCP Servers >
+Add New MCP Server). Their tokens are stored in LiteLLM's database, so they
+never go through Git:
+
+| Field | `oracle` | `oracle_ops` |
+|---|---|---|
+| Name | `oracle` | `oracle_ops` |
+| Transport | Streamable HTTP | Streamable HTTP |
+| URL | `http://oracle-mcp.proxy.svc.cluster.local/mcp/read` | `http://oracle-mcp.proxy.svc.cluster.local/mcp/ops` |
+| Auth | Bearer token: `ORACLE_MCP_TOKEN_READ` | Bearer token: `ORACLE_MCP_TOKEN_OPS` |
+| Timeout, if the form has one | 120 s | 600 s |
+
+The token values are in `/etc/oracle-mcp.env` on the host (`sudo cat`). Names
+cannot contain `-` (LiteLLM's tool-prefix separator). Finally grant the key
+both servers (Keys > key > MCP Servers).
+
+Without a per-server timeout LiteLLM stops a tool call after 60 s: run longer
+shell jobs with `nohup` and read their log in a later call.
 
 ## Update
 

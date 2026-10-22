@@ -82,9 +82,10 @@ fi
 if [ "$new_tokens" = 1 ]; then
   cat <<NOTE
 
-New tokens were written to $ENV_FILE. Put the same two values into LiteLLM's
-secret (apps/litellm/secrets, SOPS) under the same names, ORACLE_MCP_TOKEN_READ
-and ORACLE_MCP_TOKEN_OPS. Show them with:  sudo cat $ENV_FILE
+New tokens were written to $ENV_FILE. Register the MCP servers oracle
+(/mcp/read, ORACLE_MCP_TOKEN_READ) and oracle_ops (/mcp/ops,
+ORACLE_MCP_TOKEN_OPS) in the LiteLLM UI with these as bearer tokens (see
+README.md). Show them with:  sudo cat $ENV_FILE
 NOTE
 fi
 echo "done"

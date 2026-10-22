@@ -105,7 +105,8 @@ BACKUP_DIR = Path("/var/backups/oracle-mcp")
 GITHUB_RAW = "https://raw.githubusercontent.com/cyrahs/fav/{commit}/script/wechat_favinbox/{name}"
 
 # Gateway limits: LiteLLM stops `oracle` calls after 120 s and `oracle_ops`
-# calls after 600 s (apps/litellm/configmap.yaml). Stay under them.
+# calls after 600 s when registered with those timeouts (README.md), 60 s
+# without. Stay under them.
 READ_TIMEOUT_MAX = 110
 OPS_TIMEOUT_MAX = 590
 
