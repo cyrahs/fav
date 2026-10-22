@@ -87,7 +87,8 @@ def should_retry_status(status_code: int) -> bool:
 
 
 def should_retry_exception(exc: Exception) -> bool:
-    return isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError))
+    # NetworkError covers a connection dropped mid-request (ReadError), not only one that never opened.
+    return isinstance(exc, (httpx.NetworkError, httpx.TimeoutException, httpx.RemoteProtocolError))
 
 
 def retry_after_seconds(response: httpx.Response | None) -> float | None:
