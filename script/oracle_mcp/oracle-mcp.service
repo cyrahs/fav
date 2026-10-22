@@ -1,0 +1,35 @@
+# System unit for oracle-mcp on the oracle host (redroid-1).
+# Installed to /etc/systemd/system/oracle-mcp.service by install.sh.
+#
+# Runs as root: the tools use docker, adb and root-only files, and the ops
+# tier is a root shell by design. It binds 127.0.0.1 and requires a bearer
+# token per tier; frpc tunnels it to frps on nas-us (remote port 9972).
+#
+# The tokens live in /etc/oracle-mcp.env (root-only, 0600):
+#   ORACLE_MCP_TOKEN_READ=<64 hex chars>
+#   ORACLE_MCP_TOKEN_OPS=<64 hex chars>
+
+[Unit]
+Description=oracle-mcp (MCP server for operating this host through the LiteLLM gateway)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/oracle-mcp.env
+Environment=ORACLE_MCP_HOST=127.0.0.1
+Environment=ORACLE_MCP_PORT=9972
+Environment=HOME=/root
+WorkingDirectory=/opt/oracle-mcp
+ExecStart=/opt/oracle-mcp/.venv/bin/python /opt/oracle-mcp/server.py
+Restart=always
+RestartSec=3
+# Only the server itself is stopped on restart: jobs started from the shell
+# tool with nohup, and an adb server it may have spawned, keep running.
+KillMode=process
+# The host has 2 vCPUs and redroid needs them; shell commands also run niced.
+CPUWeight=50
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
