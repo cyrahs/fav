@@ -16,7 +16,7 @@ Claude ──https──> llm.s117.me/mcp/oracle | /mcp/oracle_ops   (CF Access 
 
 | LiteLLM server | Endpoint | Token | Can do |
 |---|---|---|---|
-| `oracle` | `/mcp/read` | `ORACLE_MCP_TOKEN_READ` | Host and service status, journals, frpc tunnels, redroid state, logcat, screenshots, favinbox GETs (`/wx/status`, `/wx/ui/dump`, events, history, ...), file reads under fixed directories, directory listings |
+| `oracle` | `/mcp/read` | `ORACLE_MCP_TOKEN_READ` | Host and service status, journals, frpc tunnels, redroid state, logcat, screenshots, favinbox GETs (`/wx/status`, `/wx/ui/dump`, events, history, ...), file reads under fixed directories and four unit files, directory listings |
 | `oracle_ops` | `/mcp/ops` | `ORACLE_MCP_TOKEN_OPS` | All of the above, plus service start/stop/restart, favinbox POSTs (`/wx/ui/open`, `/wx/ui/close`, `/link/open`, `/post/page`, `/finder/video`, `/ack/*`), adb input, WeChat restart, FavInbox deploys from cyrahs/fav at a commit, file writes, and a root shell |
 
 ## Security

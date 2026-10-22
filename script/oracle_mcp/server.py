@@ -122,7 +122,9 @@ READ_ROOTS = (
     Path("/opt/favinbox"),
     Path("/opt/ws-scrcpy"),
     Path("/opt/oracle-mcp"),
-    Path("/etc/systemd/system"),
+    # Only these units: another unit's Environment= lines may hold a secret
+    # that matches no redaction pattern.
+    *(Path(f"/etc/systemd/system/{u}.service") for u in ("favinbox", "ws-scrcpy", "frpc", "oracle-mcp")),
     Path("/etc/frp"),
     BACKUP_DIR,
     FAVINBOX_DIR,
@@ -526,8 +528,9 @@ async def favinbox_get(path: str, query: dict[str, str | int] | None = None) -> 
 
 
 async def read_file(path: str, offset: int = 0, max_bytes: int = 100_000) -> dict[str, Any]:
-    """Read a text file under /opt/favinbox, /opt/ws-scrcpy, /opt/oracle-mcp, /etc/systemd/system,
-    /etc/frp, /var/backups/oracle-mcp, the FavInbox inbox or the installed FavInbox plugin.
+    """Read a text file under /opt/favinbox, /opt/ws-scrcpy, /opt/oracle-mcp, /etc/frp,
+    /var/backups/oracle-mcp, the FavInbox inbox or the installed FavInbox plugin, or the unit file
+    of favinbox, ws-scrcpy, frpc or oracle-mcp.
 
     Secret files (*.env, the bridge token) are refused and known secrets are masked.
     offset/max_bytes page through large files (max_bytes at most 200000).

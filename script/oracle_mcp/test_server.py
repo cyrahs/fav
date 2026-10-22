@@ -209,3 +209,9 @@ def test_screenshot_comes_back_as_an_image(client, monkeypatch):
     resp = rpc(client, server.READ_PATH, READ_TOKEN, "tools/call", {"name": "screenshot", "arguments": {}})
     content = resp.json()["result"]["content"]
     assert content[0]["type"] == "image" and content[0]["mimeType"] == "image/jpeg"
+
+
+def test_only_known_unit_files_are_readable():
+    assert server.allowed_path("/etc/systemd/system/favinbox.service", server.READ_ROOTS)
+    with pytest.raises(ToolError):
+        server.allowed_path("/etc/systemd/system/other.service", server.READ_ROOTS)
