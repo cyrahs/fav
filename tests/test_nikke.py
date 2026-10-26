@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 import pytest
 
 import src.service.jobs as jobs_module
@@ -18,6 +19,7 @@ from src.core.settings import Nikke as NikkeConfig
 from src.web.nikke import (
     Asset,
     AssetProcessingError,
+    CrawlRunError,
     Nikke,
     add_asset,
     assign_asset_paths,
@@ -1498,6 +1500,118 @@ def test_process_assets_raises_when_any_asset_failed(monkeypatch: pytest.MonkeyP
 
     with pytest.raises(AssetProcessingError, match='1 Nikke assets failed'):
         asyncio.run(crawler._process_assets(client=object(), root=tmp_path, assets=assets))
+
+
+def test_process_assets_saves_page_when_gamekee_does_not_host_an_asset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    crawler = Nikke(path=tmp_path)
+    assets = {
+        ('https://cdn.example.com/a.png', 'image'): Asset(url='https://cdn.example.com/a.png', kind='image'),
+        ('https://cdn.example.com/b.png', 'live2d_texture'): Asset(
+            url='https://cdn.example.com/b.png',
+            kind='live2d_texture',
+        ),
+    }
+
+    async def _fake_process_asset(*, client: object, root: Path, asset: Asset) -> bool:
+        _ = client, root
+        if asset.url.endswith('b.png'):
+            asset.status = 'missing'
+            return False
+        asset.status = 'downloaded'
+        return True
+
+    monkeypatch.setattr(crawler, '_process_asset', _fake_process_asset)
+
+    asyncio.run(crawler._process_assets(client=object(), root=tmp_path, assets=assets))
+
+
+@pytest.mark.parametrize(('status_code', 'expected'), [(404, 'missing'), (500, 'failed'), (567, 'failed')])
+def test_process_asset_marks_only_not_found_as_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status_code: int,
+    expected: str,
+) -> None:
+    crawler = Nikke(path=tmp_path)
+    asset = Asset(url='https://cdn.example.com/FavoriteItemScene_c192_00.png', kind='live2d_texture')
+    marked_failed: list[str] = []
+
+    async def _noop(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    async def _no_blob(_url: str) -> None:
+        return None
+
+    async def _download(_client: object, failing: Asset) -> object:
+        request = httpx.Request('GET', failing.url)
+        response = httpx.Response(status_code, request=request)
+        msg = f'HTTP {status_code}'
+        raise httpx.HTTPStatusError(msg, request=request, response=response)
+
+    async def _mark_failed(failing: Asset, _reason: str) -> None:
+        marked_failed.append(failing.url)
+
+    monkeypatch.setattr(crawler, '_upsert_asset_seen', _noop)
+    monkeypatch.setattr(crawler, '_completed_blob_for_url', _no_blob)
+    monkeypatch.setattr(crawler, '_download_asset_to_temp', _download)
+    monkeypatch.setattr(crawler, '_mark_asset_failed', _mark_failed)
+
+    ok = asyncio.run(crawler._process_asset(client=object(), root=tmp_path, asset=asset))
+
+    assert ok is False
+    assert asset.status == expected
+    # Recorded as failed either way, so the next run asks GameKee for the file again.
+    assert marked_failed == [asset.url]
+
+
+def test_update_crawls_every_page_and_reports_the_failed_ones(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    crawler = Nikke(path=tmp_path)
+    broken_id = 691899
+    crawled: list[int] = []
+
+    @asynccontextmanager
+    async def fake_advisory_lock(_name: str) -> AsyncIterator[bool]:
+        yield True
+
+    @asynccontextmanager
+    async def fake_http_client() -> AsyncIterator[object]:
+        yield object()
+
+    async def fake_ensure_schema() -> None:
+        return None
+
+    async def fake_fetch_tj_list_rows(_client: object) -> list[dict[str, object]]:
+        return [{'content_id': broken_id, 'title': 'A'}, {'content_id': 711133, 'title': 'B'}]
+
+    async def fake_upsert_list_pages(_rows: list[dict[str, object]]) -> None:
+        return None
+
+    async def fake_crawl_page(**kwargs: object) -> Path:
+        content_id = kwargs['content_id']
+        assert isinstance(content_id, int)
+        crawled.append(content_id)
+        if content_id == broken_id:
+            msg = '1 Nikke assets failed'
+            raise AssetProcessingError(msg)
+        return tmp_path / str(content_id)
+
+    monkeypatch.setattr(nikke_module.database, 'advisory_lock', fake_advisory_lock)
+    monkeypatch.setattr(crawler, '_http_client', fake_http_client)
+    monkeypatch.setattr(crawler, '_ensure_schema', fake_ensure_schema)
+    monkeypatch.setattr(crawler, '_fetch_tj_list_rows', fake_fetch_tj_list_rows)
+    monkeypatch.setattr(crawler, '_upsert_list_pages', fake_upsert_list_pages)
+    monkeypatch.setattr(crawler, '_crawl_page', fake_crawl_page)
+
+    with pytest.raises(CrawlRunError, match=r'1 Nikke page\(s\) failed: 691899'):
+        asyncio.run(crawler.update())
+
+    assert crawled == [broken_id, 711133]
 
 
 def test_process_assets_limits_db_backed_asset_processing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

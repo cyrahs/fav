@@ -149,6 +149,15 @@ class AssetProcessingError(RuntimeError):
     pass
 
 
+class CrawlRunError(RuntimeError):
+    pass
+
+
+def is_missing_upstream(exc: BaseException) -> bool:
+    """GameKee answered 404: the file is not hosted, so retrying within the run cannot help."""
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == _HTTP_NOT_FOUND
+
+
 @dataclass(slots=True)
 class Asset:
     url: str
@@ -1595,7 +1604,9 @@ class Nikke:
             await self._mark_asset_downloaded(asset, blob)
         except Exception as exc:  # noqa: BLE001
             error = str(exc) or exc.__class__.__name__
-            asset.status = 'failed'
+            # A missing file is still recorded as failed in nikke_assets, so it has no completed
+            # blob and the next run asks GameKee for it again.
+            asset.status = 'missing' if is_missing_upstream(exc) else 'failed'
             asset.error = error
             log.warning('Failed to download Nikke asset %s: %s', asset.url, error)
             await self._mark_asset_failed(asset, error)
@@ -1619,6 +1630,15 @@ class Nikke:
                     await self._process_asset(client=client, root=root, asset=asset)
 
         await asyncio.gather(*(_process_url_group(group) for group in assets_by_url.values()))
+        if missing := [asset for asset in assets.values() if asset.status == 'missing']:
+            # GameKee's atlases sometimes name a texture it never uploaded. Failing the page over
+            # one would freeze its manifest and discovery notices for good, so the manifest lists
+            # the asset as missing instead.
+            log.warning(
+                'GameKee does not host %d Nikke asset(s), saving the page without them: %s',
+                len(missing),
+                ', '.join(asset.url for asset in missing[:3]),
+            )
         failed = [asset for asset in assets.values() if asset.status == 'failed']
         if failed:
             examples = ', '.join(asset.url for asset in failed[:3])
@@ -1995,6 +2015,7 @@ class Nikke:
                 await self._upsert_list_pages(rows)
                 total = len(rows)
                 log.info('Found %d GameKee NIKKE character pages', total)
+                failed: list[str] = []
                 for index, row in enumerate(rows, start=1):
                     content_id = row_content_id(row)
                     if content_id is None:
@@ -2004,3 +2025,10 @@ class Nikke:
                         await self._crawl_page(client=client, tj_list_row=row, content_id=content_id, allow_runtime_capture=False)
                     except Exception:
                         log.exception('Failed to crawl Nikke content_id=%s', content_id)
+                        failed.append(str(content_id))
+
+            # One page must not stop the others, but the run still has to report that it was
+            # incomplete instead of ending as succeeded.
+            if failed:
+                msg = f'{len(failed)} Nikke page(s) failed: {", ".join(failed[:10])}'
+                raise CrawlRunError(msg)
