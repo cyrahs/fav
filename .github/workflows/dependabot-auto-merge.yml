@@ -7,20 +7,24 @@ name: Dependabot auto-merge
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
   pull-requests: write
   actions: write
 
+# A Dependabot rebase (synchronize) restarts the wait below; without this the older
+# run would also dispatch a build once the pull request merges.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   auto-merge:
-    # `pull_request.user.login` rather than `github.actor`: on the closed event the
-    # actor is whoever merged, not the author.
-    if: >-
-      github.event.pull_request.user.login == 'dependabot[bot]'
-      && github.event.action != 'closed'
+    # `pull_request.user.login` rather than `github.actor`: a re-run is started by
+    # whoever pressed the button, not the author.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Read Dependabot metadata
@@ -41,24 +45,35 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  rebuild-image:
-    # A push made with GITHUB_TOKEN does not start new workflow runs, so the merge
-    # commit may never reach the `push` trigger in ci.yml. Dispatching the build
-    # explicitly is what actually gets the new downloader into the image. If GitHub
-    # does deliver the push event, the cost is one redundant build rather than a
-    # stale image.
-    if: >-
-      github.event.action == 'closed'
-      && github.event.pull_request.merged == true
-      && github.event.pull_request.user.login == 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Rebuild the image on main
+      # The merge is made with GITHUB_TOKEN, and GitHub starts no workflow for events
+      # that token causes: neither ci.yml's `push` nor this file's `pull_request: closed`
+      # ever ran for an auto-merged downloader bump, so the new version only shipped with
+      # the next human merge. workflow_dispatch is the one event GITHUB_TOKEN may start,
+      # so this job waits for the merge itself and then asks for the build on main.
+      - name: Wait for the merge and rebuild the image on main
+        if: contains(fromJSON('["gallery-dl", "yt-dlp"]'), steps.metadata.outputs.dependency-names)
         run: |
-          gh workflow run ci.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref main \
-            -f trigger-reason="dependabot: $PR_TITLE"
+          for _ in $(seq 1 60); do
+            state="$(gh pr view "$PR_URL" --json state --jq .state)"
+            case "$state" in
+              MERGED)
+                gh workflow run ci.yml \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --ref main \
+                  -f trigger-reason="dependabot: $PR_TITLE"
+                exit 0
+                ;;
+              CLOSED)
+                echo "Pull request was closed without merging; nothing to build."
+                exit 0
+                ;;
+            esac
+            sleep 30
+          done
+          # Not a failure: if CI failed the pull request stays open for a human, and a
+          # human merge triggers ci.yml's `push` normally.
+          echo "::notice::Pull request not merged after 30 minutes; no image rebuild dispatched."
         env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
