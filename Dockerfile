@@ -42,12 +42,15 @@ WORKDIR /app
 # gallery-dl are not installed here: both are uv dependencies and arrive with the
 # virtualenv below, which puts their console scripts on PATH. Xvnc (TigerVNC) is
 # the virtual display a 登录态 login runs a headed Chromium on, started only for
-# the length of one login (src/api/browser_login.py).
+# the length of one login (src/api/browser_login.py). tini runs as PID 1 to reap
+# orphans: Chromium processes (browser, crashpad) can outlive Playwright's driver and get
+# reparented to PID 1, which the Python supervisor never waits on.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
     ffmpeg \
     tigervnc-standalone-server \
+    tini \
     && rm -rf /var/lib/apt/lists/*
 
 # Bring in the virtualenv from the builder image
@@ -83,4 +86,5 @@ ARG FAV_BUILD_TIME=""
 ENV FAV_GIT_COMMIT=${FAV_GIT_COMMIT} \
     FAV_BUILD_TIME=${FAV_BUILD_TIME}
 
+ENTRYPOINT ["tini", "--"]
 CMD ["python", "-m", "src.service"]
