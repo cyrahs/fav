@@ -112,3 +112,30 @@ export interface TelegramNotificationTest {
   message_id: number | null;
   warnings: string[];
 }
+export interface SiteSession {
+  site: string;
+  label: string;
+  signed_in: boolean;
+  account: string;
+  status: '' | 'valid' | 'invalid';
+  message: string;
+  cookie_count: number;
+  expires_at: string | null;
+  signed_in_at: string | null;
+  checked_at: string | null;
+}
+export interface LoginAttempt {
+  site: string;
+  state: 'starting' | 'waiting' | 'saved' | 'failed' | 'timeout' | 'cancelled';
+  active: boolean;
+  message: string;
+  account: string;
+  started_at: string | null;
+  deadline: string | null;
+  finished_at: string | null;
+  ticket: string;
+}
+export interface SiteSessionList {
+  items: SiteSession[];
+  login: LoginAttempt | null;
+}

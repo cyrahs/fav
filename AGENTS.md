@@ -119,6 +119,8 @@ A source is a duck type, not a base class. `JobSpec.factory()` must return an ob
   (read-only archive browsing over whitelisted tables/columns), `settings_masking.py`
 - `src/tool/database.py`: async pooled PostgreSQL helpers
 - `src/tool/cookiecloud.py`: fetch + decrypt CookieCloud cookies (Bilibili and X sessions)
+- `src/tool/site_sessions.py` + `src/api/browser_login.py`: logins captured on the 登录态 page (pixiv) —
+  a one-off Xvnc + headed Chromium the user signs in to through noVNC, stored in `site_sessions`
 - `src/web/rednote_browser.py`: the signed-in Chromium profile that source reads through
 - `src/tool/notifications.py`, `control_queue.py`, `telegram_bot.py`: the outbox and trigger queue
 - `src/tool/filename.py`: sanitization and `[uploader]title [id].ext` formatting helpers
@@ -224,9 +226,9 @@ worker.
 ## Docker
 
 `Dockerfile` builds the front end in a Node stage, then a runtime image carrying `ffmpeg` and a
-Playwright-managed Chromium (used by `src/web/nikke_runtime.py` and by the signed-in profile in
-`src/web/rednote_browser.py`). The downloaders arrive with the virtualenv, whose `bin` is on
-`PATH`. Configuration comes from environment variables.
+Playwright-managed Chromium (used by `src/web/nikke_runtime.py`, by the signed-in profile in
+`src/web/rednote_browser.py`, and headed on TigerVNC's `Xvnc` for 登录态 logins). The downloaders
+arrive with the virtualenv, whose `bin` is on `PATH`. Configuration comes from environment variables.
 
 ```bash
 docker run --rm \

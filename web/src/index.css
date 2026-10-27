@@ -656,3 +656,25 @@ select {
   margin: 0;
   font-size: 20px;
 }
+
+.vnc {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.vnc .actions input {
+  width: 220px;
+}
+
+/* noVNC scales the remote screen to this box (scaleViewport), keeping its 16:10
+   shape; the height tracks the width so a narrow window still shows all of it. */
+.vnc-screen {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  max-height: 80vh;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+}

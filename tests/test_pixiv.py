@@ -15,6 +15,7 @@ from src.api.schemas import JobRequestTarget
 from src.api.settings_masking import mask_section, unmask_section
 from src.core import settings
 from src.tool.cookiecloud import PROFILES
+from src.tool.site_sessions import SiteSession, StoredCookie
 from src.web.pixiv import (
     Pixiv,
     PixivApiError,
@@ -27,6 +28,7 @@ from src.web.pixiv import (
     parse_page_urls,
     parse_ugoira_meta,
     synthesize_ugoira_webp,
+    verify_session,
 )
 
 
@@ -100,6 +102,35 @@ class _FakeDatabase:
         self.calls.append((f'INSERT {table} {on_conflict or ""}', tuple(rows)))
 
 
+class _FakeSiteSessions:
+    """Stands in for src.tool.site_sessions: one optional stored login, and the checks recorded."""
+
+    def __init__(self, phpsessid: str = '') -> None:
+        self.stored = (
+            SiteSession(
+                site='pixiv',
+                cookies=(StoredCookie(name='PHPSESSID', value=phpsessid, domain='.pixiv.net'),),
+                account='',
+                status='valid',
+                message='',
+                expires_at=None,
+                signed_in_at=None,
+                checked_at=None,
+            )
+            if phpsessid
+            else None
+        )
+        self.checks: list[tuple[bool, str]] = []
+
+    async def load(self, site: str) -> SiteSession | None:
+        assert site == 'pixiv'
+        return self.stored
+
+    async def record_check(self, site: str, *, ok: bool, message: str = '') -> None:
+        assert site == 'pixiv'
+        self.checks.append((ok, message))
+
+
 def _with_mock_ajax(source: Pixiv, handler) -> None:
     """Swap the ajax client for one backed by a MockTransport, keeping the real headers."""
     source.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), headers=source.client.headers)
@@ -122,6 +153,10 @@ def test_only_the_cookiecloud_reference_gates_runnability() -> None:
 
     settings.load().cookiecloud.configs.clear()
     assert _runnable_cfg().validate_runnable() == []
+
+
+def test_without_a_cookiecloud_reference_the_source_is_runnable_on_a_captured_login() -> None:
+    assert _configure_pixiv(cookiecloud='').validate_runnable() == []
 
 
 def test_a_user_id_override_must_be_digits() -> None:
@@ -437,20 +472,94 @@ def test_a_masked_bookmark_is_settled_as_unavailable_during_the_walk(monkeypatch
     assert 'unavailable = 1' in updates[0][0]
 
 
-def test_an_unconfigured_source_does_nothing_rather_than_touching_the_network(monkeypatch) -> None:
+def test_with_no_captured_login_and_no_cookiecloud_the_run_asks_for_a_login(monkeypatch) -> None:
     _configure_pixiv(cookiecloud='')
 
     def _explode(*_args, **_kwargs):
-        raise AssertionError('should not touch the database or the network')
+        raise AssertionError('should not touch the database or CookieCloud')
 
+    monkeypatch.setattr(pixiv_module, 'site_sessions', _FakeSiteSessions())
     monkeypatch.setattr(pixiv_module, 'database', _explode)
     monkeypatch.setattr(pixiv_module, 'CookieCloudClient', _explode)
 
-    asyncio.run(Pixiv().update())
+    with pytest.raises(PixivError, match='登录态') as excinfo:
+        asyncio.run(Pixiv().update())
+
+    assert excinfo.value.notification_dedupe_key == 'pixiv:auth'
+
+
+def _crawl_nothing(source: Pixiv, tmp_path, *, fail: PixivError | None = None) -> list[str]:
+    """Make update() reach the crawl without a database, recording the user id it crawls."""
+    seen: list[str] = []
+
+    async def _no_table() -> None:
+        return None
+
+    async def _crawl(user_id: str):
+        seen.append(user_id)
+        if fail is not None:
+            raise fail
+        return [], 1, 0
+
+    async def _no_retries(_handled) -> int:
+        return 0
+
+    source.cfg.path = tmp_path
+    source._ensure_table = _no_table
+    source._crawl_bookmarks = _crawl
+    source._retry_pending_from_db = _no_retries
+    return seen
+
+
+def test_a_captured_login_wins_over_cookiecloud_and_is_marked_valid(monkeypatch, tmp_path) -> None:
+    _runnable_cfg(user_id='')
+    fake = _FakeSiteSessions('21029043_captured')
+    monkeypatch.setattr(pixiv_module, 'site_sessions', fake)
+
+    def _explode(*_args, **_kwargs):
+        raise AssertionError('CookieCloud is only the fallback')
+
+    monkeypatch.setattr(pixiv_module, 'CookieCloudClient', _explode)
+    source = Pixiv()
+    seen = _crawl_nothing(source, tmp_path)
+
+    asyncio.run(source.update())
+
+    assert seen == ['21029043']
+    assert source.client.headers['Cookie'] == 'PHPSESSID=21029043_captured'
+    assert fake.checks == [(True, '')]
+
+
+def test_a_rejected_captured_login_is_marked_invalid(monkeypatch, tmp_path) -> None:
+    _runnable_cfg(user_id='')
+    fake = _FakeSiteSessions('21029043_stale')
+    monkeypatch.setattr(pixiv_module, 'site_sessions', fake)
+    source = Pixiv()
+    _crawl_nothing(source, tmp_path, fail=PixivError('pixiv rejected', notification_dedupe_key='pixiv:auth'))
+
+    with pytest.raises(PixivError):
+        asyncio.run(source.update())
+
+    assert fake.checks == [(False, 'pixiv rejected')]
+
+
+def test_a_cookiecloud_session_records_nothing_on_the_login_page(monkeypatch, tmp_path) -> None:
+    _runnable_cfg(user_id='')
+    fake = _FakeSiteSessions()
+    monkeypatch.setattr(pixiv_module, 'site_sessions', fake)
+    source = Pixiv()
+    monkeypatch.setattr(source, '_fetch_phpsessid', lambda: '21029043_vault')
+    _crawl_nothing(source, tmp_path)
+
+    asyncio.run(source.update())
+
+    assert source.client.headers['Cookie'] == 'PHPSESSID=21029043_vault'
+    assert fake.checks == []
 
 
 def test_a_session_without_an_embedded_uid_asks_for_an_explicit_override(monkeypatch) -> None:
     _runnable_cfg(user_id='')
+    monkeypatch.setattr(pixiv_module, 'site_sessions', _FakeSiteSessions())
     source = Pixiv()
     monkeypatch.setattr(source, '_fetch_phpsessid', lambda: 'strange-cookie-shape')
 
@@ -463,7 +572,7 @@ def test_a_session_without_an_embedded_uid_asks_for_an_explicit_override(monkeyp
 # ---------- registration ----------
 
 
-def test_the_job_is_registered_and_parked_until_configured() -> None:
+def test_the_job_is_registered_and_parked_on_a_broken_cookiecloud_reference() -> None:
     fake_config = settings.Settings()
     fake_config.web.pixiv.enabled = True
 
@@ -473,9 +582,14 @@ def test_the_job_is_registered_and_parked_until_configured() -> None:
     assert job.section == 'web.pixiv'
     assert job.required_commands == ()
     assert job.factory is jobs_module.Pixiv
-    # Enabled in the UI but with no credentials, so it stays out of the scheduler.
+    # The login lives in the database, so with no CookieCloud reference it is schedulable.
+    assert job.enabled is True
+    assert job.missing_fields == ()
+
+    fake_config.web.pixiv.cookiecloud = 'ghost'
+    job = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'pixiv')
     assert job.enabled is False
-    assert 'cookiecloud' in job.missing_fields
+    assert job.missing_fields
 
 
 def test_api_job_enum_includes_pixiv() -> None:
@@ -513,3 +627,49 @@ def test_the_shared_cookiecloud_password_survives_the_masking_round_trip() -> No
 
     section = {'cookiecloud': 'cc'}
     assert mask_section('web.pixiv', section) == section
+
+
+# ---------- session verification ----------
+
+
+def _verify(handler, phpsessid: str = '21029043_abc', **kwargs):
+    return asyncio.run(verify_session(phpsessid, transport=httpx.MockTransport(handler), **kwargs))
+
+
+def test_a_login_is_proved_by_reading_the_private_bookmarks() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={'error': False, 'message': '', 'body': {'works': [], 'total': 0}})
+
+    check = _verify(handler)
+
+    assert check.ok is True
+    assert check.account == '21029043'
+    assert seen[0].url.path == '/ajax/user/21029043/illusts/bookmarks'
+    assert seen[0].url.params['rest'] == 'hide'
+    assert seen[0].headers['Cookie'] == 'PHPSESSID=21029043_abc'
+
+
+def test_a_rejected_session_does_not_verify() -> None:
+    check = _verify(lambda _request: httpx.Response(403, json={'error': True, 'message': 'forbidden', 'body': []}))
+
+    assert check.ok is False
+    assert 'HTTP 403' in check.message
+
+
+def test_an_error_envelope_with_status_200_does_not_verify() -> None:
+    check = _verify(lambda _request: httpx.Response(200, json={'error': True, 'message': 'nope', 'body': []}))
+
+    assert check.ok is False
+
+
+def test_a_pre_login_cookie_is_rejected_without_asking_pixiv() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError('a cookie without a user id cannot be a login')
+
+    check = _verify(handler, phpsessid='anonymous-visitor-cookie')
+
+    assert check.ok is False
+    assert check.account == ''

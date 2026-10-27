@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { TOKEN_TTL_DAYS, clearToken, getToken, onUnauthorized, setToken, verifyToken } from './api/client';
 import { Logo } from './components/Logo';
 import { JobsPage } from './pages/Jobs';
+import { LoginsPage } from './pages/Logins';
 import { OverviewPage } from './pages/Overview';
 import { RecordsPage } from './pages/Records';
 import { SettingsPage } from './pages/Settings';
@@ -78,6 +79,7 @@ export function App() {
           </NavLink>
           <NavLink to="/records">记录</NavLink>
           <NavLink to="/jobs">任务</NavLink>
+          <NavLink to="/logins">登录态</NavLink>
           <NavLink to="/settings">配置</NavLink>
         </nav>
         <button
@@ -97,6 +99,7 @@ export function App() {
           <Route path="/" element={<OverviewPage />} />
           <Route path="/records" element={<RecordsPage />} />
           <Route path="/jobs" element={<JobsPage />} />
+          <Route path="/logins" element={<LoginsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

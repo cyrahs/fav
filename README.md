@@ -119,7 +119,7 @@ uv lock --upgrade-package gallery-dl
   "username": "yourhandle",                 // your own screen name, without the @
   "path": "collection/twitter",
   "video_path": null,                       // null keeps videos with the images
-  "cookiecloud": "main",                    // name of an entry in the shared `cookiecloud` section
+  "cookiecloud": "",                        // optional fallback: an entry in the shared `cookiecloud` section
   "sleep_request_seconds": 2.0,             // spacing between X requests
   "abort_after": 20,                        // consecutive known files that end an incremental run
   "include_retweets": true,                 // liked retweets, filed under the original author
@@ -175,10 +175,13 @@ collected, and R-18 bookmarks arrive with the session like any other.
 }
 ```
 
-The bookmarks listing refuses anonymous requests, so the session is the `PHPSESSID` cookie read from
-the referenced CookieCloud vault under `pixiv.net`, re-fetched at the start of every run. The logged-in user's
-id is embedded in that cookie's value (`{user_id}_{hash}`), so `user_id` normally stays empty. Image
-originals on `i.pximg.net` need only the `Referer` header, never the cookie.
+The bookmarks listing refuses anonymous requests, so the session is a `PHPSESSID` cookie. Sign in once on
+the web UI's 登录态 page (see [Site logins](#site-logins)); the cookie is stored in the database and read
+at the start of every run. A run that finds pixiv rejecting it marks the login 已失效 there and fails with
+one deduplicated notification asking for a new login. Only when no login has been captured does the run
+fall back to the CookieCloud vault named by `cookiecloud`, if any. The logged-in user's id is embedded
+in the cookie's value (`{user_id}_{hash}`), so `user_id` normally stays empty. Image originals on
+`i.pximg.net` need only the `Referer` header, never the cookie.
 
 Every output file is a row in the `pixiv` table keyed by `(illust_id, num)` with
 `downloaded`/`unavailable` flags, and files land in `path/<author>/[<author>]<title> [<id>_p<num>].<ext>`
@@ -363,8 +366,8 @@ a worker restart.
 ## Web UI
 
 `web/` is a React + TypeScript + Vite front end served by FastAPI from `web/dist` when that directory
-exists (API-only otherwise). Pages: overview, archive records, jobs, settings. Cron fields show a
-live natural-language description of the expression.
+exists (API-only otherwise). Pages: overview, archive records, jobs, site logins (登录态), settings.
+Cron fields show a live natural-language description of the expression.
 
 The jobs page owns `cron`, `enabled` and `notify` for every source, plus manual 立即运行. Sources with an
 incomplete configuration cannot be enabled: the toggle is disabled and `PUT /api/v2/settings/{section}`
@@ -392,6 +395,23 @@ npm run build   # emits web/dist, which the API then serves at /
 
 Log in with `API_TOKEN`; it is kept in `localStorage` for 30 days, renewed on use, and dropped on logout
 or on the first 401/403 from the API.
+
+### Site logins
+
+The 登录态 page lists the sources that need a signed-in session (pixiv so far) with the state of the
+stored one: account, when it was captured, when its cookie expires, and whether the last crawl or
+检测 found it valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
+`Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
+shown in the page through noVNC. The VNC WebSocket (`/api/v2/site-sessions/vnc`) is opened with a
+ticket that belongs to that one login, since a browser cannot send the bearer token on a WebSocket.
+
+While the window is open the API polls its cookies. When the session cookie appears it asks the site
+whether it is a real login (for pixiv, by reading the private bookmarks, which only the owner can),
+stores the cookies in `site_sessions`, and shuts the browser and the display down. A login left
+unfinished closes itself after 15 minutes. Nothing runs between logins; a login takes roughly
+400-600 MB while it is open. Each site keeps its Chromium profile under `data/login-profiles/<site>`
+so successive logins come from the same browser. A login is refused while the RedNote crawl has its
+own browser open, so the two never share the pod's memory limit.
 
 ## API Backend
 
@@ -431,6 +451,10 @@ Protected endpoints:
 - `GET /api/v2/settings/{section}`
 - `PUT /api/v2/settings/{section}`
 - `POST /api/v2/cookiecloud/test`
+- `GET /api/v2/site-sessions`
+- `POST /api/v2/site-sessions/{site}/login`
+- `POST /api/v2/site-sessions/{site}/check`
+- `DELETE /api/v2/site-sessions/login`
 - `POST /api/v2/notifications/telegram/test`
 - `GET /api/v2/archive/sources`
 - `GET /api/v2/archive/items`
@@ -466,7 +490,8 @@ Tools (`src/api/mcp_server.py`, queries in `src/api/ops.py`):
 
 - Read: `get_runtime` (deployed git commit, build time, process start times), `list_jobs`, `list_runs`,
   `get_run`, `read_logs` (the log files under `log/`, which survive pod restarts), `get_settings`,
-  `wechat_status`, `list_wechat_events`, `list_notifications`, `list_archive_sources`, `search_archive`.
+  `wechat_status`, `list_wechat_events`, `site_sessions` (stored logins, never cookie values),
+  `list_notifications`, `list_archive_sources`, `search_archive`.
 - Write: `run_job`, `update_settings` (partial, validated like a UI save), `retry_wechat_events`,
   `set_wechat_state`, `retry_notifications`, `send_test_notification`.
 

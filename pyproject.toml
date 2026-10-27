@@ -25,6 +25,10 @@ dependencies = [
     "tenacity>=8.5.0",
     "tqdm>=4.67.1",
     "uvicorn>=0.35.0",
+    # uvicorn only speaks WebSocket when a protocol library is installed; the
+    # 登录态 page streams VNC over one. Declared here rather than left to arrive
+    # through yt-dlp's extra.
+    "websockets>=15.0",
     # The [default] extra is required, not cosmetic: plain `yt-dlp` declares no
     # dependencies at all, leaving out pycryptodomex (encrypted HLS), websockets,
     # certifi, requests/urllib3 and yt-dlp-ejs. The standalone binary this replaced
