@@ -255,12 +255,14 @@ async def _send_photo(
         data['disable_notification'] = str(disable_notification).lower()
         if include_caption:
             data.update({'caption': caption, 'parse_mode': 'MarkdownV2'})
+        # sendPhoto keeps only a GIF's first frame; sendAnimation plays it.
+        method, field = ('sendAnimation', 'animation') if content_type == 'image/gif' else ('sendPhoto', 'photo')
         result = await _call_api(
             client=client,
             config=config,
-            method='sendPhoto',
+            method=method,
             data=data,
-            files={'photo': (filename, image_bytes, content_type)},
+            files={field: (filename, image_bytes, content_type)},
         )
     return _message_id(result)
 

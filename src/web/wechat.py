@@ -1,4 +1,4 @@
-"""Images, 公众号 articles, Tieba and NGA posts and 视频号 videos forwarded to the agent's WeChat account.
+"""Images, stickers, 公众号 articles, Tieba and NGA posts and 视频号 videos forwarded to the agent's WeChat account.
 
 WeChat runs in redroid on another host, with the WAuxiliary FavInbox plugin
 inside it (script/wechat_favinbox). A small HTTP service next to it answers two
@@ -13,11 +13,12 @@ APIs at one address, behind one token:
   so the plugin's backfill never saves it again.
 
 A run reads the events after its cursor in ``wechat_state`` and queues the ones
-worth keeping -- images and shared articles received in a private chat -- in
+worth keeping -- images, stickers and shared articles received in a private chat -- in
 ``wechat_events``, so the cursor moves on even when saving an item fails. It then
 works that queue. An image is fetched through the bridge, or from the inbox when
-the bridge cannot. A shared link is first opened in the agent's WeChat, as its
-reader would before anything is saved: the service's ``POST /link/open`` opens
+the bridge cannot. A sticker comes straight from WeChat's CDN (see
+``wechat_emoji``) and is kept beside the images. A shared link is first opened
+in the agent's WeChat, as its reader would before anything is saved: the service's ``POST /link/open`` opens
 it, waits for it to load and closes it again. Then an article is fetched
 straight from mp.weixin.qq.com with every image at full size. Image posts, which the site puts behind a captcha,
 come from the service's ``POST /post/page`` instead: it has the agent's WeChat
@@ -35,7 +36,7 @@ logs while it is loaded.
 Items are keyed on WeChat's local ``msg_id`` together with the message's
 ``create_time``. The id alone is a row number in the account's message database,
 so it restarts if WeChat is reinstalled; the pair stays unique across that. The
-``md5`` WeChat reports does not hash the saved bytes, so it is kept for
+``md5`` WeChat reports for an image does not hash the saved bytes, so it is kept for
 reference and never used to deduplicate.
 """
 
@@ -71,6 +72,7 @@ from src.web.wechat_article import (
     parse_article_page,
 )
 from src.web.wechat_channels import ChannelVideo, parse_channel_video, video_title
+from src.web.wechat_emoji import Sticker, decrypt_sticker, matches, parse_sticker
 
 log = logger.get('wechat')
 
@@ -97,7 +99,7 @@ _LINK_WAIT_SECONDS = 20
 _TAP_OPEN_SECONDS = 1200
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
-_WORK_VERSION = '5'
+_WORK_VERSION = '6'
 _WORK_VERSION_KEY = 'work_version'
 _NGA_LOGIN_KEY = 'wechat:nga-login'
 # How long the FavInbox service waits for WeChat to download a video it opened:
@@ -112,6 +114,7 @@ _POST_VIDEO_READ_SECONDS = 600
 _ARTICLE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
 
 WORK_IMAGE = 'image'
+WORK_STICKER = 'sticker'
 WORK_ARTICLE = 'article'
 WORK_CHANNEL_VIDEO = 'channel_video'
 
@@ -166,7 +169,7 @@ def pending_images(items: list[Any]) -> list[dict[str, Any]]:
 
 
 def work_for(event: Any) -> str | None:
-    """What a bridge event asks of this source: an image, an article, a 视频号 video, or nothing.
+    """What a bridge event asks of this source: an image, a sticker, an article, a 视频号 video, or nothing.
 
     Articles are 公众号 articles, Tieba posts and NGA threads. Whenever this learns a new kind
     of message, bump ``_WORK_VERSION`` so the event log is read again from the
@@ -185,9 +188,13 @@ def work_for(event: Any) -> str | None:
     if message.get('kind') == 'image':
         return WORK_IMAGE
     content = str(message.get('content') or '')
-    if shared_link(content) is not None:
-        return WORK_ARTICLE
-    return WORK_CHANNEL_VIDEO if parse_channel_video(content) is not None else None
+    if message.get('kind') == 'emoji':
+        work = WORK_STICKER if parse_sticker(content) is not None else None
+    elif shared_link(content) is not None:
+        work = WORK_ARTICLE
+    else:
+        work = WORK_CHANNEL_VIDEO if parse_channel_video(content) is not None else None
+    return work
 
 
 def shared_link(content: str) -> ArticleLink | None:
@@ -202,7 +209,7 @@ def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
     key; the bridge finds the image by id, so neither is stored.
     """
     kept = {key: message.get(key) for key in ('msg_id', 'create_time', 'type', 'kind', 'talker', 'sender')}
-    if work in {WORK_ARTICLE, WORK_CHANNEL_VIDEO}:
+    if work in {WORK_ARTICLE, WORK_CHANNEL_VIDEO, WORK_STICKER}:
         kept['content'] = message.get('content')
     image = message.get('image')
     if work == WORK_IMAGE and isinstance(image, dict):
@@ -555,6 +562,8 @@ class Wechat:
                     await self._save_article(message, final_attempt=int(row['attempts']) + 1 >= _MAX_ATTEMPTS)
                 elif row['work'] == WORK_CHANNEL_VIDEO:
                     await self._save_channel_video(message)
+                elif row['work'] == WORK_STICKER:
+                    await self._save_sticker(message)
                 else:
                     await self._save_bridge_image(message)
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
@@ -739,6 +748,48 @@ class Wechat:
             ids = ', '.join(str(msg_id) for msg_id in failed)
             msg = f'Could not download {len(failed)} WeChat image(s): {ids}'
             raise WechatInboxError(msg, notification_dedupe_key='wechat:download')
+
+    # ---------- stickers ----------
+
+    async def _sticker_file(self, sticker: Sticker) -> tuple[bytes, str]:
+        """The sticker as WeChat's CDN serves it, else its encrypted copy decrypted."""
+        reasons: list[str] = []
+        if sticker.cdn_url:
+            try:
+                response = await self.web.get(sticker.cdn_url)
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                reasons.append(f'cdnurl: {exc}')
+            else:
+                if matches(sticker, response.content):
+                    return response.content, response.headers.get('content-type', '')
+                reasons.append('cdnurl: the file does not match its md5')
+        if sticker.encrypted_url and sticker.aes_key:
+            try:
+                response = await self.web.get(sticker.encrypted_url)
+                response.raise_for_status()
+                content = decrypt_sticker(response.content, sticker.aes_key)
+            except httpx.HTTPError as exc:
+                reasons.append(f'encrypturl: {exc}')
+            except ValueError:
+                reasons.append('encrypturl: the key does not decrypt the file')
+            else:
+                if matches(sticker, content):
+                    return content, ''
+                reasons.append('encrypturl: the file does not match its md5')
+        msg = f'Could not download the sticker: {"; ".join(reasons)}'
+        raise WechatInboxError(msg)
+
+    async def _save_sticker(self, message: dict[str, Any]) -> None:
+        sticker = parse_sticker(str(message.get('content') or ''))
+        if sticker is None:
+            msg = f'Message {message["msg_id"]} names no sticker file'
+            raise WechatInboxError(msg)
+        item = {**image_item(message), 'type': 'sticker', 'md5': sticker.md5}
+        if await self._already_stored(item):
+            return
+        content, content_type = await self._sticker_file(sticker)
+        await self._keep_image(item, content, content_type)
 
     # ---------- articles ----------
 

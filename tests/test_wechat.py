@@ -8,6 +8,8 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 
 import src.service.jobs as jobs_module
 import src.web.wechat as wechat_module
@@ -32,6 +34,7 @@ from src.web.wechat import (
 )
 from src.web.wechat_article import canonical_url, image_extension, original_image_url, parse_article_link, parse_article_page
 from src.web.wechat_channels import parse_channel_video, video_title
+from src.web.wechat_emoji import decrypt_sticker, parse_sticker
 
 # 2025-10-05 03:13:20 UTC, in milliseconds as WeChat stores it.
 _CREATE_TIME = 1_759_634_000_000
@@ -510,7 +513,7 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert not [request for request in inbox.requests if request.url.path.startswith('/file/')]
     image_request = next(request for request in inbox.requests if request.url.path == '/wx/image')
     assert dict(image_request.url.params) == {'talker': 'wxid_sender', 'msg_id': '45', 'create_time': str(_CREATE_TIME + 45)}
-    assert fake_db.state == {'events_after': '7', 'work_version': '5'}
+    assert fake_db.state == {'events_after': '7', 'work_version': '6'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
 
@@ -1302,8 +1305,115 @@ def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications,
     assert inbox.event_requests() == [0, 6]
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
-    assert fake_db.state == {'events_after': '6', 'work_version': '5'}
+    assert fake_db.state == {'events_after': '6', 'work_version': '6'}
     assert len(notifications) == 1
+
+
+# ---------- stickers ----------
+
+_STICKER = b'GIF89a-sticker-frames'
+_STICKER_MD5 = hashlib.md5(_STICKER).hexdigest()  # noqa: S324
+_STICKER_KEY = '00112233445566778899aabbccddeeff'
+_STICKER_CDN = 'http://wxapp.tc.qq.com/262/20304/stodownload?m=plain&filekey=aaa&bizid=1023'
+_STICKER_ENCRYPTED = 'http://wxapp.tc.qq.com/262/20304/stodownload?m=enc&filekey=bbb&bizid=1023'
+
+
+def _sticker_share(*, cdn: str = _STICKER_CDN, md5: str = _STICKER_MD5) -> str:
+    def attribute(url: str) -> str:
+        return url.replace('://', '*#*//').replace('&', '&amp;')
+
+    return (
+        '<msg><emoji fromusername="wxid_sender" tousername="wxid_me" type="2" idbuffer="media*#*0_0" '
+        f'md5="{md5}" len="{len(_STICKER)}" productid="" cdnurl="{attribute(cdn) if cdn else ""}" thumburl="" '
+        f'encrypturl="{attribute(_STICKER_ENCRYPTED)}" aeskey="{_STICKER_KEY}" width="240" height="240"></emoji>'
+        '<gameext type="0" content="0"></gameext></msg>'
+    )
+
+
+def _sticker_message(msg_id: int = 260, **updates: object) -> dict:
+    content = updates.pop('content', _sticker_share())
+    return _message(msg_id, type=47, kind='emoji', content=content, image=None, **updates)
+
+
+def _encrypted(content: bytes) -> bytes:
+    key = bytes.fromhex(_STICKER_KEY)
+    return AES.new(key, AES.MODE_CBC, iv=key).encrypt(pad(content, AES.block_size))
+
+
+def _sticker_web(*, plain: httpx.Response | None = None) -> _FakeWeb:
+    return _FakeWeb(
+        {
+            _STICKER_CDN: plain or httpx.Response(200, content=_STICKER, headers={'content-type': 'image/jpg'}),
+            _STICKER_ENCRYPTED: httpx.Response(200, content=_encrypted(_STICKER)),
+        }
+    )
+
+
+def test_a_sticker_names_its_plain_and_encrypted_files() -> None:
+    sticker = parse_sticker(_sticker_share())
+
+    assert sticker is not None
+    assert (sticker.md5, sticker.cdn_url, sticker.encrypted_url, sticker.aes_key) == (
+        _STICKER_MD5,
+        _STICKER_CDN,
+        _STICKER_ENCRYPTED,
+        _STICKER_KEY,
+    )
+    assert decrypt_sticker(_encrypted(_STICKER), _STICKER_KEY) == _STICKER
+    assert work_for(_event(1, _sticker_message())) == 'sticker'
+    assert queued_message(_sticker_message(), 'sticker')['content'] == _sticker_share()
+    assert work_for(_event(2, _sticker_message(content='<msg><emoji md5="x" cdnurl="" /></msg>'))) is None
+    assert parse_sticker(_share()) is None
+
+
+def test_a_sticker_is_saved_from_the_cdn_beside_the_images(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(1, _sticker_message())])
+    web = _sticker_web()
+
+    asyncio.run(_source(inbox, web).update())
+
+    [row] = fake_db.inserts()
+    local_path = Path(row[7])
+    assert local_path == Path('2025-10/2025-10-05 031320 [260].gif')
+    assert (tmp_path / local_path).read_bytes() == _STICKER
+    assert json.loads(row[8])['type'] == 'sticker'
+    assert [str(request.url) for request in web.requests] == [_STICKER_CDN]
+    assert inbox.acked == []
+    assert fake_db.queue[(260, _CREATE_TIME + 260)]['status'] == 'done'
+    [note] = notifications
+    assert note['payload']['image_path'] == str(tmp_path / local_path)
+
+
+@pytest.mark.parametrize(
+    ('content', 'plain'),
+    [
+        (_sticker_share(cdn=''), None),
+        (_sticker_share(), httpx.Response(404)),
+        (_sticker_share(), httpx.Response(200, content=b'GIF89a-something-else')),
+    ],
+    ids=['no-cdnurl', 'cdnurl-fails', 'cdnurl-wrong-file'],
+)
+def test_a_sticker_the_cdn_will_not_give_is_decrypted_from_its_encrypted_copy(fake_db, tmp_path, content, plain) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(1, _sticker_message(content=content))])
+
+    asyncio.run(_source(inbox, _sticker_web(plain=plain)).update())
+
+    [row] = fake_db.inserts()
+    assert (tmp_path / row[7]).read_bytes() == _STICKER
+
+
+def test_a_sticker_that_matches_neither_copy_is_retried_without_writing_anything(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    inbox = _FakeInbox([], events=[_event(1, _sticker_message(content=_sticker_share(md5='0' * 32)))])
+
+    with pytest.raises(WechatInboxError, match='does not match its md5'):
+        asyncio.run(_source(inbox, _sticker_web()).update())
+
+    assert fake_db.inserts() == []
+    assert not list(tmp_path.rglob('*.gif'))
+    assert fake_db.queue[(260, _CREATE_TIME + 260)]['status'] == 'pending'
 
 
 # ---------- 视频号 videos ----------
