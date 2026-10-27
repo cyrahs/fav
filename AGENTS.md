@@ -58,8 +58,9 @@ uv run python -m src.api        # API + web UI, long-running
 uv run python run.py --trigger <job_key|all>   # run once and exit
 ```
 
-`python -m src.service` (the Docker `CMD`) supervises both processes; `src/service/launcher.py`
-spawns them and forwards shutdown signals.
+`python -m src.service` (the Docker `CMD`, under `tini` as PID 1, which reaps orphaned browser
+helpers) supervises both processes; `src/service/launcher.py` spawns them and forwards shutdown
+signals.
 
 ## Architecture
 
