@@ -313,7 +313,9 @@ Every run (`*/15 * * * *` by default) reads the bridge's message events after it
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>` and recorded in `wechat_inbox`. A sticker is
 stored and recorded the same way, downloaded from the `cdnurl` its message names (no login needed) and
 checked against its `md5`; when that fails, the `encrypturl` copy is decrypted with the message's
-`aeskey` (AES-128-CBC, the key doubling as the IV). Its Telegram notification plays a GIF as an
+`aeskey` (AES-128-CBC, the key doubling as the IV). A large sticker, which WeChat only loads when
+it is tapped, arrives as an app message of type 8 instead, with the same addresses and key in the
+base64 protobuf of its `<emojiinfo>`. Its Telegram notification plays a GIF as an
 animation. Every shared
 link is first opened in the account's WeChat through the service's `/link/open`, which waits for the
 page to load and closes it again, so the account reads what it is sent before fav saves it. WeChat

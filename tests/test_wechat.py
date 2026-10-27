@@ -1,6 +1,7 @@
 # ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, C901, EM101, INP001, PLR0911, PLR0913, PLR2004, S101, S105, S106, TRY003
 
 import asyncio
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -513,7 +514,7 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert not [request for request in inbox.requests if request.url.path.startswith('/file/')]
     image_request = next(request for request in inbox.requests if request.url.path == '/wx/image')
     assert dict(image_request.url.params) == {'talker': 'wxid_sender', 'msg_id': '45', 'create_time': str(_CREATE_TIME + 45)}
-    assert fake_db.state == {'events_after': '7', 'work_version': '6'}
+    assert fake_db.state == {'events_after': '7', 'work_version': '7'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
 
@@ -1305,7 +1306,7 @@ def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications,
     assert inbox.event_requests() == [0, 6]
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
-    assert fake_db.state == {'events_after': '6', 'work_version': '6'}
+    assert fake_db.state == {'events_after': '6', 'work_version': '7'}
     assert len(notifications) == 1
 
 
@@ -1383,6 +1384,61 @@ def test_a_sticker_is_saved_from_the_cdn_beside_the_images(fake_db, notification
     assert fake_db.queue[(260, _CREATE_TIME + 260)]['status'] == 'done'
     [note] = notifications
     assert note['payload']['image_path'] == str(tmp_path / local_path)
+
+
+def _protobuf_field(number: int, value: str) -> bytes:
+    data = value.encode()
+    return bytes([number << 3 | 2, len(data)]) + data
+
+
+def _large_sticker_share(*, cdn: str = _STICKER_CDN) -> str:
+    """A large sticker: an app message of type 8 whose emojiinfo protobuf names the files."""
+    info = b''.join(
+        (
+            _protobuf_field(1, _STICKER_MD5),
+            _protobuf_field(2, cdn),
+            bytes([3 << 3, 1]),  # a number in between
+            _protobuf_field(5, _STICKER_ENCRYPTED),
+            _protobuf_field(6, _STICKER_KEY),
+            _protobuf_field(7, ''),
+            _protobuf_field(9, 'f' * 32),
+        )
+    )
+    return (
+        '<?xml version="1.0"?>\n<msg>\n\t<appmsg appid="" sdkver="0">\n\t\t<title />\n\t\t<type>8</type>\n\t\t<appattach>'
+        f'<totallen>{len(_STICKER)}</totallen><emoticonmd5>{_STICKER_MD5}</emoticonmd5><fileext>pic</fileext>'
+        f'<emojiinfo>{base64.b64encode(info).decode()}</emojiinfo></appattach>\n\t</appmsg>\n'
+        '\t<fromusername>wxid_sender</fromusername>\n</msg>\n'
+    )
+
+
+def test_a_large_sticker_names_its_files_in_its_emoji_info() -> None:
+    sticker = parse_sticker(_large_sticker_share())
+
+    assert sticker is not None
+    assert (sticker.md5, sticker.cdn_url, sticker.encrypted_url, sticker.aes_key) == (
+        _STICKER_MD5,
+        _STICKER_CDN,
+        _STICKER_ENCRYPTED,
+        _STICKER_KEY,
+    )
+    large = _message(264, type=1048625, kind='other', content=_large_sticker_share(), image=None)
+    assert work_for(_event(1, large)) == 'sticker'
+    assert parse_sticker(_large_sticker_share().replace('<type>8</type>', '<type>6</type>')) is None
+    assert parse_sticker(_large_sticker_share().replace('<emojiinfo>', '<emojiinfo>!!')) is None
+
+
+def test_a_large_sticker_is_saved_like_any_other(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    large = _message(264, type=1048625, kind='other', content=_large_sticker_share(cdn=''), image=None)
+    inbox = _FakeInbox([], events=[_event(1, large)])
+
+    asyncio.run(_source(inbox, _sticker_web()).update())
+
+    [row] = fake_db.inserts()
+    assert (tmp_path / row[7]).read_bytes() == _STICKER
+    assert fake_db.queue[(264, _CREATE_TIME + 264)]['status'] == 'done'
+    assert len(notifications) == 1
 
 
 @pytest.mark.parametrize(

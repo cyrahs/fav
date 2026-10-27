@@ -99,7 +99,7 @@ _LINK_WAIT_SECONDS = 20
 _TAP_OPEN_SECONDS = 1200
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
-_WORK_VERSION = '6'
+_WORK_VERSION = '7'
 _WORK_VERSION_KEY = 'work_version'
 _NGA_LOGIN_KEY = 'wechat:nga-login'
 # How long the FavInbox service waits for WeChat to download a video it opened:
@@ -188,8 +188,9 @@ def work_for(event: Any) -> str | None:
     if message.get('kind') == 'image':
         return WORK_IMAGE
     content = str(message.get('content') or '')
-    if message.get('kind') == 'emoji':
-        work = WORK_STICKER if parse_sticker(content) is not None else None
+    # A large sticker is an app message rather than an emoji one, so the content decides.
+    if parse_sticker(content) is not None:
+        work = WORK_STICKER
     elif shared_link(content) is not None:
         work = WORK_ARTICLE
     else:
