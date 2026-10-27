@@ -10,6 +10,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@novnc/novnc": "^1.7.0",
     "@tanstack/react-query": "^5.62.0",
     "cronstrue": "^2.53.0",
     "react": "^19.0.0",

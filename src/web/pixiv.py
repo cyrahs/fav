@@ -1,11 +1,13 @@
 """Public pixiv bookmarks, crawled through the www.pixiv.net ajax API.
 
 pixiv's web API refuses the bookmarks listing without a login session, so the
-crawl authenticates with the PHPSESSID cookie pulled from CookieCloud — the
-same session the browser holds, tracked instead of going stale. The logged-in
-user's id is embedded in that cookie's value (``{user_id}_{hash}``), so no
-account id has to be configured. The image originals on i.pximg.net are gated
-on the Referer header alone and need no cookie.
+crawl authenticates with a PHPSESSID cookie. It normally comes from the session
+captured on the 登录态 page (``src/tool/site_sessions.py``): the user signs in once
+in a browser fav starts for that purpose, and the cookie is kept server-side from
+then on. A CookieCloud vault is the fallback for a deployment without a captured
+session. The logged-in user's id is embedded in the cookie's value
+(``{user_id}_{hash}``), so no account id has to be configured. The image
+originals on i.pximg.net are gated on the Referer header alone and need no cookie.
 
 Three work types are archived: illustrations and manga as their original
 files, one row per page, and ugoira (animated works) synthesized from their
@@ -33,7 +35,7 @@ import httpx
 from PIL import Image
 
 from src.core import logger, settings
-from src.tool import CookieCloudClient, database, format_media_filename, sanitize
+from src.tool import CookieCloudClient, database, format_media_filename, sanitize, site_sessions
 from src.tool.cookiecloud import PIXIV_PROFILE
 from src.tool.notifications import enqueue_notification
 
@@ -50,7 +52,17 @@ _API_RETRY_DELAYS_SECONDS = (2.0, 5.0, 15.0, 30.0)
 _API_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 # What the bookmarks endpoint answers when the session is missing or expired.
 _AUTH_STATUS_CODES = {400, 401, 403}
+_HTTP_ERROR_MIN = 400
 _ILLUST_TYPE_UGOIRA = 2
+# The key the captured login is stored under in site_sessions.
+SESSION_SITE = 'pixiv'
+LOGIN_URL = 'https://accounts.pixiv.net/login?return_to=https%3A%2F%2Fwww.pixiv.net%2F'
+# Where the login page leaves the session cookie; read back from the browser.
+SESSION_COOKIE_URLS = ('https://www.pixiv.net/',)
+_SESSION_COOKIE = 'PHPSESSID'
+_RELOGIN_HINT = "Sign in to pixiv again on fav's 登录态 page."
+_ORIGIN_LOGIN = 'login'
+_ORIGIN_COOKIECLOUD = 'cookiecloud'
 # 0 = illustration, 1 = manga, 2 = ugoira. Novels never appear on this endpoint,
 # but the filter is kept defensive in case pixiv adds a type.
 _ILLUST_TYPES = {0, 1, _ILLUST_TYPE_UGOIRA}
@@ -108,6 +120,54 @@ def derive_user_id(phpsessid: str) -> str:
     if separator and prefix.isdigit():
         return prefix
     return ''
+
+
+@dataclass(frozen=True, slots=True)
+class SessionCheck:
+    ok: bool
+    account: str
+    message: str
+
+
+async def verify_session(
+    phpsessid: str,
+    *,
+    user_id: str = '',
+    proxy: str = '',
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> SessionCheck:
+    """Whether a PHPSESSID is a live login, asked of pixiv itself.
+
+    A cookie being present proves nothing: pixiv hands every visitor one before
+    login. The private-bookmarks listing (``rest=hide``) only answers for the
+    account the session belongs to, so a successful answer is the proof.
+    """
+    if not phpsessid:
+        return SessionCheck(ok=False, account='', message='no PHPSESSID cookie yet')
+    account = user_id or derive_user_id(phpsessid)
+    if not account:
+        return SessionCheck(ok=False, account='', message='PHPSESSID carries no user id; not signed in yet')
+    async with httpx.AsyncClient(
+        headers={'User-Agent': _USER_AGENT, 'Referer': _REFERER, 'Accept': 'application/json', 'Cookie': f'PHPSESSID={phpsessid}'},
+        proxy=proxy or None,
+        transport=transport,
+        timeout=30,
+        follow_redirects=True,
+    ) as client:
+        try:
+            response = await client.get(
+                _BOOKMARKS_URL.format(user_id=account), params={'tag': '', 'offset': '0', 'limit': '1', 'rest': 'hide'}
+            )
+        except httpx.HTTPError as exc:
+            return SessionCheck(ok=False, account=account, message=f'pixiv unreachable: {exc.__class__.__name__}')
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if response.status_code >= _HTTP_ERROR_MIN or not isinstance(payload, dict) or payload.get('error'):
+        detail = str(payload.get('message') or '') if isinstance(payload, dict) else ''
+        return SessionCheck(ok=False, account=account, message=f'pixiv rejected the session (HTTP {response.status_code}) {detail}'.strip())
+    return SessionCheck(ok=True, account=account, message='')
 
 
 def extract_phpsessid(cookies: dict[str, list[dict]]) -> str:
@@ -289,6 +349,21 @@ class Pixiv:
             raise PixivError(msg, notification_dedupe_key='pixiv:auth')
         return phpsessid
 
+    async def _resolve_session(self) -> tuple[str, str]:
+        """The PHPSESSID to crawl with, and where it came from.
+
+        A session captured on the 登录态 page wins; CookieCloud is only consulted
+        when there is none, and only if a config is referenced at all.
+        """
+        stored = await site_sessions.load(SESSION_SITE)
+        phpsessid = stored.cookie(_SESSION_COOKIE) if stored else ''
+        if phpsessid:
+            return phpsessid, _ORIGIN_LOGIN
+        if self.cfg.cookiecloud.strip():
+            return await asyncio.to_thread(self._fetch_phpsessid), _ORIGIN_COOKIECLOUD
+        msg = f'pixiv is not signed in. {_RELOGIN_HINT}'
+        raise PixivError(msg, notification_dedupe_key='pixiv:auth')
+
     async def _get_body(self, url: str, params: dict[str, str] | None = None) -> Any:
         """GET one ajax endpoint, unwrapping the ``{error, message, body}`` envelope.
 
@@ -347,14 +422,11 @@ class Pixiv:
         try:
             body = await self._get_body(_BOOKMARKS_URL.format(user_id=user_id), params=params)
         except PixivApiError as exc:
-            msg = f'pixiv rejected the bookmarks request ({exc}). Sign in again in the browser so CookieCloud picks up a fresh session.'
+            msg = f'pixiv rejected the bookmarks request ({exc}). {_RELOGIN_HINT}'
             raise PixivError(msg, notification_dedupe_key='pixiv:auth') from exc
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in _AUTH_STATUS_CODES:
-                msg = (
-                    f'pixiv answered the bookmarks request with HTTP {exc.response.status_code}. '
-                    'Sign in again in the browser so CookieCloud picks up a fresh session.'
-                )
+                msg = f'pixiv answered the bookmarks request with HTTP {exc.response.status_code}. {_RELOGIN_HINT}'
                 raise PixivError(msg, notification_dedupe_key='pixiv:auth') from exc
             raise
         if not isinstance(body, dict):
@@ -684,7 +756,7 @@ class Pixiv:
             log.warning('Pixiv is not configured (missing %s), skip update', ', '.join(missing))
             return
 
-        phpsessid = await asyncio.to_thread(self._fetch_phpsessid)
+        phpsessid, origin = await self._resolve_session()
         user_id = self.cfg.user_id or derive_user_id(phpsessid)
         if not user_id:
             msg = 'Could not derive the pixiv user id from PHPSESSID; set web.pixiv.user_id explicitly.'
@@ -694,7 +766,14 @@ class Pixiv:
         await self._ensure_table()
         await asyncio.to_thread(self.cfg.path.mkdir, parents=True, exist_ok=True)
 
-        works, page_count, total_reported = await self._crawl_bookmarks(user_id)
+        try:
+            works, page_count, total_reported = await self._crawl_bookmarks(user_id)
+        except PixivError as exc:
+            if origin == _ORIGIN_LOGIN and exc.notification_dedupe_key == 'pixiv:auth':
+                await site_sessions.record_check(SESSION_SITE, ok=False, message=str(exc))
+            raise
+        if origin == _ORIGIN_LOGIN:
+            await site_sessions.record_check(SESSION_SITE, ok=True)
         log.info('Pixiv bookmarks scanned pages=%s total_reported=%s works_to_process=%s', page_count, total_reported, len(works))
 
         downloaded = 0

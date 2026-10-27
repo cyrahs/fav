@@ -202,6 +202,12 @@ def build_mcp_server(get_service: Callable[[], FavApiService]) -> FastMCP:  # no
         except ApiError as exc:
             raise _tool_error(exc) from None
 
+    @mcp.tool()
+    async def site_sessions() -> list[dict[str, Any]]:
+        """Logins captured on the web UI's 登录态 page (pixiv, ...): account, whether the last
+        crawl or check found them valid (status, message), cookie names and expiry. Never values."""
+        return await ops.site_sessions_summary()
+
     # ---------- WeChat ----------
 
     @mcp.tool()

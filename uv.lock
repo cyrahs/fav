@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -523,6 +523,7 @@ dependencies = [
     { name = "tenacity" },
     { name = "tqdm" },
     { name = "uvicorn" },
+    { name = "websockets" },
     { name = "yt-dlp", extra = ["default"] },
 ]
 
@@ -553,6 +554,7 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.5.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "uvicorn", specifier = ">=0.35.0" },
+    { name = "websockets", specifier = ">=15.0" },
     { name = "yt-dlp", extras = ["default"], specifier = ">=2026.7.4" },
 ]
 

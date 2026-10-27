@@ -8,6 +8,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 
+from src.tool import site_sessions
+
+from .browser_login import BrowserLoginManager, LoginAttempt, LoginBusyError, UnknownLoginSiteError
 from .constants import (
     API_V2_PREFIX,
     TAG_ARCHIVE,
@@ -18,8 +21,11 @@ from .constants import (
     TAG_KEMONO,
     TAG_NIKKE,
     TAG_SETTINGS,
+    TAG_SITE_SESSIONS,
 )
 from .dependencies import get_api_service, require_api_token
+from .errors import ApiError
+from .helpers import serialize_datetime
 from .schemas import (
     ArchiveListResponse,
     ArchiveSourceListResponse,
@@ -52,6 +58,7 @@ from .schemas import (
     KemonoCreatorResolveRequest,
     Live2DViewOverride,
     Live2DViewOverrideUpsert,
+    LoginAttemptView,
     NikkeCharacterDetail,
     NikkeCharacterListResponse,
     NikkeSidebarCharacter,
@@ -60,6 +67,8 @@ from .schemas import (
     RedNoteProxyTestResult,
     SettingsListResponse,
     SettingsSection,
+    SiteSessionListResponse,
+    SiteSessionView,
     TelegramNotificationTestResponse,
 )
 
@@ -908,3 +917,109 @@ def delete_nikke_live2d_view_override(
 ) -> Response:
     service.delete_live2d_view_override(source='nikke', content_id=content_id, model_id=model_id, profile=profile)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+LoginSitePath = Annotated[str, Path(min_length=1, max_length=64, pattern=r'^[a-z0-9_]+$')]
+
+
+def _login_manager(request: Request) -> BrowserLoginManager:
+    return request.app.state.browser_login
+
+
+def _login_view(attempt: LoginAttempt | None) -> LoginAttemptView | None:
+    if attempt is None:
+        return None
+    return LoginAttemptView(
+        site=attempt.site,
+        state=attempt.state,
+        active=attempt.active,
+        message=attempt.message,
+        account=attempt.account,
+        started_at=serialize_datetime(attempt.started_at),
+        deadline=serialize_datetime(attempt.deadline),
+        finished_at=serialize_datetime(attempt.finished_at),
+        ticket=attempt.ticket if attempt.active else '',
+    )
+
+
+def _session_view(manager: BrowserLoginManager, site_key: str, stored: site_sessions.SiteSession | None) -> SiteSessionView:
+    site = manager.sites[site_key]
+    if stored is None:
+        return SiteSessionView(site=site_key, label=site.label, signed_in=False)
+    return SiteSessionView(
+        site=site_key,
+        label=site.label,
+        signed_in=bool(stored.cookie(site.session_cookie)),
+        account=stored.account,
+        status=stored.status,
+        message=stored.message,
+        cookie_count=len(stored.cookies),
+        expires_at=serialize_datetime(stored.expires_at),
+        signed_in_at=serialize_datetime(stored.signed_in_at),
+        checked_at=serialize_datetime(stored.checked_at),
+    )
+
+
+@router.get(
+    '/site-sessions',
+    operation_id='listSiteSessions',
+    response_model=SiteSessionListResponse,
+    tags=[TAG_SITE_SESSIONS],
+)
+async def list_site_sessions(request: Request) -> SiteSessionListResponse:
+    """Each login-backed site with its stored session, plus the browser login in progress, if any."""
+    manager = _login_manager(request)
+    stored = await site_sessions.load_all()
+    return SiteSessionListResponse(
+        items=[_session_view(manager, key, stored.get(key)) for key in manager.sites],
+        login=_login_view(manager.attempt),
+    )
+
+
+@router.post(
+    '/site-sessions/{site}/login',
+    operation_id='startSiteLogin',
+    response_model=LoginAttemptView,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=[TAG_SITE_SESSIONS],
+)
+async def start_site_login(site: LoginSitePath, request: Request) -> LoginAttemptView:
+    """Open a browser on the site's login page; the session is saved once the login verifies."""
+    try:
+        attempt = await _login_manager(request).start(site)
+    except UnknownLoginSiteError as exc:
+        raise ApiError(status_code=404, code='not_found', message=str(exc)) from exc
+    except LoginBusyError as exc:
+        raise ApiError(status_code=409, code='login_busy', message=str(exc)) from exc
+    view = _login_view(attempt)
+    assert view is not None  # noqa: S101 - start() always returns an attempt
+    return view
+
+
+@router.delete(
+    '/site-sessions/login',
+    operation_id='cancelSiteLogin',
+    response_model=LoginAttemptView | None,
+    tags=[TAG_SITE_SESSIONS],
+)
+async def cancel_site_login(request: Request) -> LoginAttemptView | None:
+    """Close the login browser without saving anything."""
+    return _login_view(await _login_manager(request).cancel())
+
+
+@router.post(
+    '/site-sessions/{site}/check',
+    operation_id='checkSiteSession',
+    response_model=SiteSessionView,
+    tags=[TAG_SITE_SESSIONS],
+)
+async def check_site_session(site: LoginSitePath, request: Request) -> SiteSessionView:
+    """Ask the site now whether the stored session still works."""
+    manager = _login_manager(request)
+    try:
+        check = await manager.check_stored(site)
+    except UnknownLoginSiteError as exc:
+        raise ApiError(status_code=404, code='not_found', message=str(exc)) from exc
+    if check is None:
+        raise ApiError(status_code=409, code='not_signed_in', message=f'{site} has no stored session; sign in first.')
+    return _session_view(manager, site, await site_sessions.load(site))

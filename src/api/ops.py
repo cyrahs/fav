@@ -28,7 +28,7 @@ from apscheduler.triggers.cron import CronTrigger
 from src.core import settings
 from src.core.env import env
 from src.core.settings import SECTION_MODELS
-from src.tool import database
+from src.tool import database, site_sessions
 from src.tool.control_queue import VALID_KINDS, VALID_STATUSES, ensure_control_requests_table
 
 from .helpers import serialize_datetime
@@ -592,3 +592,25 @@ async def retry_notifications(ids: list[int]) -> list[int]:
         ([int(value) for value in ids],),
     )
     return sorted(int(row['id']) for row in rows)
+
+
+async def site_sessions_summary() -> list[dict[str, Any]]:
+    """Stored site logins without their cookie values: names, account, status and times."""
+    stored = await site_sessions.load_all()
+    return [
+        {
+            'site': session.site,
+            'account': session.account,
+            'status': session.status,
+            'message': session.message,
+            'cookie_names': sorted({cookie.name for cookie in session.cookies}),
+            'expires_at': _iso(session.expires_at),
+            'signed_in_at': _iso(session.signed_in_at),
+            'checked_at': _iso(session.checked_at),
+        }
+        for session in stored.values()
+    ]
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None

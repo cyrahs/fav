@@ -450,7 +450,7 @@ function PixivForm(props: SectionFormProps) {
         mono
         placeholder="留空则自动推导"
         invalid={!userIdOk}
-        hint="留空即可：会从 CookieCloud 里 PHPSESSID 的前缀自动推导登录账号的 ID。"
+        hint="留空即可：会从登录会话 PHPSESSID 的前缀自动推导登录账号的 ID。"
         error={userId && !userIdOk ? '只能包含数字' : undefined}
       />
 
@@ -461,7 +461,7 @@ function PixivForm(props: SectionFormProps) {
             source="pixiv"
             value={str(props.value, 'cookiecloud')}
             onChange={(next) => set('cookiecloud', next)}
-            hint="浏览器插件需要同步 pixiv.net 的 PHPSESSID。"
+            hint="可选的后备：平时在「登录态」页登录即可，只有那里没有保存的会话时才从 CookieCloud 取 pixiv.net 的 PHPSESSID。"
           />
         </div>
       </div>

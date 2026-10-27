@@ -40,11 +40,14 @@ WORKDIR /app
 
 # ffmpeg merges the separate audio and video streams Bilibili serves. yt-dlp and
 # gallery-dl are not installed here: both are uv dependencies and arrive with the
-# virtualenv below, which puts their console scripts on PATH.
+# virtualenv below, which puts their console scripts on PATH. Xvnc (TigerVNC) is
+# the virtual display a 登录态 login runs a headed Chromium on, started only for
+# the length of one login (src/api/browser_login.py).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
     ffmpeg \
+    tigervnc-standalone-server \
     && rm -rf /var/lib/apt/lists/*
 
 # Bring in the virtualenv from the builder image

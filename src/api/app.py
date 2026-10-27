@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -13,8 +13,19 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.core import logger
 
+from .browser_login import LOGIN_SITES, BrowserLoginManager, bridge_vnc, rednote_running
 from .config import load_config_from_env
-from .constants import API_DESCRIPTION, API_TITLE, APP_VERSION, DOCS_URL, HEALTH_ENDPOINT, OPENAPI_URL, READINESS_ENDPOINT, TAG_SYSTEM
+from .constants import (
+    API_DESCRIPTION,
+    API_TITLE,
+    API_V2_PREFIX,
+    APP_VERSION,
+    DOCS_URL,
+    HEALTH_ENDPOINT,
+    OPENAPI_URL,
+    READINESS_ENDPOINT,
+    TAG_SYSTEM,
+)
 from .errors import ApiError
 from .mcp_server import build_mcp_server
 from .routes import router as api_router
@@ -92,6 +103,7 @@ def create_app(
     *,
     config=None,  # noqa: ANN001
     service: FavApiService | None = None,
+    browser_login: BrowserLoginManager | None = None,
 ) -> FastAPI:
     resolved_config = config if config is not None else (load_config_from_env() if service is None else None)
     owned_service = service is None
@@ -101,10 +113,12 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ANN202
         app.state.api_service = service or FavApiService(dsn=resolved_config.dsn, token=resolved_config.token)
+        app.state.browser_login = browser_login or BrowserLoginManager(LOGIN_SITES, busy_check=rednote_running)
         try:
             async with mcp.session_manager.run():
                 yield
         finally:
+            await app.state.browser_login.close()
             if owned_service:
                 app.state.api_service.close()
 
@@ -150,6 +164,12 @@ def create_app(
         readiness = request.app.state.api_service.model_readiness(await request.app.state.api_service.get_readiness())
         status_code = 503 if readiness.status == 'degraded' else 200
         return JSONResponse(status_code=status_code, content=readiness.model_dump(mode='json'))
+
+    # Outside the API router on purpose: a browser cannot put a bearer token on a
+    # WebSocket, so this one is gated by the ticket of the login it belongs to.
+    @app.websocket(f'{API_V2_PREFIX}/site-sessions/vnc')
+    async def site_login_vnc(websocket: WebSocket) -> None:
+        await bridge_vnc(websocket, websocket.app.state.browser_login)
 
     _mount_web_ui(app)
     return app

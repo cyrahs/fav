@@ -649,15 +649,16 @@ class Twitter(ScheduleJob):
 class Pixiv(ScheduleJob):
     """Public pixiv bookmarks, crawled through the www.pixiv.net ajax API.
 
-    The session is a PHPSESSID cookie pulled from CookieCloud so it tracks the
-    browser. The logged-in user's id is normally derived from that cookie's value
-    (``{user_id}_{hash}``); ``user_id`` only overrides it for a vault whose cookie
-    does not carry that shape.
+    The session is a PHPSESSID cookie, normally the one captured on the 登录态 page
+    and kept in the database; ``cookiecloud`` optionally names a vault to fall back
+    on when no session has been captured. The logged-in user's id is normally
+    derived from the cookie's value (``{user_id}_{hash}``); ``user_id`` only
+    overrides it for a cookie that does not carry that shape.
     """
 
     path: Path = Path('./collection/pixiv')
     cron: str = '0 */6 * * *'
-    # Name of an entry in the shared `cookiecloud` section.
+    # Optional fallback: name of an entry in the shared `cookiecloud` section.
     cookiecloud: str = ''
     # Optional override; empty means "derive from the PHPSESSID cookie".
     user_id: str = ''
@@ -688,7 +689,9 @@ class Pixiv(ScheduleJob):
         return value
 
     def validate_runnable(self) -> list[str]:
-        return _cookiecloud_reference_issues(self.cookiecloud)
+        # The captured login lives in the database, so a missing one is reported by
+        # the run itself; only a CookieCloud reference that is set can be half-done.
+        return _cookiecloud_reference_issues(self.cookiecloud) if self.cookiecloud.strip() else []
 
 
 class RedNote(ScheduleJob):

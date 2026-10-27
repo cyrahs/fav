@@ -755,3 +755,36 @@ class CookieCloudTestResult(ApiSchema):
     domain_count: int = 0
     domain_cookie_count: int = 0
     missing_cookies: list[str] = Field(default_factory=list)
+
+
+class SiteSessionView(ApiSchema):
+    """One site's stored login, as the 登录态 page shows it. Never carries cookie values."""
+
+    site: str
+    label: str
+    signed_in: bool
+    account: str = ''
+    status: str = ''
+    message: str = ''
+    cookie_count: int = 0
+    expires_at: str | None = None
+    signed_in_at: str | None = None
+    checked_at: str | None = None
+
+
+class LoginAttemptView(ApiSchema):
+    site: str
+    state: Literal['starting', 'waiting', 'saved', 'failed', 'timeout', 'cancelled']
+    active: bool
+    message: str = ''
+    account: str = ''
+    started_at: str | None = None
+    deadline: str | None = None
+    finished_at: str | None = None
+    # Only while the login is open: the key the VNC WebSocket is opened with.
+    ticket: str = ''
+
+
+class SiteSessionListResponse(ApiSchema):
+    items: list[SiteSessionView]
+    login: LoginAttemptView | None = None
