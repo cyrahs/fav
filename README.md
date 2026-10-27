@@ -298,9 +298,9 @@ not replaceable. The QR is a live credential for the few minutes it lasts, so se
 private chat rather than a shared group. And unliking a note does not delete what was already
 downloaded.
 
-#### WeChat forwarded images, articles and videos
+#### WeChat forwarded images, stickers, articles and videos
 
-`web.wechat` collects the images, 公众号 articles and 视频号 videos forwarded to a WeChat account that runs in redroid
+`web.wechat` collects the images, stickers (表情), 公众号 articles and 视频号 videos forwarded to a WeChat account that runs in redroid
 on another host. The WAuxiliary plugin in `script/wechat_favinbox/` exposes WeChat over HTTP (the
 bridge) and also saves the original of every image a private chat receives (the inbox);
 `favinbox_server.py` beside it serves both behind one bearer token (`FAVINBOX_TOKEN` on that host),
@@ -308,9 +308,13 @@ the bridge under `/wx/`. frp tunnels it into the cluster, where fav reaches it a
 (`http://favinbox-oracle.proxy.svc` by default).
 
 Every run (`*/15 * * * *` by default) reads the bridge's message events after its cursor
-(`wechat_state`) and queues the images and article shares received in private chats in
+(`wechat_state`) and queues the images, stickers and article shares received in private chats in
 `wechat_events`. An image is fetched through `/wx/image` (or from the inbox when that fails) into
-`<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>` and recorded in `wechat_inbox`. Every shared
+`<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> [<msg_id>].<ext>` and recorded in `wechat_inbox`. A sticker is
+stored and recorded the same way, downloaded from the `cdnurl` its message names (no login needed) and
+checked against its `md5`; when that fails, the `encrypturl` copy is decrypted with the message's
+`aeskey` (AES-128-CBC, the key doubling as the IV). Its Telegram notification plays a GIF as an
+animation. Every shared
 link is first opened in the account's WeChat through the service's `/link/open`, which waits for the
 page to load and closes it again, so the account reads what it is sent before fav saves it. WeChat
 opens nothing on command: the FavInbox plugin taps through to the chat and taps the message, as a

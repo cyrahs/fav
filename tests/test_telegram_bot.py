@@ -109,6 +109,31 @@ def test_deliver_falls_back_to_text_when_remote_photo_is_rejected() -> None:
     assert result.media_status == 'none'
 
 
+def test_deliver_sends_a_local_gif_as_an_animation(tmp_path) -> None:
+    gif = tmp_path / 'sticker.gif'
+    gif.write_bytes(b'GIF89a-frames')
+    requests: list[httpx.Request] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={'ok': True, 'result': {'message_id': 102}})
+
+    async def _run() -> telegram_bot.TelegramDeliveryResult:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_handler)) as client:
+            return await telegram_bot.deliver(
+                notification=_notification(payload=json.dumps({'image_path': str(gif)})),
+                client=client,
+                config=_config(),
+            )
+
+    result = asyncio.run(_run())
+
+    [request] = requests
+    assert request.url.path.endswith('/sendAnimation')
+    assert b'name="animation"; filename="sticker.gif"' in request.content
+    assert result.media_status == 'local'
+
+
 def test_deliver_exposes_retry_after_without_leaking_token() -> None:
     token = _config().bot_token
 
