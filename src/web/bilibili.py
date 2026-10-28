@@ -478,6 +478,11 @@ class Bilibili:
             '15',
             '--socket-timeout',
             '30',
+            # Since 2026-10-28 the upos CDN answers a GET without a Range header with HTTP 567
+            # (an HTML block page) while ranged requests still get 206. yt-dlp only sends Range
+            # when the download is chunked, so chunk every stream.
+            '--http-chunk-size',
+            '10M',
         ]
         if self.cfg.proxy:
             # yt-dlp resolves the playurl itself, so the proxy steers both the CDN

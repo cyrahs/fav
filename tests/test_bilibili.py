@@ -671,6 +671,30 @@ def test_download_routes_yt_dlp_through_the_configured_proxy(tmp_path, monkeypat
     assert command[-1] == 'https://www.bilibili.com/video/BV1TEST1'
 
 
+def test_download_chunks_streams_so_every_cdn_request_carries_range(tmp_path, monkeypatch) -> None:
+    # The upos CDN answers an unranged GET with HTTP 567; yt-dlp only sends Range when chunking.
+    b = _make_bilibili(tmp_path)
+    b.cookie_path = tmp_path / 'cookies.txt'
+    b.cookie_path.write_text('', encoding='utf-8')
+    commands: list[list[str]] = []
+
+    class _OkResult:
+        returncode = 0
+        stdout = ''
+        stderr = ''
+
+    def _fake_run(command, **_kwargs):
+        commands.append(command)
+        return _OkResult()
+
+    monkeypatch.setattr(bilibili_module.subprocess, 'run', _fake_run)
+
+    b.download(url='https://www.bilibili.com/video/BV1TEST1', bvid='BV1TEST1', dirpath=tmp_path / 'videos')
+
+    command = commands[0]
+    assert command[command.index('--http-chunk-size') + 1] == '10M'
+
+
 def _account(name: str, **overrides) -> settings.BilibiliAccount:
     payload = {'name': name, 'favorites': [{'fav_id': 100, 'path': f'collection/bilibili/{name}/fav'}]}
     payload.update(overrides)
