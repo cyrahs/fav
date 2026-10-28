@@ -1125,8 +1125,11 @@ def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, 
     assert fake_db.assets[texture_url]['status'] == 'downloaded'
 
 
-def test_azurlane_update_reuses_blobs_archived_under_the_old_cdn_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The CDN moved every asset from /azurlane/ to /al/assets/webp/; the archive must not be fetched again."""
+@pytest.mark.parametrize('archived_base_url', ['https://static.l2d.su/al/assets/webp', L2D_SU_LEGACY_STATIC_BASE_URL])
+def test_azurlane_update_reuses_blobs_archived_under_the_old_cdn_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, archived_base_url: str
+) -> None:
+    """The CDN moved every asset from /azurlane/ to /al/assets/webp/ and then to /al-b/assets/; the archive must not be fetched again."""
     fake_db = _install_fake_database(monkeypatch)
     model3_url = _live2d_url('javelin')
     moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
@@ -1137,7 +1140,7 @@ def test_azurlane_update_reuses_blobs_archived_under_the_old_cdn_root(tmp_path: 
         texture_url: (b'archived-texture', 'live2d.texture', 'image/webp'),
     }
     for url, (content, kind, content_type) in legacy_contents.items():
-        legacy_url = url.replace(L2D_SU_STATIC_BASE_URL, L2D_SU_LEGACY_STATIC_BASE_URL)
+        legacy_url = url.replace(L2D_SU_STATIC_BASE_URL, archived_base_url)
         _seed_downloaded_blob(fake_db=fake_db, root=tmp_path, url=legacy_url, kind=kind, content=content, content_type=content_type)
     catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
 
@@ -1936,7 +1939,7 @@ def test_azurlane_sends_only_l2d_su_origin_traffic_through_the_origin_client(
 
     # The origin client carries the l2d.su ship data and nothing else: routing CDN assets through a
     # metered proxy would multiply its bandwidth by orders of magnitude.
-    data_prefix = 'https://l2d.su/data/'
+    data_prefix = 'https://static.l2d.su/al-b/data/'
     assert origin_urls, 'expected the origin client to be used'
     assert all(url.startswith(data_prefix) for url in origin_urls)
     assert not [url for url in direct_urls if url.startswith(data_prefix)]
