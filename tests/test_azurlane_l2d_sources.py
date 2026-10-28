@@ -43,7 +43,7 @@ from src.tool.azurlane_l2d_sources import (
     fetch_source_snapshots,
     l2d_su_asset_url_from_legacy,
     l2d_su_character_fingerprint,
-    l2d_su_legacy_asset_url,
+    l2d_su_legacy_asset_urls,
     l2d_su_ship_index_url,
     model_probe_urls,
     painting_index_url,
@@ -307,13 +307,13 @@ def test_parse_l2d_su_ship_index_derives_model_urls_from_skin_keys() -> None:
         'painting_count': 3,
     }
     assert parsed.characters[0].char_name_en == 'HMS Javelin'
-    assert parsed.characters[0].live2d[0].path == 'https://static.l2d.su/al/assets/webp/live2d/biaoqiang_2/biaoqiang_2.model3.json'
+    assert parsed.characters[0].live2d[0].path == 'https://static.l2d.su/al-b/assets/live2d/biaoqiang_2/biaoqiang_2.model3.json'
     assert parsed.characters[0].live2d[0].feature_tags == ('Live2D',)
-    assert parsed.characters[1].spine[0].path == 'https://static.l2d.su/al/assets/webp/spinepainting/yilisi_2_doa'
+    assert parsed.characters[1].spine[0].path == 'https://static.l2d.su/al-b/assets/spinepainting/yilisi_2_doa'
     assert parsed.characters[1].spine[0].model_key == 'yilisi_2_doa'
     assert parsed.new_skins[0].skin_ids == (20,)
     assert [painting.model_key for painting in parsed.characters[0].paintings] == ['biaoqiang', 'biaoqiang_2']
-    assert parsed.characters[0].paintings[0].path == 'https://static.l2d.su/al/assets/webp/painting/biaoqiang.webp'
+    assert parsed.characters[0].paintings[0].path == 'https://static.l2d.su/al-b/assets/painting/biaoqiang.webp'
     assert parsed.characters[0].paintings[0].face_ids == ('1', '2')
     assert parsed.characters[0].paintings[0].square_icon == 'squareicon/biaoqiang'
 
@@ -352,8 +352,8 @@ def test_parse_l2d_su_ship_models_maps_costume_ids_to_absolute_urls() -> None:
     )
 
     assert parse_l2d_su_ship_models(payload) == {
-        405050: 'https://static.l2d.su/al/assets/webp/spinepainting/bisimaiZ',
-        405051: 'https://static.l2d.su/al/assets/webp/live2d/Z23/Z23.model3.json',
+        405050: 'https://static.l2d.su/al-b/assets/spinepainting/bisimaiZ',
+        405051: 'https://static.l2d.su/al-b/assets/live2d/Z23/Z23.model3.json',
         405053: 'https://mirror.example/spine/x',
     }
 
@@ -785,7 +785,7 @@ def test_parse_l2d_su_ship_index_prefers_painting_over_prefab_for_the_model_key(
     parsed = parse_l2d_su_ship_index(payload)
 
     assert parsed.characters[0].spine[0].model_key == 'yunlong_3'
-    assert parsed.characters[0].spine[0].path == 'https://static.l2d.su/al/assets/webp/spinepainting/yunlong_3'
+    assert parsed.characters[0].spine[0].path == 'https://static.l2d.su/al-b/assets/spinepainting/yunlong_3'
 
 
 def test_parse_nagami_mapping_reads_name_and_background() -> None:
@@ -2087,11 +2087,17 @@ def test_probe_l2d_su_origin_uses_the_connect_host_fallback(monkeypatch: pytest.
     assert isinstance(seen[1], httpx.HTTPTransport)
 
 
-def test_l2d_su_asset_urls_map_to_and_from_the_old_cdn_root() -> None:
-    legacy_texture = f'{L2D_SU_LEGACY_STATIC_BASE_URL}/live2d/z23/textures/texture_00.webp'
+def test_l2d_su_asset_urls_map_to_and_from_the_old_cdn_roots() -> None:
     texture = f'{L2D_SU_STATIC_BASE_URL}/live2d/z23/textures/texture_00.webp'
-    assert l2d_su_legacy_asset_url(texture) == legacy_texture
-    assert l2d_su_legacy_asset_url(f'{L2D_SU_AUDIO_BASE_URL}/cue/cv-1/detail.ogg') == f'{L2D_SU_LEGACY_STATIC_BASE_URL}/cue/cv-1/detail.ogg'
-    assert l2d_su_legacy_asset_url('https://cdn.nagami.moe/live2d/z23/z23.model3.json') == ''
-    assert l2d_su_asset_url_from_legacy(legacy_texture) == texture
+    assert l2d_su_legacy_asset_urls(texture) == (
+        'https://static.l2d.su/al/assets/webp/live2d/z23/textures/texture_00.webp',
+        'https://static.l2d.su/al/assets/original/live2d/z23/textures/texture_00.webp',
+        f'{L2D_SU_LEGACY_STATIC_BASE_URL}/live2d/z23/textures/texture_00.webp',
+    )
+    assert 'https://static.l2d.su/al/assets/original/cue/cv-1/detail.ogg' in l2d_su_legacy_asset_urls(
+        f'{L2D_SU_AUDIO_BASE_URL}/cue/cv-1/detail.ogg'
+    )
+    assert l2d_su_legacy_asset_urls('https://cdn.nagami.moe/live2d/z23/z23.model3.json') == ()
+    for legacy_texture in l2d_su_legacy_asset_urls(texture):
+        assert l2d_su_asset_url_from_legacy(legacy_texture) == texture
     assert l2d_su_asset_url_from_legacy(texture) == texture

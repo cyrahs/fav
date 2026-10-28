@@ -19,19 +19,27 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
 L2D_SU_HOST = 'l2d.su'
-# Since 2026-10-15 the CDN keeps the Azur Lane assets in two trees under /al/assets/: webp/ has
-# the images converted to webp (and the model files rewritten to reference them), original/ has
-# the source files. webp/ is laid out exactly like the old /azurlane/ root, so it stays the
-# primary tree; voice audio is only hosted under original/.
-L2D_SU_STATIC_BASE_URL = 'https://static.l2d.su/al/assets/webp'
-L2D_SU_AUDIO_BASE_URL = 'https://static.l2d.su/al/assets/original'
-# The root everything was archived from until 2026-10-15. Assets downloaded from it are reused
-# for their new URLs rather than fetched again (see l2d_su_legacy_asset_url).
+# Since 2026-10-28 the site reads everything from /al-b/ on the CDN: the ship data under
+# /al-b/data/ and a single asset tree under /al-b/assets/ that holds the source files (png
+# textures, ogg voices) and a webp copy of every image side by side, laid out like the old roots.
+# /al/ now serves a different build with hashed file names and AZP1-encrypted model files that
+# the site itself does not load.
+L2D_SU_ASSET_BASE_URL = 'https://static.l2d.su/al-b/assets'
+L2D_SU_STATIC_BASE_URL = L2D_SU_ASSET_BASE_URL
+L2D_SU_AUDIO_BASE_URL = L2D_SU_ASSET_BASE_URL
+# The roots assets were archived from before, newest first: from 2026-10-15 to 2026-10-28 webp
+# copies (model files rewritten to reference them) under /al/assets/webp/ and voices under
+# /al/assets/original/, and /azurlane/ until 2026-10-15. All share the current relative layout,
+# so assets downloaded from them are reused for their new URLs rather than fetched again (see
+# l2d_su_legacy_asset_urls).
+L2D_SU_PREVIOUS_ASSET_BASE_URLS = ('https://static.l2d.su/al/assets/webp', 'https://static.l2d.su/al/assets/original')
 L2D_SU_LEGACY_STATIC_BASE_URL = 'https://static.l2d.su/azurlane'
-# The ship data moved between the origin and the CDN twice: the origin until 2026-10, the CDN
-# under /azurlane/data/ until 2026-10-15, and the origin again since.
-L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://l2d.su/data/ships-{region}.json'
-L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://l2d.su/data/ships/{region}/{ship_id}.json'
+L2D_SU_ARCHIVED_ASSET_BASE_URLS = (*L2D_SU_PREVIOUS_ASSET_BASE_URLS, L2D_SU_LEGACY_STATIC_BASE_URL)
+# The ship data has moved between the origin and the CDN several times: the origin until 2026-10,
+# the CDN under /azurlane/data/ until 2026-10-15, the origin again until 2026-10-28 (it now
+# answers /data/ with the app shell), and the CDN under /al-b/data/ since.
+L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://static.l2d.su/al-b/data/ships-{region}.json'
+L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://static.l2d.su/al-b/data/ships/{region}/{ship_id}.json'
 L2D_SU_REFERER = 'https://l2d.su/'
 L2D_SU_PRIMARY_REGION = 'CN'
 L2D_SU_ENGLISH_REGION = 'EN'
@@ -984,18 +992,22 @@ def _entry_with_resolved_path(entry: ModelEntry, paths: Mapping[int, str]) -> Mo
     return replace(entry, resources=replace(entry.resources, primary_url=resolved))
 
 
-def l2d_su_legacy_asset_url(url: str) -> str:
-    """The URL `url` was archived under before the CDN moved, or '' if it is not an l2d.su asset."""
-    for base_url in (L2D_SU_STATIC_BASE_URL, L2D_SU_AUDIO_BASE_URL):
-        if url.startswith(f'{base_url}/'):
-            return f'{L2D_SU_LEGACY_STATIC_BASE_URL}/{url.removeprefix(f"{base_url}/")}'
-    return ''
+def l2d_su_legacy_asset_urls(url: str) -> tuple[str, ...]:
+    """The URLs `url` may have been archived under before the CDN moved, newest root first.
+
+    Empty if `url` is not an l2d.su asset.
+    """
+    if not url.startswith(f'{L2D_SU_ASSET_BASE_URL}/'):
+        return ()
+    relative_path = url.removeprefix(f'{L2D_SU_ASSET_BASE_URL}/')
+    return tuple(f'{base_url}/{relative_path}' for base_url in L2D_SU_ARCHIVED_ASSET_BASE_URLS)
 
 
 def l2d_su_asset_url_from_legacy(url: str) -> str:
-    """Move an archived model URL from the old CDN root to the current one."""
-    if url.startswith(f'{L2D_SU_LEGACY_STATIC_BASE_URL}/'):
-        return f'{L2D_SU_STATIC_BASE_URL}/{url.removeprefix(f"{L2D_SU_LEGACY_STATIC_BASE_URL}/")}'
+    """Move an archived model URL from an old CDN root to the current one."""
+    for base_url in L2D_SU_ARCHIVED_ASSET_BASE_URLS:
+        if url.startswith(f'{base_url}/'):
+            return f'{L2D_SU_ASSET_BASE_URL}/{url.removeprefix(f"{base_url}/")}'
     return url
 
 

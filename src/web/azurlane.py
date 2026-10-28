@@ -24,10 +24,10 @@ from src.core import logger, settings
 from src.tool import database
 from src.tool.azurlane_l2d_sources import (
     DEFAULT_USER_AGENT,
-    L2D_SU_LEGACY_STATIC_BASE_URL,
+    L2D_SU_ARCHIVED_ASSET_BASE_URLS,
+    L2D_SU_ASSET_BASE_URL,
     L2D_SU_PRIMARY_REGION,
     L2D_SU_REFERER,
-    L2D_SU_STATIC_BASE_URL,
     AzurLaneEnumeratedResource,
     AzurLaneModelCatalog,
     AzurLaneModelResourceEnumeration,
@@ -47,7 +47,7 @@ from src.tool.azurlane_l2d_sources import (
     l2d_su_asset_url_from_legacy,
     l2d_su_async_origin_transport,
     l2d_su_character_fingerprint,
-    l2d_su_legacy_asset_url,
+    l2d_su_legacy_asset_urls,
     l2d_su_origin_transport,
     l2d_su_ship_detail_url,
     model_probe_urls,
@@ -1471,7 +1471,9 @@ class AzurLane:
         is then recorded under its new URL too, so this lookup only happens once per asset.
         """
         blob = await self._completed_blob_for_exact_url(url)
-        if blob is None and (legacy_url := l2d_su_legacy_asset_url(url)):
+        for legacy_url in l2d_su_legacy_asset_urls(url):
+            if blob is not None:
+                break
             blob = await self._completed_blob_for_exact_url(legacy_url)
         return blob
 
@@ -1836,17 +1838,19 @@ class AzurLane:
         Live2D model, and handing the spine entry the old model3.json URL made every run fail
         to read it as a spine parts manifest.
 
-        Paths archived under the CDN's old root are moved to the current one, so a path
-        corrected before the move is not lost to it.
+        Paths archived under the CDN's old roots are moved to the current one, so a path
+        corrected before a move is not lost to it.
         """
+        base_urls = (L2D_SU_ASSET_BASE_URL, *L2D_SU_ARCHIVED_ASSET_BASE_URLS)
+        url_filter = ' OR '.join('primary_url LIKE ?' for _ in base_urls)
         rows = await database.query_db(
-            """
+            f"""
             SELECT costume_id, model_type, primary_url
             FROM azurlane_models
             WHERE costume_id IS NOT NULL AND completed_at IS NOT NULL AND model_type <> 'painting'
-                AND (primary_url LIKE ? OR primary_url LIKE ?);
-            """,
-            (f'{L2D_SU_STATIC_BASE_URL}/%', f'{L2D_SU_LEGACY_STATIC_BASE_URL}/%'),
+                AND ({url_filter});
+            """,  # noqa: S608 -- only placeholders are interpolated
+            tuple(f'{base_url}/%' for base_url in base_urls),
         )
         paths: dict[tuple[int, str], str] = {}
         for row in rows:
