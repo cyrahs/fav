@@ -119,7 +119,7 @@ def test_saving_a_shared_config_with_a_masked_password_keeps_the_stored_one() ->
 
 
 def test_the_consumer_sections_hold_only_a_reference_and_stay_plaintext() -> None:
-    # The bilibili/twitter/pixiv sections now carry only the name of a shared
+    # The bilibili/twitter sections now carry only the name of a shared
     # config, so nothing in them is masked.
     bilibili = {'accounts': [{'name': 'main', 'cookiecloud': 'main-vault'}]}
     twitter = {'username': 'me', 'cookiecloud': 'main-vault'}

@@ -1,4 +1,4 @@
-# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG002, EM101, INP001, PLR2004, S101, S105, SLF001, TRY003
+# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG002, EM101, INP001, PLR2004, S101, SLF001, TRY003
 
 import asyncio
 import zipfile
@@ -12,9 +12,7 @@ import src.service.jobs as jobs_module
 import src.web.pixiv as pixiv_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
-from src.api.settings_masking import mask_section, unmask_section
 from src.core import settings
-from src.tool.cookiecloud import PROFILES
 from src.tool.site_sessions import SiteSession, StoredCookie
 from src.web.pixiv import (
     Pixiv,
@@ -22,7 +20,6 @@ from src.web.pixiv import (
     PixivError,
     PixivWork,
     derive_user_id,
-    extract_phpsessid,
     infer_extension,
     parse_bookmark_works,
     parse_page_urls,
@@ -40,16 +37,8 @@ def _configure_pixiv(**updates: object) -> settings.Pixiv:
     return cfg
 
 
-def _register_cookiecloud(name: str = 'cc', **overrides: str) -> str:
-    """Add a shared CookieCloud config to the pinned snapshot; returns its name."""
-    fields = {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'pw'}
-    fields.update(overrides)
-    settings.load().cookiecloud.configs.append(settings.CookieCloudEntry(name=name, **fields))
-    return name
-
-
 def _runnable_cfg(**updates: object) -> settings.Pixiv:
-    return _configure_pixiv(cookiecloud=_register_cookiecloud(), sleep_request_seconds=0.0, **updates)
+    return _configure_pixiv(sleep_request_seconds=0.0, **updates)
 
 
 def _work(**updates) -> PixivWork:
@@ -143,20 +132,16 @@ def _with_mock_media(source: Pixiv, handler) -> None:
 # ---------- configuration ----------
 
 
-def test_only_the_cookiecloud_reference_gates_runnability() -> None:
-    cfg = _configure_pixiv(cookiecloud=_register_cookiecloud(uuid='', password=''))
-
-    assert cfg.validate_runnable() == ['cookiecloud.uuid', 'cookiecloud.password']
-
-    cfg.cookiecloud = 'ghost'
-    assert cfg.validate_runnable() == ["cookiecloud (no config named 'ghost')"]
-
-    settings.load().cookiecloud.configs.clear()
-    assert _runnable_cfg().validate_runnable() == []
+def test_nothing_in_the_settings_gates_runnability() -> None:
+    # The login lives in the database, so a missing one is reported by the run itself.
+    assert settings.Pixiv().validate_runnable() == []
 
 
-def test_without_a_cookiecloud_reference_the_source_is_runnable_on_a_captured_login() -> None:
-    assert _configure_pixiv(cookiecloud='').validate_runnable() == []
+def test_a_cookiecloud_reference_left_in_an_older_row_is_ignored() -> None:
+    cfg = settings.Pixiv.model_validate({'cookiecloud': 'cc', 'user_id': '21029043'})
+
+    assert cfg.user_id == '21029043'
+    assert 'cookiecloud' not in cfg.model_dump()
 
 
 def test_a_user_id_override_must_be_digits() -> None:
@@ -179,16 +164,6 @@ def test_the_user_id_is_derived_from_the_session_cookie() -> None:
     assert derive_user_id('no-underscore') == ''
     assert derive_user_id('prefix_notdigits') == ''
     assert derive_user_id('') == ''
-
-
-def test_the_session_cookie_is_found_whatever_hostname_the_vault_filed_it_under() -> None:
-    cookie = {'name': 'PHPSESSID', 'value': '21029043_hash'}
-
-    assert extract_phpsessid({'pixiv.net': [cookie]}) == '21029043_hash'
-    assert extract_phpsessid({'.pixiv.net': [cookie]}) == '21029043_hash'
-    assert extract_phpsessid({'www.pixiv.net': [{'name': 'phpsessid', 'value': 'v'}]}) == 'v'
-    assert extract_phpsessid({'pixiv.net': [{'name': 'device_token', 'value': 'x'}]}) == ''
-    assert extract_phpsessid({'example.com': [cookie]}) == ''
 
 
 # ---------- payload parsing ----------
@@ -472,15 +447,12 @@ def test_a_masked_bookmark_is_settled_as_unavailable_during_the_walk(monkeypatch
     assert 'unavailable = 1' in updates[0][0]
 
 
-def test_with_no_captured_login_and_no_cookiecloud_the_run_asks_for_a_login(monkeypatch) -> None:
-    _configure_pixiv(cookiecloud='')
-
+def test_with_no_captured_login_the_run_asks_for_a_login(monkeypatch) -> None:
     def _explode(*_args, **_kwargs):
-        raise AssertionError('should not touch the database or CookieCloud')
+        raise AssertionError('should not touch the database')
 
     monkeypatch.setattr(pixiv_module, 'site_sessions', _FakeSiteSessions())
     monkeypatch.setattr(pixiv_module, 'database', _explode)
-    monkeypatch.setattr(pixiv_module, 'CookieCloudClient', _explode)
 
     with pytest.raises(PixivError, match='登录态') as excinfo:
         asyncio.run(Pixiv().update())
@@ -511,15 +483,10 @@ def _crawl_nothing(source: Pixiv, tmp_path, *, fail: PixivError | None = None) -
     return seen
 
 
-def test_a_captured_login_wins_over_cookiecloud_and_is_marked_valid(monkeypatch, tmp_path) -> None:
+def test_a_captured_login_is_crawled_with_and_marked_valid(monkeypatch, tmp_path) -> None:
     _runnable_cfg(user_id='')
     fake = _FakeSiteSessions('21029043_captured')
     monkeypatch.setattr(pixiv_module, 'site_sessions', fake)
-
-    def _explode(*_args, **_kwargs):
-        raise AssertionError('CookieCloud is only the fallback')
-
-    monkeypatch.setattr(pixiv_module, 'CookieCloudClient', _explode)
     source = Pixiv()
     seen = _crawl_nothing(source, tmp_path)
 
@@ -543,25 +510,10 @@ def test_a_rejected_captured_login_is_marked_invalid(monkeypatch, tmp_path) -> N
     assert fake.checks == [(False, 'pixiv rejected')]
 
 
-def test_a_cookiecloud_session_records_nothing_on_the_login_page(monkeypatch, tmp_path) -> None:
-    _runnable_cfg(user_id='')
-    fake = _FakeSiteSessions()
-    monkeypatch.setattr(pixiv_module, 'site_sessions', fake)
-    source = Pixiv()
-    monkeypatch.setattr(source, '_fetch_phpsessid', lambda: '21029043_vault')
-    _crawl_nothing(source, tmp_path)
-
-    asyncio.run(source.update())
-
-    assert source.client.headers['Cookie'] == 'PHPSESSID=21029043_vault'
-    assert fake.checks == []
-
-
 def test_a_session_without_an_embedded_uid_asks_for_an_explicit_override(monkeypatch) -> None:
     _runnable_cfg(user_id='')
-    monkeypatch.setattr(pixiv_module, 'site_sessions', _FakeSiteSessions())
+    monkeypatch.setattr(pixiv_module, 'site_sessions', _FakeSiteSessions('strange-cookie-shape'))
     source = Pixiv()
-    monkeypatch.setattr(source, '_fetch_phpsessid', lambda: 'strange-cookie-shape')
 
     with pytest.raises(PixivError, match='user_id') as excinfo:
         asyncio.run(source.update())
@@ -572,7 +524,7 @@ def test_a_session_without_an_embedded_uid_asks_for_an_explicit_override(monkeyp
 # ---------- registration ----------
 
 
-def test_the_job_is_registered_and_parked_on_a_broken_cookiecloud_reference() -> None:
+def test_the_job_is_registered_and_schedulable_without_any_credentials() -> None:
     fake_config = settings.Settings()
     fake_config.web.pixiv.enabled = True
 
@@ -582,24 +534,17 @@ def test_the_job_is_registered_and_parked_on_a_broken_cookiecloud_reference() ->
     assert job.section == 'web.pixiv'
     assert job.required_commands == ()
     assert job.factory is jobs_module.Pixiv
-    # The login lives in the database, so with no CookieCloud reference it is schedulable.
+    # The login lives in the database, so nothing in the settings holds it back.
     assert job.enabled is True
     assert job.missing_fields == ()
-
-    fake_config.web.pixiv.cookiecloud = 'ghost'
-    job = next(job for job in jobs_module.build_jobs(fake_config) if job.key == 'pixiv')
-    assert job.enabled is False
-    assert job.missing_fields
 
 
 def test_api_job_enum_includes_pixiv() -> None:
     assert JobRequestTarget.PIXIV.value == 'pixiv'
 
 
-def test_the_settings_section_and_cookiecloud_profile_are_registered() -> None:
+def test_the_settings_section_is_registered() -> None:
     assert settings.SECTION_MODELS['web.pixiv'] is settings.Pixiv
-    assert PROFILES['pixiv'].required_cookies == ('phpsessid',)
-    assert 'pixiv.net' in PROFILES['pixiv'].domains
 
 
 def test_the_archive_links_a_row_back_to_the_artwork() -> None:
@@ -607,26 +552,6 @@ def test_the_archive_links_a_row_back_to_the_artwork() -> None:
 
     assert source.table == 'pixiv'
     assert _external_url(source, {'illust_id': 96461036, 'num': 0}) == 'https://www.pixiv.net/artworks/96461036'
-
-
-# ---------- masking ----------
-
-
-def test_the_shared_cookiecloud_password_survives_the_masking_round_trip() -> None:
-    # The credentials live in the shared `cookiecloud` section now; the pixiv
-    # section carries only a plaintext reference to one of its entries.
-    stored = {'configs': [{'name': 'cc', 'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'secret-password'}]}
-
-    masked = mask_section('cookiecloud', stored)
-    assert masked['configs'][0]['password'] == 'secr••••'
-    # Masking never mutates what is stored.
-    assert stored['configs'][0]['password'] == 'secret-password'
-
-    merged = unmask_section('cookiecloud', masked, stored)
-    assert merged['configs'][0]['password'] == 'secret-password'
-
-    section = {'cookiecloud': 'cc'}
-    assert mask_section('web.pixiv', section) == section
 
 
 # ---------- session verification ----------

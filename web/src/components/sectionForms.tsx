@@ -450,21 +450,9 @@ function PixivForm(props: SectionFormProps) {
         mono
         placeholder="留空则自动推导"
         invalid={!userIdOk}
-        hint="留空即可：会从登录会话 PHPSESSID 的前缀自动推导登录账号的 ID。"
+        hint="留空即可：会从「登录态」页保存的 PHPSESSID 前缀自动推导登录账号的 ID。登录会话只在「登录态」页维护。"
         error={userId && !userIdOk ? '只能包含数字' : undefined}
       />
-
-      <div className="subsection">
-        <h4>登录会话</h4>
-        <div className="field-grid">
-          <CookieCloudPicker
-            source="pixiv"
-            value={str(props.value, 'cookiecloud')}
-            onChange={(next) => set('cookiecloud', next)}
-            hint="可选的后备：平时在「登录态」页登录即可，只有那里没有保存的会话时才从 CookieCloud 取 pixiv.net 的 PHPSESSID。"
-          />
-        </div>
-      </div>
 
       <div className="subsection">
         <h4>抓取节奏</h4>
@@ -589,7 +577,7 @@ function RedNoteForm(props: SectionFormProps) {
 const COOKIECLOUD_NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 /**
- * The shared CookieCloud registry. Sources (Bilibili 账号、X、Pixiv) reference an
+ * The shared CookieCloud registry. Sources (Bilibili 账号、X、NGA) reference an
  * entry here by name, so one browser vault is configured once and shared.
  */
 function CookieCloudForm(props: SectionFormProps) {
@@ -609,7 +597,7 @@ function CookieCloudForm(props: SectionFormProps) {
         label="配置"
         count={configs.length}
         addLabel="添加配置"
-        empty="还没有 CookieCloud 配置；需要登录会话的来源（Bilibili、X、Pixiv）会保持未就绪。"
+        empty="还没有 CookieCloud 配置；需要登录会话的来源（Bilibili、X）会保持未就绪。"
         hint="各来源在自己的设置里按名称引用这里的条目，同一个浏览器 vault 只需配置一次。"
         onAdd={() => set('configs', [...configs, { name: '', server_url: '', uuid: '', password: '' }])}
       >
