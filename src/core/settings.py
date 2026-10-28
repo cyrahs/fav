@@ -649,17 +649,14 @@ class Twitter(ScheduleJob):
 class Pixiv(ScheduleJob):
     """Public pixiv bookmarks, crawled through the www.pixiv.net ajax API.
 
-    The session is a PHPSESSID cookie, normally the one captured on the 登录态 page
-    and kept in the database; ``cookiecloud`` optionally names a vault to fall back
-    on when no session has been captured. The logged-in user's id is normally
+    The session is the PHPSESSID cookie captured on the 登录态 page and kept in the
+    database (``site_sessions``), so nothing here is required. The logged-in user's id is normally
     derived from the cookie's value (``{user_id}_{hash}``); ``user_id`` only
     overrides it for a cookie that does not carry that shape.
     """
 
     path: Path = Path('./collection/pixiv')
     cron: str = '0 */6 * * *'
-    # Optional fallback: name of an entry in the shared `cookiecloud` section.
-    cookiecloud: str = ''
     # Optional override; empty means "derive from the PHPSESSID cookie".
     user_id: str = ''
     # Spacing between ajax API requests. Image downloads hit the CDN and are not paced.
@@ -687,11 +684,6 @@ class Pixiv(ScheduleJob):
             msg = 'sleep_request_seconds cannot be negative'
             raise ValueError(msg)
         return value
-
-    def validate_runnable(self) -> list[str]:
-        # The captured login lives in the database, so a missing one is reported by
-        # the run itself; only a CookieCloud reference that is set can be half-done.
-        return _cookiecloud_reference_issues(self.cookiecloud) if self.cookiecloud.strip() else []
 
 
 class RedNote(ScheduleJob):
@@ -963,7 +955,8 @@ def migrate_legacy_cookiecloud(rows: dict[str, Any]) -> set[str]:
     """Hoist inline CookieCloud credentials into the shared ``cookiecloud`` section.
 
     Older versions stored one copy of the credentials inside each consumer
-    (``web.bilibili`` accounts, ``web.twitter``, ``web.pixiv``); now consumers
+    (``web.bilibili`` accounts, ``web.twitter``, and ``web.pixiv`` before it moved
+    to the 登录态 page, so its leftover is simply ignored); now consumers
     reference a named entry in the shared registry. Rewrites ``rows`` in place
     into the referencing shape and returns the sections that changed. The output
     is deterministic, so concurrent processes migrating the same rows converge on
@@ -976,7 +969,7 @@ def migrate_legacy_cookiecloud(rows: dict[str, Any]) -> set[str]:
     registry = [dict(entry) for entry in stored_registry if isinstance(entry, dict)] if isinstance(stored_registry, list) else []
     initial_count = len(registry)
 
-    for section, label in (('web.twitter', 'twitter'), ('web.pixiv', 'pixiv')):
+    for section, label in (('web.twitter', 'twitter'),):
         value = rows.get(section)
         if not isinstance(value, dict) or not isinstance(value.get('cookiecloud'), dict):
             continue

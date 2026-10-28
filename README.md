@@ -132,7 +132,7 @@ The session comes from the referenced entry of the shared `cookiecloud` section 
 vault Bilibili uses), read from `x.com` (or `twitter.com`, whichever the browser extension synced),
 and needs `auth_token` and `ct0`. It is re-fetched at the start of every run, so signing in again in
 the browser is all it takes to recover from an expired session. `POST /api/v2/cookiecloud/test`
-takes a `source` field (`bilibili`, `twitter`, `pixiv`, or empty for connectivity only) and the
+takes a `source` field (`bilibili`, `twitter`, `nga`, or empty for connectivity only) and the
 settings page exposes it as the same 测试连接 button.
 
 Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
@@ -169,7 +169,6 @@ collected, and R-18 bookmarks arrive with the session like any other.
   "enabled": true,
   "path": "collection/pixiv",
   "user_id": "",                            // empty: derived from the PHPSESSID cookie
-  "cookiecloud": "main",                    // name of an entry in the shared `cookiecloud` section
   "sleep_request_seconds": 1.0,             // spacing between ajax requests; CDN downloads are not paced
   "proxy": ""                               // empty: direct (or the global HTTP_PROXY)
 }
@@ -178,8 +177,9 @@ collected, and R-18 bookmarks arrive with the session like any other.
 The bookmarks listing refuses anonymous requests, so the session is a `PHPSESSID` cookie. Sign in once on
 the web UI's 登录态 page (see [Site logins](#site-logins)); the cookie is stored in the database and read
 at the start of every run. A run that finds pixiv rejecting it marks the login 已失效 there and fails with
-one deduplicated notification asking for a new login. Only when no login has been captured does the run
-fall back to the CookieCloud vault named by `cookiecloud`, if any. The logged-in user's id is embedded
+one deduplicated notification asking for a new login; with no login captured at all it fails the same
+way. CookieCloud is not used for pixiv (a `cookiecloud` key left in an older `web.pixiv` row is
+ignored). The logged-in user's id is embedded
 in the cookie's value (`{user_id}_{hash}`), so `user_id` normally stays empty. Image originals on
 `i.pximg.net` need only the `Referer` header, never the cookie.
 

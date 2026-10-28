@@ -61,7 +61,8 @@ def _legacy_rows() -> dict:
             ],
         },
         'web.twitter': {'username': 'me', 'cookiecloud': dict(shared_creds)},
-        'web.pixiv': {'cookiecloud': {}},
+        # pixiv no longer reads CookieCloud: its leftover is not migrated, only ignored.
+        'web.pixiv': {'cookiecloud': dict(shared_creds)},
     }
 
 
@@ -70,7 +71,7 @@ def test_migration_hoists_inline_credentials_into_the_shared_registry() -> None:
 
     changed = settings.migrate_legacy_cookiecloud(rows)
 
-    assert changed == {'cookiecloud', 'web.bilibili', 'web.twitter', 'web.pixiv'}
+    assert changed == {'cookiecloud', 'web.bilibili', 'web.twitter'}
     # Identical credentials collapse into one entry named after the first consumer.
     registry = {entry['name']: entry for entry in rows['cookiecloud']['configs']}
     assert set(registry) == {'twitter', 'alt'}
@@ -78,8 +79,7 @@ def test_migration_hoists_inline_credentials_into_the_shared_registry() -> None:
     assert rows['web.twitter']['cookiecloud'] == 'twitter'
     assert rows['web.bilibili']['accounts'][0]['cookiecloud'] == 'twitter'
     assert rows['web.bilibili']['accounts'][1]['cookiecloud'] == 'alt'
-    # Blank credentials become an empty reference, not a useless entry.
-    assert rows['web.pixiv']['cookiecloud'] == ''
+    assert rows['web.pixiv']['cookiecloud'] == {'server_url': 'https://cc.example', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
 
     # The migrated rows build a valid settings tree.
     snapshot = settings.build_settings(rows)

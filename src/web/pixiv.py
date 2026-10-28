@@ -1,11 +1,10 @@
 """Public pixiv bookmarks, crawled through the www.pixiv.net ajax API.
 
 pixiv's web API refuses the bookmarks listing without a login session, so the
-crawl authenticates with a PHPSESSID cookie. It normally comes from the session
-captured on the 登录态 page (``src/tool/site_sessions.py``): the user signs in once
-in a browser fav starts for that purpose, and the cookie is kept server-side from
-then on. A CookieCloud vault is the fallback for a deployment without a captured
-session. The logged-in user's id is embedded in the cookie's value
+crawl authenticates with a PHPSESSID cookie. It comes from the session captured on
+the 登录态 page (``src/tool/site_sessions.py``): the user signs in once in a browser
+fav starts for that purpose, and the cookie is kept server-side from then on.
+The logged-in user's id is embedded in the cookie's value
 (``{user_id}_{hash}``), so no account id has to be configured. The image
 originals on i.pximg.net are gated on the Referer header alone and need no cookie.
 
@@ -35,8 +34,7 @@ import httpx
 from PIL import Image
 
 from src.core import logger, settings
-from src.tool import CookieCloudClient, database, format_media_filename, sanitize, site_sessions
-from src.tool.cookiecloud import PIXIV_PROFILE
+from src.tool import database, format_media_filename, sanitize, site_sessions
 from src.tool.notifications import enqueue_notification
 
 log = logger.get('pixiv')
@@ -61,8 +59,6 @@ LOGIN_URL = 'https://accounts.pixiv.net/login?return_to=https%3A%2F%2Fwww.pixiv.
 SESSION_COOKIE_URLS = ('https://www.pixiv.net/',)
 _SESSION_COOKIE = 'PHPSESSID'
 _RELOGIN_HINT = "Sign in to pixiv again on fav's 登录态 page."
-_ORIGIN_LOGIN = 'login'
-_ORIGIN_COOKIECLOUD = 'cookiecloud'
 # 0 = illustration, 1 = manga, 2 = ugoira. Novels never appear on this endpoint,
 # but the filter is kept defensive in case pixiv adds a type.
 _ILLUST_TYPES = {0, 1, _ILLUST_TYPE_UGOIRA}
@@ -168,25 +164,6 @@ async def verify_session(
         detail = str(payload.get('message') or '') if isinstance(payload, dict) else ''
         return SessionCheck(ok=False, account=account, message=f'pixiv rejected the session (HTTP {response.status_code}) {detail}'.strip())
     return SessionCheck(ok=True, account=account, message='')
-
-
-def extract_phpsessid(cookies: dict[str, list[dict]]) -> str:
-    """Find the pixiv session cookie in a CookieCloud vault.
-
-    The vault keys cookies by the hostname the browser held them under, so both
-    profile domains are accepted, with or without a leading dot, and the cookie
-    name is matched case-insensitively — mirroring ``cookiecloud.probe``.
-    """
-    for domain, domain_cookies in cookies.items():
-        if domain.lstrip('.') not in PIXIV_PROFILE.domains:
-            continue
-        for cookie in domain_cookies:
-            if not isinstance(cookie, dict) or str(cookie.get('name') or '').lower() != 'phpsessid':
-                continue
-            value = str(cookie.get('value') or '')
-            if value:
-                return value
-    return ''
 
 
 def parse_bookmark_works(body: dict[str, Any]) -> list[PixivWork]:
@@ -335,34 +312,14 @@ class Pixiv:
             );
         """)
 
-    def _fetch_phpsessid(self) -> str:
-        """Refresh the pixiv session from CookieCloud, so it tracks the browser."""
-        cc_cfg = settings.resolve_cookiecloud(self.cfg.cookiecloud)
-        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password)
-        try:
-            cookies = client.get_cookies()
-        finally:
-            client.client.close()
-        phpsessid = extract_phpsessid(cookies)
-        if not phpsessid:
-            msg = 'CookieCloud has no PHPSESSID for pixiv.net. Sign in to pixiv in the browser and re-sync the extension.'
-            raise PixivError(msg, notification_dedupe_key='pixiv:auth')
-        return phpsessid
-
-    async def _resolve_session(self) -> tuple[str, str]:
-        """The PHPSESSID to crawl with, and where it came from.
-
-        A session captured on the 登录态 page wins; CookieCloud is only consulted
-        when there is none, and only if a config is referenced at all.
-        """
+    async def _resolve_session(self) -> str:
+        """The PHPSESSID captured on the 登录态 page; without one there is nothing to crawl with."""
         stored = await site_sessions.load(SESSION_SITE)
         phpsessid = stored.cookie(_SESSION_COOKIE) if stored else ''
-        if phpsessid:
-            return phpsessid, _ORIGIN_LOGIN
-        if self.cfg.cookiecloud.strip():
-            return await asyncio.to_thread(self._fetch_phpsessid), _ORIGIN_COOKIECLOUD
-        msg = f'pixiv is not signed in. {_RELOGIN_HINT}'
-        raise PixivError(msg, notification_dedupe_key='pixiv:auth')
+        if not phpsessid:
+            msg = f'pixiv is not signed in. {_RELOGIN_HINT}'
+            raise PixivError(msg, notification_dedupe_key='pixiv:auth')
+        return phpsessid
 
     async def _get_body(self, url: str, params: dict[str, str] | None = None) -> Any:
         """GET one ajax endpoint, unwrapping the ``{error, message, body}`` envelope.
@@ -751,12 +708,7 @@ class Pixiv:
             log.warning('Failed to enqueue pixiv summary notification: %s', exc)
 
     async def update(self) -> None:
-        missing = self.cfg.validate_runnable()
-        if missing:
-            log.warning('Pixiv is not configured (missing %s), skip update', ', '.join(missing))
-            return
-
-        phpsessid, origin = await self._resolve_session()
+        phpsessid = await self._resolve_session()
         user_id = self.cfg.user_id or derive_user_id(phpsessid)
         if not user_id:
             msg = 'Could not derive the pixiv user id from PHPSESSID; set web.pixiv.user_id explicitly.'
@@ -769,11 +721,10 @@ class Pixiv:
         try:
             works, page_count, total_reported = await self._crawl_bookmarks(user_id)
         except PixivError as exc:
-            if origin == _ORIGIN_LOGIN and exc.notification_dedupe_key == 'pixiv:auth':
+            if exc.notification_dedupe_key == 'pixiv:auth':
                 await site_sessions.record_check(SESSION_SITE, ok=False, message=str(exc))
             raise
-        if origin == _ORIGIN_LOGIN:
-            await site_sessions.record_check(SESSION_SITE, ok=True)
+        await site_sessions.record_check(SESSION_SITE, ok=True)
         log.info('Pixiv bookmarks scanned pages=%s total_reported=%s works_to_process=%s', page_count, total_reported, len(works))
 
         downloaded = 0
