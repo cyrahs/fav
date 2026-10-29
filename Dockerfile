@@ -57,8 +57,9 @@ RUN apt-get update \
 COPY --from=builder /app/.venv /app/.venv
 
 # Install the Playwright-managed Chromium build and its distro libraries. The
-# launch smoke runs only on native amd64 builds; arm64 is built through qemu in
-# CI, where Chromium's GPU process can crash before runtime.
+# launch smoke runs only on native amd64 builds; an arm64 build (CI publishes
+# amd64 only) would run under qemu, where Chromium's GPU process can crash
+# before runtime.
 RUN python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
     && if [ "$TARGETARCH" = "amd64" ]; then \

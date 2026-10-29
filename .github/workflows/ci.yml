@@ -151,7 +151,9 @@ jobs:
       uses: docker/build-push-action@v7
       with:
         context: .
-        platforms: linux/amd64,linux/arm64
+        # The cluster's nodes are all amd64. An arm64 image would be built under
+        # qemu on this amd64 runner, which took ~10 of the job's 10.5 minutes.
+        platforms: linux/amd64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
