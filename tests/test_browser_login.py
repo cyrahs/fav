@@ -1,6 +1,7 @@
 # ruff: noqa: ANN001, ANN003, ANN202, ARG001, ARG002, INP001, PLR2004, S101, S105, SLF001
 
 import asyncio
+import dataclasses
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -401,6 +402,69 @@ def test_a_profile_site_signs_the_crawl_profile_in_under_its_lock(store, monkeyp
     # Released once the browser is down, so the next crawl can open the profile.
     assert locks.held == set()
     assert store.saved[0][2] == 'me'
+
+
+def test_a_profile_site_stores_cookie_names_but_not_values(store, monkeypatch) -> None:
+    monkeypatch.setattr(browser_login, 'database', _Locks())
+
+    async def verify_in_browser(browser, cookies):
+        return _Check(ok=True, account='me')
+
+    site = dataclasses.replace(_profile_site(verify_in_browser), store_cookie_values=False)
+    browser = _FakeBrowser([[_cookie('SID', 'secret', expires=1_900_000_000)]])
+    manager = BrowserLoginManager({'demo': site}, launcher=_Launcher(browser), poll_seconds=0.01)
+
+    asyncio.run(_finish(manager))
+
+    _site_key, cookies, _account, expires_at = store.saved[0]
+    assert [(c.name, c.value) for c in cookies] == [('SID', 'in-profile')]
+    assert expires_at == datetime.fromtimestamp(1_900_000_000, tz=UTC)
+    assert browser_login.LOGIN_SITES['rednote'].store_cookie_values is False
+    assert browser_login.LOGIN_SITES['pixiv'].store_cookie_values is True
+
+
+class _Tab:
+    def __init__(self) -> None:
+        self.closed = False
+        self.gotos: list[str] = []
+
+    async def goto(self, url, **kwargs) -> None:
+        self.gotos.append(url)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _Context:
+    def __init__(self) -> None:
+        self.pages = [_Tab()]
+        self.handlers: dict[str, list] = {}
+
+    def on(self, event, handler) -> None:
+        self.handlers.setdefault(event, []).append(handler)
+
+
+def test_the_disguised_login_window_keeps_to_one_tab() -> None:
+    """The UA override is per tab: a second one would show the session as Linux."""
+
+    async def prepare(context, page) -> str:
+        return 'cdp'
+
+    async def scenario():
+        context = _Context()
+        window = browser_login._VncChromium(object(), object(), context, prepare)
+        await window.open('https://example.com/explore')
+        first, extra = context.pages[0], _Tab()
+        for handler in context.handlers['page']:
+            handler(first)
+            handler(extra)
+        await asyncio.sleep(0)
+        return first, extra
+
+    first, extra = asyncio.run(scenario())
+
+    assert first.gotos == ['https://example.com/explore']
+    assert (first.closed, extra.closed) == (False, True)
 
 
 def test_a_profile_a_crawl_holds_refuses_the_login(store, monkeypatch) -> None:

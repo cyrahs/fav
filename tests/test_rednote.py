@@ -905,6 +905,8 @@ def test_the_first_signed_in_run_writes_the_login_page_row(monkeypatch, sessions
     ((site, cookies, account, expires_at),) = sessions.saved
     assert (site, account) == ('rednote', 'me')
     assert [cookie.name for cookie in cookies] == ['web_session']
+    # Names and expiry for the page; the credential itself stays in the profile.
+    assert [cookie.value for cookie in cookies] == ['in-profile']
     assert expires_at is not None
     assert sessions.checks == []
 
@@ -919,6 +921,18 @@ def test_later_runs_only_record_the_check(monkeypatch, sessions) -> None:
 
     assert sessions.saved == []
     assert sessions.checks == [('rednote', True, '')]
+
+
+def test_an_unreadable_profile_id_does_not_mark_the_login_invalid(monkeypatch, sessions) -> None:
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    browser = _FakeBrowser(probes=[{'logged_in': True, 'user_id': ''}])
+    job = _job(browser=browser)
+
+    with pytest.raises(RedNoteError) as excinfo:
+        _run(job, job.update())
+
+    assert excinfo.value.notification_dedupe_key == 'rednote:user_id'
+    assert sessions.checks == []
 
 
 def test_a_signed_out_run_marks_the_login_invalid(monkeypatch, sessions) -> None:

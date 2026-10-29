@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS site_sessions (
 """
 
 _MESSAGE_MAX_CHARS = 500
+# What a cookie's value is stored as for a site whose session lives in its browser
+# profile (RedNote): the row says which cookies exist and when they expire, and
+# the credential itself stays in the profile only.
+VALUE_IN_PROFILE = 'in-profile'
 
 
 @dataclass(frozen=True)
@@ -92,6 +96,14 @@ def cookies_from_browser(raw: list[dict[str, Any]]) -> tuple[StoredCookie, ...]:
             )
         )
     return tuple(cookies)
+
+
+def without_values(cookies: tuple[StoredCookie, ...]) -> tuple[StoredCookie, ...]:
+    """The cookies with each value replaced by ``VALUE_IN_PROFILE``; names and expiry kept."""
+    return tuple(
+        StoredCookie(name=c.name, value=VALUE_IN_PROFILE if c.value else '', domain=c.domain, path=c.path, expires=c.expires)
+        for c in cookies
+    )
 
 
 def cookie_expiry(cookies: tuple[StoredCookie, ...], name: str) -> datetime | None:

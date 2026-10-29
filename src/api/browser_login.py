@@ -37,7 +37,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from src.core import logger, settings
 from src.tool import database, site_sessions
-from src.tool.site_sessions import StoredCookie, cookie_expiry, cookie_value, cookies_from_browser
+from src.tool.site_sessions import StoredCookie, cookie_expiry, cookie_value, cookies_from_browser, without_values
 from src.web import pixiv, rednote, rednote_browser
 from src.web.rednote_browser import build_proxy_settings, clear_stale_profile_locks
 
@@ -66,6 +66,9 @@ _SCREEN_HEIGHT = 800
 _XVNC_READY_TIMEOUT_SECONDS = 10.0
 _PROCESS_STOP_TIMEOUT_SECONDS = 5.0
 _GOTO_TIMEOUT_MS = 60_000
+# Short, because a verification that reloads holds up the poll loop -- and with it a
+# cancel the user is waiting on -- for as long as this.
+_RELOAD_TIMEOUT_MS = 10_000
 _MESSAGE_MAX_CHARS = 300
 _VNC_READ_BYTES = 65536
 _WS_POLICY_VIOLATION = 1008
@@ -125,6 +128,9 @@ class LoginSite:
     prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None
     # One line for the page while the window is open: how this site's login goes.
     hint: str = ''
+    # False for a site whose session lives in its browser profile: site_sessions then
+    # records which cookies exist and when they expire, not their values.
+    store_cookie_values: bool = True
 
     def __post_init__(self) -> None:
         if self.verify is None and self.verify_in_browser is None:
@@ -300,18 +306,21 @@ class BrowserLoginManager:
             attempt.state = STATE_FAILED
             attempt.message = f'{exc.__class__.__name__}: {exc}'[:_MESSAGE_MAX_CHARS]
         finally:
-            if browser is not None:
-                try:
-                    await browser.close()
-                except Exception:
-                    log.exception('Closing the login browser failed site=%s', site.key)
-            # Only once the browser is down: the lock is what keeps a crawl out of the profile.
             try:
-                await lock.aclose()
-            except Exception:
-                log.exception('Releasing the login profile lock failed site=%s', site.key)
-            attempt.finished_at = datetime.now(UTC)
-            log.info('Browser login ended site=%s state=%s', site.key, attempt.state)
+                if browser is not None:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        log.exception('Closing the login browser failed site=%s', site.key)
+            finally:
+                # Only once the browser is down, but even if closing it was cancelled: the
+                # lock is what keeps a crawl out of the profile.
+                try:
+                    await lock.aclose()
+                except Exception:
+                    log.exception('Releasing the login profile lock failed site=%s', site.key)
+                attempt.finished_at = datetime.now(UTC)
+                log.info('Browser login ended site=%s state=%s', site.key, attempt.state)
 
     async def _await_login(self, site: LoginSite, attempt: LoginAttempt, browser: LoginBrowser) -> None:
         last_value = ''
@@ -336,7 +345,10 @@ class BrowserLoginManager:
                 check = await self._verify(site, browser, cookies)
                 if check.ok:
                     await site_sessions.save_signed_in(
-                        site.key, cookies, account=check.account, expires_at=cookie_expiry(cookies, site.session_cookie)
+                        site.key,
+                        cookies if site.store_cookie_values else without_values(cookies),
+                        account=check.account,
+                        expires_at=cookie_expiry(cookies, site.session_cookie),
                     )
                     attempt.state = STATE_SAVED
                     attempt.account = check.account
@@ -451,6 +463,7 @@ class _VncChromium:
         # Whatever prepare_page returned (RedNote: the CDP session carrying the UA
         # override, which reverts if it is let go).
         self._prepared: Any = None
+        self._closing_tabs: set[asyncio.Task[None]] = set()
         self._closed = False
         context.on('close', lambda _context: self._mark_closed())
 
@@ -466,16 +479,28 @@ class _VncChromium:
         self._page = page
         if self._prepare_page is not None:
             self._prepared = await self._prepare_page(self._context, page)
+            # The override is per tab, so a second tab -- a target=_blank link, a popup
+            # -- would present the session with the real Linux UA beside the "Mac"
+            # one. One tab is all a login needs; any other is closed as it opens.
+            self._context.on('page', self._close_extra_tab)
         try:
             await page.goto(url, wait_until='domcontentloaded', timeout=_GOTO_TIMEOUT_MS)
         except Exception as exc:  # noqa: BLE001 - a slow page is still usable by hand
             log.warning('Login page did not finish loading: %s', exc.__class__.__name__)
 
+    def _close_extra_tab(self, page: Any) -> None:
+        if page is self._page:
+            return
+        log.info('Closing a second tab the login window opened')
+        task = asyncio.create_task(page.close())
+        self._closing_tabs.add(task)
+        task.add_done_callback(self._closing_tabs.discard)
+
     async def evaluate(self, script: str) -> Any:
         return await self._page.evaluate(script)
 
     async def reload(self) -> None:
-        await self._page.reload(wait_until='domcontentloaded', timeout=_GOTO_TIMEOUT_MS)
+        await self._page.reload(wait_until='domcontentloaded', timeout=_RELOAD_TIMEOUT_MS)
 
     async def cookies(self, urls: tuple[str, ...]) -> list[dict[str, Any]]:
         if self._closed:
@@ -668,6 +693,7 @@ LOGIN_SITES: dict[str, LoginSite] = {
         profile_dir=lambda: settings.load().web.rednote.profile_path,
         lock_name=lambda: rednote.profile_lock_name(settings.load().web.rednote.profile_path),
         prepare_page=rednote_browser.prepare_page,
+        store_cookie_values=False,
         hint='用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。',  # noqa: RUF001
     ),
 }

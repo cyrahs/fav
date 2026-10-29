@@ -60,7 +60,7 @@ import httpx
 from src.core import logger, settings
 from src.tool import database, format_media_filename, sanitize, site_sessions
 from src.tool.notifications import enqueue_notification
-from src.tool.site_sessions import cookie_expiry, cookies_from_browser
+from src.tool.site_sessions import cookie_expiry, cookies_from_browser, without_values
 from src.web.rednote_browser import (
     RISK_CONTROL_STATUS_CODES,
     NoteGoneError,
@@ -718,13 +718,23 @@ class RedNote:
 
         A profile signed in before the page existed has no row yet, so the first run
         that finds it signed in writes one; after that a run only records the check.
-        The crawl itself never reads these cookies back -- the profile is the session.
+        The crawl itself never reads these cookies back -- the profile is the session --
+        so only their names and expiry are written, never their values.
         """
         if await site_sessions.load(SESSION_SITE) is not None:
             await site_sessions.record_check(SESSION_SITE, ok=True)
             return
         cookies = cookies_from_browser(await browser.cookies())
-        await site_sessions.save_signed_in(SESSION_SITE, cookies, account=self.user_id, expires_at=cookie_expiry(cookies, SESSION_COOKIE))
+        await site_sessions.save_signed_in(
+            SESSION_SITE, without_values(cookies), account=self.user_id, expires_at=cookie_expiry(cookies, SESSION_COOKIE)
+        )
+
+    async def _record_signed_out(self, message: str) -> None:
+        """Mark the login invalid on the 登录态 page, without hiding the run's own error."""
+        try:
+            await site_sessions.record_check(SESSION_SITE, ok=False, message=message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Could not record the RedNote sign-out on the 登录态 page: %s', exc)
 
     async def _prepare_session(self, browser: NoteBrowser) -> None:
         """Check the login, then settle what the rest of the run depends on."""
@@ -733,7 +743,8 @@ class RedNote:
             self.user_id = self.cfg.user_id or await self._read_state(_USER_ID_STATE_KEY)
         if not self.user_id:
             msg = 'Signed in, but the profile id could not be read off the page; set user_id in the settings.'
-            raise RedNoteError(msg, notification_dedupe_key='rednote:login')
+            # Its own key: the login is fine, and must not be marked invalid on the 登录态 page.
+            raise RedNoteError(msg, notification_dedupe_key='rednote:user_id')
         if not self.cfg.user_id:
             await self._write_state(_USER_ID_STATE_KEY, self.user_id)
         await self._record_session(browser)
@@ -1186,7 +1197,7 @@ class RedNote:
                 resolved = await self._read_account()
             except RedNoteError as exc:
                 if exc.notification_dedupe_key == 'rednote:login':
-                    await site_sessions.record_check(SESSION_SITE, ok=False, message=str(exc))
+                    await self._record_signed_out(str(exc))
                 raise
 
         # Outside the lock, and with the browser gone: the downloads are plain CDN

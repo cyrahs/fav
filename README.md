@@ -414,8 +414,9 @@ own browser open, so the two never share the pod's memory limit.
 RedNote is the exception to both halves. Its crawl is itself a browser, so the window opens the
 crawl's own profile (`web.rednote.profile_path`) under the crawl's profile lock, presented the way the
 crawl presents it, and the login is confirmed by reading the window's own page rather than by
-replaying its cookies anywhere else. The cookies are still recorded in `site_sessions`, but only for
-the page's status; the crawl reads the profile.
+replaying its cookies anywhere else. `site_sessions` records only which of its cookies exist and when
+they expire, for the page's status, never their values; the crawl reads the profile. The window keeps
+to one tab: the UA override is per tab, so any second tab is closed as it opens.
 
 ## API Backend
 
