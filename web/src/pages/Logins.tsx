@@ -57,6 +57,7 @@ export function LoginsPage() {
   const login = sessions.data?.login ?? null;
   const active = login?.active ? login : null;
   const labelFor = (site: string) => sessions.data?.items.find((item) => item.site === site)?.label ?? site;
+  const hintFor = (site: string) => sessions.data?.items.find((item) => item.site === site)?.hint ?? '';
 
   return (
     <div className="stack">
@@ -101,7 +102,8 @@ export function LoginsPage() {
                     <button
                       type="button"
                       className="ghost"
-                      disabled={!session.signed_in || check.isPending}
+                      disabled={!session.signed_in || !session.checkable || check.isPending}
+                      title={session.checkable ? undefined : '只能在它自己的浏览器里检测，每次抓取都会自动记录结果'}
                       onClick={() => check.mutate(session.site)}
                     >
                       {check.isPending && check.variables === session.site ? '检测中…' : '检测'}
@@ -133,6 +135,7 @@ export function LoginsPage() {
               取消并关闭浏览器
             </button>
           </div>
+          {hintFor(active.site) && <p className="muted">{hintFor(active.site)}</p>}
           {active.message && <p className="muted">检测结果：{active.message}</p>}
           {active.state === 'waiting' && active.ticket ? (
             <Suspense fallback={<p className="muted">加载远程画面…</p>}>

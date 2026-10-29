@@ -15,7 +15,10 @@ between logins, which is the whole point over a browser kept running for the
 purpose: the session lives on the site's servers, not in a process.
 
 Each site keeps its own Chromium profile under the data volume, so every login
-comes from the same "device" rather than a fresh one each time.
+comes from the same "device" rather than a fresh one each time. A site whose crawl
+is itself a browser (RedNote) instead opens the crawl's own profile, presented the
+way the crawl presents it, and holds the crawl's profile lock while the window is
+open: signing in there *is* signing the crawl in, and nothing is copied anywhere.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from src.core import logger, settings
 from src.tool import database, site_sessions
 from src.tool.site_sessions import StoredCookie, cookie_expiry, cookie_value, cookies_from_browser
-from src.web import pixiv
+from src.web import pixiv, rednote, rednote_browser
 from src.web.rednote_browser import build_proxy_settings, clear_stale_profile_locks
 
 if TYPE_CHECKING:
@@ -67,6 +70,10 @@ _MESSAGE_MAX_CHARS = 300
 _VNC_READ_BYTES = 65536
 _WS_POLICY_VIOLATION = 1008
 _WS_INTERNAL_ERROR = 1011
+# How long the RedNote window's page is given to say what it is showing before a
+# page with neither a session nor a login modal is taken for a stale snapshot.
+_REDNOTE_SETTLE_SECONDS = 6.0
+_REDNOTE_SETTLE_POLL_SECONDS = 0.5
 
 
 class LoginError(RuntimeError):
@@ -78,6 +85,10 @@ class UnknownLoginSiteError(LoginError):
 
 
 class LoginBusyError(LoginError):
+    pass
+
+
+class CheckUnsupportedError(LoginError):
     pass
 
 
@@ -96,9 +107,33 @@ class LoginSite:
     cookie_urls: tuple[str, ...]
     # The cookie whose arrival means a login may have happened.
     session_cookie: str
-    verify: Callable[[tuple[StoredCookie, ...]], Awaitable[LoginCheck]]
+    # Asks the site, from the cookies alone, whether they are a real login. Also what
+    # 检测 runs on a stored session.
+    verify: Callable[[tuple[StoredCookie, ...]], Awaitable[LoginCheck]] | None = None
+    # Asks the login window itself instead, for a site whose cookies must never be
+    # presented by any other client (RedNote). Only usable while a login is open, so
+    # such a site offers no 检测; its crawl records the check on every run.
+    verify_in_browser: Callable[[LoginBrowser, tuple[StoredCookie, ...]], Awaitable[LoginCheck]] | None = None
     # The egress the source crawls through, so the login comes from the same place.
     proxy: Callable[[], str] = lambda: ''
+    # The profile the window opens. Unset, the login page keeps one of its own.
+    profile_dir: Callable[[], Path] | None = None
+    # An advisory lock held while the window is open, for a profile a crawl opens too.
+    lock_name: Callable[[], str] | None = None
+    # Run on the page before the login URL is opened, so the window presents the way
+    # the crawl does. What it returns is kept for the life of the window.
+    prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None
+    # One line for the page while the window is open: how this site's login goes.
+    hint: str = ''
+
+    def __post_init__(self) -> None:
+        if self.verify is None and self.verify_in_browser is None:
+            msg = f'Login site {self.key} needs a way to verify a login'
+            raise ValueError(msg)
+
+    @property
+    def checkable(self) -> bool:
+        return self.verify is not None
 
 
 class LoginBrowser(Protocol):
@@ -108,11 +143,21 @@ class LoginBrowser(Protocol):
     def closed(self) -> bool: ...
     async def open(self, url: str) -> None: ...
     async def cookies(self, urls: tuple[str, ...]) -> list[dict[str, Any]]: ...
+    async def evaluate(self, script: str) -> Any: ...
+    async def reload(self) -> None: ...
     async def close(self) -> None: ...
 
 
 class BrowserLauncher(Protocol):
-    async def __call__(self, *, profile_dir: Path, proxy: str, display: int, vnc_port: int) -> LoginBrowser: ...
+    async def __call__(
+        self,
+        *,
+        profile_dir: Path,
+        proxy: str,
+        display: int,
+        vnc_port: int,
+        prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None,
+    ) -> LoginBrowser: ...
 
 
 @dataclass
@@ -183,10 +228,11 @@ class BrowserLoginManager:
                 reason = await self._busy_check()
                 if reason:
                     raise LoginBusyError(reason)
+            lock = await self._hold_profile_lock(site)
             now = datetime.now(UTC)
             attempt = LoginAttempt(site=site.key, ticket=secrets.token_urlsafe(32), started_at=now, deadline=now + self._timeout)
             self._attempt = attempt
-            self._task = asyncio.create_task(self._run(site, attempt), name=f'browser-login:{site.key}')
+            self._task = asyncio.create_task(self._run(site, attempt, lock), name=f'browser-login:{site.key}')
         log.info('Browser login started site=%s', site.key)
         return attempt
 
@@ -202,12 +248,33 @@ class BrowserLoginManager:
     async def close(self) -> None:
         await self.cancel()
 
+    async def _hold_profile_lock(self, site: LoginSite) -> contextlib.AsyncExitStack:
+        """Take the profile's lock for the length of the login, or refuse the login.
+
+        Two Chromiums cannot share a profile, and the launcher clears the singleton
+        files a killed one leaves behind -- which is only safe while nothing else can
+        be using the profile. The lock is the crawl's own, so a crawl that starts
+        while the window is open skips its run rather than racing it.
+        """
+        stack = contextlib.AsyncExitStack()
+        if site.lock_name is None:
+            return stack
+        acquired = await stack.enter_async_context(database.advisory_lock(site.lock_name()))
+        if not acquired:
+            await stack.aclose()
+            msg = f'The {site.label} browser profile is in use by a crawl right now; try again in a few minutes.'
+            raise LoginBusyError(msg)
+        return stack
+
     async def check_stored(self, site_key: str) -> LoginCheck | None:
         """Ask the site whether the stored session still works, and record the answer."""
         site = self.sites.get(site_key)
         if site is None:
             msg = f'Unknown login site: {site_key}'
             raise UnknownLoginSiteError(msg)
+        if site.verify is None:
+            msg = f'{site.label} can only be checked from its own browser; its next crawl records whether the login still works.'
+            raise CheckUnsupportedError(msg)
         stored = await site_sessions.load(site.key)
         if stored is None or not stored.cookie(site.session_cookie):
             return None
@@ -215,14 +282,15 @@ class BrowserLoginManager:
         await site_sessions.record_check(site.key, ok=check.ok, message=check.message)
         return check
 
-    async def _run(self, site: LoginSite, attempt: LoginAttempt) -> None:
+    async def _run(self, site: LoginSite, attempt: LoginAttempt, lock: contextlib.AsyncExitStack) -> None:
         browser: LoginBrowser | None = None
         try:
             browser = await self._launcher(
-                profile_dir=self._profile_root / site.key,
+                profile_dir=site.profile_dir() if site.profile_dir is not None else self._profile_root / site.key,
                 proxy=site.proxy(),
                 display=self._display,
                 vnc_port=self.vnc_port,
+                prepare_page=site.prepare_page,
             )
             attempt.state = STATE_WAITING
             await browser.open(site.login_url)
@@ -237,6 +305,11 @@ class BrowserLoginManager:
                     await browser.close()
                 except Exception:
                     log.exception('Closing the login browser failed site=%s', site.key)
+            # Only once the browser is down: the lock is what keeps a crawl out of the profile.
+            try:
+                await lock.aclose()
+            except Exception:
+                log.exception('Releasing the login profile lock failed site=%s', site.key)
             attempt.finished_at = datetime.now(UTC)
             log.info('Browser login ended site=%s state=%s', site.key, attempt.state)
 
@@ -260,7 +333,7 @@ class BrowserLoginManager:
             value = cookie_value(cookies, site.session_cookie)
             if value and (value != last_value or loop.time() - last_checked >= _REVERIFY_SECONDS):
                 last_value, last_checked = value, loop.time()
-                check = await site.verify(cookies)
+                check = await self._verify(site, browser, cookies)
                 if check.ok:
                     await site_sessions.save_signed_in(
                         site.key, cookies, account=check.account, expires_at=cookie_expiry(cookies, site.session_cookie)
@@ -273,6 +346,13 @@ class BrowserLoginManager:
 
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(attempt.cancel.wait(), timeout=self._poll_seconds)
+
+    @staticmethod
+    async def _verify(site: LoginSite, browser: LoginBrowser, cookies: tuple[StoredCookie, ...]) -> LoginCheck:
+        if site.verify_in_browser is not None:
+            return await site.verify_in_browser(browser, cookies)
+        assert site.verify is not None  # noqa: S101 - LoginSite guarantees one of the two
+        return await site.verify(cookies)
 
 
 # --- The real browser: Xvnc + headed Chromium -------------------------------------------------
@@ -356,10 +436,21 @@ def build_login_launch_options(*, profile_dir: Path, proxy: str, display: int) -
 
 
 class _VncChromium:
-    def __init__(self, xvnc: asyncio.subprocess.Process, playwright: Any, context: Any) -> None:
+    def __init__(
+        self,
+        xvnc: asyncio.subprocess.Process,
+        playwright: Any,
+        context: Any,
+        prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None,
+    ) -> None:
         self._xvnc = xvnc
         self._playwright = playwright
         self._context = context
+        self._prepare_page = prepare_page
+        self._page: Any = None
+        # Whatever prepare_page returned (RedNote: the CDP session carrying the UA
+        # override, which reverts if it is let go).
+        self._prepared: Any = None
         self._closed = False
         context.on('close', lambda _context: self._mark_closed())
 
@@ -372,10 +463,19 @@ class _VncChromium:
 
     async def open(self, url: str) -> None:
         page = self._context.pages[0] if self._context.pages else await self._context.new_page()
+        self._page = page
+        if self._prepare_page is not None:
+            self._prepared = await self._prepare_page(self._context, page)
         try:
             await page.goto(url, wait_until='domcontentloaded', timeout=_GOTO_TIMEOUT_MS)
         except Exception as exc:  # noqa: BLE001 - a slow page is still usable by hand
             log.warning('Login page did not finish loading: %s', exc.__class__.__name__)
+
+    async def evaluate(self, script: str) -> Any:
+        return await self._page.evaluate(script)
+
+    async def reload(self) -> None:
+        await self._page.reload(wait_until='domcontentloaded', timeout=_GOTO_TIMEOUT_MS)
 
     async def cookies(self, urls: tuple[str, ...]) -> list[dict[str, Any]]:
         if self._closed:
@@ -393,7 +493,14 @@ class _VncChromium:
                 await _stop_process(self._xvnc)
 
 
-async def launch_vnc_chromium(*, profile_dir: Path, proxy: str, display: int, vnc_port: int) -> LoginBrowser:
+async def launch_vnc_chromium(
+    *,
+    profile_dir: Path,
+    proxy: str,
+    display: int,
+    vnc_port: int,
+    prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None,
+) -> LoginBrowser:
     from playwright.async_api import async_playwright  # noqa: PLC0415 - heavy, and only needed for a login
 
     options = build_login_launch_options(profile_dir=profile_dir, proxy=proxy, display=display)
@@ -433,7 +540,7 @@ async def launch_vnc_chromium(*, profile_dir: Path, proxy: str, display: int, vn
             await playwright.stop()
         await _stop_process(xvnc)
         raise
-    return _VncChromium(xvnc, playwright, context)
+    return _VncChromium(xvnc, playwright, context, prepare_page)
 
 
 # --- VNC over WebSocket -------------------------------------------------------------------------
@@ -495,6 +602,51 @@ async def _verify_pixiv(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
     return await pixiv.verify_session(cookie_value(cookies, 'PHPSESSID'), user_id=cfg.user_id, proxy=cfg.proxy)
 
 
+@dataclass(frozen=True)
+class _PageCheck:
+    ok: bool
+    account: str = ''
+    message: str = ''
+
+
+async def _verify_rednote(browser: LoginBrowser, cookies: tuple[StoredCookie, ...]) -> LoginCheck:  # noqa: ARG001 - the page, not the jar, is the authority
+    """Ask the login window's own page whether it is signed in.
+
+    Never a second client: RedNote's session is only ever presented by this browser,
+    which is the whole design of the source. The page needs a moment after loading
+    to show anything, and a page that then shows neither a session nor a login modal
+    is what a finished scan leaves behind -- the page's store still holds the
+    signed-out snapshot it was loaded with -- so it is reloaded, and the next poll
+    reads the answer from the fresh page.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _REDNOTE_SETTLE_SECONDS
+    while True:
+        probe = await rednote_browser.read_login_probe(browser)
+        if probe.get('logged_in'):
+            return _PageCheck(ok=True, account=rednote.user_id_from_probe(probe))
+        if probe.get('has_login_modal') or probe.get('has_verify_modal') or probe.get('qr_src'):
+            # Still signing in: the account QR, the phone form, or the security scan.
+            return _PageCheck(ok=False)
+        if loop.time() >= deadline:
+            break
+        await asyncio.sleep(_REDNOTE_SETTLE_POLL_SECONDS)
+    try:
+        await browser.reload()
+    except Exception as exc:  # noqa: BLE001 - the site navigating itself is the usual cause, and harmless
+        log.info('Reloading the RedNote login page was interrupted: %s', exc.__class__.__name__)
+    return _PageCheck(ok=False, message='Reloaded the page to confirm the sign-in.')
+
+
+def _rednote_proxy() -> str:
+    cfg = settings.load().web.rednote
+    if cfg.validate_runnable():
+        # The crawl refuses to leave from the pod's own address, and so does its login.
+        msg = 'RedNote has no proxy configured (web.rednote.proxy); set one before signing in.'
+        raise LoginError(msg)
+    return cfg.proxy
+
+
 LOGIN_SITES: dict[str, LoginSite] = {
     pixiv.SESSION_SITE: LoginSite(
         key=pixiv.SESSION_SITE,
@@ -504,6 +656,19 @@ LOGIN_SITES: dict[str, LoginSite] = {
         session_cookie='PHPSESSID',
         verify=_verify_pixiv,
         proxy=lambda: settings.load().web.pixiv.proxy,
+    ),
+    rednote.SESSION_SITE: LoginSite(
+        key=rednote.SESSION_SITE,
+        label='小红书',
+        login_url=rednote.LOGIN_URL,
+        cookie_urls=(rednote_browser.WEB_ORIGIN,),
+        session_cookie=rednote.SESSION_COOKIE,
+        verify_in_browser=_verify_rednote,
+        proxy=_rednote_proxy,
+        profile_dir=lambda: settings.load().web.rednote.profile_path,
+        lock_name=lambda: rednote.profile_lock_name(settings.load().web.rednote.profile_path),
+        prepare_page=rednote_browser.prepare_page,
+        hint='用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。',  # noqa: RUF001
     ),
 }
 

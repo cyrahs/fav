@@ -18,8 +18,6 @@ the parts worth asserting in tests, and none of them needs a browser to run.
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
 import contextlib
 import time
 from dataclasses import dataclass
@@ -54,7 +52,6 @@ RISK_CONTROL_STATUS_CODES = frozenset({461, 471})
 # by another machine and either refuses to start or hangs.
 PROFILE_SINGLETON_FILES = ('SingletonLock', 'SingletonCookie', 'SingletonSocket')
 
-_QR_DATA_URL_MARKER = ';base64,'
 # How long a freshly loaded page is given to mount and say whether it is signed in.
 # Measured against the live site: DOMContentLoaded lands around 1.5s, and the login
 # modal follows it.
@@ -156,17 +153,6 @@ _LOGIN_PROBE_SCRIPT = """() => {
     };
 }"""
 
-# Clicking the image is how the verification QR is reminted -- the modal says so and
-# there is no button. Only that one: the login modal's `重新扫码` control is also shown
-# while it waits for the phone to confirm a scan that worked, so clicking it there
-# would throw away a successful scan.
-_REFRESH_VERIFY_QR_SCRIPT = """() => {
-    const qr = document.querySelector('.fe-captcha-app img.qrcode-img');
-    if (!qr) { return false; }
-    qr.click();
-    return true;
-}"""
-
 # Narrowed inside the page: __INITIAL_STATE__ as a whole is megabytes of feed and
 # user state, and only one note is ever wanted.
 _NOTE_STATE_SCRIPT = """(id) => {
@@ -244,7 +230,7 @@ class NoteBrowser(Protocol):
     """What the source needs from a browser. Implemented for real below, faked in tests."""
 
     async def probe_login(self) -> dict[str, Any]: ...
-    async def refresh_qr(self) -> bool: ...
+    async def cookies(self) -> list[dict[str, Any]]: ...
     async def cookie_dict(self) -> dict[str, str]: ...
     async def user_agent(self) -> str: ...
     async def reload_login(self) -> None: ...
@@ -401,7 +387,7 @@ def build_launch_options(*, user_data_dir: Path, proxy: str, headless: bool) -> 
 
     * ``user_agent`` -- not because the UA is left alone, but because it cannot be
       corrected from here: the browser's own version is only readable once it is
-      running. ``_present_mac_user_agent`` does it over CDP after launch, carrying
+      running. ``present_mac_user_agent`` does it over CDP after launch, carrying
       the client hints with it. An earlier revision argued the default was safer than
       any override; measuring it said otherwise, and said so at the login endpoint.
     * ``--no-sandbox`` -- Playwright already runs Chromium unsandboxed
@@ -496,19 +482,6 @@ def redact_probe(probe: Mapping[str, Any]) -> dict[str, Any]:
     return redacted
 
 
-def decode_qr_data_url(src: str) -> bytes:
-    """The login QR arrives as a data: URL in the DOM, so no screenshot is needed."""
-    value = src.strip()
-    if not value.startswith('data:image/') or _QR_DATA_URL_MARKER not in value:
-        msg = 'The login modal did not carry a base64 QR image'
-        raise ValueError(msg)
-    try:
-        return base64.b64decode(value.split(_QR_DATA_URL_MARKER, 1)[1], validate=True)
-    except (binascii.Error, ValueError) as exc:
-        msg = 'The login QR image could not be decoded'
-        raise ValueError(msg) from exc
-
-
 def cursor_of(url: str) -> str:
     """The ``cursor`` a likes-page response was fetched with.
 
@@ -517,6 +490,149 @@ def cursor_of(url: str) -> str:
     """
     values = parse_qs(urlsplit(url).query).get('cursor') or ['']
     return values[0]
+
+
+async def read_login_probe(page: Any) -> dict[str, Any]:
+    """One sample, or an empty one if the page moved under it.
+
+    The site routes itself while it settles, and an evaluate that lands during a
+    navigation comes back as `Execution context was destroyed` rather than as a
+    result. That is a reason to look again on the next poll, not to end the run.
+    """
+    try:
+        result = await page.evaluate(_LOGIN_PROBE_SCRIPT)
+    except Exception as exc:  # noqa: BLE001
+        log.debug('RedNote login probe landed mid-navigation: %s', exc)
+        return {}
+    return result if isinstance(result, dict) else {}
+
+
+async def present_mac_user_agent(context: Any, page: Any) -> Any:
+    """Present the browser as desktop Chrome on a Mac, at its real version.
+
+    Two corrections folded into one override:
+
+    * The `Headless` token. Measured against the live site from a residential
+      address, with everything else held equal: the default headless UA is
+      answered with HTTP 461 on the login endpoints -- `login/qrcode/create`
+      among them, so the site will not even mint a QR. The same browser with that
+      one token removed is served normally. Headful behaves like the stripped UA,
+      so it is the string being judged rather than the absence of a window.
+    * The OS token. The pod's Chromium says `(X11; Linux x86_64)`, and that is
+      the device the app describes on the phone when a login QR is scanned. The
+      Mac token replaces it -- together with `navigator.platform` and the client
+      hints, so every readout the site has tells the same story.
+
+    This overrides `Emulation.setUserAgentOverride` rather than the launch option
+    so the real version is read off the browser first and only these tokens
+    change -- and so the client hints can be carried across with it, which the
+    launch option does not do.
+
+    Returns the CDP session carrying the override, or None when there was nothing
+    to correct. The caller keeps it for the life of the page: detaching it reverts
+    the override. Shared with the 登录态 page's login window, so a login made there
+    is made by the same "Mac" the crawl later presents.
+    """
+    user_agent = str(await page.evaluate('() => navigator.userAgent'))
+    cleaned = user_agent.replace(_HEADLESS_UA_TOKEN, 'Chrome').replace(_LINUX_UA_OS_TOKEN, _MAC_UA_OS_TOKEN)
+    if cleaned == user_agent and _MAC_UA_OS_TOKEN in user_agent:
+        # A real Mac browser with a window: nothing to correct, and no override
+        # means nothing that can drift from the browser's own readouts.
+        return None
+    override: dict[str, Any] = {
+        'userAgent': cleaned,
+        'acceptLanguage': _ACCEPT_LANGUAGE,
+        'platform': _MAC_NAVIGATOR_PLATFORM,
+    }
+    # Only when they can actually be read. The brands and version are the real
+    # browser's own -- but sending an empty `brands` blanks
+    # `navigator.userAgentData`, and a browser with no brands at all is a stranger
+    # signal than the one being fixed.
+    metadata = await _user_agent_metadata(page, cleaned)
+    if metadata.get('brands'):
+        metadata.update(
+            platform=_MAC_HINT_PLATFORM,
+            platformVersion=_MAC_HINT_PLATFORM_VERSION,
+            architecture=_MAC_HINT_ARCHITECTURE,
+            model='',
+            mobile=False,
+        )
+        override['userAgentMetadata'] = metadata
+    # Held open for the life of the browser on purpose: detaching the session
+    # reverts every emulation override applied through it, which is how the first
+    # version of this set the UA and was still served the old one.
+    cdp = await context.new_cdp_session(page)
+    await cdp.send('Emulation.setUserAgentOverride', override)
+    log.info('RedNote presented the browser as Chrome on macOS')
+    return cdp
+
+
+async def _user_agent_metadata(page: Any, user_agent: str) -> dict[str, Any]:
+    """The client hints as the browser reports them, with the version it reports.
+
+    Read from somewhere other than ``about:blank``, which is not a secure context
+    and therefore has no ``navigator.userAgentData`` at all. Somewhere neutral,
+    too: this runs before the UA is corrected, and the one origin that must not
+    see the uncorrected string is the site itself.
+    """
+    hints = await _read_user_agent_hints(page)
+    from_ua = user_agent.rsplit('Chrome/', maxsplit=1)[-1].split('.', maxsplit=1)[0]
+    version = str(hints.get('uaFullVersion') or '').split('.')[0] or from_ua
+    return {
+        'brands': hints.get('brands') or [],
+        'fullVersion': hints.get('uaFullVersion') or '',
+        'platform': hints.get('platform') or '',
+        'platformVersion': hints.get('platformVersion') or '',
+        'architecture': hints.get('architecture') or '',
+        'model': hints.get('model') or '',
+        'mobile': bool(hints.get('mobile')),
+        'majorVersion': version,
+    }
+
+
+async def _read_user_agent_hints(page: Any) -> dict[str, Any]:
+    """The raw client hints, or nothing when the neutral page will not give them.
+
+    Nothing here touches the site, so nothing here is allowed to end the run: the
+    worst outcome of an unreadable hint is the override going out without
+    metadata, which is the same browser minus its client hints.
+
+    The neutral page is fetched through the same proxy as everything else, and
+    when that fetch fails Chromium follows the failure by committing its own
+    error page. That commit is a navigation of its own, a beat after ``goto`` has
+    already raised, and an evaluate sent in that beat dies with `Execution
+    context was destroyed` -- which took the 2026-09-09 scheduled run down before
+    it had opened the site at all. So the read is tried again after a pause, and
+    a page that still will not answer is reported and left alone.
+    """
+    if not await page.evaluate('() => Boolean(navigator.userAgentData)'):
+        try:
+            await page.goto(_EXIT_IP_URL, wait_until='domcontentloaded')
+        except Exception as exc:  # noqa: BLE001
+            log.warning('RedNote could not open %s to read the client hints: %s', _EXIT_IP_URL, exc)
+    for attempt in range(1, _HINTS_ATTEMPTS + 1):
+        try:
+            hints = await page.evaluate(_USER_AGENT_HINTS_SCRIPT)
+        except Exception as exc:  # noqa: BLE001
+            if attempt < _HINTS_ATTEMPTS:
+                log.debug('RedNote client hints read landed mid-navigation, retrying: %s', exc)
+                await asyncio.sleep(_HINTS_RETRY_SECONDS)
+                continue
+            log.warning('RedNote could not read the client hints; presenting the UA without them: %s', exc)
+            return {}
+        return hints if isinstance(hints, dict) else {}
+    return {}
+
+
+async def prepare_page(context: Any, page: Any) -> Any:
+    """Make a fresh page look the way the crawl's does; returns the CDP session to keep.
+
+    The crawl applies exactly this when it opens its profile, and the 登录态 page's
+    login window applies it too, so the account is signed in and later crawled by
+    one and the same browser as far as the site can tell.
+    """
+    await context.add_init_script(_WEBDRIVER_INIT_SCRIPT)
+    return await present_mac_user_agent(context, page)
 
 
 class PlaywrightNoteBrowser:
@@ -653,112 +769,7 @@ class PlaywrightNoteBrowser:
             await asyncio.sleep(_LOGIN_RENDER_POLL_SECONDS)
 
     async def _present_mac_user_agent(self) -> None:
-        """Present the browser as desktop Chrome on a Mac, at its real version.
-
-        Two corrections folded into one override:
-
-        * The `Headless` token. Measured against the live site from a residential
-          address, with everything else held equal: the default headless UA is
-          answered with HTTP 461 on the login endpoints -- `login/qrcode/create`
-          among them, so the site will not even mint a QR. The same browser with that
-          one token removed is served normally. Headful behaves like the stripped UA,
-          so it is the string being judged rather than the absence of a window.
-        * The OS token. The pod's Chromium says `(X11; Linux x86_64)`, and that is
-          the device the app describes on the phone when a login QR is scanned. The
-          Mac token replaces it -- together with `navigator.platform` and the client
-          hints, so every readout the site has tells the same story.
-
-        This overrides `Emulation.setUserAgentOverride` rather than the launch option
-        so the real version is read off the browser first and only these tokens
-        change -- and so the client hints can be carried across with it, which the
-        launch option does not do.
-        """
-        user_agent = str(await self._page.evaluate('() => navigator.userAgent'))
-        cleaned = user_agent.replace(_HEADLESS_UA_TOKEN, 'Chrome').replace(_LINUX_UA_OS_TOKEN, _MAC_UA_OS_TOKEN)
-        if cleaned == user_agent and _MAC_UA_OS_TOKEN in user_agent:
-            # A real Mac browser with a window: nothing to correct, and no override
-            # means nothing that can drift from the browser's own readouts.
-            return
-        override: dict[str, Any] = {
-            'userAgent': cleaned,
-            'acceptLanguage': _ACCEPT_LANGUAGE,
-            'platform': _MAC_NAVIGATOR_PLATFORM,
-        }
-        # Only when they can actually be read. The brands and version are the real
-        # browser's own -- but sending an empty `brands` blanks
-        # `navigator.userAgentData`, and a browser with no brands at all is a stranger
-        # signal than the one being fixed.
-        metadata = await self._user_agent_metadata(cleaned)
-        if metadata.get('brands'):
-            metadata.update(
-                platform=_MAC_HINT_PLATFORM,
-                platformVersion=_MAC_HINT_PLATFORM_VERSION,
-                architecture=_MAC_HINT_ARCHITECTURE,
-                model='',
-                mobile=False,
-            )
-            override['userAgentMetadata'] = metadata
-        # Held open for the life of the browser on purpose: detaching the session
-        # reverts every emulation override applied through it, which is how the first
-        # version of this set the UA and was still served the old one.
-        self._cdp = await self._context.new_cdp_session(self._page)
-        await self._cdp.send('Emulation.setUserAgentOverride', override)
-        log.info('RedNote presented the browser as Chrome on macOS')
-
-    async def _user_agent_metadata(self, user_agent: str) -> dict[str, Any]:
-        """The client hints as the browser reports them, with the version it reports.
-
-        Read from somewhere other than ``about:blank``, which is not a secure context
-        and therefore has no ``navigator.userAgentData`` at all. Somewhere neutral,
-        too: this runs before the UA is corrected, and the one origin that must not
-        see the uncorrected string is the site itself.
-        """
-        hints = await self._read_user_agent_hints()
-        from_ua = user_agent.rsplit('Chrome/', maxsplit=1)[-1].split('.', maxsplit=1)[0]
-        version = str(hints.get('uaFullVersion') or '').split('.')[0] or from_ua
-        return {
-            'brands': hints.get('brands') or [],
-            'fullVersion': hints.get('uaFullVersion') or '',
-            'platform': hints.get('platform') or '',
-            'platformVersion': hints.get('platformVersion') or '',
-            'architecture': hints.get('architecture') or '',
-            'model': hints.get('model') or '',
-            'mobile': bool(hints.get('mobile')),
-            'majorVersion': version,
-        }
-
-    async def _read_user_agent_hints(self) -> dict[str, Any]:
-        """The raw client hints, or nothing when the neutral page will not give them.
-
-        Nothing here touches the site, so nothing here is allowed to end the run: the
-        worst outcome of an unreadable hint is the override going out without
-        metadata, which is the same browser minus its client hints.
-
-        The neutral page is fetched through the same proxy as everything else, and
-        when that fetch fails Chromium follows the failure by committing its own
-        error page. That commit is a navigation of its own, a beat after ``goto`` has
-        already raised, and an evaluate sent in that beat dies with `Execution
-        context was destroyed` -- which took the 2026-09-09 scheduled run down before
-        it had opened the site at all. So the read is tried again after a pause, and
-        a page that still will not answer is reported and left alone.
-        """
-        if not await self._page.evaluate('() => Boolean(navigator.userAgentData)'):
-            try:
-                await self._page.goto(_EXIT_IP_URL, wait_until='domcontentloaded')
-            except Exception as exc:  # noqa: BLE001
-                log.warning('RedNote could not open %s to read the client hints: %s', _EXIT_IP_URL, exc)
-        for attempt in range(1, _HINTS_ATTEMPTS + 1):
-            try:
-                hints = await self._page.evaluate(_USER_AGENT_HINTS_SCRIPT)
-            except Exception as exc:  # noqa: BLE001
-                if attempt < _HINTS_ATTEMPTS:
-                    log.debug('RedNote client hints read landed mid-navigation, retrying: %s', exc)
-                    await asyncio.sleep(_HINTS_RETRY_SECONDS)
-                    continue
-                log.warning('RedNote could not read the client hints; presenting the UA without them: %s', exc)
-                return {}
-            return hints if isinstance(hints, dict) else {}
-        return {}
+        self._cdp = await present_mac_user_agent(self._context, self._page)
 
     async def _goto(self, url: str) -> None:
         """Navigate, giving a transient stall a second chance in a fresh browser.
@@ -802,22 +813,11 @@ class PlaywrightNoteBrowser:
         return self._page.url.startswith(WEB_ORIGIN)
 
     async def _read_login_probe(self) -> dict[str, Any]:
-        """One sample, or an empty one if the page moved under it.
+        return await read_login_probe(self._page)
 
-        The site routes itself while it settles, and an evaluate that lands during a
-        navigation comes back as `Execution context was destroyed` rather than as a
-        result. That is a reason to look again on the next poll, not to end the run.
-        """
-        try:
-            result = await self._page.evaluate(_LOGIN_PROBE_SCRIPT)
-        except Exception as exc:  # noqa: BLE001
-            log.debug('RedNote login probe landed mid-navigation: %s', exc)
-            return {}
-        return result if isinstance(result, dict) else {}
-
-    async def refresh_qr(self) -> bool:
-        """Remint the verification QR. True if there was one to remint."""
-        return bool(await self._page.evaluate(_REFRESH_VERIFY_QR_SCRIPT))
+    async def cookies(self) -> list[dict[str, Any]]:
+        """The site's cookies as Playwright reports them, for the 登录态 page's record."""
+        return list(await self._context.cookies([WEB_ORIGIN]))
 
     async def cookie_dict(self) -> dict[str, str]:
         cookies = await self._context.cookies()

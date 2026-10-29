@@ -116,6 +116,8 @@ export interface SiteSession {
   site: string;
   label: string;
   signed_in: boolean;
+  checkable: boolean;
+  hint: string;
   account: string;
   status: '' | 'valid' | 'invalid';
   message: string;

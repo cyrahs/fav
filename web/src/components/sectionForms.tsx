@@ -521,7 +521,7 @@ function RedNoteForm(props: SectionFormProps) {
             onChange={(next) => set('profile_path', next)}
             mono
             placeholder="./data/rednote-profile"
-            hint="登录态存在这里，必须放在持久卷上，否则每次重启都要重新扫码。"
+            hint="登录态存在这里，必须放在持久卷上，否则每次重启都要重新登录。登录在「登录态」页完成，登录窗口打开的就是这个 profile。"
           />
           <TextField
             label="自己的用户 ID"
@@ -530,12 +530,6 @@ function RedNoteForm(props: SectionFormProps) {
             mono
             placeholder="留空自动获取"
             hint="点赞列表在 /user/profile/<id>。留空则登录后从页面读一次并记住。"
-          />
-          <NumberField
-            label="等待扫码（秒）"
-            value={num(props.value, 'login_wait_seconds', 240)}
-            onChange={(next) => set('login_wait_seconds', next)}
-            hint="未登录时会把二维码发到 Telegram 并等这么久。等待期间其他手动触发会排队。"
           />
         </div>
       </div>

@@ -204,7 +204,7 @@ def build_mcp_server(get_service: Callable[[], FavApiService]) -> FastMCP:  # no
 
     @mcp.tool()
     async def site_sessions() -> list[dict[str, Any]]:
-        """Logins captured on the web UI's 登录态 page (pixiv, ...): account, whether the last
+        """Logins captured on the web UI's 登录态 page (pixiv, rednote): account, whether the last
         crawl or check found them valid (status, message), cookie names and expiry. Never values."""
         return await ops.site_sessions_summary()
 

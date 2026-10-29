@@ -43,7 +43,6 @@ from src.web.rednote_browser import (
     build_proxy_settings,
     clear_stale_profile_locks,
     cursor_of,
-    decode_qr_data_url,
     describe_shape,
     probe_proxy,
     redact_probe,
@@ -93,12 +92,11 @@ class _FakeBrowser:
         self.initial_notes = list(initial_notes or [])
         self.notes = notes or {}
         self._user_agent = user_agent
-        self.cookies = {'web_session': 'session-value'}
+        self.jar = {'web_session': 'session-value'}
         self.started = False
         self.closed = False
         self.opened_likes: list[str] = []
         self.reloads = 0
-        self.qr_refreshes = 0
         self.note_urls: list[str] = []
 
     async def start(self) -> None:
@@ -111,7 +109,7 @@ class _FakeBrowser:
         return self.probes[0] if len(self.probes) == 1 else self.probes.pop(0)
 
     async def cookie_dict(self) -> dict[str, str]:
-        return dict(self.cookies)
+        return dict(self.jar)
 
     async def user_agent(self) -> str:
         return self._user_agent
@@ -119,9 +117,11 @@ class _FakeBrowser:
     async def reload_login(self) -> None:
         self.reloads += 1
 
-    async def refresh_qr(self) -> bool:
-        self.qr_refreshes += 1
-        return True
+    async def cookies(self) -> list[dict]:
+        return [
+            {'name': name, 'value': value, 'domain': '.xiaohongshu.com', 'path': '/', 'expires': 1_900_000_000}
+            for name, value in self.jar.items()
+        ]
 
     async def open_likes(self, *, user_id: str) -> None:
         self.opened_likes.append(user_id)
@@ -197,6 +197,31 @@ class _FakeDatabase:
 
     def updates(self) -> list[str]:
         return [' '.join(query.split()) for query, _ in self.calls if query.strip().upper().startswith('UPDATE')]
+
+
+class _Sessions:
+    """site_sessions, in memory: what a run records for the 登录态 page."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, object] = {}
+        self.saved: list[tuple] = []
+        self.checks: list[tuple] = []
+
+    async def load(self, site):
+        return self.rows.get(site)
+
+    async def save_signed_in(self, site, cookies, *, account, expires_at) -> None:
+        self.saved.append((site, cookies, account, expires_at))
+
+    async def record_check(self, site, *, ok, message='') -> None:
+        self.checks.append((site, ok, message))
+
+
+@pytest.fixture(autouse=True)
+def sessions(monkeypatch) -> _Sessions:
+    fake = _Sessions()
+    monkeypatch.setattr(rednote_module, 'site_sessions', fake)
+    return fake
 
 
 def _job(handler=_no_requests, browser: _FakeBrowser | None = None, **updates) -> RedNote:
@@ -610,15 +635,6 @@ def test_a_killed_chromium_does_not_lock_the_profile_forever(tmp_path) -> None:
     assert clear_stale_profile_locks(tmp_path) == []
 
 
-def test_the_login_qr_is_decoded_straight_out_of_the_dom() -> None:
-    src = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-
-    assert decode_qr_data_url(src) == QR_PNG
-
-    with pytest.raises(ValueError, match='base64 QR'):
-        decode_qr_data_url('https://example.com/qr.png')
-
-
 def test_a_page_is_identified_by_the_cursor_it_was_fetched_with() -> None:
     assert cursor_of('https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30&cursor=C1') == 'C1'
     assert cursor_of('https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30') == ''
@@ -814,244 +830,108 @@ def test_pending_requests_are_summarized_oldest_first_without_their_ids() -> Non
     assert summarize_pending([], now=0.0) == 'nothing'
 
 
-def test_a_navigation_the_scan_interrupts_does_not_end_the_run(monkeypatch) -> None:
-    """Scanning the QR makes the site navigate itself, aborting whatever we had in flight.
+def test_a_signed_out_profile_fails_the_run_at_once_and_sends_no_qr(monkeypatch) -> None:
+    """Signing in is the 登录态 page's job now; a run only says it is needed.
 
-    Treating that as fatal would fail the run at the exact moment it succeeded.
+    The old flow sent the QR to Telegram and waited minutes on the scan, parking every
+    queued manual trigger behind it.
     """
-    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-
-    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
-        return 1
-
-    async def _send_text(*, header='', text, require_enabled=True) -> int:
-        return 2
-
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
+    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
+    browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
+    job = _job(browser=browser)
+
+    with pytest.raises(RedNoteError) as excinfo:
+        _run(job, job._check_login(browser))
+
+    assert excinfo.value.notification_dedupe_key == 'rednote:login'
+    assert '登录态' in str(excinfo.value)
+    # A visible login modal is an answer; reloading it would only cost a page load.
+    assert browser.reloads == 0
+
+
+def test_a_page_whose_snapshot_predates_the_session_is_reloaded_once(monkeypatch) -> None:
+    """No modal, no QR, no answer from the store: what a fresh sign-in leaves behind
+    on a page loaded before it. One reload reads the real answer."""
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    stale = {'logged_in': False, 'has_login_modal': False, 'qr_src': ''}
+    browser = _FakeBrowser(probes=[stale, {'logged_in': True, 'user_id': 'me'}])
+    job = _job(browser=browser)
+    job.user_id = ''
+
+    _run(job, job._check_login(browser))
+
+    assert browser.reloads == 1
+    assert job.user_id == 'me'
+
+
+def test_a_page_that_never_answers_is_reported_as_signed_out(monkeypatch) -> None:
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
+    stale = {'logged_in': False, 'has_login_modal': False, 'qr_src': ''}
+    browser = _FakeBrowser(probes=[stale])
+    job = _job(browser=browser)
+
+    with pytest.raises(RedNoteError):
+        _run(job, job._check_login(browser))
+
+    assert browser.reloads == 1
+
+
+def test_a_reload_the_site_interrupts_does_not_end_the_run(monkeypatch) -> None:
+    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
 
     class _AbortingBrowser(_FakeBrowser):
         async def reload_login(self) -> None:
             self.reloads += 1
             raise RuntimeError('Page.goto: net::ERR_ABORTED at https://www.xiaohongshu.com/')
 
-    browser = _AbortingBrowser(
-        probes=[
-            {'has_login_modal': True, 'qr_src': ''},
-            {'has_login_modal': True, 'qr_src': qr},
-            {'logged_in': True, 'user_id': 'me'},
-        ],
-    )
+    browser = _AbortingBrowser(probes=[{}, {'logged_in': True, 'user_id': 'me'}])
     job = _job(browser=browser)
 
-    _run(job, job._await_login(browser))
+    _run(job, job._check_login(browser))
 
     assert browser.reloads == 1
-    assert job.user_id == 'me'
 
 
-def test_both_scans_of_the_two_stage_login_are_sent(monkeypatch) -> None:
-    """Signing in takes two QRs, and the second lives outside the login modal.
-
-    Observed on the live site: the account QR is inside `.login-modal`, and the
-    account-security QR that follows it is a separate captcha app on top. A selector
-    scoped to the login modal sees only the first half, so a run would send one code,
-    watch the user scan it, and then wait out its whole budget on a modal it cannot see.
-    """
-    sent: list[tuple[str, int]] = []
-    login_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-    verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG + b'\x01').decode()
-
-    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
-        sent.append((caption, len(photo[1])))
-        return 1
-
-    async def _send_text(*, header='', text, require_enabled=True) -> int:
-        return 2
-
+def test_the_first_signed_in_run_writes_the_login_page_row(monkeypatch, sessions) -> None:
+    # A profile signed in through the old Telegram flow has no row; the page would
+    # call it 未登录 although every run works.
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
-
-    browser = _FakeBrowser(
-        probes=[
-            {'has_login_modal': True, 'qr_stage': 'login', 'qr_src': login_qr},
-            # Scanned: the verification modal opens on top, with its own code.
-            {'has_login_modal': True, 'has_verify_modal': True, 'qr_stage': 'verify', 'qr_src': verify_qr},
-            {'logged_in': True, 'user_id': 'me'},
-        ],
-    )
+    browser = _FakeBrowser()
     job = _job(browser=browser)
 
-    _run(job, job._await_login(browser))
+    _run(job, job._prepare_session(browser))
 
-    assert len(sent) == 2
-    # The captions have to tell them apart: they are identical images in a chat, and
-    # only the second one dies in a minute.
-    assert '验证' in sent[1][0]
-    assert job.user_id == 'me'
+    ((site, cookies, account, expires_at),) = sessions.saved
+    assert (site, account) == ('rednote', 'me')
+    assert [cookie.name for cookie in cookies] == ['web_session']
+    assert expires_at is not None
+    assert sessions.checks == []
 
 
-def test_the_verification_qr_is_reminted_on_a_timer(monkeypatch) -> None:
-    """Its expiry leaves no mark: same image bytes, no class, only a sentence.
-
-    And that sentence is in whatever language the profile runs in -- the pod pins
-    zh-CN while the observation was made in English -- so the only durable trigger
-    is the clock.
-    """
-    verify_qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-
-    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
-        return 1
-
+def test_later_runs_only_record_the_check(monkeypatch, sessions) -> None:
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
-    monkeypatch.setattr(rednote_module, '_QR_REFRESH_SECONDS', 0)
-
-    stuck = {'has_verify_modal': True, 'qr_stage': 'verify', 'qr_src': verify_qr}
-    browser = _FakeBrowser(probes=[stuck, stuck, stuck, {'logged_in': True, 'user_id': 'me'}])
+    sessions.rows['rednote'] = object()
+    browser = _FakeBrowser()
     job = _job(browser=browser)
 
-    _run(job, job._await_login(browser))
+    _run(job, job._prepare_session(browser))
 
-    # The same src is never re-sent, but the page is told to mint a new one.
-    assert browser.qr_refreshes >= 1
+    assert sessions.saved == []
+    assert sessions.checks == [('rednote', True, '')]
 
 
-def test_a_scan_that_worked_is_noticed_rather_than_waited_out(monkeypatch) -> None:
-    """The page does not update itself when the scan lands.
-
-    Observed live: both modals close, the session cookie is set, and
-    `__INITIAL_STATE__` still reports signed out because it is the snapshot the page
-    was loaded with. That reads as UNKNOWN, and without a reload it reads as UNKNOWN
-    for the rest of the budget -- failing a login that actually succeeded.
-    """
+def test_a_signed_out_run_marks_the_login_invalid(monkeypatch, sessions) -> None:
     monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
-    monkeypatch.setattr(rednote_module, '_LOGIN_RELOAD_INTERVAL_SECONDS', 0)
-
-    # No modal, no QR, no answer from the store -- and the cookie jar already has the
-    # session the scan just created.
-    after_scan = {'logged_in': False, 'has_login_modal': False, 'qr_src': ''}
-    browser = _FakeBrowser(probes=[after_scan, after_scan, {'logged_in': True, 'user_id': 'me'}])
+    browser = _FakeBrowser(probes=[{'has_login_modal': True}])
     job = _job(browser=browser)
 
-    _run(job, job._await_login(browser))
-
-    assert browser.reloads >= 1
-    assert job.user_id == 'me'
-
-
-def test_a_qr_is_sent_once_per_code_and_the_run_continues_after_the_scan(monkeypatch) -> None:
-    sent: list[bytes] = []
-    qr_a = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-    qr_b = 'data:image/png;base64,' + base64.b64encode(QR_PNG + b'\x00').decode()
-
-    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
-        sent.append(photo[1])
-        return 1
-
-    async def _send_text(*, header='', text, require_enabled=True) -> int:
-        return 2
-
-    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_text_now', _send_text)
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
-
-    browser = _FakeBrowser(
-        probes=[
-            {'has_login_modal': True, 'qr_src': qr_a},
-            # The same code again: re-sending it would be noise.
-            {'has_login_modal': True, 'qr_src': qr_a},
-            # RedNote minted a new one, so the src changed.
-            {'has_login_modal': True, 'qr_src': qr_b},
-            {'logged_in': True, 'user_id': 'me'},
-        ],
-    )
-    job = _job(browser=browser)
-
-    _run(job, job._await_login(browser))
-
-    assert len(sent) == 2
-    assert job.user_id == 'me'
-
-
-def test_a_login_that_is_never_scanned_ends_the_run_with_one_deduped_failure(monkeypatch) -> None:
-    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
-        return 1
-
-    monkeypatch.setattr(rednote_module, 'database', _FakeDatabase())
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
-
-    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-    browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
-    job = _job(browser=browser, login_wait_seconds=1)
-
-    with pytest.raises(RedNoteError) as excinfo:
-        _run(job, job._await_login(browser))
-
-    assert excinfo.value.notification_dedupe_key == 'rednote:login'
-
-
-def test_a_second_run_inside_the_cooldown_does_not_send_another_qr(monkeypatch) -> None:
-    # A QR is dead within minutes, so a 04:00 cron sending one is pure noise.
-    sent: list[bytes] = []
-
-    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
-        sent.append(photo[1])
-        return 1
-
-    fake_db = _FakeDatabase()
-    monkeypatch.setattr(rednote_module, 'database', fake_db)
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
-
-    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-    job = _job(login_wait_seconds=1, login_prompt_cooldown_seconds=3600)
-
-    for attempt in range(2):
-        browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
-        with pytest.raises(RedNoteError) as excinfo:
-            asyncio.run(job._await_login(browser))
-        if attempt == 1:
-            # The suppressed run must not claim it just sent one, nor blame Telegram.
-            assert 'still work' in str(excinfo.value)
-    asyncio.run(job.client.aclose())
-
-    assert len(sent) == 1
-
-
-def test_a_rerun_after_the_qr_expired_sends_a_fresh_one_despite_the_cooldown(monkeypatch) -> None:
-    # The cooldown is capped at the QR's lifetime: past it the old code is dead, and
-    # suppression would fail the run while pointing at a code the app rejects.
-    sent: list[bytes] = []
-
-    async def _send_photo(*, photo, header='', caption='', require_enabled=True) -> int:
-        sent.append(photo[1])
-        return 1
-
-    fake_db = _FakeDatabase()
-    monkeypatch.setattr(rednote_module, 'database', fake_db)
-    monkeypatch.setattr(rednote_module.telegram_bot_tool, 'send_photo_now', _send_photo)
-    monkeypatch.setattr(rednote_module, '_LOGIN_POLL_INTERVAL_SECONDS', 0)
-
-    qr = 'data:image/png;base64,' + base64.b64encode(QR_PNG).decode()
-    job = _job(login_wait_seconds=1, login_prompt_cooldown_seconds=3600)
-    expired = int(time.time()) - rednote_module._LOGIN_QR_LIFETIME_SECONDS - 60
-    fake_db.state['login_prompt_at'] = str(expired)
-
-    browser = _FakeBrowser(probes=[{'has_login_modal': True, 'qr_src': qr}])
     with pytest.raises(RedNoteError):
-        asyncio.run(job._await_login(browser))
-    asyncio.run(job.client.aclose())
+        _run(job, job.update())
 
-    assert len(sent) == 1
+    ((site, ok, message),) = sessions.checks
+    assert (site, ok) == ('rednote', False)
+    assert '登录态' in message
 
 
 # ---------- reading the likes list ----------
