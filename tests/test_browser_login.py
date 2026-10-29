@@ -23,7 +23,6 @@ from src.api.browser_login import (
     STATE_TIMEOUT,
     STATE_WAITING,
     BrowserLoginManager,
-    CheckUnsupportedError,
     LoginBusyError,
     LoginSite,
     UnknownLoginSiteError,
@@ -295,24 +294,6 @@ def test_the_ticket_only_opens_the_running_login(store) -> None:
     asyncio.run(scenario())
 
 
-def test_checking_a_stored_session_records_the_answer(store) -> None:
-    store.sessions['demo'] = SiteSession(
-        site='demo',
-        cookies=(StoredCookie(name='SID', value='user_7', domain='.example.com'),),
-        account='7',
-        status='valid',
-        message='',
-        expires_at=None,
-        signed_in_at=None,
-        checked_at=None,
-    )
-
-    check = asyncio.run(_manager(_Launcher()).check_stored('demo'))
-
-    assert check.ok is True
-    assert store.checks == [('demo', True, '')]
-
-
 def test_the_login_window_is_headed_on_the_virtual_display() -> None:
     options = build_login_launch_options(profile_dir=Path('/data/p'), proxy='', display=99)
 
@@ -328,7 +309,6 @@ def test_pixiv_is_a_login_site() -> None:
 
     assert site.session_cookie == 'PHPSESSID'
     assert site.login_url.startswith('https://accounts.pixiv.net/login')
-    assert site.checkable
 
 
 # ---------- a site whose crawl is a browser (RedNote) ----------
@@ -500,21 +480,6 @@ def test_a_failed_launch_still_releases_the_profile_lock(store, monkeypatch) -> 
     assert locks.held == set()
 
 
-def test_a_site_verified_only_in_its_browser_offers_no_check(store) -> None:
-    async def verify_in_browser(browser, cookies):
-        return _Check(ok=True)
-
-    manager = BrowserLoginManager({'demo': _profile_site(verify_in_browser)}, launcher=_Launcher())
-
-    with pytest.raises(CheckUnsupportedError):
-        asyncio.run(manager.check_stored('demo'))
-    with _client(manager) as client:
-        response = client.post('/api/v2/site-sessions/demo/check', headers=AUTH)
-        assert response.status_code == 409
-        assert response.json()['error']['code'] == 'check_unsupported'
-        assert client.get('/api/v2/site-sessions', headers=AUTH).json()['items'][0]['checkable'] is False
-
-
 class _RedNotePage:
     """The login window as _verify_rednote sees it: successive probes, and reloads."""
 
@@ -568,7 +533,6 @@ def test_rednote_is_a_login_site_on_the_crawl_profile(monkeypatch) -> None:
     cfg = settings.load().web.rednote
 
     assert site.session_cookie == 'web_session'
-    assert not site.checkable
     assert site.profile_dir() == cfg.profile_path
     # The very lock the crawl takes, or the two could open the profile at once.
     assert site.lock_name() == rednote.profile_lock_name(cfg.profile_path)
@@ -619,7 +583,6 @@ def test_the_api_lists_sites_and_never_exposes_cookie_values(store) -> None:
         'site': 'demo',
         'label': 'Demo',
         'signed_in': True,
-        'checkable': True,
         'hint': '',
         'account': '7',
         'status': 'valid',
@@ -659,11 +622,6 @@ def test_the_api_starts_a_login_and_hands_out_its_ticket(store) -> None:
 def test_the_api_rejects_an_unknown_site(store) -> None:
     with _client(_manager(_Launcher())) as client:
         assert client.post('/api/v2/site-sessions/nope/login', headers=AUTH).status_code == 404
-
-
-def test_checking_without_a_stored_session_is_a_conflict(store) -> None:
-    with _client(_manager(_Launcher())) as client:
-        assert client.post('/api/v2/site-sessions/demo/check', headers=AUTH).status_code == 409
 
 
 # ---------- VNC bridge ----------

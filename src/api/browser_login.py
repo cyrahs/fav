@@ -91,10 +91,6 @@ class LoginBusyError(LoginError):
     pass
 
 
-class CheckUnsupportedError(LoginError):
-    pass
-
-
 class LoginCheck(Protocol):
     ok: bool
     account: str
@@ -110,12 +106,10 @@ class LoginSite:
     cookie_urls: tuple[str, ...]
     # The cookie whose arrival means a login may have happened.
     session_cookie: str
-    # Asks the site, from the cookies alone, whether they are a real login. Also what
-    # 检测 runs on a stored session.
+    # Asks the site, from the cookies alone, whether they are a real login.
     verify: Callable[[tuple[StoredCookie, ...]], Awaitable[LoginCheck]] | None = None
     # Asks the login window itself instead, for a site whose cookies must never be
-    # presented by any other client (RedNote). Only usable while a login is open, so
-    # such a site offers no 检测; its crawl records the check on every run.
+    # presented by any other client (RedNote).
     verify_in_browser: Callable[[LoginBrowser, tuple[StoredCookie, ...]], Awaitable[LoginCheck]] | None = None
     # The egress the source crawls through, so the login comes from the same place.
     proxy: Callable[[], str] = lambda: ''
@@ -136,10 +130,6 @@ class LoginSite:
         if self.verify is None and self.verify_in_browser is None:
             msg = f'Login site {self.key} needs a way to verify a login'
             raise ValueError(msg)
-
-    @property
-    def checkable(self) -> bool:
-        return self.verify is not None
 
 
 class LoginBrowser(Protocol):
@@ -271,22 +261,6 @@ class BrowserLoginManager:
             msg = f'The {site.label} browser profile is in use by a crawl right now; try again in a few minutes.'
             raise LoginBusyError(msg)
         return stack
-
-    async def check_stored(self, site_key: str) -> LoginCheck | None:
-        """Ask the site whether the stored session still works, and record the answer."""
-        site = self.sites.get(site_key)
-        if site is None:
-            msg = f'Unknown login site: {site_key}'
-            raise UnknownLoginSiteError(msg)
-        if site.verify is None:
-            msg = f'{site.label} can only be checked from its own browser; its next crawl records whether the login still works.'
-            raise CheckUnsupportedError(msg)
-        stored = await site_sessions.load(site.key)
-        if stored is None or not stored.cookie(site.session_cookie):
-            return None
-        check = await site.verify(stored.cookies)
-        await site_sessions.record_check(site.key, ok=check.ok, message=check.message)
-        return check
 
     async def _run(self, site: LoginSite, attempt: LoginAttempt, lock: contextlib.AsyncExitStack) -> None:
         browser: LoginBrowser | None = None

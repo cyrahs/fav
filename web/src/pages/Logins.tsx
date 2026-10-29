@@ -49,10 +49,6 @@ export function LoginsPage() {
     mutationFn: () => api.delete<LoginAttempt | null>('/api/v2/site-sessions/login'),
     onSettled: refresh,
   });
-  const check = useMutation({
-    mutationFn: (site: string) => api.post<SiteSession>(`/api/v2/site-sessions/${site}/check`, {}),
-    onSettled: refresh,
-  });
 
   const login = sessions.data?.login ?? null;
   const active = login?.active ? login : null;
@@ -99,15 +95,6 @@ export function LoginsPage() {
                     <button type="button" disabled={Boolean(active) || start.isPending} onClick={() => start.mutate(session.site)}>
                       {session.signed_in ? '重新登录' : '登录'}
                     </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={!session.signed_in || !session.checkable || check.isPending}
-                      title={session.checkable ? undefined : '只能在它自己的浏览器里检测，每次抓取都会自动记录结果'}
-                      onClick={() => check.mutate(session.site)}
-                    >
-                      {check.isPending && check.variables === session.site ? '检测中…' : '检测'}
-                    </button>
                   </td>
                 </tr>
               );
@@ -115,7 +102,6 @@ export function LoginsPage() {
           </tbody>
         </table>
         {start.isError && <p className="warn">{errorText(start.error)}</p>}
-        {check.isError && <p className="warn">{errorText(check.error)}</p>}
         {login && !login.active && (
           <p className={login.state === 'saved' ? 'ok' : 'warn'}>
             {labelFor(login.site)}：{LOGIN_STATE_LABELS[login.state]}

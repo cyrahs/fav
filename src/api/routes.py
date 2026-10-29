@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 
 from src.tool import site_sessions
 
-from .browser_login import BrowserLoginManager, CheckUnsupportedError, LoginAttempt, LoginBusyError, UnknownLoginSiteError
+from .browser_login import BrowserLoginManager, LoginAttempt, LoginBusyError, UnknownLoginSiteError
 from .constants import (
     API_V2_PREFIX,
     TAG_ARCHIVE,
@@ -945,12 +945,11 @@ def _login_view(attempt: LoginAttempt | None) -> LoginAttemptView | None:
 def _session_view(manager: BrowserLoginManager, site_key: str, stored: site_sessions.SiteSession | None) -> SiteSessionView:
     site = manager.sites[site_key]
     if stored is None:
-        return SiteSessionView(site=site_key, label=site.label, signed_in=False, checkable=site.checkable, hint=site.hint)
+        return SiteSessionView(site=site_key, label=site.label, signed_in=False, hint=site.hint)
     return SiteSessionView(
         site=site_key,
         label=site.label,
         signed_in=bool(stored.cookie(site.session_cookie)),
-        checkable=site.checkable,
         hint=site.hint,
         account=stored.account,
         status=stored.status,
@@ -1007,23 +1006,3 @@ async def start_site_login(site: LoginSitePath, request: Request) -> LoginAttemp
 async def cancel_site_login(request: Request) -> LoginAttemptView | None:
     """Close the login browser without saving anything."""
     return _login_view(await _login_manager(request).cancel())
-
-
-@router.post(
-    '/site-sessions/{site}/check',
-    operation_id='checkSiteSession',
-    response_model=SiteSessionView,
-    tags=[TAG_SITE_SESSIONS],
-)
-async def check_site_session(site: LoginSitePath, request: Request) -> SiteSessionView:
-    """Ask the site now whether the stored session still works."""
-    manager = _login_manager(request)
-    try:
-        check = await manager.check_stored(site)
-    except UnknownLoginSiteError as exc:
-        raise ApiError(status_code=404, code='not_found', message=str(exc)) from exc
-    except CheckUnsupportedError as exc:
-        raise ApiError(status_code=409, code='check_unsupported', message=str(exc)) from exc
-    if check is None:
-        raise ApiError(status_code=409, code='not_signed_in', message=f'{site} has no stored session; sign in first.')
-    return _session_view(manager, site, await site_sessions.load(site))
