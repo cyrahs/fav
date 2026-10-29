@@ -332,7 +332,8 @@ with the NGA login (`ngaPassportUid`, `ngaPassportCid`) of the CookieCloud confi
 `web.wechat.nga_cookiecloud`: NGA shows most boards to members only. Until that login works, the thread
 waits without using up its tries. A 视频号 (Channels) video is not opened in WeChat: TikHub's
 `fetch_video_detail` (key in `web.wechat.tikhub_token`, about $0.01 per lookup) answers with its CDN
-address and a `decode_key`, and the downloaded file's first 128 KB are decrypted with the ISAAC-64
+address and a `decode_key`. The best encoding that address offers is downloaded (`X-snsvideoflag=xWT111`,
+720p for a 1080p upload; the CDN's default is 576p, and the original upload is not offered), and its first 128 KB are decrypted with the ISAAC-64
 keystream that key seeds. Without a key the video waits without using up its tries. It is saved as
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <caption> [<msg_id>].mp4` with its cover beside it, recorded in
 `wechat_channel_video`, and a second forward of the same video (by object id) is skipped. All three

@@ -35,6 +35,7 @@ from src.web.wechat import (
 from src.web.wechat_article import canonical_url, image_extension, original_image_url, parse_article_link, parse_article_page
 from src.web.wechat_channels import (
     ENCRYPTED_BYTES,
+    best_quality,
     decrypt_head,
     keystream,
     parse_channel_video,
@@ -1599,6 +1600,20 @@ def test_a_tikhub_answer_names_the_file_and_its_key() -> None:
     assert parse_video_source({'data': {'media': {'full_url': _VIDEO_URL, 'decode_key': ''}}}) is None
     assert parse_video_source({'data': None}) is None
     assert parse_video_source([]) is None
+
+
+def test_the_best_offered_encoding_is_asked_for() -> None:
+    # basedata as the CDN signs it: the default spec, then each spec on offer.
+    offered = b'\x08\x03\x12\x06xWT113"6\n\n\n\x06xWT113\x10\x00\n\n\n\x06xWT112\x10\x01\n\n\n\x06xWT111\x10\x00\n\x07\n\x03xA0\x10\x00'
+    basedata = base64.urlsafe_b64encode(offered).decode().rstrip('=')
+    url = f'https://finder.video.qq.com/251/20302/stodownload?encfilekey=enc&basedata={basedata}&sign=s'
+    answer = {'data': {'media': {'full_url': url, 'decode_key': '7'}}}
+
+    assert best_quality(url) == f'{url}&X-snsvideoflag=xWT111'
+    assert parse_video_source(answer).url == f'{url}&X-snsvideoflag=xWT111'
+    assert best_quality(f'{url}&X-snsvideoflag=xWT113') == f'{url}&X-snsvideoflag=xWT113'
+    assert best_quality(_VIDEO_URL) == _VIDEO_URL
+    assert best_quality(f'{_VIDEO_URL}&basedata=%%%') == f'{_VIDEO_URL}&basedata=%%%'
 
 
 def test_a_channels_video_is_saved_with_its_cover(fake_db, notifications, tmp_path) -> None:

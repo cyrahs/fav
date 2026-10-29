@@ -13,15 +13,23 @@ The file behind that address is the original MP4 with only its first
 ``decode_key``, each 64-bit output written big-endian, starting from the top of
 the generator's first block as its ``rand()`` hands them out. Every lookup
 returns a fresh address and key, so the two must come from the same answer.
+
+The address's ``basedata`` lists the encodings on offer (``xWT111``,
+``xWT112``, ``xWT113``, ...), and without an ``X-snsvideoflag`` the CDN sends
+the first one listed, a 576p one. ``best_quality`` asks for the lowest numbered
+``xWT`` spec, which is the best (720p for a 1080p upload, about what WeChat
+itself plays); the original upload is not among them.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import html
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -34,6 +42,7 @@ _NONCE_ID_RE = re.compile(r'[A-Za-z0-9_-]{1,200}')
 # TikHub takes only a numeric nonce; older shares carry a longer composite one.
 _NUMERIC_NONCE_RE = re.compile(r'\d{1,32}')
 _DECODE_KEY_RE = re.compile(r'\d{1,20}')
+_SPEC_RE = re.compile(rb'xWT(\d{3})')
 # How much of a video file WeChat encrypts.
 ENCRYPTED_BYTES = 131072
 _MASK = (1 << 64) - 1
@@ -129,7 +138,25 @@ def parse_video_source(payload: object) -> VideoSource | None:
     key = str(media.get('decode_key') or '').strip()
     if urlsplit(url).scheme not in {'http', 'https'} or not _DECODE_KEY_RE.fullmatch(key) or int(key) >= 1 << 64:
         return None
-    return VideoSource(url=url, decode_key=int(key))
+    return VideoSource(url=best_quality(url), decode_key=int(key))
+
+
+def best_quality(url: str) -> str:
+    """``url`` asking for the best encoding its ``basedata`` offers; as it is when it names none."""
+    query = parse_qsl(urlsplit(url).query)
+    if any(name.lower() == 'x-snsvideoflag' for name, _ in query):
+        return url
+    basedata = next((value for name, value in query if name == 'basedata'), '')
+    # parse_qsl turns a bare + into a space; the value may use either base64 alphabet.
+    basedata = basedata.replace(' ', '+').replace('-', '+').replace('_', '/')
+    try:
+        raw = base64.b64decode(basedata + '=' * (-len(basedata) % 4))
+    except (binascii.Error, ValueError):
+        return url
+    specs = _SPEC_RE.findall(raw)
+    if not specs:
+        return url
+    return f'{url}&X-snsvideoflag=xWT{min(specs, key=int).decode()}'
 
 
 def _mix(x: list[int]) -> None:
