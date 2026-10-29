@@ -255,8 +255,7 @@ session straight from the profile; the cookies are never handed to another clien
 A run only checks the login. A profile that turns out signed out fails the run with one deduplicated
 `rednote:login` notification asking for a new sign-in on the 登录态 page, and marks the login 已失效
 there; a run that finds it signed in records that too (and writes the page's row the first time, for
-a profile signed in before the page existed). The page offers no 检测 for RedNote: the session can
-only be asked about from inside its browser, and every run does exactly that.
+a profile signed in before the page existed).
 
 A run walks the likes list newest first, resolving each page's new notes into one row per file in the
 `rednote` table — keyed `(note_id, media_index)`, written with `downloaded = 0` — and then closes
@@ -400,8 +399,8 @@ or on the first 401/403 from the API.
 ### Site logins
 
 The 登录态 page lists the sources that need a signed-in session (pixiv and RedNote) with the state of the
-stored one: account, when it was captured, when its cookie expires, and whether the last crawl or
-检测 found it valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
+stored one: account, when it was captured, when its cookie expires, and whether the last crawl found it
+valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
 `Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
 shown in the page through noVNC. The VNC WebSocket (`/api/v2/site-sessions/vnc`) is opened with a
 ticket that belongs to that one login, since a browser cannot send the bearer token on a WebSocket.
@@ -461,7 +460,6 @@ Protected endpoints:
 - `POST /api/v2/cookiecloud/test`
 - `GET /api/v2/site-sessions`
 - `POST /api/v2/site-sessions/{site}/login`
-- `POST /api/v2/site-sessions/{site}/check`
 - `DELETE /api/v2/site-sessions/login`
 - `POST /api/v2/notifications/telegram/test`
 - `GET /api/v2/archive/sources`

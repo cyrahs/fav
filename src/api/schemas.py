@@ -763,9 +763,6 @@ class SiteSessionView(ApiSchema):
     site: str
     label: str
     signed_in: bool
-    # False for a site that can only be asked from its own browser (RedNote): its
-    # crawl records the check instead, and 检测 is not offered.
-    checkable: bool = True
     # How this site's login goes, shown beside the open window.
     hint: str = ''
     account: str = ''
