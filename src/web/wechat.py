@@ -27,8 +27,9 @@ nothing on command: the plugin taps through its screens to the message and taps
 that, as a person would, so each of these requests names the message. A shared Tieba
 post is saved the same way as an article, from the Tieba client API, with its
 videos next to its pictures (see ``tieba_post``), and so is a shared NGA thread,
-read with the NGA login of a CookieCloud vault (see ``nga_post``). A 视频号 video comes from ``POST /finder/video``: the service has
-WeChat open it and returns the MP4 WeChat's player cached (see ``wechat_channels``).
+read with the NGA login of a CookieCloud vault (see ``nga_post``). A 视频号 video is not
+opened in WeChat at all: TikHub looks it up and the file comes from WeChat's CDN, its
+start decrypted here (see ``wechat_channels``).
 A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
 logs while it is loaded.
@@ -71,7 +72,16 @@ from src.web.wechat_article import (
     parse_article_link,
     parse_article_page,
 )
-from src.web.wechat_channels import ChannelVideo, parse_channel_video, video_title
+from src.web.wechat_channels import (
+    ENCRYPTED_BYTES,
+    ChannelVideo,
+    VideoSource,
+    decrypt_head,
+    parse_channel_video,
+    parse_video_source,
+    tikhub_lookup,
+    video_title,
+)
 from src.web.wechat_emoji import Sticker, decrypt_sticker, matches, parse_sticker
 
 log = logger.get('wechat')
@@ -102,11 +112,13 @@ _CURSOR_KEY = 'events_after'
 _WORK_VERSION = '7'
 _WORK_VERSION_KEY = 'work_version'
 _NGA_LOGIN_KEY = 'wechat:nga-login'
-# How long the FavInbox service waits for WeChat to download a video it opened:
-# a few times the video's length, as the player fetches it while it plays.
-_VIDEO_MIN_WAIT_SECONDS = 90
-_VIDEO_MAX_WAIT_SECONDS = 300
-_VIDEO_WAIT_PER_SECOND = 3
+_TIKHUB_KEY = 'wechat:tikhub'
+_TIKHUB_VIDEO_DETAIL = '/api/v1/wechat_channels/v2/fetch_video_detail'
+# TikHub asks WeChat while the request waits and bills a lookup even when the
+# client gave up on it, so give it a generous minute.
+_TIKHUB_READ_SECONDS = 60
+# TikHub's answers to a missing or spent key: settings to fix, not failed tries.
+_TIKHUB_ACCOUNT_STATUSES = frozenset({401, 402, 403})
 # How long a post's video may take to download from its CDN.
 _POST_VIDEO_READ_SECONDS = 600
 # A phone browser, as the share link would open in. mp.weixin.qq.com serves the
@@ -288,13 +300,17 @@ def open_target(message: dict[str, Any], texts: tuple[str, ...]) -> dict[str, An
     }
 
 
-def video_wait(video: ChannelVideo) -> int:
-    return max(_VIDEO_MIN_WAIT_SECONDS, min(_VIDEO_MAX_WAIT_SECONDS, video.duration * _VIDEO_WAIT_PER_SECOND + 60))
-
-
 def _file_head(path: Path) -> bytes:
     with path.open('rb') as fh:
         return fh.read(16)
+
+
+def _decrypt_file_head(path: Path, decode_key: int) -> None:
+    """Undo WeChat's encryption of the start of a downloaded 视频号 video, in place."""
+    with path.open('r+b') as file:
+        head = file.read(ENCRYPTED_BYTES)
+        file.seek(0)
+        file.write(decrypt_head(head, decode_key))
 
 
 def _is_mp4(head: bytes) -> bool:
@@ -570,8 +586,8 @@ class Wechat:
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
                 error = str(exc) or type(exc).__name__
                 log.warning('Failed to save WeChat %s %s: %s', row['work'], row['msg_id'], error)
-                # A missing NGA login is a setting to fix, not a failed try.
-                waits = isinstance(exc, WechatInboxError) and exc.notification_dedupe_key == _NGA_LOGIN_KEY
+                # A missing NGA login or TikHub key is a setting to fix, not a failed try.
+                waits = isinstance(exc, WechatInboxError) and exc.notification_dedupe_key in {_NGA_LOGIN_KEY, _TIKHUB_KEY}
                 gave_up = await self._finish_work(row, error, counted=not waits)
                 failures.append(f'{row["work"]} {row["msg_id"]}{" (gave up)" if gave_up else ""}: {error[:200]}')
                 continue
@@ -1145,32 +1161,57 @@ class Wechat:
         )
         return bool(rows)
 
-    async def _download_video(self, message: dict[str, Any], video: ChannelVideo, partial: Path) -> int:
-        """Stream the video WeChat cached into ``partial`` and return its size."""
-        wait = video_wait(video)
-        failure = f'FavInbox could not get 视频号 video {video.object_id} from WeChat'
+    async def _video_source(self, video: ChannelVideo) -> VideoSource:
+        """Where the video file is and how to decrypt it, as TikHub looks it up."""
+        cfg = self.cfg
+        if not cfg.tikhub_token:
+            msg = '视频号 videos need a TikHub API key (web.wechat.tikhub_token)'
+            raise WechatInboxError(msg, notification_dedupe_key=_TIKHUB_KEY)
+        failure = f'TikHub could not look up 视频号 video {video.object_id}'
         try:
-            async with self.client.stream(
-                'POST',
-                self._url('/finder/video'),
-                json={'object_id': video.object_id, 'message': open_target(message, (video.description, video.author)), 'wait': wait},
-                timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_TAP_OPEN_SECONDS + wait + _REQUEST_TIMEOUT_SECONDS),
+            response = await self.web.post(
+                f'{cfg.tikhub_api_url}{_TIKHUB_VIDEO_DETAIL}',
+                json=tikhub_lookup(video),
+                headers={'Authorization': f'Bearer {cfg.tikhub_token}'},
+                timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_TIKHUB_READ_SECONDS),
+            )
+        except httpx.HTTPError as exc:
+            msg = f'{failure}: {exc}'
+            raise WechatInboxError(msg) from exc
+        if response.status_code in _TIKHUB_ACCOUNT_STATUSES:
+            msg = f'{failure}: HTTP {response.status_code}{_error_detail(response)}; check the TikHub key and balance'
+            raise WechatInboxError(msg, notification_dedupe_key=_TIKHUB_KEY)
+        if response.status_code != httpx.codes.OK:
+            msg = f'{failure}: HTTP {response.status_code}{_error_detail(response)}'
+            raise WechatInboxError(msg)
+        try:
+            source = parse_video_source(response.json())
+        except ValueError:
+            source = None
+        if source is None:
+            msg = f'{failure}: the answer names no video file and decode key'
+            raise WechatInboxError(msg)
+        return source
+
+    async def _download_video(self, video: ChannelVideo, partial: Path) -> int:
+        """Download the video into ``partial``, decrypt its start, and return its size."""
+        source = await self._video_source(video)
+        failure = f'Could not download 视频号 video {video.object_id}'
+        try:
+            async with self.web.stream(
+                'GET', source.url, timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_POST_VIDEO_READ_SECONDS)
             ) as response:
-                if response.status_code == httpx.codes.UNAUTHORIZED:
-                    raise self._unauthorized()
-                if response.status_code != httpx.codes.OK:
-                    await response.aread()
-                    msg = f'{failure}: HTTP {response.status_code}{_error_detail(response)}'
-                    raise WechatInboxError(msg)
+                response.raise_for_status()
                 await _write_stream(response, partial)
         except httpx.HTTPError as exc:
             # A transfer cut short leaves a partial file nothing else would clean up.
             await asyncio.to_thread(partial.unlink, missing_ok=True)
             msg = f'{failure}: {exc}'
             raise WechatInboxError(msg) from exc
+        await asyncio.to_thread(_decrypt_file_head, partial, source.decode_key)
         if not _is_mp4(await asyncio.to_thread(_file_head, partial)):
             await asyncio.to_thread(partial.unlink, missing_ok=True)
-            msg = f'FavInbox answered 视频号 video {video.object_id} with something other than an MP4'
+            msg = f'{failure}: it is not an MP4 once decrypted'
             raise WechatInboxError(msg)
         return (await asyncio.to_thread(partial.stat)).st_size
 
@@ -1197,7 +1238,7 @@ class Wechat:
             return
         destination = await asyncio.to_thread(ensure_unique_path, self.cfg.path / video_path(message, video))
         partial = destination.with_name(f'{destination.name}.part')
-        size = await self._download_video(message, video, partial)
+        size = await self._download_video(video, partial)
         await asyncio.to_thread(partial.replace, destination)
         local_path = destination.relative_to(self.cfg.path)
         cover_path: Path | None = None
