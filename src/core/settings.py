@@ -792,13 +792,17 @@ class Wechat(ScheduleJob):
     # Name of an entry in the shared `cookiecloud` section carrying an NGA login.
     # Only shared NGA threads need it: NGA shows most boards to members only.
     nga_cookiecloud: str = ''
+    # 视频号 videos are looked up through TikHub (https://tikhub.io), billed per
+    # lookup; without a key they wait in the queue. api.tikhub.dev serves mainland China.
+    tikhub_api_url: str = 'https://api.tikhub.io'
+    tikhub_token: str = ''
 
-    @field_validator('api_url')
+    @field_validator('api_url', 'tikhub_api_url')
     @classmethod
     def normalize_api_url(cls, value: str) -> str:
         return value.strip().rstrip('/')
 
-    @field_validator('token')
+    @field_validator('token', 'tikhub_token')
     @classmethod
     def normalize_token(cls, value: str) -> str:
         return value.strip()
@@ -888,7 +892,7 @@ SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'cookiecloud': ('configs[].password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
-    'web.wechat': ('token',),
+    'web.wechat': ('token', 'tikhub_token'),
 }
 
 

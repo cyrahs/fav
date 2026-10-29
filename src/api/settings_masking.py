@@ -63,6 +63,7 @@ def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
         _mask_scalar(masked, 'bot_token')
     elif section == 'web.wechat':
         _mask_scalar(masked, 'token')
+        _mask_scalar(masked, 'tikhub_token')
     elif section == 'web.telegram':
         masked['accounts'] = [{**account} for account in _accounts(masked)]
         for account in _accounts(masked):
@@ -81,6 +82,7 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
         keep_secret(merged, 'bot_token', str(stored.get('bot_token') or ''))
     elif section == 'web.wechat':
         keep_secret(merged, 'token', str(stored.get('token') or ''))
+        keep_secret(merged, 'tikhub_token', str(stored.get('tikhub_token') or ''))
     elif section == 'web.telegram':
         # Matched by account name: the UI may reorder, insert, or drop accounts
         # between the GET and the PUT.

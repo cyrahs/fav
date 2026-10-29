@@ -330,8 +330,10 @@ post is kept the same way: its first floor is read through the Tieba client API 
 pictures saved at original size. So is a shared NGA thread, whose first floor is read from `read.php`'s JSON
 with the NGA login (`ngaPassportUid`, `ngaPassportCid`) of the CookieCloud config named in
 `web.wechat.nga_cookiecloud`: NGA shows most boards to members only. Until that login works, the thread
-waits without using up its tries. A 视频号 (Channels) video comes from the service's `/finder/video`,
-which has WeChat open the video and returns the MP4 its player cached; it is saved as
+waits without using up its tries. A 视频号 (Channels) video is not opened in WeChat: TikHub's
+`fetch_video_detail` (key in `web.wechat.tikhub_token`, about $0.01 per lookup) answers with its CDN
+address and a `decode_key`, and the downloaded file's first 128 KB are decrypted with the ISAAC-64
+keystream that key seeds. Without a key the video waits without using up its tries. It is saved as
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <caption> [<msg_id>].mp4` with its cover beside it, recorded in
 `wechat_channel_video`, and a second forward of the same video (by object id) is skipped. All three
 tables are keyed `(msg_id, create_time)`. A failed item is

@@ -30,11 +30,18 @@ from src.web.wechat import (
     relative_path,
     shared_link,
     sniff_extension,
-    video_wait,
     work_for,
 )
 from src.web.wechat_article import canonical_url, image_extension, original_image_url, parse_article_link, parse_article_page
-from src.web.wechat_channels import parse_channel_video, video_title
+from src.web.wechat_channels import (
+    ENCRYPTED_BYTES,
+    decrypt_head,
+    keystream,
+    parse_channel_video,
+    parse_video_source,
+    tikhub_lookup,
+    video_title,
+)
 from src.web.wechat_emoji import decrypt_sticker, parse_sticker
 
 # 2025-10-05 03:13:20 UTC, in milliseconds as WeChat stores it.
@@ -149,7 +156,6 @@ class _FakeInbox:
         events_status: int = 200,
         images: dict[int, bytes] | None = None,
         post_page: httpx.Response | None = None,
-        finder_video: httpx.Response | None = None,
         link_open: httpx.Response | None = None,
         contacts: dict[str, dict] | None = None,
     ) -> None:
@@ -157,7 +163,6 @@ class _FakeInbox:
         self.link_open = link_open
         self.contacts = contacts or {}
         self.post_page = post_page
-        self.finder_video = finder_video
         self.files = files if files is not None else {item['msg_id']: _JPEG for item in items if isinstance(item, dict)}
         self.list_status = list_status
         self.events = events or []
@@ -178,10 +183,6 @@ class _FakeInbox:
             return self.link_open or httpx.Response(200, json={'loaded': True, 'seconds': 7.2})
         if path == '/post/page' and request.method == 'POST':
             return self.post_page or httpx.Response(404, json={'error': 'the post was not in the XWeb cache after 30s'})
-        if path == '/finder/video' and request.method == 'POST':
-            return self.finder_video or httpx.Response(
-                404, json={'error': 'WeChat opened the video but had not downloaded all of it after 90s'}
-            )
         if path == '/items':
             return httpx.Response(self.list_status, json=self.items)
         if path.startswith('/file/'):
@@ -338,12 +339,13 @@ def test_a_configured_source_is_runnable_and_its_url_is_normalised() -> None:
 
 
 def test_the_token_is_masked_and_survives_a_save_of_the_masked_form() -> None:
-    stored = {'api_url': 'http://favinbox-oracle.proxy.svc', 'token': 'abcdef123456'}
+    stored = {'api_url': 'http://favinbox-oracle.proxy.svc', 'token': 'abcdef123456', 'tikhub_token': 'tikhub-secret'}
 
     masked = mask_section('web.wechat', stored)
     merged = unmask_section('web.wechat', masked, stored)
 
     assert masked['token'] == f'abcd{MASK_SUFFIX}'
+    assert masked['tikhub_token'] == f'tikh{MASK_SUFFIX}'
     assert masked['api_url'] == stored['api_url']
     assert merged == stored
 
@@ -533,9 +535,9 @@ def test_notifications_name_the_sender_as_the_account_knows_them(fake_db, notifi
 
 
 def test_a_remark_wins_over_the_nickname_in_notifications(fake_db, notifications, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret')
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='tikhub-key')
     contacts = {'wxid_sender': {'remark_name': '我自己', 'name': 'Max', 'nick_name': 'max_nick'}}
-    inbox = _FakeInbox([], events=[_event(1, _video_message())], finder_video=_mp4_response(), contacts=contacts)
+    inbox = _FakeInbox([], events=[_event(1, _video_message())], contacts=contacts)
 
     asyncio.run(_source(inbox, _video_web()).update())
 
@@ -1501,12 +1503,42 @@ def _video_message(msg_id: int = 65, **updates: object) -> dict:
     return _message(msg_id, type=754974769, kind='channel_video', content=_finder_share(), image=None, **updates)
 
 
-def _video_web() -> _FakeWeb:
-    return _FakeWeb({_COVER_URL.replace('&amp;', '&'): httpx.Response(200, content=_JPEG, headers={'content-type': 'image/jpeg'})})
+_TIKHUB_DETAIL = 'https://api.tikhub.io/api/v1/wechat_channels/v2/fetch_video_detail'
+_VIDEO_URL = 'https://finder.video.qq.com/251/20302/stodownload?encfilekey=enc&token=video-token'
+_DECODE_KEY = 2136343393
 
 
-def _mp4_response(body: bytes = _MP4) -> httpx.Response:
-    return httpx.Response(200, content=body, headers={'content-type': 'video/mp4', 'x-media-id': 'finder_video_xWT111_b23a'})
+def _channels_encrypted(plain: bytes, decode_key: int = _DECODE_KEY) -> bytes:
+    """A video as WeChat's CDN serves it: XOR is its own inverse."""
+    return decrypt_head(plain, decode_key)
+
+
+def _tikhub_answer(**media: object) -> httpx.Response:
+    media = media or {
+        'url': _VIDEO_URL.split('&token=', maxsplit=1)[0],
+        'url_token': '&token=video-token',
+        'full_url': _VIDEO_URL,
+        'decode_key': str(_DECODE_KEY),
+    }
+    return httpx.Response(
+        200, json={'code': 200, 'router': '/api/v1/wechat_channels/v2/fetch_video_detail', 'data': {'id': _OBJECT_ID, 'media': media}}
+    )
+
+
+def _video_web(*, video: bytes | None = None, tikhub: httpx.Response | None = None) -> _FakeWeb:
+    return _FakeWeb(
+        {
+            _COVER_URL.replace('&amp;', '&'): httpx.Response(200, content=_JPEG, headers={'content-type': 'image/jpeg'}),
+            _TIKHUB_DETAIL: tikhub or _tikhub_answer(),
+            _VIDEO_URL: httpx.Response(
+                200, content=_channels_encrypted(_MP4) if video is None else video, headers={'content-type': 'video/mp4'}
+            ),
+        }
+    )
+
+
+def _tikhub_requests(web: _FakeWeb) -> list[httpx.Request]:
+    return [request for request in web.requests if str(request.url) == _TIKHUB_DETAIL]
 
 
 def test_a_channels_video_share_names_its_feed() -> None:
@@ -1528,32 +1560,61 @@ def test_channels_image_feeds_lives_and_broken_ids_are_not_videos() -> None:
     assert parse_channel_video(_share()) is None
 
 
-def test_wechat_gets_a_few_times_a_video_s_length_to_download_it() -> None:
-    video = parse_channel_video(_finder_share())
+def test_the_keystream_decrypts_a_known_video_header() -> None:
+    # The first bytes of an encrypted file and its decode_key, as published with
+    # github.com/Evil0ctal/WeChat-Channels-Video-File-Decryption.
+    head = bytes.fromhex('23766a16ff8ffe1a1ca6cd5f994846ab')
 
-    assert video_wait(video) == 90
-    assert video_wait(parse_channel_video(_finder_share().replace('>9<', '>73<'))) == 279
-    assert video_wait(parse_channel_video(_finder_share().replace('>9<', '>600<'))) == 300
+    assert decrypt_head(head, _DECODE_KEY) == b'\x00\x00\x00\x20ftypisom\x00\x00\x02\x00'
+    assert len(keystream(_DECODE_KEY)) == ENCRYPTED_BYTES
+
+
+def test_only_the_start_of_a_video_is_encrypted() -> None:
+    plain = bytes(range(256)) * 600
+
+    encrypted = _channels_encrypted(plain)
+
+    assert encrypted[ENCRYPTED_BYTES:] == plain[ENCRYPTED_BYTES:]
+    assert encrypted[:ENCRYPTED_BYTES] != plain[:ENCRYPTED_BYTES]
+    assert decrypt_head(encrypted, _DECODE_KEY) == plain
+    assert decrypt_head(encrypted, _DECODE_KEY + 1) != plain
+
+
+def test_tikhub_is_asked_by_object_id_with_a_numeric_nonce_only() -> None:
+    video = parse_channel_video(_finder_share())
+    numeric = parse_channel_video(_finder_share().replace(_NONCE_ID, '11875607166103288523'))
+
+    assert tikhub_lookup(video) == {'object_id': _OBJECT_ID, 'raw': False}
+    assert tikhub_lookup(numeric) == {'object_id': _OBJECT_ID, 'raw': False, 'object_nonce_id': '11875607166103288523'}
+
+
+def test_a_tikhub_answer_names_the_file_and_its_key() -> None:
+    joined = {'data': {'media': {'url': 'https://finder.video.qq.com/x?a=1', 'url_token': '&token=t', 'decode_key': '42'}}}
+    nested = {'data': {'data': {'media': [{'full_url': _VIDEO_URL, 'decode_key': '7'}]}}}
+
+    assert parse_video_source(_tikhub_answer().json()).url == _VIDEO_URL
+    assert parse_video_source(_tikhub_answer().json()).decode_key == _DECODE_KEY
+    assert parse_video_source(joined).url == 'https://finder.video.qq.com/x?a=1&token=t'
+    assert parse_video_source(nested).decode_key == 7
+    assert parse_video_source({'data': {'media': {'full_url': _VIDEO_URL, 'decode_key': ''}}}) is None
+    assert parse_video_source({'data': None}) is None
+    assert parse_video_source([]) is None
 
 
 def test_a_channels_video_is_saved_with_its_cover(fake_db, notifications, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret')
-    inbox = _FakeInbox([], events=[_event(1, _video_message())], finder_video=_mp4_response())
-    source = _source(inbox, _video_web())
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='tikhub-key')
+    inbox = _FakeInbox([], events=[_event(1, _video_message())])
+    web = _video_web()
+    source = _source(inbox, web)
 
     asyncio.run(source.update())
 
-    [request] = [request for request in inbox.requests if request.url.path == '/finder/video']
-    assert json.loads(request.content) == {
-        'object_id': _OBJECT_ID,
-        'message': {
-            'talker': 'wxid_sender',
-            'msg_id': 65,
-            'create_time': _CREATE_TIME + 65,
-            'texts': ['镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨', 'jiang57l'],
-        },
-        'wait': 90,
-    }
+    [request] = _tikhub_requests(web)
+    assert request.method == 'POST'
+    assert request.headers['authorization'] == 'Bearer tikhub-key'
+    assert json.loads(request.content) == {'object_id': _OBJECT_ID, 'raw': False}
+    # WeChat itself never opens the video.
+    assert not [request for request in inbox.requests if request.method == 'POST' and not request.url.path.startswith('/ack/')]
     stem = '2025-10-05 031320 镜头之外才是故事真正的开始 偶遇着他们的幸福#徐绿杨 [65]'
     assert (tmp_path / '2025-10' / f'{stem}.mp4').read_bytes() == _MP4
     assert (tmp_path / '2025-10' / f'{stem}.jpg').read_bytes() == _JPEG
@@ -1569,36 +1630,65 @@ def test_a_channels_video_is_saved_with_its_cover(fake_db, notifications, tmp_pa
 
 
 def test_a_second_forward_of_a_saved_video_is_not_fetched_again(fake_db, notifications, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret')
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='tikhub-key')
     events = [_event(1, _video_message(65)), _event(2, _video_message(70))]
-    inbox = _FakeInbox([], events=events, finder_video=_mp4_response())
-    source = _source(inbox, _video_web())
+    inbox = _FakeInbox([], events=events)
+    web = _video_web()
+    source = _source(inbox, web)
 
     asyncio.run(source.update())
 
-    assert len([request for request in inbox.requests if request.url.path == '/finder/video']) == 1
+    assert len(_tikhub_requests(web)) == 1
     assert {row['status'] for row in fake_db.queue.values()} == {'done'}
     assert len(notifications) == 1
 
 
-def test_a_video_wechat_has_not_downloaded_yet_is_retried_without_writing_anything(fake_db, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret')
+def test_a_video_waits_without_using_its_tries_until_a_tikhub_key_is_set(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='')
     inbox = _FakeInbox([], events=[_event(1, _video_message())])
-    source = _source(inbox, _video_web())
+    web = _video_web()
+    source = _source(inbox, web)
 
-    with pytest.raises(WechatInboxError, match='had not downloaded all of it'):
+    with pytest.raises(WechatInboxError, match='TikHub API key'):
         asyncio.run(source.update())
 
-    assert fake_db.queue[(65, _CREATE_TIME + 65)]['status'] == 'pending'
+    row = fake_db.queue[(65, _CREATE_TIME + 65)]
+    assert (row['status'], row['attempts']) == ('pending', 0)
+    assert not _tikhub_requests(web)
     assert not any(path.is_file() for path in tmp_path.rglob('*'))
 
 
-def test_an_answer_that_is_not_an_mp4_is_not_kept(fake_db, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret')
-    inbox = _FakeInbox([], events=[_event(1, _video_message())], finder_video=_mp4_response(b'<html>oops</html>'))
-    source = _source(inbox, _video_web())
+def test_a_refused_tikhub_key_does_not_use_up_tries_but_a_tikhub_error_does(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='tikhub-key')
+    inbox = _FakeInbox([], events=[_event(1, _video_message())])
 
-    with pytest.raises(WechatInboxError, match='something other than an MP4'):
+    with pytest.raises(WechatInboxError, match='check the TikHub key and balance'):
+        asyncio.run(_source(inbox, _video_web(tikhub=httpx.Response(402, json={'detail': 'insufficient balance'}))).update())
+    assert fake_db.queue[(65, _CREATE_TIME + 65)]['attempts'] == 0
+
+    with pytest.raises(WechatInboxError, match='HTTP 500'):
+        asyncio.run(_source(inbox, _video_web(tikhub=httpx.Response(500, json={'detail': 'upstream timeout'}))).update())
+    row = fake_db.queue[(65, _CREATE_TIME + 65)]
+    assert (row['status'], row['attempts']) == ('pending', 1)
+
+
+def test_an_answer_without_a_file_is_retried(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='tikhub-key')
+    inbox = _FakeInbox([], events=[_event(1, _video_message())])
+    source = _source(inbox, _video_web(tikhub=httpx.Response(200, json={'code': 200, 'data': {}})))
+
+    with pytest.raises(WechatInboxError, match='names no video file'):
+        asyncio.run(source.update())
+
+    assert fake_db.queue[(65, _CREATE_TIME + 65)]['status'] == 'pending'
+
+
+def test_a_video_that_does_not_decrypt_to_an_mp4_is_not_kept(fake_db, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='tikhub-key')
+    inbox = _FakeInbox([], events=[_event(1, _video_message())])
+    source = _source(inbox, _video_web(video=_channels_encrypted(_MP4, _DECODE_KEY + 1)))
+
+    with pytest.raises(WechatInboxError, match='not an MP4 once decrypted'):
         asyncio.run(source.update())
 
     assert fake_db.queue[(65, _CREATE_TIME + 65)]['status'] == 'pending'

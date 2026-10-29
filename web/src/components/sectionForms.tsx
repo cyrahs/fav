@@ -712,6 +712,7 @@ function TelegramNotificationForm(props: SectionFormProps) {
 function WechatForm(props: SectionFormProps) {
   const set = patcher(props);
   const token = str(props.value, 'token');
+  const tikhubToken = str(props.value, 'tikhub_token');
 
   return (
     <div className="field-grid">
@@ -739,6 +740,30 @@ function WechatForm(props: SectionFormProps) {
             value={str(props.value, 'nga_cookiecloud')}
             onChange={(next) => set('nga_cookiecloud', next)}
             hint="转发的 NGA 帖子要登录才能读：浏览器登录 NGA，插件同步 nga.cn 的 ngaPassportUid 和 ngaPassportCid。"
+          />
+        </div>
+      </div>
+
+      <div className="subsection">
+        <h4>视频号（TikHub）</h4>
+        <div className="field-grid">
+          <SecretField
+            label="TikHub API Key"
+            value={tikhubToken}
+            onChange={(next) => set('tikhub_token', next)}
+            hint={
+              tikhubToken.includes('•')
+                ? undefined
+                : '视频号不在微信里打开，改由 TikHub 查到视频地址再下载解密，每条约 0.01 美元。没填时视频号消息排队等待。'
+            }
+          />
+          <TextField
+            label="TikHub 地址"
+            value={str(props.value, 'tikhub_api_url')}
+            onChange={(next) => set('tikhub_api_url', next)}
+            mono
+            placeholder="https://api.tikhub.io"
+            hint="中国大陆可改用 https://api.tikhub.dev。"
           />
         </div>
       </div>
@@ -864,6 +889,10 @@ export function validateSection(section: string, value: Record<string, unknown>)
     const url = str(value, 'api_url').trim();
     if (url && !/^https?:\/\//.test(url)) {
       issues.push('FavInbox 地址必须以 http:// 或 https:// 开头');
+    }
+    const tikhubUrl = str(value, 'tikhub_api_url').trim();
+    if (tikhubUrl && !/^https?:\/\//.test(tikhubUrl)) {
+      issues.push('TikHub 地址必须以 http:// 或 https:// 开头');
     }
   }
 
