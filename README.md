@@ -219,8 +219,6 @@ nothing to break when RedNote rotates one.
   "sleep_request_seconds": 3.0,
   "abort_after": 2,                         // consecutive archived pages that end a run
   "max_pages_per_run": 40,                  // memory valve for the first backfill
-  "login_wait_seconds": 240,
-  "login_prompt_cooldown_seconds": 3600,
   "headless": true
 }
 ```
@@ -241,24 +239,24 @@ show up on a real run. With the field empty it probes the direct egress instead,
 decide whether `allow_direct_connection` is defensible here.
 
 **`profile_path` has to be on a volume.** It holds the cookies, localStorage, history and device
-identity; on ephemeral storage every run starts from a QR scan. The documented `docker run` in
+identity; on ephemeral storage every restart means signing in again. The documented `docker run` in
 `AGENTS.md` mounts `data/`, and a Chromium profile wants real block storage — its LevelDB and SQLite
 files do not survive NFS locking.
 
-Signing in is interactive and happens **during** a run, and it takes **two scans**: the account QR,
-and then an account-security QR that the site puts up on top of it — a separate modal, good for
-about a minute, and expected rather than exceptional when signing in from a new device and address.
-Both are read straight out of the page and sent to Telegram with captions that say which is which,
-and the run waits up to `login_wait_seconds` for them. That send bypasses the notification outbox
-deliberately — queued notifications are only flushed after a job returns, which for a run blocked on
-a scan is long after the code has expired. So press 立即运行 with your phone to hand.
+Signing in happens on the web UI's 登录态 page (see [Site logins](#site-logins)), not during a run.
+Its window opens **this source's own profile** (`profile_path`), through the same proxy, presented the
+same way the crawl presents it (the Chrome-on-macOS user agent and client hints), and holds the
+profile's lock while it is open, so a run that starts meanwhile skips rather than racing it. The login
+is the site's own: scan the account QR shown in the window with the app (or use a phone number and
+SMS code), then the account-security QR the site usually puts up next when it sees a new device or
+address. Once the page reports a signed-in account the window closes and the next run uses the
+session straight from the profile; the cookies are never handed to another client.
 
-At most three codes are sent per stage, and `login_prompt_cooldown_seconds` stops a 04:00 cron from
-sending one that will be dead before anyone sees it. The verification code is reminted on a timer
-rather than when it is seen to expire: expiry leaves no mark in the page — same image bytes, no new
-class, just a sentence in whatever language the profile runs in. There is no inbound Telegram path,
-so a scan is detected by polling; and because the page does not update itself when a scan lands, the
-wait reloads it rather than trusting what the page said when it was first loaded.
+A run only checks the login. A profile that turns out signed out fails the run with one deduplicated
+`rednote:login` notification asking for a new sign-in on the 登录态 page, and marks the login 已失效
+there; a run that finds it signed in records that too (and writes the page's row the first time, for
+a profile signed in before the page existed). The page offers no 检测 for RedNote: the session can
+only be asked about from inside its browser, and every run does exactly that.
 
 A run walks the likes list newest first, resolving each page's new notes into one row per file in the
 `rednote` table — keyed `(note_id, media_index)`, written with `downloaded = 0` — and then closes
@@ -297,8 +295,8 @@ next run looks at the note again and either refreshes the URL or retires the row
 
 Caveats worth knowing: automating a signed-in session is against RedNote's terms and the ban risk
 is not zero — everything here lowers the probability, none of it eliminates it, and the account is
-not replaceable. The QR is a live credential for the few minutes it lasts, so send notifications to a
-private chat rather than a shared group. And unliking a note does not delete what was already
+not replaceable. The login window is the account for as long as it is open, so the 登录态 page is
+only as private as the web UI's token. And unliking a note does not delete what was already
 downloaded.
 
 #### WeChat forwarded images, stickers, articles and videos
@@ -398,7 +396,7 @@ or on the first 401/403 from the API.
 
 ### Site logins
 
-The 登录态 page lists the sources that need a signed-in session (pixiv so far) with the state of the
+The 登录态 page lists the sources that need a signed-in session (pixiv and RedNote) with the state of the
 stored one: account, when it was captured, when its cookie expires, and whether the last crawl or
 检测 found it valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
 `Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
@@ -412,6 +410,13 @@ unfinished closes itself after 15 minutes. Nothing runs between logins; a login 
 400-600 MB while it is open. Each site keeps its Chromium profile under `data/login-profiles/<site>`
 so successive logins come from the same browser. A login is refused while the RedNote crawl has its
 own browser open, so the two never share the pod's memory limit.
+
+RedNote is the exception to both halves. Its crawl is itself a browser, so the window opens the
+crawl's own profile (`web.rednote.profile_path`) under the crawl's profile lock, presented the way the
+crawl presents it, and the login is confirmed by reading the window's own page rather than by
+replaying its cookies anywhere else. `site_sessions` records only which of its cookies exist and when
+they expire, for the page's status, never their values; the crawl reads the profile. The window keeps
+to one tab: the UA override is per tab, so any second tab is closed as it opens.
 
 ## API Backend
 
@@ -551,8 +556,6 @@ still boots.
 `enabled` here is the delivery switch for the whole outbox; `web.<source>.notify` on the jobs page
 is the per-source one. A muted source is dropped when the notification is queued rather than when it
 is delivered — nothing accumulates for it, and turning it back on does not replay what was silenced.
-The one thing that ignores the toggle is RedNote's login QR, which goes straight to Telegram
-(`send_photo_now`) because it is a prompt the source cannot run without, not a report on a run.
 
 
 ### Azur Lane

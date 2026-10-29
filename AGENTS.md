@@ -241,8 +241,8 @@ docker run --rm \
 ```
 
 `data/` carries the state that has to outlive the container: the Telethon session and the
-RedNote browser profile. Without it, Telegram re-authorises and RedNote asks for a QR scan
-after every restart. It wants real block storage — a Chromium profile is LevelDB and SQLite, neither
+RedNote browser profile. Without it, Telegram re-authorises and RedNote has to be signed in again
+on the 登录态 page after every restart. It wants real block storage — a Chromium profile is LevelDB and SQLite, neither
 of which survives NFS locking.
 
 Do not build or run the image locally to verify a change — CI builds it, and the test job gates the

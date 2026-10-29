@@ -47,10 +47,8 @@ served unsigned; it stopped in 2026, and the top transcode matches it frame for 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import secrets
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -60,16 +58,15 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from src.core import logger, settings
-from src.tool import database, format_media_filename, sanitize
-from src.tool import telegram_bot as telegram_bot_tool
+from src.tool import database, format_media_filename, sanitize, site_sessions
 from src.tool.notifications import enqueue_notification
+from src.tool.site_sessions import cookie_expiry, cookies_from_browser, without_values
 from src.web.rednote_browser import (
     RISK_CONTROL_STATUS_CODES,
     NoteGoneError,
     PlaywrightNoteBrowser,
     ProxyConfigurationError,
     cursor_of,
-    decode_qr_data_url,
     describe_shape,
 )
 
@@ -84,8 +81,14 @@ _WEB_ORIGIN = 'https://www.xiaohongshu.com'
 # Where a note reached from a likes list is declared to have come from. It travels
 # with the token in the archive's outgoing links.
 _XSEC_SOURCE = 'pc_user'
+# The key the login is recorded under in site_sessions, and where the 登录态 page's
+# window opens. The window runs on this source's own profile, so signing in there is
+# signing this crawl in.
+SESSION_SITE = 'rednote'
+LOGIN_URL = f'{_WEB_ORIGIN}/explore'
+SESSION_COOKIE = 'web_session'
+_RELOGIN_HINT = "Sign in to RedNote again on fav's 登录态 page."
 _BACKFILL_STATE_KEY = 'backfill_complete'
-_LOGIN_PROMPT_STATE_KEY = 'login_prompt_at'
 _USER_ID_STATE_KEY = 'user_id'
 
 _LOGGED_IN = 'logged_in'
@@ -94,23 +97,9 @@ _LOGIN_UNKNOWN = 'unknown'
 # How many separate runs have to find a note gone before it stops being retried.
 # More than one because a single 404 can be a bad moment rather than a deletion.
 _MISSING_RUNS_BEFORE_RETIRING = 3
-_LOGIN_POLL_INTERVAL_SECONDS = 3.0
-# The second scan, in the account-security modal that follows the first one.
-_VERIFY_STAGE = 'verify'
-# The verification code states a one-minute life, so it is reminted a little before
-# that rather than after the user has already pointed a phone at a dead code.
-_QR_REFRESH_SECONDS = 45.0
-# A floor on how often the page is reloaded while waiting, so a page that is quiet
-# for a reason other than a finished scan is not thrashed.
-_LOGIN_RELOAD_INTERVAL_SECONDS = 5.0
-# One photo per QR that RedNote actually mints. Past three the user is not
-# coming, and a fourth is just noise in their chat.
-_MAX_QR_MESSAGES = 3
-# How long a login QR from an earlier run can plausibly still be scanned. The app
-# answers older codes with an error, so a cross-run cooldown that suppresses past
-# this point is no longer sparing the user a duplicate -- it is refusing them a
-# working code while telling them to scan a dead one.
-_LOGIN_QR_LIFETIME_SECONDS = 300
+# Looks at the login state a run gets: the first, and one more after a reload, for a
+# page whose snapshot predates the session (see ``_check_login``).
+_LOGIN_CHECK_ATTEMPTS = 2
 # How long to wait for the site to produce the next page of the likes list while
 # scrolling, before deciding it has stopped producing.
 _LIKE_PAGE_TIMEOUT_SECONDS = 25.0
@@ -367,7 +356,7 @@ def parse_api_envelope(payload: Any) -> dict[str, Any]:
     code = _to_int(payload.get('code'))
     message = str(payload.get('msg') or payload.get('message') or '').strip()
     if code in _SESSION_EXPIRED_CODES:
-        msg = f'The RedNote session is signed out ({code} {message}). Scan the login QR to sign in again.'
+        msg = f'The RedNote session is signed out ({code} {message}). {_RELOGIN_HINT}'
         raise RedNoteError(msg, notification_dedupe_key='rednote:login')
     if code not in {None, 0}:
         detail = f' ({message})' if message else ''
@@ -376,6 +365,11 @@ def parse_api_envelope(payload: Any) -> dict[str, Any]:
 
     data = payload.get('data')
     return data if isinstance(data, dict) else {}
+
+
+def profile_lock_name(profile_path: Path) -> str:
+    """The advisory lock on one Chromium profile, held by a run and by a 登录态 login alike."""
+    return f'rednote-profile:{profile_path.expanduser().resolve()}'
 
 
 def decide_login_state(probe: Mapping[str, Any], cookies: Mapping[str, str]) -> str:
@@ -393,7 +387,7 @@ def decide_login_state(probe: Mapping[str, Any], cookies: Mapping[str, str]) -> 
         return _LOGGED_IN
     if probe.get('has_login_modal') or probe.get('has_verify_modal') or probe.get('qr_src'):
         return _LOGGED_OUT
-    if not str(cookies.get('web_session') or '').strip():
+    if not str(cookies.get(SESSION_COOKIE) or '').strip():
         return _LOGGED_OUT
     return _LOGIN_UNKNOWN
 
@@ -683,159 +677,77 @@ class RedNote:
 
     # ---------- the signed-in browser ----------
 
-    async def _await_login(self, browser: NoteBrowser) -> None:
-        """Block until the profile is signed in, sending the QR to Telegram.
+    async def _check_login(self, browser: NoteBrowser) -> None:
+        """Go on only with a signed-in profile; signing in is the 登录态 page's job.
 
-        Bounded on purpose: the control-request consumer runs one request at a time,
-        so waiting here parks every queued manual trigger behind this run.
+        It used to happen here, mid-run: the QR went to Telegram and the run waited on
+        the scan, parking every queued manual trigger behind it. Now the page opens a
+        window on this very profile (``src/api/browser_login.py``) and the user signs
+        in there, so a run only has to tell signed in from signed out.
+
+        One reload is allowed. A page showing neither a session nor a login modal is
+        a snapshot that predates the session -- the state a sign-in leaves behind when
+        the page has not been loaded since -- not an answer.
         """
-        deadline = time.monotonic() + self.cfg.login_wait_seconds
-        # Per stage, because signing in takes two scans from two different modals and
-        # a cap shared between them would spend the whole budget on the first one.
-        sent: dict[str, set[str]] = {}
-        first_seen: dict[str, float] = {}
-        last_reload = 0.0
-        self._login_modal_logged = False
-        # Checked once for the whole wait, not per code: RedNote mints a new QR
-        # every couple of minutes, and re-checking would let the cooldown block the
-        # replacement for a code the user is still looking at.
-        self._may_prompt = None
-
-        while time.monotonic() < deadline:
+        for attempt in range(1, _LOGIN_CHECK_ATTEMPTS + 1):
             probe = await browser.probe_login()
             state = decide_login_state(probe, await browser.cookie_dict())
             if state == _LOGGED_IN:
                 self.user_id = self.cfg.user_id or user_id_from_probe(probe)
-                if sent:
-                    await self._notify_login_complete()
                 return
-
-            qr_src = str(probe.get('qr_src') or '')
-            stage = str(probe.get('qr_stage') or 'login')
-            now = time.monotonic()
-
-            if qr_src:
-                if not await self._offer_qr(qr_src=qr_src, stage=stage, sent=sent):
-                    break
-                if stage == _VERIFY_STAGE and now - first_seen.setdefault(qr_src, now) >= _QR_REFRESH_SECONDS:
-                    # The verification code is good for a minute and its expiry leaves
-                    # no mark in the DOM -- no class, and the same image bytes as
-                    # before. The only readout is a sentence, in whatever language the
-                    # profile runs in. So it is reminted on the clock, not on a state.
-                    first_seen[qr_src] = now
-                    if await browser.refresh_qr():
-                        log.info('RedNote reminted the expiring verification QR')
-            elif now - last_reload >= _LOGIN_RELOAD_INTERVAL_SECONDS:
-                last_reload = now
-                await self._nudge_login_page(browser, probe=probe, state=state)
-
-            await asyncio.sleep(_LOGIN_POLL_INTERVAL_SECONDS)
-
-        raise RedNoteError(self._signed_out_message(sent), notification_dedupe_key='rednote:login')
-
-    def _signed_out_message(self, sent: dict[str, set[str]]) -> str:
-        # `sent` gains an empty per-stage set the moment a QR is merely seen, so the
-        # question is whether any code actually went out, not whether the dict is empty.
-        if any(sent.values()):
-            return 'RedNote is signed out. A login QR was sent to Telegram; scan it with the app and run this source again.'
-        if self._may_prompt is False:
-            # The cooldown held, which after its cap means the last code is minutes
-            # old at most -- still scannable, so point at it rather than at settings.
-            return 'RedNote is signed out. The QR from a few minutes ago should still work; scan it, or rerun shortly for a fresh one.'
-        return 'RedNote is signed out and no login QR could be sent. Check the Telegram notification settings.'
-
-    async def _offer_qr(self, *, qr_src: str, stage: str, sent: dict[str, set[str]]) -> bool:
-        """Send this code if it is new and still allowed. False means stop waiting."""
-        stage_sent = sent.setdefault(stage, set())
-        if qr_src in stage_sent:
-            return True
-        if len(stage_sent) >= _MAX_QR_MESSAGES:
-            return False
-        if self._may_prompt is None:
-            self._may_prompt = await self._login_prompt_allowed()
-        if not self._may_prompt:
-            return False
-        stage_sent.add(qr_src)
-        await self._send_login_qr(decode_qr_data_url(qr_src), stage=stage, attempt=len(stage_sent))
-        return True
-
-    async def _nudge_login_page(self, browser: NoteBrowser, *, probe: Mapping[str, Any], state: str) -> None:
-        """Reload a page that is showing neither a QR nor a session.
-
-        This is the state a successful scan leaves behind: both modals closed, the
-        session cookie set, and ``__INITIAL_STATE__`` still reporting signed out
-        because it is the snapshot the page was loaded with. Without the reload that
-        reads as UNKNOWN for the rest of the budget, failing a login that worked.
-        """
-        if state == _LOGGED_OUT and not self._login_modal_logged:
-            self._login_modal_logged = True
-            log.info('RedNote is signed out but showed no QR: %s', str(probe.get('modal_html') or '')[:800] or '(no modal)')
-        await self._reload_login(browser)
+            if state == _LOGGED_OUT:
+                break
+            if attempt < _LOGIN_CHECK_ATTEMPTS:
+                await self._reload_login(browser)
+        msg = f'RedNote is signed out. {_RELOGIN_HINT}'
+        raise RedNoteError(msg, notification_dedupe_key='rednote:login')
 
     async def _reload_login(self, browser: NoteBrowser) -> None:
         """A navigation that gets interrupted here is not the run's problem.
 
-        The site navigates itself the moment a QR is scanned, and that aborts whatever
-        this had in flight -- ending the run at the exact moment it succeeded. Every
-        other cause is answered by the next poll anyway, and the wait is bounded.
+        The site routes itself while it settles, and that aborts whatever this had in
+        flight. The next probe answers either way.
         """
         try:
             await browser.reload_login()
         except Exception as exc:  # noqa: BLE001
             log.info('RedNote login page reload was interrupted: %s', exc)
 
-    async def _login_prompt_allowed(self) -> bool:
-        """A QR dies within minutes, so re-prompting inside that window is pure noise.
+    async def _record_session(self, browser: NoteBrowser) -> None:
+        """Keep the 登录态 page's row in step with what this run found.
 
-        The configured cooldown is capped at the QR's lifetime for the same reason it
-        exists at all: once the last code has expired, suppressing the next one does
-        not spare the user a duplicate photo -- it fails the run while pointing them
-        at a code their app already rejects.
+        A profile signed in before the page existed has no row yet, so the first run
+        that finds it signed in writes one; after that a run only records the check.
+        The crawl itself never reads these cookies back -- the profile is the session --
+        so only their names and expiry are written, never their values.
         """
-        cooldown = min(self.cfg.login_prompt_cooldown_seconds, _LOGIN_QR_LIFETIME_SECONDS)
-        if cooldown <= 0:
-            return True
-        last = _to_int(await self._read_state(_LOGIN_PROMPT_STATE_KEY)) or 0
-        now = int(datetime.now(tz=_DISPLAY_TIMEZONE).timestamp())
-        if now - last < cooldown:
-            log.info('RedNote is signed out, but a login QR was already sent %ss ago', now - last)
-            return False
-        await self._write_state(_LOGIN_PROMPT_STATE_KEY, str(now))
-        return True
-
-    async def _send_login_qr(self, png: bytes, *, stage: str, attempt: int) -> None:
-        """Straight to Telegram, not through the notification outbox.
-
-        The outbox is drained after ``update()`` returns, which for a run blocked on
-        this scan is long after the code has expired.
-        """
-        # Which of the two scans this is, because they look identical in a chat and
-        # the second one is only good for a minute.
-        if stage == _VERIFY_STAGE:
-            caption = f'小红书安全验证（第 {attempt} 个码，约 1 分钟内有效）：用已登录的小红书 App 扫码。'  # noqa: RUF001 - Chinese punctuation
-        else:
-            caption = f'小红书需要登录（第 {attempt} 个二维码）：用手机小红书扫码，扫完还会有一个验证码。'  # noqa: RUF001 - Chinese punctuation
-        try:
-            await telegram_bot_tool.send_photo_now(photo=('rednote-login.png', png, 'image/png'), header='RedNote', caption=caption)
-        except Exception as exc:  # noqa: BLE001
-            log.warning('Failed to send the RedNote login QR: %s', exc)
+        if await site_sessions.load(SESSION_SITE) is not None:
+            await site_sessions.record_check(SESSION_SITE, ok=True)
             return
-        log.notice('Sent a RedNote login QR to Telegram (attempt %s)', attempt)
+        cookies = cookies_from_browser(await browser.cookies())
+        await site_sessions.save_signed_in(
+            SESSION_SITE, without_values(cookies), account=self.user_id, expires_at=cookie_expiry(cookies, SESSION_COOKIE)
+        )
 
-    async def _notify_login_complete(self) -> None:
-        with contextlib.suppress(Exception):
-            await telegram_bot_tool.send_text_now(header='RedNote', text='小红书已登录，继续同步点赞。')  # noqa: RUF001 - Chinese punctuation
+    async def _record_signed_out(self, message: str) -> None:
+        """Mark the login invalid on the 登录态 page, without hiding the run's own error."""
+        try:
+            await site_sessions.record_check(SESSION_SITE, ok=False, message=message)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Could not record the RedNote sign-out on the 登录态 page: %s', exc)
 
     async def _prepare_session(self, browser: NoteBrowser) -> None:
-        """Sign in if needed, then settle what the rest of the run depends on."""
-        await self._await_login(browser)
+        """Check the login, then settle what the rest of the run depends on."""
+        await self._check_login(browser)
         if not self.user_id:
             self.user_id = self.cfg.user_id or await self._read_state(_USER_ID_STATE_KEY)
         if not self.user_id:
             msg = 'Signed in, but the profile id could not be read off the page; set user_id in the settings.'
-            raise RedNoteError(msg, notification_dedupe_key='rednote:login')
+            # Its own key: the login is fine, and must not be marked invalid on the 登录态 page.
+            raise RedNoteError(msg, notification_dedupe_key='rednote:user_id')
         if not self.cfg.user_id:
             await self._write_state(_USER_ID_STATE_KEY, self.user_id)
+        await self._record_session(browser)
         self.user_agent = await browser.user_agent()
 
     async def _sleep_between_requests(self) -> None:
@@ -1277,12 +1189,16 @@ class RedNote:
 
         # One writer per profile: a Chromium user-data-dir is single-owner, and
         # the worker, the API and a --trigger run are three plausible claimants.
-        lock_name = f'rednote-profile:{self.cfg.profile_path.expanduser().resolve()}'
-        async with database.advisory_lock(lock_name) as acquired:
+        async with database.advisory_lock(profile_lock_name(self.cfg.profile_path)) as acquired:
             if not acquired:
-                log.warning('The RedNote browser profile is in use by another run; skip this one')
+                log.warning('The RedNote browser profile is in use by another run or a 登录态 login; skip this one')
                 return
-            resolved = await self._read_account()
+            try:
+                resolved = await self._read_account()
+            except RedNoteError as exc:
+                if exc.notification_dedupe_key == 'rednote:login':
+                    await self._record_signed_out(str(exc))
+                raise
 
         # Outside the lock, and with the browser gone: the downloads are plain CDN
         # traffic that neither the profile nor the account is involved in.

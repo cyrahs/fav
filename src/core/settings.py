@@ -705,7 +705,8 @@ class RedNote(ScheduleJob):
     cron: str = '0 */6 * * *'
     # The signed-in Chromium profile: cookies, localStorage, history and the device
     # identity RedNote hands out all live here. It has to be on a volume, or
-    # every run starts from a QR scan.
+    # every restart means signing in again on the 登录态 page, whose login window
+    # opens this same profile.
     profile_path: Path = Path('./data/rednote-profile')
     # Egress for xiaohongshu.com. Most datacenter ranges answer HTTP 461, so from a
     # cluster this points at a residential line. Credentials have to be http(s):
@@ -732,17 +733,6 @@ class RedNote(ScheduleJob):
     # off. Reaching it leaves the backfill marked unfinished, which is what makes
     # the next run walk past the part already archived.
     max_pages_per_run: int = 40
-    # How long a run waits at the login screen before giving up. Signing in takes two
-    # scans -- the account QR, then an account-security QR good for about a minute --
-    # so this covers two Telegram round trips, not one. Still bounded, because the
-    # control-request consumer runs one request at a time and a longer wait parks
-    # every queued manual trigger behind it.
-    login_wait_seconds: int = 300
-    # Quiet period between login prompts, so back-to-back runs do not each drop a QR
-    # photo in the chat. Capped at the QR's lifetime (about five minutes) at the
-    # point of use: once the last code has expired, suppressing the next one would
-    # fail the run while telling the user to scan a code their app rejects.
-    login_prompt_cooldown_seconds: int = 3600
     headless: bool = True
 
     @field_validator('video_path', mode='before')
@@ -767,19 +757,11 @@ class RedNote(ScheduleJob):
             raise ValueError(msg)
         return value
 
-    @field_validator('abort_after', 'max_pages_per_run', 'login_wait_seconds')
+    @field_validator('abort_after', 'max_pages_per_run')
     @classmethod
     def validate_positive(cls, value: int, info: ValidationInfo) -> int:
         if value < 1:
             msg = f'{info.field_name} must be greater than or equal to 1'
-            raise ValueError(msg)
-        return value
-
-    @field_validator('login_prompt_cooldown_seconds')
-    @classmethod
-    def validate_login_prompt_cooldown_seconds(cls, value: int) -> int:
-        if value < 0:
-            msg = 'login_prompt_cooldown_seconds cannot be negative'
             raise ValueError(msg)
         return value
 

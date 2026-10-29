@@ -1,7 +1,9 @@
 # ruff: noqa: ANN001, ANN003, ANN202, ARG001, ARG002, INP001, PLR2004, S101, S105, SLF001
 
 import asyncio
+import dataclasses
 import threading
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +23,7 @@ from src.api.browser_login import (
     STATE_TIMEOUT,
     STATE_WAITING,
     BrowserLoginManager,
+    CheckUnsupportedError,
     LoginBusyError,
     LoginSite,
     UnknownLoginSiteError,
@@ -51,6 +54,12 @@ class _FakeBrowser:
 
     async def open(self, url: str) -> None:
         self.opened.append(url)
+
+    async def evaluate(self, script: str) -> dict:
+        return {}
+
+    async def reload(self) -> None:
+        return None
 
     async def cookies(self, urls: tuple[str, ...]) -> list[dict]:
         return self.cookie_rounds.pop(0) if len(self.cookie_rounds) > 1 else self.cookie_rounds[0]
@@ -319,6 +328,257 @@ def test_pixiv_is_a_login_site() -> None:
 
     assert site.session_cookie == 'PHPSESSID'
     assert site.login_url.startswith('https://accounts.pixiv.net/login')
+    assert site.checkable
+
+
+# ---------- a site whose crawl is a browser (RedNote) ----------
+
+
+class _Locks:
+    """database.advisory_lock, in memory: names held, and whether each was released."""
+
+    def __init__(self, *, held: tuple[str, ...] = ()) -> None:
+        self.held = set(held)
+        self.taken: list[str] = []
+
+    def advisory_lock(self, name: str):
+        @asynccontextmanager
+        async def _lock():
+            if name in self.held:
+                yield False
+                return
+            self.held.add(name)
+            self.taken.append(name)
+            try:
+                yield True
+            finally:
+                self.held.discard(name)
+
+        return _lock()
+
+
+def _profile_site(verify_in_browser) -> LoginSite:
+    async def prepare(context, page) -> str:
+        return 'cdp'
+
+    return LoginSite(
+        key='demo',
+        label='Demo',
+        login_url='https://example.com/explore',
+        cookie_urls=('https://example.com',),
+        session_cookie='SID',
+        verify_in_browser=verify_in_browser,
+        profile_dir=lambda: Path('/data/crawl-profile'),
+        lock_name=lambda: 'demo-profile:/data/crawl-profile',
+        prepare_page=prepare,
+    )
+
+
+def test_a_site_needs_some_way_to_verify() -> None:
+    with pytest.raises(ValueError, match='verify'):
+        LoginSite(key='x', label='X', login_url='https://x', cookie_urls=(), session_cookie='S')
+
+
+def test_a_profile_site_signs_the_crawl_profile_in_under_its_lock(store, monkeypatch) -> None:
+    locks = _Locks()
+    monkeypatch.setattr(browser_login, 'database', locks)
+    seen_while_open: list[bool] = []
+
+    async def verify_in_browser(browser, cookies):
+        seen_while_open.append('demo-profile:/data/crawl-profile' in locks.held)
+        return _Check(ok=True, account='me')
+
+    browser = _FakeBrowser([[_cookie('SID', 'v', expires=1_900_000_000)]])
+    launcher = _Launcher(browser)
+    manager = BrowserLoginManager({'demo': _profile_site(verify_in_browser)}, launcher=launcher, poll_seconds=0.01)
+
+    attempt = asyncio.run(_finish(manager))
+
+    assert attempt.state == STATE_SAVED
+    assert attempt.account == 'me'
+    assert launcher.calls[0]['profile_dir'] == Path('/data/crawl-profile')
+    assert launcher.calls[0]['prepare_page'] is not None
+    assert seen_while_open == [True]
+    # Released once the browser is down, so the next crawl can open the profile.
+    assert locks.held == set()
+    assert store.saved[0][2] == 'me'
+
+
+def test_a_profile_site_stores_cookie_names_but_not_values(store, monkeypatch) -> None:
+    monkeypatch.setattr(browser_login, 'database', _Locks())
+
+    async def verify_in_browser(browser, cookies):
+        return _Check(ok=True, account='me')
+
+    site = dataclasses.replace(_profile_site(verify_in_browser), store_cookie_values=False)
+    browser = _FakeBrowser([[_cookie('SID', 'secret', expires=1_900_000_000)]])
+    manager = BrowserLoginManager({'demo': site}, launcher=_Launcher(browser), poll_seconds=0.01)
+
+    asyncio.run(_finish(manager))
+
+    _site_key, cookies, _account, expires_at = store.saved[0]
+    assert [(c.name, c.value) for c in cookies] == [('SID', 'in-profile')]
+    assert expires_at == datetime.fromtimestamp(1_900_000_000, tz=UTC)
+    assert browser_login.LOGIN_SITES['rednote'].store_cookie_values is False
+    assert browser_login.LOGIN_SITES['pixiv'].store_cookie_values is True
+
+
+class _Tab:
+    def __init__(self) -> None:
+        self.closed = False
+        self.gotos: list[str] = []
+
+    async def goto(self, url, **kwargs) -> None:
+        self.gotos.append(url)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _Context:
+    def __init__(self) -> None:
+        self.pages = [_Tab()]
+        self.handlers: dict[str, list] = {}
+
+    def on(self, event, handler) -> None:
+        self.handlers.setdefault(event, []).append(handler)
+
+
+def test_the_disguised_login_window_keeps_to_one_tab() -> None:
+    """The UA override is per tab: a second one would show the session as Linux."""
+
+    async def prepare(context, page) -> str:
+        return 'cdp'
+
+    async def scenario():
+        context = _Context()
+        window = browser_login._VncChromium(object(), object(), context, prepare)
+        await window.open('https://example.com/explore')
+        first, extra = context.pages[0], _Tab()
+        for handler in context.handlers['page']:
+            handler(first)
+            handler(extra)
+        await asyncio.sleep(0)
+        return first, extra
+
+    first, extra = asyncio.run(scenario())
+
+    assert first.gotos == ['https://example.com/explore']
+    assert (first.closed, extra.closed) == (False, True)
+
+
+def test_a_profile_a_crawl_holds_refuses_the_login(store, monkeypatch) -> None:
+    monkeypatch.setattr(browser_login, 'database', _Locks(held=('demo-profile:/data/crawl-profile',)))
+    launcher = _Launcher(_FakeBrowser([[]]))
+
+    async def verify_in_browser(browser, cookies):
+        return _Check(ok=True)
+
+    manager = BrowserLoginManager({'demo': _profile_site(verify_in_browser)}, launcher=launcher)
+
+    with pytest.raises(LoginBusyError, match='in use by a crawl'):
+        asyncio.run(manager.start('demo'))
+    assert launcher.calls == []
+    assert manager.attempt is None
+
+
+def test_a_failed_launch_still_releases_the_profile_lock(store, monkeypatch) -> None:
+    locks = _Locks()
+    monkeypatch.setattr(browser_login, 'database', locks)
+
+    async def verify_in_browser(browser, cookies):
+        return _Check(ok=True)
+
+    manager = BrowserLoginManager(
+        {'demo': _profile_site(verify_in_browser)}, launcher=_Launcher(error=RuntimeError('no display')), poll_seconds=0.01
+    )
+
+    attempt = asyncio.run(_finish(manager))
+
+    assert attempt.state == STATE_FAILED
+    assert locks.taken == ['demo-profile:/data/crawl-profile']
+    assert locks.held == set()
+
+
+def test_a_site_verified_only_in_its_browser_offers_no_check(store) -> None:
+    async def verify_in_browser(browser, cookies):
+        return _Check(ok=True)
+
+    manager = BrowserLoginManager({'demo': _profile_site(verify_in_browser)}, launcher=_Launcher())
+
+    with pytest.raises(CheckUnsupportedError):
+        asyncio.run(manager.check_stored('demo'))
+    with _client(manager) as client:
+        response = client.post('/api/v2/site-sessions/demo/check', headers=AUTH)
+        assert response.status_code == 409
+        assert response.json()['error']['code'] == 'check_unsupported'
+        assert client.get('/api/v2/site-sessions', headers=AUTH).json()['items'][0]['checkable'] is False
+
+
+class _RedNotePage:
+    """The login window as _verify_rednote sees it: successive probes, and reloads."""
+
+    def __init__(self, probes: list[dict]) -> None:
+        self.probes = probes
+        self.reloads = 0
+
+    async def evaluate(self, script: str) -> dict:
+        return self.probes.pop(0) if len(self.probes) > 1 else self.probes[0]
+
+    async def reload(self) -> None:
+        self.reloads += 1
+
+
+def _verify_rednote(probes: list[dict], monkeypatch):
+    monkeypatch.setattr(browser_login, '_REDNOTE_SETTLE_SECONDS', 0.05)
+    monkeypatch.setattr(browser_login, '_REDNOTE_SETTLE_POLL_SECONDS', 0)
+    page = _RedNotePage(probes)
+    return asyncio.run(browser_login._verify_rednote(page, ())), page
+
+
+def test_rednote_is_confirmed_by_its_own_page(monkeypatch) -> None:
+    check, page = _verify_rednote([{}, {'logged_in': True, 'user_id': '5ff'}], monkeypatch)
+
+    assert (check.ok, check.account, page.reloads) == (True, '5ff', 0)
+
+
+def test_rednote_mid_login_is_left_alone(monkeypatch) -> None:
+    # The QR, the phone form or the security scan is on screen: the user is busy in
+    # it, and a reload would throw their progress away.
+    check, page = _verify_rednote([{'has_login_modal': True}], monkeypatch)
+    assert (check.ok, page.reloads) == (False, 0)
+
+    check, page = _verify_rednote([{'has_verify_modal': True, 'qr_src': 'data:...'}], monkeypatch)
+    assert (check.ok, page.reloads) == (False, 0)
+
+
+def test_rednote_after_the_scan_is_reloaded_to_read_the_answer(monkeypatch) -> None:
+    # Both modals gone and the store still on its signed-out snapshot.
+    check, page = _verify_rednote([{'logged_in': False, 'guest': True}], monkeypatch)
+
+    assert (check.ok, page.reloads) == (False, 1)
+    assert 'Reloaded' in check.message
+
+
+def test_rednote_is_a_login_site_on_the_crawl_profile(monkeypatch) -> None:
+    from src.core import settings  # noqa: PLC0415
+    from src.web import rednote  # noqa: PLC0415
+
+    site = browser_login.LOGIN_SITES['rednote']
+    cfg = settings.load().web.rednote
+
+    assert site.session_cookie == 'web_session'
+    assert not site.checkable
+    assert site.profile_dir() == cfg.profile_path
+    # The very lock the crawl takes, or the two could open the profile at once.
+    assert site.lock_name() == rednote.profile_lock_name(cfg.profile_path)
+
+    monkeypatch.setattr(cfg, 'proxy', '')
+    monkeypatch.setattr(cfg, 'allow_direct_connection', False)
+    with pytest.raises(browser_login.LoginError, match='proxy'):
+        site.proxy()
+    monkeypatch.setattr(cfg, 'proxy', 'http://home.example:3128')
+    assert site.proxy() == 'http://home.example:3128'
 
 
 # ---------- API ----------
@@ -359,6 +619,8 @@ def test_the_api_lists_sites_and_never_exposes_cookie_values(store) -> None:
         'site': 'demo',
         'label': 'Demo',
         'signed_in': True,
+        'checkable': True,
+        'hint': '',
         'account': '7',
         'status': 'valid',
         'message': '',
