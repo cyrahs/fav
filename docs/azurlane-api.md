@@ -256,6 +256,15 @@ Character directory layout on the collection volume (`/static/azurlane/{director
       cue/…/{line}.ogg               # voice files, mirroring the CDN path
 ```
 
+Skins first archived from l2d.su's hashed build (since 2026-10-31) have no readable names: the
+character key is `ship-{shipGroupId}` for a ship with nothing archived before, the model key is
+`skin-{skinId}`, and files keep the CDN's hashed layout below the model directory
+(`live2d/skin-101170/4306804565fc75b8/<digest>.model3.json`,
+`.../a0722ee10fbfd588/<digest>.webp`), so the relative references inside model3, spine part and
+painting index files resolve as they are. Those references may carry an `#azp2=…` fragment; it
+is the decryption descriptor of the CDN copy and is ignored when fetching the stored, already
+decrypted file. Skins archived earlier keep their names and readable layout.
+
 The `?v=` cache-bust query only exists on API-provided URLs; raw nginx paths work without it.
 Global source artifacts live in `/static/azurlane/_source/` (`l2d-su-snapshot.json` with
 `filters` and `skin_update_history`, `nagami-snapshot.json`, `health-report.json`).

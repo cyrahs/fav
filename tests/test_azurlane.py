@@ -97,6 +97,16 @@ class FakeAzurLaneDatabase:
                 and row.get('model_type') != 'painting'
                 and str(row.get('primary_url', '')).startswith(prefixes)
             ]
+        if sql.startswith('SELECT model_id, primary_url, source_metadata, completed_at FROM azurlane_models'):
+            return [
+                {
+                    'model_id': model_id,
+                    'primary_url': row.get('primary_url', ''),
+                    'source_metadata': row.get('source_metadata', {}),
+                    'completed_at': 'completed' if row.get('completed') else None,
+                }
+                for model_id, row in sorted(self.models.items())
+            ]
         if sql.startswith('SELECT ship_group_id, payload->'):
             rows: list[dict[str, Any]] = []
             for ship_id, row in sorted(self.ship_details.items()):
@@ -1125,11 +1135,14 @@ def test_azurlane_update_reuses_completed_blob_for_archived_url(tmp_path: Path, 
     assert fake_db.assets[texture_url]['status'] == 'downloaded'
 
 
-@pytest.mark.parametrize('archived_base_url', ['https://static.l2d.su/al/assets/webp', L2D_SU_LEGACY_STATIC_BASE_URL])
+@pytest.mark.parametrize(
+    'archived_base_url',
+    ['https://static.l2d.su/al-b/assets', 'https://static.l2d.su/al/assets/webp', L2D_SU_LEGACY_STATIC_BASE_URL],
+)
 def test_azurlane_update_reuses_blobs_archived_under_the_old_cdn_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, archived_base_url: str
 ) -> None:
-    """The CDN moved every asset from /azurlane/ to /al/assets/webp/ and then to /al-b/assets/; the archive must not be fetched again."""
+    """The CDN moved every asset from /azurlane/ to /al/assets/webp/, /al-b/assets/ and /al/assets/; nothing archived is fetched again."""
     fake_db = _install_fake_database(monkeypatch)
     model3_url = _live2d_url('javelin')
     moc_url = f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/javelin.moc3'
@@ -1939,7 +1952,7 @@ def test_azurlane_sends_only_l2d_su_origin_traffic_through_the_origin_client(
 
     # The origin client carries the l2d.su ship data and nothing else: routing CDN assets through a
     # metered proxy would multiply its bandwidth by orders of magnitude.
-    data_prefix = 'https://static.l2d.su/al-b/data/'
+    data_prefix = 'https://static.l2d.su/al/data/'
     assert origin_urls, 'expected the origin client to be used'
     assert all(url.startswith(data_prefix) for url in origin_urls)
     assert not [url for url in direct_urls if url.startswith(data_prefix)]
@@ -2341,3 +2354,120 @@ def test_azurlane_backend_manifests_are_deterministically_ordered(tmp_path: Path
         'assets/live2d/javelin/javelin.moc3',
         'assets/live2d/javelin/textures/texture_00.webp',
     ]
+
+
+def test_azurlane_hashed_build_keeps_the_archive_and_decrypts_new_skins(  # noqa: C901
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After l2d.su's switch to hashed, AZP2-encrypted files, an archived skin is left as it is and a
+    new one is fetched from the hashed tree, its encrypted model file opened before it is stored."""
+    from test_azurlane_protected import azp2_wrap  # noqa: PLC0415 -- shared fixture builder
+
+    from src.tool.azurlane_protected import Azp2Descriptor, data_descriptor  # noqa: PLC0415
+
+    fake_db = _install_fake_database(monkeypatch)
+    legacy_catalog = _ship_index_payload([_ship(1, 'javelin', 'Javelin', skins=[_skin(1, 'Default', key='javelin')])])
+    legacy_model3_url = _live2d_url('javelin')
+
+    def legacy_handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        index_response = _source_index_response(legacy_catalog, url=url)
+        if index_response is not None:
+            return index_response
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        painting_response = _painting_response(url)
+        if painting_response is not None:
+            return painting_response
+        if url == legacy_model3_url:
+            return httpx.Response(200, text=_live2d_model3_payload(), headers={'content-type': 'application/json'})
+        if url.startswith(f'{L2D_SU_STATIC_BASE_URL}/live2d/javelin/'):
+            return httpx.Response(200, content=b'legacy-bytes', headers={'content-type': 'application/octet-stream'})
+        return httpx.Response(404)
+
+    _run_azurlane_update(tmp_path, legacy_handler)
+    assert fake_db.models['azurlane:live2d:javelin:javelin']['completed']
+
+    descriptor = Azp2Descriptor(key='ab' * 32, identity='cd' * 32)
+    fragment = f'#azp2={descriptor.key}.{descriptor.identity}'
+    old_skin_model3 = f'4306804565fc75b8/{"11" * 16}.model3.json{fragment}'
+    new_skin_model3 = f'4306804565fc75b8/{"22" * 16}.model3.json{fragment}'
+    new_model3_payload = json.dumps(
+        {'Version': 3, 'FileReferences': {'Moc': f'{"33" * 16}.moc3', 'Textures': [f'../a0722ee10fbfd588/{"44" * 16}.webp']}},
+    ).encode()
+
+    def hashed_skin(skin_id: int, digest: str) -> dict[str, object]:
+        return {
+            'id': skin_id,
+            'name': f'Skin {skin_id}',
+            'painting': digest,
+            'prefab': digest,
+            'dynamicType': 'live2d',
+            'isLive2d': True,
+            'directResources': True,
+            'assetPaths': {'painting': f'18266872a5d491dc/{digest}.webp'},
+        }
+
+    hashed_ship = _ship(1, '55' * 16, 'Javelin', skins=[hashed_skin(1, '66' * 16), hashed_skin(2, '77' * 16)])
+    detail = {
+        'ship': {
+            **hashed_ship,
+            'skins': [
+                {**hashed_skin(1, '66' * 16), 'model': {'type': 'live2d', 'path': old_skin_model3}},
+                {**hashed_skin(2, '77' * 16), 'model': {'type': 'live2d', 'path': new_skin_model3}},
+            ],
+        },
+    }
+    hashed_index = _ship_index_payload([hashed_ship]).encode()
+    requested: list[str] = []
+
+    def hashed_handler(request: httpx.Request) -> httpx.Response:
+        # The descriptor fragment stays on the URL object but is never sent to the server.
+        assert request.url.raw_path.find(b'#') < 0
+        url = str(request.url).split('#', 1)[0]
+        requested.append(url)
+        if url in {_PRIMARY_INDEX_URL, _ENGLISH_INDEX_URL}:
+            path = url.rsplit('/data/', 1)[1]
+            return httpx.Response(200, content=azp2_wrap(hashed_index, data_descriptor(path)))
+        if url == l2d_su_ship_detail_url(1):
+            return httpx.Response(200, content=azp2_wrap(json.dumps(detail).encode(), data_descriptor('ships/CN/1.json')))
+        if url == NAGAMI_MAPPING_URL:
+            return httpx.Response(200, text=_nagami_mapping_payload())
+        if url == f'{L2D_SU_STATIC_BASE_URL}/{new_skin_model3.split("#", maxsplit=1)[0]}':
+            return httpx.Response(200, content=azp2_wrap(new_model3_payload, descriptor), headers={'content-type': 'application/json'})
+        if url.startswith(f'{L2D_SU_STATIC_BASE_URL}/') and url.endswith(('.moc3', '.webp')):
+            return httpx.Response(200, content=b'hashed-bytes', headers={'content-type': 'application/octet-stream'})
+        return httpx.Response(404)
+
+    _run_azurlane_update(tmp_path, hashed_handler)
+
+    # The archived skin keeps its id, its directory and its files; nothing of it is fetched again.
+    assert fake_db.models['azurlane:live2d:javelin:javelin']['completed']
+    assert fake_db.models['azurlane:live2d:javelin:javelin']['primary_url'] == legacy_model3_url
+    assert not [url for url in requested if '11' * 16 in url or '66' * 16 in url]
+
+    # The new skin joins the ship's directory, laid out as the CDN has it, model file decrypted.
+    new_model = fake_db.models['azurlane:live2d:javelin:skin-2']
+    assert new_model['completed']
+    root = tmp_path / 'javelin - Javelin/assets/live2d/skin-2'
+    assert (root / f'4306804565fc75b8/{"22" * 16}.model3.json').read_bytes() == new_model3_payload
+    assert (root / f'a0722ee10fbfd588/{"44" * 16}.webp').read_bytes() == b'hashed-bytes'
+    assert fake_db.ship_details[1]['payload']['ship']['skins'][1]['model']['path'] == new_skin_model3
+
+
+def _run_azurlane_update(tmp_path: Path, handler: Any) -> None:
+    with httpx.Client(transport=httpx.MockTransport(handler)) as source_client:
+        async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            crawler = AzurLane(
+                path=tmp_path,
+                client=async_client,
+                source_client=source_client,
+                api_request_interval_seconds=0,
+                cdn_request_interval_seconds=0,
+                origin_request_interval_seconds=0,
+                asset_process_concurrency=1,
+            )
+            asyncio.run(crawler.update())
+        finally:
+            asyncio.run(async_client.aclose())

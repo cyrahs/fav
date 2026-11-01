@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -28,6 +28,7 @@ from src.tool.azurlane_l2d_sources import (
     L2D_SU_ASSET_BASE_URL,
     L2D_SU_PRIMARY_REGION,
     L2D_SU_REFERER,
+    ArchivedModel,
     AzurLaneEnumeratedResource,
     AzurLaneModelCatalog,
     AzurLaneModelResourceEnumeration,
@@ -42,22 +43,27 @@ from src.tool.azurlane_l2d_sources import (
     build_azurlane_l2d_health_report,
     build_azurlane_model_catalog,
     case_variant_urls,
+    entry_painting_index_url,
     enumerate_azurlane_model_resources,
     fetch_source_snapshots,
+    is_hashed_asset_url,
     l2d_su_asset_url_from_legacy,
     l2d_su_async_origin_transport,
     l2d_su_character_fingerprint,
     l2d_su_legacy_asset_urls,
     l2d_su_origin_transport,
     l2d_su_ship_detail_url,
+    model_entry_from_dict,
     model_probe_urls,
-    painting_index_url,
     parse_l2d_su_ship_models,
     parse_l2d_su_ship_voices,
     parse_painting_index,
+    pin_archived_entries,
+    protected_response_text,
     spine_parts_manifest_url,
     spine_resource_manifest,
 )
+from src.tool.azurlane_protected import ProtectedResourceError, decrypt_for_url, is_protected_url
 from src.tool.filename import sanitize
 
 if TYPE_CHECKING:
@@ -555,6 +561,47 @@ def _raise_invalid_asset_response(reason: str) -> None:
     raise InvalidAssetResponseError(reason)
 
 
+def _check_archive_continuity(catalog: AzurLaneModelCatalog, archived: list[ArchivedModel]) -> None:
+    """Refuse a catalog that matches nothing the archive holds.
+
+    Archived skins are recognised by costume id and model type. Should that ever match nothing,
+    every skin would look new and the whole archive would be downloaded again under new names, so
+    the run stops instead.
+    """
+    archived_ids = {model.entry.id for model in archived if model.completed}
+    kept = sum(1 for entry in catalog.entries if entry.id in archived_ids)
+    log.info('Azur Lane catalog: %d entries, %d of %d completed archive models kept', len(catalog.entries), kept, len(archived_ids))
+    if archived_ids and not kept:
+        msg = f'Azur Lane catalog matches none of the {len(archived_ids)} archived models; refusing to download the archive again'
+        raise CrawlRunError(msg)
+
+
+def _download_candidates(asset: AzurLaneAsset) -> list[str]:
+    candidates = [asset.url]
+    if asset.fallback_url and asset.fallback_url not in candidates:
+        candidates.append(asset.fallback_url)
+    # Case variants come last, so a real mirror is always preferred over guessing at the
+    # spelling, and they cost nothing until everything named by the source has failed. Hashed
+    # names are lowercase digests with no other spelling.
+    if not is_hashed_asset_url(asset.url):
+        candidates.extend(url for url in case_variant_urls(asset.url) if url not in candidates)
+    return candidates
+
+
+def _open_protected_file(path: Path, url: str) -> tuple[str, int, bytearray]:
+    """Replace a downloaded AZP2 envelope with the file inside it; return its sha256, size, prefix.
+
+    The archive keeps the opened file, so everything downstream (parsing model files, serving them)
+    reads plain JSON, and the blob is shared with any copy of the same file served in the clear.
+    """
+    try:
+        content = decrypt_for_url(path.read_bytes(), url)
+    except ProtectedResourceError as exc:
+        raise InvalidAssetResponseError(str(exc)) from exc
+    path.write_bytes(content)
+    return hashlib.sha256(content).hexdigest(), len(content), bytearray(content[:_BODY_PREFIX_LIMIT])
+
+
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as file:
@@ -646,7 +693,7 @@ def _spine_parts_seed_asset(entry: ModelEntry) -> AzurLaneAsset:
 
 
 def _painting_index_seed_asset(entry: ModelEntry) -> AzurLaneAsset:
-    url = painting_index_url(entry.resources.primary_url)
+    url = entry_painting_index_url(entry)
     filename = Path(urlsplit(url).path).name
     model_key = sanitize(entry.costume.key, max_bytes=120) or 'unknown'
     return AzurLaneAsset(
@@ -1661,6 +1708,11 @@ class AzurLane:
 
                     content_type = stream_response.headers.get('content-type', '')
                     sha256 = digest.hexdigest()
+                    if is_protected_url(url):
+                        if _is_cdn_rejection_body(content_type, bytes(prefix)):
+                            await self._circuit_breaker.record_limited_failure()
+                            _raise_invalid_asset_response(_CDN_REJECTION_REASON)
+                        sha256, size, prefix = await asyncio.to_thread(_open_protected_file, tmp_path, url)
                     invalid_reason = _validate_asset_response(
                         kind=asset.kind,
                         content_type=content_type,
@@ -1682,13 +1734,7 @@ class AzurLane:
                     raise
 
     async def _download_asset_to_temp(self, client: httpx.AsyncClient, asset: AzurLaneAsset) -> TempBlob:
-        candidates = [asset.url]
-        if asset.fallback_url and asset.fallback_url not in candidates:
-            candidates.append(asset.fallback_url)
-        # Case variants come last, so a real mirror is always preferred over guessing at the
-        # spelling, and they cost nothing until everything named by the source has failed.
-        candidates.extend(url for url in case_variant_urls(asset.url) if url not in candidates)
-
+        candidates = _download_candidates(asset)
         last_exc: Exception | None = None
         for url in candidates:
             for attempt in range(1, _MAX_RETRIES + 1):
@@ -1885,11 +1931,11 @@ class AzurLane:
         try:
             response = await client.get(url, headers=_asset_headers())
             response.raise_for_status()
-            payload = response.text
+            payload = protected_response_text(response, url=url)
             # Reject anti-bot HTML / rate-limit pages before they poison the jsonb column.
             if not isinstance(json.loads(payload), dict):
                 _raise_invalid_asset_response('ship detail payload is not a JSON object')
-        except (httpx.HTTPError, json.JSONDecodeError, InvalidAssetResponseError) as exc:
+        except (httpx.HTTPError, json.JSONDecodeError, InvalidAssetResponseError, ProtectedResourceError) as exc:
             log.warning('Failed to fetch Azur Lane ship detail from %s (attempt %d): %s', url, attempt, exc)
             return None
         return payload
@@ -2000,15 +2046,20 @@ class AzurLane:
             costume_id = entry.costume.id
             if entry.type == 'painting' or entry.source == 'nagami' or costume_id is None or entry.character.id is None:
                 continue
+            if is_hashed_asset_url(entry.resources.primary_url):
+                continue
             stored = known.get((costume_id, entry.type))
             if stored:
                 resolved[costume_id] = stored
                 reused += 1
                 continue
 
-            probed += 1
-            if await self._model_assets_exist(client=client, entry=entry):
-                continue
+            # The hashed build lists a Live2D or spine skin's model only in the ship detail, so a
+            # skin without a path skips the probe: there is nothing to probe.
+            if entry.resources.primary_url:
+                probed += 1
+                if await self._model_assets_exist(client=client, entry=entry):
+                    continue
 
             models = await self._ship_detail_model_paths(client=client, ship_id=entry.character.id)
             authoritative = models.get(costume_id)
@@ -2026,15 +2077,47 @@ class AzurLane:
         )
         return apply_l2d_su_model_paths(catalog, resolved)
 
+    async def _archived_models(self) -> list[ArchivedModel]:
+        """Every model the archive has a row for, as the catalog last described it."""
+        rows = await database.query_db(
+            """
+            SELECT model_id, primary_url, source_metadata, completed_at
+            FROM azurlane_models;
+            """,
+        )
+        archived: list[ArchivedModel] = []
+        for row in rows:
+            entry = model_entry_from_dict(_json_object(row.get('source_metadata')))
+            model_id = _row_text(row, 'model_id')
+            if entry is None or not model_id:
+                continue
+            entry = replace(entry, id=model_id, resources=replace(entry.resources, primary_url=_row_text(row, 'primary_url')))
+            archived.append(ArchivedModel(entry=entry, completed=row.get('completed_at') is not None))
+        return archived
+
     async def _model_assets_exist(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> bool:
         for url in model_probe_urls(entry):
             if await self._asset_url_exists(client=client, url=url):
                 return True
         return False
 
+    async def _spine_is_single_part(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> bool:
+        """Whether a readable spine model has no parts manifest, only `<key>.skel` and `<key>.atlas`.
+
+        An archived model answers from the archive: a parts manifest makes it multi-part, a
+        skeleton at the single-part path makes it single-part. Only an unarchived one asks the CDN.
+        A hashed model always points at its parts manifest.
+        """
+        url = entry.resources.primary_url
+        if is_hashed_asset_url(url) or await self._completed_blob_for_url(spine_parts_manifest_url(url)) is not None:
+            return False
+        skeleton_url = spine_resource_manifest(url).parts[0].skeleton_url
+        if await self._completed_blob_for_url(skeleton_url) is not None:
+            return True
+        return await self._asset_url_exists(client=client, url=skeleton_url)
+
     async def _spine_parts_source(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> str | None:
-        manifest = spine_resource_manifest(entry.resources.primary_url)
-        if await self._asset_url_exists(client=client, url=manifest.parts[0].skeleton_url):
+        if await self._spine_is_single_part(client=client, entry=entry):
             return None
 
         seed_asset = _spine_parts_seed_asset(entry)
@@ -2070,10 +2153,16 @@ class AzurLane:
         Losing it costs the reassembled artwork, not the model: the packed sheet is still
         archived and still renders, so a missing index never fails the run.
         """
+        if not entry_painting_index_url(entry):
+            return None
         seed_asset = _painting_index_seed_asset(entry)
         try:
             index_source = await self._seed_asset_text(client=client, asset=seed_asset)
-            return parse_painting_index(index_source, painting_url=entry.resources.primary_url)
+            return parse_painting_index(
+                index_source,
+                painting_url=entry.resources.primary_url,
+                index_url=entry.resources.painting_index_url,
+            )
         except Exception as exc:  # noqa: BLE001
             error = str(exc) or exc.__class__.__name__
             seed_asset.status = 'failed'
@@ -2164,6 +2253,9 @@ class AzurLane:
         await database.query_db_transaction(statements)
 
     async def _archive_model(self, *, client: httpx.AsyncClient, entry: ModelEntry) -> None:
+        if not entry.resources.primary_url:
+            msg = f'No model path for Azur Lane model {entry.id}: its ship detail did not list one'
+            raise AssetProcessingError(msg)
         root = _character_root(self.path, entry)
         await self._mark_model_fetch_started(entry)
         try:
@@ -2244,6 +2336,9 @@ class AzurLane:
                 # every run was recorded as completed.
                 raise CrawlRunError(_source_failure_message(snapshots, catalog))
 
+            archived = await self._archived_models()
+            catalog = pin_archived_entries(catalog, archived)
+            _check_archive_continuity(catalog, archived)
             self._origin_detail_spent = 0
             self._ship_model_paths = {}
             self._ship_detail_payloads = {}
