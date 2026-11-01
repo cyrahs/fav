@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from hashlib import blake2b
 from pathlib import PurePosixPath
@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
+from src.tool.azurlane_protected import ProtectedResourceError, decrypt_for_url
 from src.tool.connect_to import AsyncConnectToTransport, ConnectToTransport
 from src.tool.filename import sanitize
 
@@ -19,27 +20,35 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
 L2D_SU_HOST = 'l2d.su'
-# Since 2026-10-28 the site reads everything from /al-b/ on the CDN: the ship data under
-# /al-b/data/ and a single asset tree under /al-b/assets/ that holds the source files (png
-# textures, ogg voices) and a webp copy of every image side by side, laid out like the old roots.
-# /al/ now serves a different build with hashed file names and AZP1-encrypted model files that
-# the site itself does not load.
-L2D_SU_ASSET_BASE_URL = 'https://static.l2d.su/al-b/assets'
+# Since 2026-10-31 the site reads everything from /al/ on the CDN, and /al-b/ (its source from
+# 2026-10-28) is gone. Every file under /al/ has a hashed name, so neither ship nor skin names
+# appear in any URL any more, and every JSON file (the ship data as well as model3, motion, spine
+# part, atlas and painting index files) is wrapped in an AZP2 envelope (src/tool/azurlane_protected).
+# The data says where each asset is: `assetPaths`, `model.path` and the references inside model
+# files are paths below /al/assets/, with an `#azp2=` fragment on the ones that are encrypted. Voices
+# are the exception and still live at /al/assets/cue/<voice path>.ogg.
+L2D_SU_ASSET_BASE_URL = 'https://static.l2d.su/al/assets'
 L2D_SU_STATIC_BASE_URL = L2D_SU_ASSET_BASE_URL
 L2D_SU_AUDIO_BASE_URL = L2D_SU_ASSET_BASE_URL
-# The roots assets were archived from before, newest first: from 2026-10-15 to 2026-10-28 webp
-# copies (model files rewritten to reference them) under /al/assets/webp/ and voices under
-# /al/assets/original/, and /azurlane/ until 2026-10-15. All share the current relative layout,
-# so assets downloaded from them are reused for their new URLs rather than fetched again (see
-# l2d_su_legacy_asset_urls).
-L2D_SU_PREVIOUS_ASSET_BASE_URLS = ('https://static.l2d.su/al/assets/webp', 'https://static.l2d.su/al/assets/original')
+# The roots assets were archived from before, newest first: /al-b/assets/ from 2026-10-28 to
+# 2026-10-31 (png sources with webp copies beside them), from 2026-10-15 to 2026-10-28 webp copies
+# under /al/assets/webp/ and voices under /al/assets/original/, and /azurlane/ until 2026-10-15.
+# All share one readable relative layout, which skins archived before the hashed build keep using
+# (see pin_archived_entries), so a file archived under any of them is reused rather than fetched
+# again (see l2d_su_legacy_asset_urls).
+L2D_SU_PREVIOUS_ASSET_BASE_URLS = (
+    'https://static.l2d.su/al-b/assets',
+    'https://static.l2d.su/al/assets/webp',
+    'https://static.l2d.su/al/assets/original',
+)
 L2D_SU_LEGACY_STATIC_BASE_URL = 'https://static.l2d.su/azurlane'
 L2D_SU_ARCHIVED_ASSET_BASE_URLS = (*L2D_SU_PREVIOUS_ASSET_BASE_URLS, L2D_SU_LEGACY_STATIC_BASE_URL)
 # The ship data has moved between the origin and the CDN several times: the origin until 2026-10,
 # the CDN under /azurlane/data/ until 2026-10-15, the origin again until 2026-10-28 (it now
-# answers /data/ with the app shell), and the CDN under /al-b/data/ since.
-L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://static.l2d.su/al-b/data/ships-{region}.json'
-L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://static.l2d.su/al-b/data/ships/{region}/{ship_id}.json'
+# answers /data/ with the app shell), the CDN under /al-b/data/ until 2026-10-31, and /al/data/
+# since, AZP2-encrypted with a key derived from the path below /data/.
+L2D_SU_SHIP_INDEX_URL_TEMPLATE = 'https://static.l2d.su/al/data/ships-{region}.json'
+L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://static.l2d.su/al/data/ships/{region}/{ship_id}.json'
 L2D_SU_REFERER = 'https://l2d.su/'
 L2D_SU_PRIMARY_REGION = 'CN'
 L2D_SU_ENGLISH_REGION = 'EN'
@@ -90,6 +99,9 @@ _MODEL_TYPES: tuple[L2DSuModelKind, ...] = ('live2d', 'spine', 'painting')
 _CATALOG_SOURCES: tuple[CatalogSource, ...] = ('l2d.su', 'nagami', 'merged')
 _AVAILABILITY_STATES: tuple[AvailabilityState, ...] = ('valid', 'fallback-only', 'broken', 'unchecked')
 _NAGAMI_COSTUME_SUFFIX_RE = re.compile(r'_\d+$')
+_HASHED_ASSET_PATH_RE = re.compile(r'^[0-9a-f]{16}/[0-9a-f]{32}\.')
+# The hashed build replaced ship and skin resource names with 32-hex digests.
+_HASHED_RESOURCE_KEY_RE = re.compile(r'^[0-9a-f]{32}$')
 _RESOURCE_EXTENSION_BY_KIND: dict[ResourceAssetKind, str] = {
     'live2d.model3': '.model3.json',
     'live2d.moc3': '.moc3',
@@ -174,6 +186,11 @@ class L2DSuModelSnapshot:
     shipyard_icon: str = ''
     q_icon: str = ''
     shop_type: str = ''
+    # Set by the hashed /al/ build, whose assets cannot be derived from a name: absolute URLs of
+    # the face variations by face id, and of the painting's layer index.
+    face_urls: tuple[tuple[str, str], ...] = ()
+    painting_index_url: str = ''
+    hashed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +348,8 @@ class ModelCostume:
     shipyard_icon: str = ''
     q_icon: str = ''
     shop_type: str = ''
+    # (face id, absolute URL) pairs; only the hashed build names its face files this way.
+    face_urls: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +357,8 @@ class ModelResources:
     primary_url: str
     fallback_url: str = ''
     display_info_url: str = ''
+    # The hashed build's painting index; empty where it sits beside the sheet as <key>.json.
+    painting_index_url: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -677,6 +698,9 @@ class PaintingLayer:
     position: tuple[float, float] = (0.0, 0.0)
     pivot: tuple[float, float] = (0.0, 0.0)
     raw: bool = False
+    # The hashed build names each layer's sheet and mesh in the index instead of by layer name.
+    image_url: str = ''
+    mesh_url: str = ''
 
     def to_dict(self) -> dict[str, Any]:
         """The origin's own field names, so a consumer parses this exactly as it parses the CDN copy."""
@@ -858,7 +882,7 @@ def l2d_su_character_fingerprint(character: L2DSuCharacterSnapshot) -> str:
 
 def model_probe_urls(entry: ModelEntry) -> tuple[str, ...]:
     """URLs that prove a model's assets exist, cheapest first."""
-    if entry.type in {'live2d', 'painting'}:
+    if entry.type in {'live2d', 'painting'} or is_hashed_asset_url(entry.resources.primary_url):
         return (entry.resources.primary_url,)
     manifest = spine_resource_manifest(entry.resources.primary_url)
     return (manifest.parts[0].skeleton_url, spine_parts_manifest_url(entry.resources.primary_url))
@@ -997,10 +1021,20 @@ def l2d_su_legacy_asset_urls(url: str) -> tuple[str, ...]:
 
     Empty if `url` is not an l2d.su asset.
     """
-    if not url.startswith(f'{L2D_SU_ASSET_BASE_URL}/'):
+    if not url.startswith(f'{L2D_SU_ASSET_BASE_URL}/') or is_hashed_asset_url(url):
         return ()
     relative_path = url.removeprefix(f'{L2D_SU_ASSET_BASE_URL}/')
     return tuple(f'{base_url}/{relative_path}' for base_url in L2D_SU_ARCHIVED_ASSET_BASE_URLS)
+
+
+def is_hashed_asset_url(url: str) -> bool:
+    """Whether `url` names a file of the hashed /al/ build (`<16 hex>/<32 hex>.<ext>`).
+
+    Those names never existed under an older root, so there is no archived copy to look for.
+    """
+    if not url.startswith(f'{L2D_SU_ASSET_BASE_URL}/'):
+        return False
+    return _HASHED_ASSET_PATH_RE.match(urlsplit(url).path.removeprefix(urlsplit(L2D_SU_ASSET_BASE_URL).path + '/')) is not None
 
 
 def l2d_su_asset_url_from_legacy(url: str) -> str:
@@ -1160,6 +1194,129 @@ def build_azurlane_model_catalog(snapshots: AzurLaneSourceSnapshots) -> AzurLane
     return AzurLaneModelCatalog(
         entries=tuple(entries_by_id[key] for key in sorted(entries_by_id)),
         nagami_fallback_candidates=nagami_candidates,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ArchivedModel:
+    """A model already in the archive, as the catalog last described it."""
+
+    entry: ModelEntry
+    completed: bool
+
+
+def model_entry_from_dict(payload: Any) -> ModelEntry | None:
+    """Rebuild a catalog entry from `ModelEntry.to_dict()` output; None if it does not parse."""
+    if not isinstance(payload, dict):
+        return None
+    try:
+        character = _dataclass_from_dict(ModelCharacter, payload['character'])
+        costume = _dataclass_from_dict(ModelCostume, payload['costume'])
+        resources = _dataclass_from_dict(ModelResources, payload['resources'])
+        entry_id = payload['id']
+        model_type = payload['type']
+        source = payload['source']
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not isinstance(entry_id, str) or model_type not in _MODEL_TYPES or source not in _CATALOG_SOURCES:
+        return None
+    return ModelEntry(id=entry_id, type=model_type, source=source, character=character, costume=costume, resources=resources)
+
+
+def _dataclass_from_dict[T](cls: type[T], value: Any) -> T:
+    if not isinstance(value, dict):
+        msg = f'{cls.__name__} must be an object'
+        raise TypeError(msg)
+    kwargs: dict[str, Any] = {}
+    for item in fields(cls):  # type: ignore[arg-type]
+        if item.name not in value:
+            continue
+        field_value = value[item.name]
+        if isinstance(field_value, list):
+            field_value = tuple(tuple(element) if isinstance(element, list) else element for element in field_value)
+        kwargs[item.name] = field_value
+    return cls(**kwargs)
+
+
+def pin_archived_entries(catalog: AzurLaneModelCatalog, archived: Iterable[ArchivedModel]) -> AzurLaneModelCatalog:
+    """Keep archived skins under the names and files they were archived with.
+
+    The hashed /al/ build names no ship or skin, so a fresh catalog keys every skin by id
+    (`ship-<id>`, `skin-<id>`) and points it at hashed files. A skin archived before that keeps
+    its entry id and keys, matched on costume id and model type, so its directory and its rows stay
+    where they are. A completed one also keeps the readable URLs it was archived from: they are
+    gone from the CDN, but every file is already archived under them and is reused as it is,
+    whereas the hashed files would download the whole archive a second time. One that never
+    completed takes the hashed URLs, which may well have the files the old ones lacked.
+
+    A new skin of a ship already in the archive joins that ship's directory.
+
+    Nagami entries are only kept where they are already archived on their own: with no readable
+    names left, a nagami model can no longer be matched to the l2d.su skin it duplicates, and adding
+    every unmatched one would archive most models twice.
+    """
+    by_costume: dict[tuple[int, str], ArchivedModel] = {}
+    character_keys: dict[int, str] = {}
+    nagami_ids: set[str] = set()
+    for model in sorted(archived, key=lambda item: (not item.completed, ':asset-' in item.entry.id, item.entry.id)):
+        entry = model.entry
+        if entry.source == 'nagami':
+            nagami_ids.add(entry.id)
+            continue
+        if entry.costume.id is not None:
+            by_costume.setdefault((entry.costume.id, entry.type), model)
+        if entry.character.id is not None:
+            character_keys.setdefault(entry.character.id, entry.character.key)
+
+    entries_by_id: dict[str, ModelEntry] = {}
+    for entry in catalog.entries:
+        if entry.source == 'nagami':
+            if entry.id in nagami_ids:
+                _add_catalog_entry(entries_by_id, entry)
+            continue
+        _add_catalog_entry(entries_by_id, _pinned_entry(entry, by_costume=by_costume, character_keys=character_keys))
+
+    return replace(catalog, entries=tuple(entries_by_id[key] for key in sorted(entries_by_id)))
+
+
+def _pinned_entry(
+    entry: ModelEntry,
+    *,
+    by_costume: Mapping[tuple[int, str], ArchivedModel],
+    character_keys: Mapping[int, str],
+) -> ModelEntry:
+    archived = by_costume.get((entry.costume.id, entry.type)) if entry.costume.id is not None else None
+    if archived is None:
+        character_key = character_keys.get(entry.character.id) if entry.character.id is not None else None
+        if not character_key or character_key == entry.character.key:
+            return entry
+        return replace(
+            entry,
+            id=_catalog_entry_id(entry.type, character_key, entry.costume.key),
+            character=replace(entry.character, key=character_key),
+        )
+
+    previous = archived.entry
+    pinned = replace(
+        entry,
+        id=previous.id,
+        character=replace(entry.character, key=previous.character.key),
+        costume=replace(entry.costume, key=previous.costume.key),
+    )
+    if not archived.completed or is_hashed_asset_url(previous.resources.primary_url):
+        return pinned
+    return replace(
+        pinned,
+        source=previous.source,
+        costume=replace(
+            pinned.costume,
+            face_ids=previous.costume.face_ids,
+            face_urls=previous.costume.face_urls,
+            square_icon=previous.costume.square_icon,
+            shipyard_icon=previous.costume.shipyard_icon,
+            q_icon=previous.costume.q_icon,
+        ),
+        resources=previous.resources,
     )
 
 
@@ -1723,12 +1880,13 @@ def _validate_spine_atlas(
 
 def _live2d_resource_specs(entry: ModelEntry, *, model3_source: str) -> tuple[_ResourceSpec, ...]:
     manifest = _parse_live2d_model3(model3_source, model3_url=entry.resources.primary_url)
+    base_url = _entry_local_base_url(entry, entry.resources.primary_url)
     specs = [
         _ResourceSpec(
             kind='live2d.model3',
             source_url=entry.resources.primary_url,
             fallback_url=entry.resources.fallback_url,
-            base_url=entry.resources.primary_url,
+            base_url=base_url,
             context=_asset_context(entry, {'live2d_field': 'model3'}),
         ),
     ]
@@ -1737,7 +1895,7 @@ def _live2d_resource_specs(entry: ModelEntry, *, model3_source: str) -> tuple[_R
             kind=reference.kind,
             source_url=reference.url,
             fallback_url=_fallback_live2d_resource_url(entry.resources.fallback_url, reference.raw_path),
-            base_url=entry.resources.primary_url,
+            base_url=base_url,
             context=_asset_context(entry, reference.context),
         )
         for reference in manifest.references
@@ -1748,7 +1906,7 @@ def _live2d_resource_specs(entry: ModelEntry, *, model3_source: str) -> tuple[_R
                 kind='live2d.display-info',
                 source_url=entry.resources.display_info_url,
                 fallback_url=_same_name_display_info_url(entry.resources.fallback_url),
-                base_url=entry.resources.primary_url,
+                base_url=base_url,
                 context=_asset_context(entry, {'live2d_field': 'display_info', 'inferred': True}),
             ),
         )
@@ -1769,7 +1927,7 @@ def _spine_resource_specs(
                 kind='spine.parts',
                 source_url=manifest.parts_manifest_url,
                 fallback_url='',
-                base_url=manifest.parts_manifest_url,
+                base_url=_entry_local_base_url(entry, manifest.parts_manifest_url),
                 context=_asset_context(entry, {'spine_field': 'parts'}),
             ),
         )
@@ -1780,7 +1938,7 @@ def _spine_resource_specs(
                 kind='spine.skel',
                 source_url=part.skeleton_url,
                 fallback_url='',
-                base_url=part.skeleton_url,
+                base_url=_entry_local_base_url(entry, part.skeleton_url),
                 context=_asset_context(entry, {'spine_field': 'skel', 'spine_part': part.name}),
             ),
         )
@@ -1790,7 +1948,7 @@ def _spine_resource_specs(
                     kind='spine.atlas',
                     source_url=atlas_url,
                     fallback_url='',
-                    base_url=atlas_url,
+                    base_url=_entry_local_base_url(entry, atlas_url),
                     context=_asset_context(entry, {'spine_field': 'atlas', 'spine_part': part.name}),
                 ),
             )
@@ -1817,7 +1975,7 @@ def _spine_texture_specs(
                 kind='spine.texture',
                 source_url=_resolve_resource_url(atlas_url, texture_path),
                 fallback_url='',
-                base_url=atlas_url,
+                base_url=_entry_local_base_url(entry, atlas_url),
                 context=_asset_context(
                     entry,
                     {
@@ -1852,15 +2010,18 @@ def _painting_resource_specs(
     specs.extend(_painting_layer_specs(entry, painting_key=painting_key, painting_index=painting_index))
     # No case fallback is spelled out here: the downloader derives case variants for any
     # candidate that fails, which covers the filename and the key-bearing directory alike.
+    face_urls = entry.costume.face_urls or tuple(
+        (face_id, l2d_su_painting_face_url(painting_key, face_id)) for face_id in entry.costume.face_ids
+    )
     specs.extend(
         _ResourceSpec(
             kind='painting.face',
-            source_url=l2d_su_painting_face_url(painting_key, face_id),
+            source_url=face_url,
             fallback_url='',
             base_url=_l2d_su_relative_base_url(),
             context=_asset_context(entry, {'painting_field': 'face', 'face_id': face_id}),
         )
-        for face_id in entry.costume.face_ids
+        for face_id, face_url in face_urls
     )
     # q_icon is deliberately absent: the index advertises qicon/<key> for every skin, but the
     # CDN hosts none of them -- l2d.su's own page renders that slot broken too.
@@ -1917,6 +2078,9 @@ def _painting_layer_specs(
         ),
     ]
     for layer in painting_index.layers:
+        if layer.image_url:
+            specs.extend(_hashed_painting_layer_specs(entry, layer))
+            continue
         # Case-insensitively: the index and storage disagree on case in both directions, so the
         # entry can name Z28_3 where the index that answered for it says z28_3. Matching exactly
         # would archive the primary sheet a second time under the other spelling.
@@ -1942,6 +2106,31 @@ def _painting_layer_specs(
             ),
         )
     return tuple(specs)
+
+
+def _hashed_painting_layer_specs(entry: ModelEntry, layer: PaintingLayer) -> list[_ResourceSpec]:
+    specs: list[_ResourceSpec] = []
+    if urlsplit(layer.image_url).path != urlsplit(entry.resources.primary_url).path:
+        specs.append(
+            _ResourceSpec(
+                kind='painting.layer',
+                source_url=layer.image_url,
+                fallback_url='',
+                base_url=_l2d_su_relative_base_url(),
+                context=_asset_context(entry, {'painting_field': 'layer', 'layer': layer.name}),
+            ),
+        )
+    if layer.mesh_url and not layer.raw:
+        specs.append(
+            _ResourceSpec(
+                kind='painting.mesh',
+                source_url=layer.mesh_url,
+                fallback_url='',
+                base_url=_l2d_su_relative_base_url(),
+                context=_asset_context(entry, {'painting_field': 'mesh', 'layer': layer.name}),
+            ),
+        )
+    return specs
 
 
 def _painting_key_from_url(url: str) -> str:
@@ -1982,6 +2171,18 @@ def case_variant_urls(url: str) -> tuple[str, ...]:
         paths = [f'{head}/{variant}' for variant in _segment_case_variants(filename)]
 
     return tuple(urlunsplit(split._replace(path=path)) for path in dict.fromkeys(paths))
+
+
+def _entry_local_base_url(entry: ModelEntry, natural_base_url: str) -> str:
+    """The base a resource's local path is taken relative to.
+
+    A readable model keeps its files beside the file that names them. A hashed one references
+    siblings in other hashed directories (`../a0722ee10fbfd588/<digest>.webp`), so its files are
+    laid out as the CDN has them below the asset root, which keeps every reference resolvable.
+    """
+    if is_hashed_asset_url(entry.resources.primary_url):
+        return _l2d_su_relative_base_url()
+    return natural_base_url
 
 
 def _l2d_su_relative_base_url() -> str:
@@ -2441,11 +2642,17 @@ def _context_text(context: dict[str, Any], key: str) -> str:
 
 
 def spine_parts_manifest_url(url: str) -> str:
+    if urlsplit(url).path.endswith(SPINE_PARTS_MANIFEST_EXTENSION):
+        # The hashed build points a spine skin straight at its parts manifest.
+        return url
     return f'{_spine_stem_url(url)}{SPINE_PARTS_MANIFEST_EXTENSION}'
 
 
 def spine_resource_manifest(url: str, *, parts_source: str | None = None) -> SpineResourceManifest:
     stem_url = _spine_stem_url(url)
+    if parts_source is None and is_hashed_asset_url(url):
+        msg = f'Spine model {url} has no readable parts manifest'
+        raise SourceSchemaError(msg)
     if parts_source is None:
         name = PurePosixPath(urlsplit(stem_url).path).name
         part = SpineModelPart(name=name, skeleton_url=f'{stem_url}.skel', atlas_urls=(f'{stem_url}.atlas',))
@@ -2493,15 +2700,29 @@ def painting_index_url(painting_url: str) -> str:
     return l2d_su_painting_index_url(_painting_key_from_url(painting_url))
 
 
-def parse_painting_index(source: str, *, painting_url: str) -> PaintingIndex:
-    painting_key = _painting_key_from_url(painting_url)
+def entry_painting_index_url(entry: ModelEntry) -> str:
+    """The painting entry's layer index; empty for a hashed painting the source lists none for."""
+    if entry.resources.painting_index_url:
+        return entry.resources.painting_index_url
+    if is_hashed_asset_url(entry.resources.primary_url):
+        return ''
+    return painting_index_url(entry.resources.primary_url)
+
+
+def parse_painting_index(source: str, *, painting_url: str, index_url: str = '') -> PaintingIndex:
+    """Parse a painting's layer index.
+
+    `index_url` is given for the hashed build, whose index names each layer's sheet and mesh
+    (relative to the index) instead of leaving them to be derived from the layer name.
+    """
+    painting_key = PurePosixPath(urlsplit(index_url).path).stem if index_url else _painting_key_from_url(painting_url)
     payload = _decode_json_object(source, context='l2d.su painting index')
     layers: list[PaintingLayer] = []
     face: PaintingLayer | None = None
     for name, value in payload.items():
         if not isinstance(value, dict) or not name.strip():
             continue
-        layer = _painting_layer(name.strip(), value)
+        layer = _painting_layer(name.strip(), value, index_url=index_url)
         if layer.name == PAINTING_FACE_SLOT:
             face = layer
             continue
@@ -2513,15 +2734,19 @@ def parse_painting_index(source: str, *, painting_url: str) -> PaintingIndex:
 
     return PaintingIndex(
         painting_key=painting_key,
-        index_url=l2d_su_painting_index_url(painting_key),
+        index_url=index_url or l2d_su_painting_index_url(painting_key),
         layers=tuple(layers),
         face=face,
     )
 
 
-def _painting_layer(name: str, value: dict[str, Any]) -> PaintingLayer:
+def _painting_layer(name: str, value: dict[str, Any], *, index_url: str = '') -> PaintingLayer:
     size = _painting_number_pair(value.get('size')) or _PAINTING_ZERO_PAIR
+    image = _optional_str(value, 'image') if index_url else ''
+    mesh = _optional_str(value, 'mesh') if index_url else ''
     return PaintingLayer(
+        image_url=_resolve_resource_url(index_url, image) if image else '',
+        mesh_url=_resolve_resource_url(index_url, mesh) if mesh else '',
         name=name,
         size=size,
         # rawSize is absent on layers that are stored at their declared size.
@@ -2653,8 +2878,13 @@ def _l2d_su_entry(
                 shipyard_icon=model.shipyard_icon,
                 q_icon=model.q_icon,
                 shop_type=model.shop_type,
+                face_urls=model.face_urls,
             ),
-            resources=ModelResources(primary_url=model.path, fallback_url=fallback_url),
+            resources=ModelResources(
+                primary_url=model.path,
+                fallback_url=fallback_url,
+                painting_index_url=model.painting_index_url,
+            ),
         ),
         fallback.key if fallback is not None else '',
     )
@@ -2728,6 +2958,8 @@ def _catalog_entry_id(model_type: L2DSuModelKind, character_key: str, costume_ke
 
 
 def _l2d_su_model_key(model: L2DSuModelSnapshot) -> str:
+    if model.hashed:
+        return model.model_key
     path_segments = _l2d_su_path_segments(model.path)
     filename = path_segments[-1] if path_segments else ''
     if model.kind == 'live2d':
@@ -2743,7 +2975,7 @@ def _l2d_su_model_key(model: L2DSuModelSnapshot) -> str:
 
 
 def _l2d_su_fallback_match_key(model: L2DSuModelSnapshot) -> str:
-    if model.kind != 'live2d':
+    if model.kind != 'live2d' or model.hashed:
         return ''
 
     path_segments = _l2d_su_path_segments(model.path)
@@ -2879,7 +3111,7 @@ def _parse_l2d_su_ship(item: Any, *, index: int) -> L2DSuCharacterSnapshot:
     default_skin_id = item.get('defaultSkinId')
     return L2DSuCharacterSnapshot(
         char_id=_required_int(item, 'shipGroupId', context=context),
-        char_key=_required_str(item, 'resourceKey', context=context),
+        char_key=_l2d_su_character_key(item, context=context),
         char_name=_required_str(item, 'name', context=context),
         char_name_en=_optional_str(item, 'englishName'),
         nation=_optional_str(item, 'nationName'),
@@ -2891,6 +3123,14 @@ def _parse_l2d_su_ship(item: Any, *, index: int) -> L2DSuCharacterSnapshot:
         spine=tuple(model for model in models if model.kind == 'spine'),
         paintings=tuple(model for model in models if model.kind == 'painting'),
     )
+
+
+def _l2d_su_character_key(item: dict[str, Any], *, context: str) -> str:
+    """The ship's resource name, or `ship-<id>` where the hashed build replaced it with a digest."""
+    resource_key = _required_str(item, 'resourceKey', context=context)
+    if _HASHED_RESOURCE_KEY_RE.match(resource_key):
+        return f'ship-{_required_int(item, "shipGroupId", context=context)}'
+    return resource_key
 
 
 def _l2d_su_skin_series(item: dict[str, Any]) -> tuple[str, ...]:
@@ -2925,6 +3165,9 @@ def _parse_l2d_su_skins(item: dict[str, Any], *, context: str) -> tuple[L2DSuMod
 
 
 def _parse_l2d_su_skin(skin: dict[str, Any], *, context: str) -> tuple[L2DSuModelSnapshot, ...]:
+    if _is_hashed_skin(skin):
+        return _parse_hashed_l2d_su_skin(skin, context=context)
+
     snapshots: list[L2DSuModelSnapshot] = []
     kind = _l2d_su_skin_kind(skin)
     model_key = _optional_str(skin, 'painting') or _optional_str(skin, 'prefab')
@@ -2956,6 +3199,97 @@ def _l2d_su_skin_snapshot(skin: dict[str, Any], *, kind: L2DSuModelKind, model_k
         q_icon=_optional_str(icons, 'qIcon'),
         shop_type=_optional_str(skin, 'shopTypeName'),
     )
+
+
+def _is_hashed_skin(skin: dict[str, Any]) -> bool:
+    painting = _optional_str(skin, 'painting') or _optional_str(skin, 'prefab')
+    return bool(_HASHED_RESOURCE_KEY_RE.match(painting))
+
+
+def _parse_hashed_l2d_su_skin(skin: dict[str, Any], *, context: str) -> tuple[L2DSuModelSnapshot, ...]:
+    """A skin of the hashed /al/ build, whose names are digests and whose assets are listed.
+
+    The digest is not a stable name to archive under, so the skin is keyed by its id
+    (`skin-<id>`); a skin archived before the hashed build keeps its old name through
+    pin_archived_entries. The model path of a Live2D or spine skin is only in the per-ship detail,
+    so it is left empty here unless the payload carries it, and filled in later.
+    """
+    costume_id = _required_int(skin, 'id', context=context)
+    model_key = f'skin-{costume_id}'
+    asset_paths = skin.get('assetPaths')
+    paths = asset_paths if isinstance(asset_paths, dict) else {}
+    model = skin.get('model')
+    model_path = _optional_str(model, 'path') if isinstance(model, dict) else ''
+
+    snapshots: list[L2DSuModelSnapshot] = []
+    kind = _l2d_su_skin_kind(skin)
+    if kind is not None:
+        path = _l2d_su_static_url(model_path) if model_path else ''
+        snapshots.append(_hashed_skin_snapshot(skin, kind=kind, model_key=model_key, path=path, paths=paths, context=context))
+
+    painting_path = _optional_str(paths, 'painting')
+    if painting_path:
+        snapshots.append(
+            _hashed_skin_snapshot(
+                skin,
+                kind='painting',
+                model_key=model_key,
+                path=_l2d_su_static_url(painting_path),
+                paths=paths,
+                context=context,
+            ),
+        )
+    return tuple(snapshots)
+
+
+def _hashed_skin_snapshot(  # noqa: PLR0913
+    skin: dict[str, Any],
+    *,
+    kind: L2DSuModelKind,
+    model_key: str,
+    path: str,
+    paths: dict[str, Any],
+    context: str,
+) -> L2DSuModelSnapshot:
+    snapshot = _l2d_su_skin_snapshot(skin, kind=kind, model_key=model_key, context=context)
+    return replace(
+        snapshot,
+        path=path,
+        square_icon=_hashed_asset_url(paths, 'squareIcon'),
+        shipyard_icon=_hashed_asset_url(paths, 'shipyardIcon'),
+        q_icon=_hashed_asset_url(paths, 'qIcon'),
+        face_urls=_hashed_face_urls(paths.get('paintingFaces')),
+        painting_index_url=_hashed_painting_index_url(paths.get('paintingPaths'), painting_key=_optional_str(skin, 'painting')),
+        hashed=True,
+    )
+
+
+def _hashed_asset_url(paths: dict[str, Any], field_name: str) -> str:
+    path = _optional_str(paths, field_name)
+    return _l2d_su_static_url(path) if path else ''
+
+
+def _hashed_face_urls(value: Any) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, list):
+        return ()
+    faces: list[tuple[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        face_id = item.get('id')
+        url = _optional_str(item, 'url')
+        if isinstance(face_id, int | str) and not isinstance(face_id, bool) and str(face_id).strip() and url:
+            faces.append((str(face_id).strip(), _l2d_su_static_url(url)))
+    return tuple(faces)
+
+
+def _hashed_painting_index_url(value: Any, *, painting_key: str) -> str:
+    """The index of the skin's own painting; a few skins list a second painting after it."""
+    paths = [path for path in value if isinstance(path, str) and path.strip()] if isinstance(value, list) else []
+    for path in paths:
+        if PurePosixPath(urlsplit(path).path).stem == painting_key:
+            return _l2d_su_static_url(path)
+    return _l2d_su_static_url(paths[0]) if paths else ''
 
 
 def _l2d_su_skin_kind(skin: dict[str, Any]) -> L2DSuModelKind | None:
@@ -2994,6 +3328,9 @@ def l2d_su_painting_face_url(painting_key: str, face_id: str) -> str:
 
 
 def l2d_su_icon_url(icon_path: str) -> str:
+    """An icon by its index path; the hashed build already gives an absolute URL."""
+    if icon_path.startswith(('https://', 'http://')):
+        return icon_path
     return f'{L2D_SU_STATIC_BASE_URL}/{icon_path}.webp'
 
 
@@ -3052,12 +3389,26 @@ def _fetch_l2d_su_index(
         return None, metadata, (_source_error('network', 'Fetch did not return a response', metadata),)
 
     try:
-        parsed = parse_l2d_su_ship_index(response.text, region=region)
+        parsed = parse_l2d_su_ship_index(protected_response_text(response, url=url), region=region)
+    except ProtectedResourceError as exc:
+        return None, metadata, (_source_error('parse', _with_content_type(str(exc), response), metadata),)
     except SourceParseError as exc:
         return None, metadata, (_source_error('parse', _with_content_type(str(exc), response), metadata),)
     except SourceSchemaError as exc:
         return None, metadata, (_source_error('schema', str(exc), metadata),)
     return parsed, metadata, ()
+
+
+def protected_response_text(response: httpx.Response, *, url: str) -> str:
+    """The response body as text, opened first if it is an AZP2 envelope for `url`."""
+    content = decrypt_for_url(response.content, url)
+    if content is response.content:
+        return response.text
+    try:
+        return content.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        msg = f'Decrypted {url} is not UTF-8 text'
+        raise ProtectedResourceError(msg) from exc
 
 
 def _with_content_type(message: str, response: httpx.Response) -> str:
