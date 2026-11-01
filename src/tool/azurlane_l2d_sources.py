@@ -2003,7 +2003,7 @@ def _painting_resource_specs(
             kind='painting.image',
             source_url=entry.resources.primary_url,
             fallback_url='',
-            base_url=entry.resources.primary_url,
+            base_url=_entry_local_base_url(entry, entry.resources.primary_url),
             context=_asset_context(entry, {'painting_field': 'image'}),
         ),
     ]
@@ -2073,7 +2073,7 @@ def _painting_layer_specs(
             kind='painting.index',
             source_url=painting_index.index_url,
             fallback_url='',
-            base_url=painting_index.index_url,
+            base_url=_entry_local_base_url(entry, painting_index.index_url),
             context=_asset_context(entry, {'painting_field': 'index'}),
         ),
     ]

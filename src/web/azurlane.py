@@ -561,6 +561,21 @@ def _raise_invalid_asset_response(reason: str) -> None:
     raise InvalidAssetResponseError(reason)
 
 
+def _check_archive_continuity(catalog: AzurLaneModelCatalog, archived: list[ArchivedModel]) -> None:
+    """Refuse a catalog that matches nothing the archive holds.
+
+    Archived skins are recognised by costume id and model type. Should that ever match nothing,
+    every skin would look new and the whole archive would be downloaded again under new names, so
+    the run stops instead.
+    """
+    archived_ids = {model.entry.id for model in archived if model.completed}
+    kept = sum(1 for entry in catalog.entries if entry.id in archived_ids)
+    log.info('Azur Lane catalog: %d entries, %d of %d completed archive models kept', len(catalog.entries), kept, len(archived_ids))
+    if archived_ids and not kept:
+        msg = f'Azur Lane catalog matches none of the {len(archived_ids)} archived models; refusing to download the archive again'
+        raise CrawlRunError(msg)
+
+
 def _download_candidates(asset: AzurLaneAsset) -> list[str]:
     candidates = [asset.url]
     if asset.fallback_url and asset.fallback_url not in candidates:
@@ -2321,7 +2336,9 @@ class AzurLane:
                 # every run was recorded as completed.
                 raise CrawlRunError(_source_failure_message(snapshots, catalog))
 
-            catalog = pin_archived_entries(catalog, await self._archived_models())
+            archived = await self._archived_models()
+            catalog = pin_archived_entries(catalog, archived)
+            _check_archive_continuity(catalog, archived)
             self._origin_detail_spent = 0
             self._ship_model_paths = {}
             self._ship_detail_payloads = {}
