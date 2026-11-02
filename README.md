@@ -80,7 +80,7 @@ pass, so only enable it for accounts whose list you want consumed.
 
 CookieCloud credentials themselves live in the shared `cookiecloud` section — a named list of
 `{name, server_url, uuid, password}` entries edited in the settings page's credentials partition — and every
-consumer (each Bilibili account, X, pixiv) references one by name, so a vault used by several sources
+consumer (each Bilibili account, and the WeChat source's NGA login) references one by name, so a vault used by several sources
 is configured once. Legacy rows that still carry inline credentials are hoisted into the shared
 section automatically on the first load after upgrading (identical credentials collapse into a single
 entry).
@@ -119,21 +119,24 @@ uv lock --upgrade-package gallery-dl
   "username": "yourhandle",                 // your own screen name, without the @
   "path": "collection/twitter",
   "video_path": null,                       // null keeps videos with the images
-  "cookiecloud": "",                        // optional fallback: an entry in the shared `cookiecloud` section
   "sleep_request_seconds": 2.0,             // spacing between X requests
   "abort_after": 20,                        // consecutive known files that end an incremental run
   "include_retweets": true,                 // liked retweets, filed under the original author
   "include_videos": true,                   // photos only when false
-  "proxy": ""
+  "proxy": ""                               // also the egress of the 登录态 login
 }
 ```
 
-The session comes from the referenced entry of the shared `cookiecloud` section (typically the same
-vault Bilibili uses), read from `x.com` (or `twitter.com`, whichever the browser extension synced),
-and needs `auth_token` and `ct0`. It is re-fetched at the start of every run, so signing in again in
-the browser is all it takes to recover from an expired session. `POST /api/v2/cookiecloud/test`
-takes a `source` field (`bilibili`, `twitter`, `nga`, or empty for connectivity only) and the
-settings page exposes it as the same 测试连接 button.
+The session is the `auth_token` and `ct0` cookies of a login made once on the web UI's 登录态 page
+(see [Site logins](#site-logins)). The login window leaves through `proxy`, the same egress as the
+crawl, so X sees the sign-in and the crawling come from one place; point it at a residential proxy
+rather than letting a fresh login come from a datacenter address. When the window's `auth_token`
+appears, the login is checked against X's account settings, whose screen name has to be `username`
+(the likes timeline is readable only by its owner). Each run writes the stored cookies to a
+temporary cookies.txt for gallery-dl. A run that gallery-dl cannot authenticate marks the login
+已失效 on the page and fails with one deduplicated `twitter:auth` notification asking for a new
+login; with no login captured at all it fails the same way. CookieCloud is not used for X (a
+`cookiecloud` key left in an older `web.twitter` row is ignored).
 
 Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
 covers both. Setting `video_path` keeps videos and GIFs on a different disk from the images; leave it
@@ -398,7 +401,7 @@ or on the first 401/403 from the API.
 
 ### Site logins
 
-The 登录态 page lists the sources that need a signed-in session (pixiv and RedNote) with the state of the
+The 登录态 page lists the sources that need a signed-in session (pixiv, X and RedNote) with the state of the
 stored one: account, when it was captured, when its cookie expires, and whether the last crawl found it
 valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
 `Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
@@ -406,7 +409,8 @@ shown in the page through noVNC. The VNC WebSocket (`/api/v2/site-sessions/vnc`)
 ticket that belongs to that one login, since a browser cannot send the bearer token on a WebSocket.
 
 While the window is open the API polls its cookies. When the session cookie appears it asks the site
-whether it is a real login (for pixiv, by reading the private bookmarks, which only the owner can),
+whether it is a real login (for pixiv, by reading the private bookmarks, which only the owner can;
+for X, by reading the account's settings),
 stores the cookies in `site_sessions`, and shuts the browser and the display down. A login left
 unfinished closes itself after 15 minutes. Nothing runs between logins; a login takes roughly
 400-600 MB while it is open. Each site keeps its Chromium profile under `data/login-profiles/<site>`
