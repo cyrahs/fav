@@ -60,8 +60,8 @@ def _legacy_rows() -> dict:
                 },
             ],
         },
+        # X and pixiv no longer read CookieCloud: their leftovers are not migrated, only ignored.
         'web.twitter': {'username': 'me', 'cookiecloud': dict(shared_creds)},
-        # pixiv no longer reads CookieCloud: its leftover is not migrated, only ignored.
         'web.pixiv': {'cookiecloud': dict(shared_creds)},
     }
 
@@ -71,19 +71,20 @@ def test_migration_hoists_inline_credentials_into_the_shared_registry() -> None:
 
     changed = settings.migrate_legacy_cookiecloud(rows)
 
-    assert changed == {'cookiecloud', 'web.bilibili', 'web.twitter'}
-    # Identical credentials collapse into one entry named after the first consumer.
+    assert changed == {'cookiecloud', 'web.bilibili'}
+    # Each distinct set of credentials becomes one entry named after its account.
     registry = {entry['name']: entry for entry in rows['cookiecloud']['configs']}
-    assert set(registry) == {'twitter', 'alt'}
-    assert registry['twitter']['password'] == 'shared-pw'
-    assert rows['web.twitter']['cookiecloud'] == 'twitter'
-    assert rows['web.bilibili']['accounts'][0]['cookiecloud'] == 'twitter'
+    assert set(registry) == {'main', 'alt'}
+    assert registry['main']['password'] == 'shared-pw'
+    assert rows['web.bilibili']['accounts'][0]['cookiecloud'] == 'main'
     assert rows['web.bilibili']['accounts'][1]['cookiecloud'] == 'alt'
-    assert rows['web.pixiv']['cookiecloud'] == {'server_url': 'https://cc.example', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
+    leftover = {'server_url': 'https://cc.example', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
+    assert rows['web.twitter']['cookiecloud'] == leftover
+    assert rows['web.pixiv']['cookiecloud'] == leftover
 
     # The migrated rows build a valid settings tree.
     snapshot = settings.build_settings(rows)
-    assert snapshot.cookiecloud.get('twitter').uuid == 'shared-uuid'
+    assert snapshot.cookiecloud.get('main').uuid == 'shared-uuid'
 
 
 def test_migration_is_idempotent() -> None:

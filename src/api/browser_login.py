@@ -38,7 +38,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from src.core import logger, settings
 from src.tool import database, site_sessions
 from src.tool.site_sessions import StoredCookie, cookie_expiry, cookie_value, cookies_from_browser, without_values
-from src.web import pixiv, rednote, rednote_browser
+from src.web import pixiv, rednote, rednote_browser, twitter
 from src.web.rednote_browser import build_proxy_settings, clear_stale_profile_locks
 
 if TYPE_CHECKING:
@@ -601,6 +601,11 @@ async def _verify_pixiv(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
     return await pixiv.verify_session(cookie_value(cookies, 'PHPSESSID'), user_id=cfg.user_id, proxy=cfg.proxy)
 
 
+async def _verify_twitter(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
+    cfg = settings.load().web.twitter
+    return await twitter.verify_session(cookies, username=cfg.username, proxy=cfg.proxy)
+
+
 @dataclass(frozen=True)
 class _PageCheck:
     ok: bool
@@ -655,6 +660,16 @@ LOGIN_SITES: dict[str, LoginSite] = {
         session_cookie='PHPSESSID',
         verify=_verify_pixiv,
         proxy=lambda: settings.load().web.pixiv.proxy,
+    ),
+    twitter.SESSION_SITE: LoginSite(
+        key=twitter.SESSION_SITE,
+        label='X',
+        login_url=twitter.LOGIN_URL,
+        cookie_urls=twitter.SESSION_COOKIE_URLS,
+        session_cookie=twitter.SESSION_COOKIE,
+        verify=_verify_twitter,
+        proxy=lambda: settings.load().web.twitter.proxy,
+        hint='用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。',  # noqa: RUF001
     ),
     rednote.SESSION_SITE: LoginSite(
         key=rednote.SESSION_SITE,

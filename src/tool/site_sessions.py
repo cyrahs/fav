@@ -115,6 +115,22 @@ def cookie_expiry(cookies: tuple[StoredCookie, ...], name: str) -> datetime | No
     return None
 
 
+def to_netscape(cookies: tuple[StoredCookie, ...]) -> str:
+    """The cookies as a Netscape cookies.txt, for a downloader that reads its session from a file.
+
+    The secure flag is not stored, so every cookie is written as secure: the sites
+    these sessions belong to are only ever reached over HTTPS.
+    """
+    lines = ['# Netscape HTTP Cookie File', '']
+    for c in cookies:
+        if not c.value or not c.domain:
+            continue
+        include_subdomains = 'TRUE' if c.domain.startswith('.') else 'FALSE'
+        expires = str(int(c.expires)) if c.expires else '0'
+        lines.append('\t'.join((c.domain, include_subdomains, c.path or '/', 'TRUE', expires, c.name, c.value)))
+    return '\n'.join(lines) + '\n'
+
+
 def _encode_cookies(cookies: tuple[StoredCookie, ...]) -> str:
     return json.dumps(
         [{'name': c.name, 'value': c.value, 'domain': c.domain, 'path': c.path, 'expires': c.expires} for c in cookies],

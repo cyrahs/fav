@@ -1127,26 +1127,6 @@ def test_test_cookiecloud_without_a_source_probes_generically(monkeypatch) -> No
     assert profiles == [None]
 
 
-def test_test_cookiecloud_checks_x_cookies_when_the_source_says_twitter(monkeypatch) -> None:
-    service, probed = _cookiecloud_service(sections={'cookiecloud': _SHARED_CC})
-    profiles: list[object] = []
-
-    def _fake_probe(server_url: str, uuid: str, password: str, **kwargs: object) -> api_service_module.cookiecloud_tool.CookieCloudProbe:
-        probed.append((server_url, uuid, password))
-        profiles.append(kwargs.get('profile'))
-        return api_service_module.cookiecloud_tool.CookieCloudProbe(ok=True, code='ok', message='OK')
-
-    monkeypatch.setattr(api_service_module.cookiecloud_tool, 'probe', _fake_probe)
-
-    result = service.test_cookiecloud(
-        {'source': 'twitter', 'name': 'main', 'server_url': 'https://cc.main', 'uuid': 'main-uuid', 'password': 'main••••'},
-    )
-
-    assert result['ok'] is True
-    assert probed == [('https://cc.main', 'main-uuid', 'main-pw')]
-    assert profiles == [api_service_module.cookiecloud_tool.TWITTER_PROFILE]
-
-
 def test_test_cookiecloud_rejects_a_source_it_has_no_profile_for() -> None:
     service, _ = _cookiecloud_service(sections={})
 

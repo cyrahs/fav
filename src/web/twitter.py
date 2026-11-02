@@ -6,6 +6,11 @@ account is signed in with. gallery-dl owns the parts that break when X changes:
 the GraphQL endpoints, the transaction-id header, and the 429 back-off. This
 module owns scheduling, the session, and the archive database.
 
+The session is the one captured on the 登录态 page (``src/tool/site_sessions.py``):
+the user signs in once in a browser fav starts for that purpose, through the same
+proxy the crawl uses, and the ``auth_token`` and ``ct0`` cookies are kept in the
+database from then on and handed to gallery-dl as a cookies.txt each run.
+
 Two pieces of state make a run incremental:
 
 * gallery-dl's own download archive, in the collection directory, decides which
@@ -23,13 +28,17 @@ import contextlib
 import json
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
+
+import httpx
 
 from src.core import logger, settings
-from src.tool import CookieCloudClient, database
-from src.tool.cookiecloud import TWITTER_PROFILE
+from src.tool import database, site_sessions
 from src.tool.notifications import enqueue_notification
+from src.tool.site_sessions import StoredCookie, cookie_value
 
 log = logger.get('twitter')
 
@@ -40,6 +49,26 @@ SIDECAR_SUFFIX = '.json'
 ARCHIVE_FILENAME = '.gallery-dl-archive.db'
 COOKIE_FILENAME = 'twitter-cookies.txt'
 BACKFILL_STATE_KEY = 'backfill_complete'
+
+# The key the captured login is stored under in site_sessions, and what the 登录态
+# page opens and reads back.
+SESSION_SITE = 'twitter'
+LOGIN_URL = 'https://x.com/i/flow/login'
+SESSION_COOKIE_URLS = ('https://x.com/',)
+# Set only once a login completes; ct0 is the CSRF token every request echoes back.
+SESSION_COOKIE = 'auth_token'
+_CSRF_COOKIE = 'ct0'
+# "u=<user id>", URL-encoded, set alongside auth_token.
+_USER_ID_COOKIE = 'twid'
+_RELOGIN_HINT = "Sign in to X again on fav's 登录态 page."
+_AUTH_DEDUPE_KEY = 'twitter:auth'
+# The web app's public bearer token, the same one gallery-dl sends.
+_WEB_BEARER_TOKEN = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'  # noqa: S105 - public, shipped in X's own web bundle
+_ACCOUNT_SETTINGS_URL = 'https://api.x.com/1.1/account/settings.json'
+_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+_HTTP_UNAUTHORIZED = 401
+_HTTP_FORBIDDEN = 403
+_HTTP_OK = 200
 
 # Matches the repository's `[uploader]title [media_id].ext` shape. The tweet text is
 # deliberately absent: it is multi-line, mutable, and already stored in the database
@@ -71,6 +100,75 @@ class TwitterDownloadError(RuntimeError):
     def __init__(self, message: str, *, notification_dedupe_key: str = '') -> None:
         super().__init__(message)
         self.notification_dedupe_key = notification_dedupe_key
+
+
+@dataclass(frozen=True)
+class SessionCheck:
+    ok: bool
+    account: str
+    message: str
+
+
+def user_id_from_twid(cookies: tuple[StoredCookie, ...]) -> str:
+    """The numeric account id X files in the ``twid`` cookie (``u=<id>``), or empty."""
+    raw = unquote(cookie_value(cookies, _USER_ID_COOKIE)).strip('"')
+    user_id = raw.removeprefix('u=')
+    return user_id if raw.startswith('u=') and user_id.isdigit() else ''
+
+
+async def verify_session(
+    cookies: tuple[StoredCookie, ...],
+    *,
+    username: str = '',
+    proxy: str = '',
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> SessionCheck:
+    """Whether a pair of X cookies is a live login, and for which account.
+
+    X sets ``auth_token`` only when a login completes, so its presence is already
+    most of the answer. The account's own settings then name the screen name,
+    which has to be the configured ``username``: the likes timeline is readable
+    only by its owner. An answer that is neither a rejection nor a screen name
+    (X retiring the endpoint, a rate limit) does not hold a login up -- the crawl
+    is what proves the session from then on.
+    """
+    auth_token = cookie_value(cookies, SESSION_COOKIE)
+    csrf_token = cookie_value(cookies, _CSRF_COOKIE)
+    if not auth_token or not csrf_token:
+        return SessionCheck(ok=False, account='', message='no auth_token/ct0 cookies yet; not signed in')
+    fallback_account = username or user_id_from_twid(cookies)
+    async with httpx.AsyncClient(
+        headers={
+            'User-Agent': _USER_AGENT,
+            'Authorization': f'Bearer {_WEB_BEARER_TOKEN}',
+            'x-csrf-token': csrf_token,
+            'x-twitter-auth-type': 'OAuth2Session',
+            'x-twitter-active-user': 'yes',
+            'Referer': 'https://x.com/',
+            'Cookie': f'auth_token={auth_token}; ct0={csrf_token}',
+        },
+        proxy=proxy or None,
+        transport=transport,
+        timeout=30,
+    ) as client:
+        try:
+            response = await client.get(_ACCOUNT_SETTINGS_URL)
+        except httpx.HTTPError as exc:
+            return SessionCheck(ok=False, account='', message=f'X unreachable: {exc.__class__.__name__}')
+    if response.status_code in {_HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN}:
+        return SessionCheck(ok=False, account='', message=f'X rejected the session (HTTP {response.status_code})')
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    screen_name = str(payload.get('screen_name') or '') if isinstance(payload, dict) else ''
+    if response.status_code != _HTTP_OK or not screen_name:
+        log.warning('X account settings answered HTTP %s without a screen name; accepting the login', response.status_code)
+        return SessionCheck(ok=True, account=fallback_account, message='')
+    if username and screen_name.casefold() != username.casefold():
+        msg = f'signed in as @{screen_name}, but web.twitter.username is @{username}; the likes timeline is only readable by its owner'
+        return SessionCheck(ok=False, account=screen_name, message=msg)
+    return SessionCheck(ok=True, account=screen_name, message='')
 
 
 def build_command(
@@ -201,14 +299,17 @@ class Twitter:
             (BACKFILL_STATE_KEY, '1'),
         )
 
-    def _write_cookie_file(self, cookie_path: Path) -> None:
-        """Refresh the X session from CookieCloud, so it tracks the browser."""
-        cc_cfg = settings.resolve_cookiecloud(self.cfg.cookiecloud)
-        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password)
-        try:
-            client.save_to_netscape_format(TWITTER_PROFILE.domains, cookie_path)
-        finally:
-            client.client.close()
+    async def _resolve_session(self) -> tuple[StoredCookie, ...]:
+        """The cookies captured on the 登录态 page; without a login there is nothing to crawl with."""
+        stored = await site_sessions.load(SESSION_SITE)
+        if stored is None or not stored.cookie(SESSION_COOKIE) or not stored.cookie(_CSRF_COOKIE):
+            msg = f'X is not signed in. {_RELOGIN_HINT}'
+            raise TwitterDownloadError(msg, notification_dedupe_key=_AUTH_DEDUPE_KEY)
+        return stored.cookies
+
+    @staticmethod
+    def _write_cookie_file(cookie_path: Path, cookies: tuple[StoredCookie, ...]) -> None:
+        cookie_path.write_text(site_sessions.to_netscape(cookies), encoding='utf-8')
 
     async def _run_gallery_dl(self, command: list[str]) -> tuple[int, list[str]]:
         """Run gallery-dl to completion, returning its exit code and the tail of its errors.
@@ -375,10 +476,11 @@ class Twitter:
         if self.cfg.video_path is not None:
             await asyncio.to_thread(self.cfg.video_path.mkdir, parents=True, exist_ok=True)
 
+        cookies = await self._resolve_session()
         backfill_complete = await self._backfill_complete()
         with tempfile.TemporaryDirectory() as tmp_dir:
             cookie_path = Path(tmp_dir) / COOKIE_FILENAME
-            await asyncio.to_thread(self._write_cookie_file, cookie_path)
+            await asyncio.to_thread(self._write_cookie_file, cookie_path, cookies)
             command = build_command(
                 self.cfg,
                 cookie_path=cookie_path,
@@ -392,13 +494,15 @@ class Twitter:
         downloaded = await self._ingest_sidecars()
 
         if returncode & EXIT_AUTH:
-            msg = 'gallery-dl could not authenticate with X. Sign in again in the browser so CookieCloud picks up a fresh session.'
-            raise TwitterDownloadError(msg, notification_dedupe_key='twitter:auth')
+            msg = f'gallery-dl could not authenticate with X. {_RELOGIN_HINT}'
+            await site_sessions.record_check(SESSION_SITE, ok=False, message=msg)
+            raise TwitterDownloadError(msg, notification_dedupe_key=_AUTH_DEDUPE_KEY)
         if returncode != 0:
             detail = ' | '.join(errors)
             msg = f'gallery-dl exited with code {returncode}: {detail}' if detail else f'gallery-dl exited with code {returncode}'
             raise TwitterDownloadError(msg, notification_dedupe_key=f'twitter:exit:{returncode}')
 
+        await site_sessions.record_check(SESSION_SITE, ok=True)
         if not backfill_complete:
             # A clean exit without an early abort means the whole likes timeline was
             # walked, so later runs can stop as soon as they recognise the top of it.

@@ -113,38 +113,3 @@ def test_probe_reports_an_http_error_with_its_status(monkeypatch) -> None:
     assert result.ok is False
     assert result.code == 'http_error'
     assert '404' in result.message
-
-
-def test_probe_accepts_an_x_session_stored_under_either_hostname(monkeypatch) -> None:
-    # Which hostname the extension syncs under depends on when it last ran.
-    _install_cookies(
-        monkeypatch,
-        {
-            'twitter.com': [{'name': 'auth_token', 'value': 'v'}],
-            'x.com': [{'name': 'ct0', 'value': 'v'}],
-        },
-    )
-
-    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=cookiecloud_tool.TWITTER_PROFILE)
-
-    assert result.ok is True
-    assert result.domain_cookie_count == 2
-
-
-def test_probe_names_the_x_cookie_that_is_missing(monkeypatch) -> None:
-    _install_cookies(monkeypatch, {'x.com': [{'name': 'auth_token', 'value': 'v'}]})
-
-    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=cookiecloud_tool.TWITTER_PROFILE)
-
-    assert result.ok is False
-    assert result.code == 'missing_cookies'
-    assert result.missing_cookies == ('ct0',)
-
-
-def test_a_bilibili_only_vault_is_not_mistaken_for_an_x_session(monkeypatch) -> None:
-    _install_cookies(monkeypatch, _bilibili_cookies(cookiecloud_tool.BILIBILI_PROFILE.required_cookies))
-
-    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=cookiecloud_tool.TWITTER_PROFILE)
-
-    assert result.ok is False
-    assert result.code == 'no_domain_cookies'

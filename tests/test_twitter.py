@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from gallery_dl import config as gallery_dl_config
 from gallery_dl import option as gallery_dl_option
@@ -13,7 +14,17 @@ import src.web.twitter as twitter_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.core import settings
-from src.web.twitter import FILENAME_FORMAT, Twitter, TwitterDownloadError, build_command, is_transient_user_lookup_failure, parse_sidecar
+from src.tool.site_sessions import SiteSession, StoredCookie
+from src.web.twitter import (
+    FILENAME_FORMAT,
+    Twitter,
+    TwitterDownloadError,
+    build_command,
+    is_transient_user_lookup_failure,
+    parse_sidecar,
+    user_id_from_twid,
+    verify_session,
+)
 
 
 def _configure_twitter(**updates: object) -> settings.Twitter:
@@ -24,16 +35,46 @@ def _configure_twitter(**updates: object) -> settings.Twitter:
     return cfg
 
 
-def _register_cookiecloud(name: str = 'cc', **overrides: str) -> str:
-    """Add a shared CookieCloud config to the pinned snapshot; returns its name."""
-    fields = {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'pw'}
-    fields.update(overrides)
-    settings.load().cookiecloud.configs.append(settings.CookieCloudEntry(name=name, **fields))
-    return name
-
-
 def _runnable_cfg(**updates: object) -> settings.Twitter:
-    return _configure_twitter(username='me', cookiecloud=_register_cookiecloud(), **updates)
+    return _configure_twitter(username='me', **updates)
+
+
+_SIGNED_IN = (
+    StoredCookie(name='auth_token', value='tok', domain='.x.com', expires=1_900_000_000.0),
+    StoredCookie(name='ct0', value='csrf', domain='.x.com'),
+    StoredCookie(name='twid', value='u%3D4242', domain='.x.com'),
+)
+
+
+class _FakeSiteSessions:
+    """Stands in for src.tool.site_sessions: one optional stored login, and the checks recorded."""
+
+    to_netscape = staticmethod(twitter_module.site_sessions.to_netscape)
+
+    def __init__(self, cookies: tuple[StoredCookie, ...] = ()) -> None:
+        self.stored = (
+            SiteSession(
+                site='twitter',
+                cookies=cookies,
+                account='me',
+                status='valid',
+                message='',
+                expires_at=None,
+                signed_in_at=None,
+                checked_at=None,
+            )
+            if cookies
+            else None
+        )
+        self.checks: list[tuple[bool, str]] = []
+
+    async def load(self, site: str) -> SiteSession | None:
+        assert site == 'twitter'
+        return self.stored
+
+    async def record_check(self, site: str, *, ok: bool, message: str = '') -> None:
+        assert site == 'twitter'
+        self.checks.append((ok, message))
 
 
 def _option(command: list[str], key: str) -> str | None:
@@ -72,25 +113,20 @@ class _FakeDatabase:
 
 
 def test_a_source_without_a_username_is_not_runnable() -> None:
-    cfg = _configure_twitter(cookiecloud=_register_cookiecloud())
+    cfg = _configure_twitter(username='')
 
     assert cfg.validate_runnable() == ['username']
 
 
-def test_a_reference_to_a_missing_shared_config_is_reported() -> None:
-    cfg = _configure_twitter(username='me', cookiecloud='ghost')
-
-    assert cfg.validate_runnable() == ["cookiecloud (no config named 'ghost')"]
-
-
-def test_missing_fields_of_the_referenced_config_are_named_individually() -> None:
-    cfg = _configure_twitter(username='me', cookiecloud=_register_cookiecloud(uuid='', password=''))
-
-    assert cfg.validate_runnable() == ['cookiecloud.uuid', 'cookiecloud.password']
-
-
-def test_a_fully_configured_source_is_runnable() -> None:
+def test_a_username_is_all_it_takes_since_the_login_lives_in_the_database() -> None:
     assert _runnable_cfg().validate_runnable() == []
+
+
+def test_a_cookiecloud_reference_left_in_an_older_row_is_ignored() -> None:
+    cfg = settings.Twitter.model_validate({'username': 'me', 'cookiecloud': 'main'})
+
+    assert not hasattr(cfg, 'cookiecloud')
+    assert cfg.validate_runnable() == []
 
 
 def test_a_pasted_username_keeps_working_with_its_at_sign() -> None:
@@ -396,7 +432,7 @@ def test_ingest_leaves_an_unparseable_sidecar_alone_instead_of_losing_it(monkeyp
 
 
 def test_an_unconfigured_source_does_nothing_rather_than_launching_gallery_dl(monkeypatch) -> None:
-    _configure_twitter(username='', cookiecloud='')
+    _configure_twitter(username='')
 
     def _explode(*_args, **_kwargs):
         raise AssertionError('should not touch the database or the network')
@@ -480,7 +516,7 @@ def test_update_still_raises_once_the_lookup_retry_is_spent(monkeypatch, tmp_pat
     monkeypatch.setattr(twitter_module, 'USER_LOOKUP_RETRY_DELAY_SECONDS', 0)
     fake = _ScriptedGalleryDl((4, [_USER_NOT_FOUND]), (4, [_USER_NOT_FOUND]))
     source = Twitter()
-    monkeypatch.setattr(source, '_write_cookie_file', lambda _path: None)
+    monkeypatch.setattr(twitter_module, 'site_sessions', _FakeSiteSessions(_SIGNED_IN))
     monkeypatch.setattr(source, '_run_gallery_dl', fake)
 
     with pytest.raises(TwitterDownloadError) as excinfo:
@@ -489,6 +525,115 @@ def test_update_still_raises_once_the_lookup_retry_is_spent(monkeypatch, tmp_pat
     assert fake.calls == 2
     assert 'Requested user could not be found' in str(excinfo.value)
     assert excinfo.value.notification_dedupe_key == 'twitter:exit:4'
+
+
+# ---------- session ----------
+
+
+def test_the_account_id_is_read_off_the_twid_cookie() -> None:
+    assert user_id_from_twid(_SIGNED_IN) == '4242'
+    assert user_id_from_twid((StoredCookie(name='twid', value='"u=77"', domain='.x.com'),)) == '77'
+    assert user_id_from_twid((StoredCookie(name='twid', value='garbage', domain='.x.com'),)) == ''
+    assert user_id_from_twid(()) == ''
+
+
+def _settings_transport(status: int, payload: object, seen: list[httpx.Request] | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        return httpx.Response(status, json=payload)
+
+    return httpx.MockTransport(handler)
+
+
+def test_a_login_is_verified_against_the_account_settings() -> None:
+    seen: list[httpx.Request] = []
+
+    check = asyncio.run(verify_session(_SIGNED_IN, username='Me', transport=_settings_transport(200, {'screen_name': 'me'}, seen)))
+
+    assert (check.ok, check.account) == (True, 'me')
+    assert seen[0].headers['x-csrf-token'] == 'csrf'
+    assert seen[0].headers['cookie'] == 'auth_token=tok; ct0=csrf'
+
+
+def test_a_login_into_another_account_than_the_configured_one_is_refused() -> None:
+    check = asyncio.run(verify_session(_SIGNED_IN, username='me', transport=_settings_transport(200, {'screen_name': 'someone_else'})))
+
+    assert not check.ok
+    assert '@someone_else' in check.message
+
+
+def test_a_rejected_session_is_not_a_login() -> None:
+    check = asyncio.run(verify_session(_SIGNED_IN, username='me', transport=_settings_transport(401, {'errors': []})))
+
+    assert not check.ok
+    assert 'HTTP 401' in check.message
+
+
+def test_without_auth_token_nothing_is_asked_of_x() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError('should not call X before a login completed')
+
+    check = asyncio.run(verify_session(_SIGNED_IN[1:], username='me', transport=httpx.MockTransport(handler)))
+
+    assert not check.ok
+
+
+def test_an_answer_without_a_screen_name_does_not_hold_the_login_up() -> None:
+    check = asyncio.run(verify_session(_SIGNED_IN, username='me', transport=_settings_transport(404, {'errors': []})))
+
+    assert (check.ok, check.account) == (True, 'me')
+
+
+def test_a_run_without_a_captured_login_fails_with_the_relogin_notice(monkeypatch, tmp_path) -> None:
+    _runnable_cfg(path=tmp_path / 'twitter')
+    monkeypatch.setattr(twitter_module, 'database', _FakeDatabase())
+    monkeypatch.setattr(twitter_module, 'site_sessions', _FakeSiteSessions())
+    source = Twitter()
+    monkeypatch.setattr(source, '_run_gallery_dl', _ScriptedGalleryDl())
+
+    with pytest.raises(TwitterDownloadError) as excinfo:
+        asyncio.run(source.update())
+
+    assert excinfo.value.notification_dedupe_key == 'twitter:auth'
+    assert '登录态' in str(excinfo.value)
+
+
+def test_the_stored_cookies_reach_gallery_dl_and_a_clean_run_records_the_login_valid(monkeypatch, tmp_path) -> None:
+    _runnable_cfg(path=tmp_path / 'twitter')
+    monkeypatch.setattr(twitter_module, 'database', _FakeDatabase())
+    sessions = _FakeSiteSessions(_SIGNED_IN)
+    monkeypatch.setattr(twitter_module, 'site_sessions', sessions)
+    source = Twitter()
+    written: list[str] = []
+
+    async def fake_run(command: list[str]) -> tuple[int, list[str]]:
+        written.append(Path(command[command.index('--cookies') + 1]).read_text(encoding='utf-8'))  # noqa: ASYNC240
+        return 0, []
+
+    monkeypatch.setattr(source, '_run_gallery_dl', fake_run)
+
+    asyncio.run(source.update())
+
+    lines = [line.split('\t') for line in written[0].splitlines() if line and not line.startswith('#')]
+    assert ['.x.com', 'TRUE', '/', 'TRUE', '1900000000', 'auth_token', 'tok'] in lines
+    assert ['.x.com', 'TRUE', '/', 'TRUE', '0', 'ct0', 'csrf'] in lines
+    assert sessions.checks == [(True, '')]
+
+
+def test_a_session_gallery_dl_cannot_authenticate_with_is_marked_invalid(monkeypatch, tmp_path) -> None:
+    _runnable_cfg(path=tmp_path / 'twitter')
+    monkeypatch.setattr(twitter_module, 'database', _FakeDatabase())
+    sessions = _FakeSiteSessions(_SIGNED_IN)
+    monkeypatch.setattr(twitter_module, 'site_sessions', sessions)
+    source = Twitter()
+    monkeypatch.setattr(source, '_run_gallery_dl', _ScriptedGalleryDl((16, ['[twitter][error] AuthorizationError: Login required'])))
+
+    with pytest.raises(TwitterDownloadError) as excinfo:
+        asyncio.run(source.update())
+
+    assert excinfo.value.notification_dedupe_key == 'twitter:auth'
+    assert [ok for ok, _ in sessions.checks] == [False]
 
 
 # ---------- registration ----------

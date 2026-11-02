@@ -366,7 +366,7 @@ function TwitterForm(props: SectionFormProps) {
         mono
         placeholder="不带 @"
         invalid={!usernameOk}
-        hint="点赞列表只有本人能看，必须和下面 CookieCloud 里的登录账号是同一个。"
+        hint="点赞列表只有本人能看，必须和「登录态」页登录的 X 账号是同一个。登录会话只在「登录态」页维护。"
         error={username && !usernameOk ? '只能包含字母、数字、下划线' : undefined}
       />
       <PathField {...props} />
@@ -378,18 +378,6 @@ function TwitterForm(props: SectionFormProps) {
         placeholder="留空则和图片放在一起"
         hint="视频和 GIF 单独存放的位置（X 把 GIF 也存成视频）。留空则跟随上面的保存路径。"
       />
-
-      <div className="subsection">
-        <h4>登录会话</h4>
-        <div className="field-grid">
-          <CookieCloudPicker
-            source="twitter"
-            value={str(props.value, 'cookiecloud')}
-            onChange={(next) => set('cookiecloud', next)}
-            hint="浏览器插件需要同步 x.com 的 auth_token 和 ct0。"
-          />
-        </div>
-      </div>
 
       <div className="subsection">
         <h4>抓取节奏</h4>
@@ -413,7 +401,7 @@ function TwitterForm(props: SectionFormProps) {
             onChange={(next) => set('proxy', next)}
             mono
             placeholder="http://host:port"
-            hint="留空则直连（或走全局 HTTP_PROXY）"
+            hint="留空则直连（或走全局 HTTP_PROXY）。「登录态」页登录 X 时也走这个代理，让登录和抓取来自同一出口。"
           />
           <div className="field-checks">
             <CheckboxField
@@ -571,7 +559,7 @@ function RedNoteForm(props: SectionFormProps) {
 const COOKIECLOUD_NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 /**
- * The shared CookieCloud registry. Sources (Bilibili 账号、X、NGA) reference an
+ * The shared CookieCloud registry. Sources (Bilibili 账号、NGA) reference an
  * entry here by name, so one browser vault is configured once and shared.
  */
 function CookieCloudForm(props: SectionFormProps) {
@@ -591,7 +579,7 @@ function CookieCloudForm(props: SectionFormProps) {
         label="配置"
         count={configs.length}
         addLabel="添加配置"
-        empty="还没有 CookieCloud 配置；需要登录会话的来源（Bilibili、X）会保持未就绪。"
+        empty="还没有 CookieCloud 配置；需要登录会话的 Bilibili 账号会保持未就绪。"
         hint="各来源在自己的设置里按名称引用这里的条目，同一个浏览器 vault 只需配置一次。"
         onAdd={() => set('configs', [...configs, { name: '', server_url: '', uuid: '', password: '' }])}
       >

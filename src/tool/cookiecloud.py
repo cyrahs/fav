@@ -33,12 +33,6 @@ BILIBILI_PROFILE = CookieProfile(
     domains=('bilibili.com',),
     required_cookies=('sessdata', 'bili_jct', 'buvid3', 'dedeuserid'),
 )
-# X serves one session under both hostnames; which one a vault carries depends on
-# where the browser was when the extension last synced.
-TWITTER_PROFILE = CookieProfile(
-    domains=('x.com', 'twitter.com'),
-    required_cookies=('auth_token', 'ct0'),
-)
 # NGA sets its login on .nga.cn; a browser that signed in on another of the
 # forum's hostnames files it there instead.
 NGA_PROFILE = CookieProfile(
@@ -47,7 +41,6 @@ NGA_PROFILE = CookieProfile(
 )
 PROFILES: dict[str, CookieProfile] = {
     'bilibili': BILIBILI_PROFILE,
-    'twitter': TWITTER_PROFILE,
     'nga': NGA_PROFILE,
 }
 
@@ -125,7 +118,7 @@ class CookieCloudClient:
 
         Args:
             domain (str or sequence of str): The domain(s) to extract cookies for
-                (e.g., 'bilibili.com', or ('x.com', 'twitter.com')). Domains the
+                (e.g., 'bilibili.com', or ('nga.cn', 'bbs.nga.cn')). Domains the
                 vault does not carry are skipped; it is an error only when none
                 of them are present.
             output_path (str or Path): Path where to save the cookie file
