@@ -76,7 +76,7 @@ runs often can be kept running quietly. It is per source, not per notification k
 
 Each favourite list names its own directory, and watch-later has a separate one, so the two no longer
 share a parent. An account needs either a favourite list or `toview_enabled` before it is runnable.
-Each account signs in on the web UI's 登录态 page, which lists one 「B 站（<name>）」 login per account
+Each account signs in on the web UI's 登录态 page, which lists one 「Bilibili（<name>）」 login per account (just 「Bilibili」 when there is only one)
 (see [Site logins](#site-logins)); that login *is* the account identity, since the watch-later list is
 always the logged-in user's. The session (`SESSDATA`, `bili_jct`, `buvid3`, `DedeUserID`) is stored in
 `site_sessions` under `bilibili-<name>`, and each run first asks `/x/web-interface/nav` whether it is
