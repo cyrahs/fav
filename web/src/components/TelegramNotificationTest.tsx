@@ -8,9 +8,9 @@ const CODE_LABELS: Record<string, string> = {
 };
 
 /**
- * Sends a real message through the stored bot credentials. Unlike the CookieCloud
- * probe this cannot run against an unsaved draft — the backend reads the saved
- * section — so the button tells the user to save first when the section is dirty.
+ * Sends a real message through the stored bot credentials. This cannot run against
+ * an unsaved draft — the backend reads the saved section — so the button tells the
+ * user to save first when the section is dirty.
  */
 export function TelegramNotificationTest({ dirty }: { dirty: boolean }) {
   const test = useMutation({

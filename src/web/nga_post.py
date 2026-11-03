@@ -6,8 +6,11 @@ thread's ``bbs.nga.cn/read.php?tid=<id>`` link and its title.
 
 NGA shows most boards to signed-in members only: a guest gets 403 未登录 from
 the web pages and ``code`` 12 from the app API alike. So the thread is read with
-the login cookies of a browser session (``ngaPassportUid`` and
-``ngaPassportCid``), through ``read.php``'s JSON output (``__output=11``).
+the login cookies (``ngaPassportUid`` and ``ngaPassportCid``) of the session
+captured on fav's 登录态 page (``src/tool/site_sessions.py``), through
+``read.php``'s JSON output (``__output=11``). NGA issues both for a year and
+never needs them refreshed in between, so one sign-in lasts until NGA ends the
+session (a sign-out elsewhere, a password change) or the year runs out.
 
 Only the first floor (``lou`` 0), the post itself, is kept, as for Tieba. Its
 pictures are BBCode ``[img]`` tags in the content, mostly relative to the
@@ -21,14 +24,21 @@ from __future__ import annotations
 
 import html
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urljoin, urlsplit
 
+import httpx
+
+from src.core import logger
+from src.tool.site_sessions import cookie_value
 from src.web.wechat_article import ArticleLink, ArticlePage, appmsg_link
 
 if TYPE_CHECKING:
-    import httpx
+    from src.tool.site_sessions import StoredCookie
+
+log = logger.get('wechat')
 
 # Every hostname NGA serves the forum under; the share card uses bbs.nga.cn.
 NGA_HOSTS = frozenset({'bbs.nga.cn', 'nga.cn', 'ngabbs.com', 'nga.178.com', 'bbs.ngacn.cc', 'g.nga.cn'})
@@ -38,6 +48,20 @@ _READ_URL = 'https://bbs.nga.cn/read.php'
 _ATTACHMENT_BASE = 'https://img.nga.cn/attachments/'
 _RETIRED_IMAGE_HOST_RE = re.compile(r'^img\d*\.nga\.178\.com$')
 LOGIN_COOKIES = ('ngaPassportUid', 'ngaPassportCid')
+
+# The key the captured login is stored under in site_sessions, and what the 登录态
+# page opens for it. The login sets its cookies on .nga.cn, which bbs.nga.cn reads.
+SESSION_SITE = 'nga'
+LOGIN_URL = 'https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login'
+SESSION_COOKIE_URLS = ('https://bbs.nga.cn/',)
+SESSION_COOKIE = 'ngaPassportCid'
+RELOGIN_HINT = "Sign in to NGA again on fav's 登录态 page."
+# The notification list: members get it, a guest gets 你必须先登录论坛. Cheap, and
+# unlike read.php it needs no thread.
+_SESSION_CHECK_URL = 'https://bbs.nga.cn/nuke.php'
+_SESSION_CHECK_PARAMS = {'__lib': 'noti', '__act': 'get_all', '__output': '11'}
+_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+_HTTP_OK = 200
 _TID_RE = re.compile(r'\d{1,12}')
 _IMG_TAG_RE = re.compile(r'\[img\]\s*(.*?)\s*\[/img\]', re.IGNORECASE | re.DOTALL)
 # The renditions NGA derives from an upload, appended to its name.
@@ -51,6 +75,52 @@ class NgaError(RuntimeError):
 
 class NgaLoginError(NgaError):
     """NGA wants a signed-in session the cookies do not give it."""
+
+
+@dataclass(frozen=True)
+class SessionCheck:
+    ok: bool
+    account: str
+    message: str
+
+
+def login_cookies(cookies: tuple[StoredCookie, ...]) -> dict[str, str]:
+    """The two cookies NGA reads a login from, out of a captured session."""
+    return {name: value for name in LOGIN_COOKIES if (value := cookie_value(cookies, name))}
+
+
+async def verify_session(cookies: tuple[StoredCookie, ...], *, transport: httpx.AsyncBaseTransport | None = None) -> SessionCheck:
+    """Whether a captured NGA session is a live login, and for which uid.
+
+    NGA sets ``ngaPassportCid`` only once a sign-in completes; the notification list
+    then answers members and turns guests away with a 登录 message. Any other answer
+    (NGA down, a changed endpoint) does not hold the login up: the next thread read
+    is what proves the session from then on.
+    """
+    login = login_cookies(cookies)
+    if len(login) < len(LOGIN_COOKIES):
+        return SessionCheck(ok=False, account='', message='no ngaPassportUid/ngaPassportCid cookies yet; not signed in')
+    account = login['ngaPassportUid']
+    async with httpx.AsyncClient(
+        headers={'User-Agent': _USER_AGENT, 'Cookie': '; '.join(f'{name}={value}' for name, value in login.items())},
+        transport=transport,
+        timeout=30,
+        trust_env=False,
+    ) as client:
+        try:
+            response = await client.get(_SESSION_CHECK_URL, params=_SESSION_CHECK_PARAMS)
+        except httpx.HTTPError as exc:
+            return SessionCheck(ok=False, account='', message=f'NGA unreachable: {exc.__class__.__name__}')
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    error = _error_text(payload)
+    if '登录' in error:
+        return SessionCheck(ok=False, account='', message=f'NGA rejected the session ({error})')
+    if response.status_code != _HTTP_OK or not isinstance(payload, dict):
+        log.warning('NGA notifications answered HTTP %s without a verdict; accepting the login', response.status_code)
+    return SessionCheck(ok=True, account=account, message='')
 
 
 def nga_thread_id(url: str) -> str | None:
@@ -154,7 +224,7 @@ async def fetch_nga_post(client: httpx.AsyncClient, link: ArticleLink, cookies: 
     error = _error_text(payload)
     if '登录' in error or (not isinstance(payload, dict) and response.status_code in {401, 403}):
         reason = error or f'HTTP {response.status_code}'
-        msg = f'NGA wants a signed-in session for thread {tid} ({reason}); sign in to NGA in the browser and re-sync CookieCloud'
+        msg = f'NGA wants a signed-in session for thread {tid} ({reason}). {RELOGIN_HINT}'
         raise NgaLoginError(msg)
     data = payload.get('data') if isinstance(payload, dict) else None
     if not isinstance(data, dict) or error:

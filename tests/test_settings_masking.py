@@ -4,9 +4,9 @@ from src.api.settings_masking import MASK_SUFFIX, mask_section, unmask_section
 
 
 def test_a_nonsecret_field_is_left_alone() -> None:
-    masked = mask_section('cookiecloud', {'configs': [{'name': 'main', 'uuid': 'u', 'password': 'p'}]})
+    masked = mask_section('web.wechat', {'api_url': 'http://favinbox', 'token': 'secret-token'})
 
-    assert masked['configs'][0]['uuid'] == 'u'
+    assert masked['api_url'] == 'http://favinbox'
 
 
 def test_telegram_bot_token_is_masked() -> None:
@@ -81,55 +81,6 @@ def test_telegram_secrets_follow_the_account_name_across_a_reorder() -> None:
     assert by_name == {'alice': 'hash-ALICE', 'bob': 'hash-BOB'}
 
 
-def test_shared_cookiecloud_password_is_masked() -> None:
-    payload = {'configs': [{'name': 'main', 'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'super-secret'}]}
-
-    masked = mask_section('cookiecloud', payload)
-
-    assert masked['configs'][0]['password'] == f'supe{MASK_SUFFIX}'
-    assert masked['configs'][0]['uuid'] == 'u'
-    assert payload['configs'][0]['password'] == 'super-secret'
-
-
-def test_shared_cookiecloud_secrets_follow_the_config_name_across_a_reorder() -> None:
-    stored = {
-        'configs': [
-            {'name': 'main', 'uuid': 'u1', 'password': 'pw-MAIN'},
-            {'name': 'alt', 'uuid': 'u2', 'password': 'pw-ALT'},
-        ],
-    }
-    masked = mask_section('cookiecloud', stored)
-    reordered = {'configs': list(reversed(masked['configs']))}
-
-    merged = unmask_section('cookiecloud', reordered, stored)
-
-    by_name = {config['name']: config['password'] for config in merged['configs']}
-    assert by_name == {'main': 'pw-MAIN', 'alt': 'pw-ALT'}
-
-
-def test_saving_a_shared_config_with_a_masked_password_keeps_the_stored_one() -> None:
-    stored = {'configs': [{'name': 'main', 'uuid': 'u', 'password': 'pw-REAL'}]}
-    edited = mask_section('cookiecloud', stored)
-    edited['configs'][0]['uuid'] = 'new-uuid'
-
-    merged = unmask_section('cookiecloud', edited, stored)
-
-    assert merged['configs'][0]['password'] == 'pw-REAL'
-    assert merged['configs'][0]['uuid'] == 'new-uuid'
-
-
-def test_the_consumer_sections_hold_only_a_reference_and_stay_plaintext() -> None:
-    # The bilibili/twitter sections now carry only the name of a shared
-    # config, so nothing in them is masked.
-    bilibili = {'accounts': [{'name': 'main', 'cookiecloud': 'main-vault'}]}
-    twitter = {'username': 'me', 'cookiecloud': 'main-vault'}
-
-    assert mask_section('web.bilibili', bilibili) == bilibili
-    assert unmask_section('web.bilibili', bilibili, {}) == bilibili
-    assert mask_section('web.twitter', twitter) == twitter
-    assert unmask_section('web.twitter', twitter, {}) == twitter
-
-
 def test_the_rednote_proxy_is_shown_and_saved_in_plaintext() -> None:
     # Deliberate: proxies are configuration, not credentials, in this single-user
     # deployment, so the UI shows and edits them as ordinary text.
@@ -144,9 +95,7 @@ def test_the_rednote_proxy_is_shown_and_saved_in_plaintext() -> None:
     assert merged['proxy'] == 'http://other.example:3128'
 
 
-def test_cookiecloud_section_without_configs_normalizes_to_an_empty_list() -> None:
-    payload: dict = {}
+def test_the_retired_cookiecloud_section_is_passed_through_untouched() -> None:
+    payload = {'configs': [{'name': 'main', 'password': 'p'}]}
 
-    assert mask_section('cookiecloud', payload) == {'configs': []}
-    assert unmask_section('cookiecloud', payload, {}) == {'configs': []}
-    assert payload == {}
+    assert mask_section('cookiecloud', payload) == payload

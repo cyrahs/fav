@@ -257,8 +257,8 @@ def _request_host(exc: BaseException) -> str:
 
     ``ConnectTimeout`` and ``ReadTimeout`` stringify to nothing, so a failure
     notification for one said only which class it was. The host is enough to
-    tell a dead CookieCloud from a slow origin; the full URL can carry secrets
-    (CookieCloud puts the vault id in the path), so it stays out.
+    tell a dead dependency from a slow origin; the full URL can carry secrets
+    (tokens in a query string), so it stays out.
     """
     if not isinstance(exc, httpx.RequestError):
         return ''

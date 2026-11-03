@@ -98,15 +98,6 @@ export interface RedNoteProxyTestResult {
   direct: boolean;
 }
 
-export interface CookieCloudTestResult {
-  ok: boolean;
-  code: string;
-  message: string;
-  domain_count: number;
-  domain_cookie_count: number;
-  missing_cookies: string[];
-}
-
 export interface TelegramNotificationTest {
   status: 'delivered';
   message_id: number | null;

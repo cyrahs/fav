@@ -7,7 +7,6 @@ import {
   CheckboxField,
   CheckboxGroup,
   NumberField,
-  Repeater,
   SecretField,
   SelectField,
   TextField,
@@ -15,8 +14,6 @@ import {
 } from './Field';
 import { AzurLaneProxyTest } from './AzurLaneProxyTest';
 import { BilibiliForm, validateBilibili } from './BilibiliForm';
-import { CookieCloudPicker, type SharedCookieCloudConfig } from './CookieCloudPicker';
-import { CookieCloudTest } from './CookieCloudTest';
 import { RedNoteProxyTest } from './RedNoteProxyTest';
 import { TelegramForm, validateTelegram } from './TelegramForm';
 import {
@@ -556,101 +553,6 @@ function RedNoteForm(props: SectionFormProps) {
   );
 }
 
-const COOKIECLOUD_NAME_RE = /^[A-Za-z0-9_-]+$/;
-
-/**
- * The shared CookieCloud registry. Sources (now only NGA) reference an
- * entry here by name, so one browser vault is configured once and shared.
- */
-function CookieCloudForm(props: SectionFormProps) {
-  const set = patcher(props);
-  const configs = list<SharedCookieCloudConfig>(props.value, 'configs');
-
-  const update = (index: number, patch: Partial<SharedCookieCloudConfig>) => {
-    set(
-      'configs',
-      configs.map((config, position) => (position === index ? { ...config, ...patch } : config)),
-    );
-  };
-
-  return (
-    <div className="field-grid">
-      <Repeater
-        label="配置"
-        count={configs.length}
-        addLabel="添加配置"
-        empty="还没有 CookieCloud 配置；微信源的 NGA 帖子会拿不到登录 cookie。"
-        hint="各来源在自己的设置里按名称引用这里的条目，同一个浏览器 vault 只需配置一次。"
-        onAdd={() => set('configs', [...configs, { name: '', server_url: '', uuid: '', password: '' }])}
-      >
-        <div className="stack">
-          {configs.map((config, index) => {
-            const name = config.name ?? '';
-            const nameOk = COOKIECLOUD_NAME_RE.test(name);
-            return (
-              // eslint-disable-next-line react/no-array-index-key -- entries are reorderable and unsaved rows have no id
-              <div key={index} className="account-card">
-                <div className="account-head">
-                  <strong>{name || `配置 #${index + 1}`}</strong>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => {
-                      if (window.confirm(`删除 CookieCloud 配置「${name || index + 1}」？引用它的来源会变为未就绪。`)) {
-                        set(
-                          'configs',
-                          configs.filter((_, position) => position !== index),
-                        );
-                      }
-                    }}
-                  >
-                    删除
-                  </button>
-                </div>
-                <div className="field-grid">
-                  <TextField
-                    label="名称"
-                    value={name}
-                    onChange={(next) => update(index, { name: next })}
-                    mono
-                    invalid={!nameOk}
-                    hint="其他配置用这个名称引用它；仅限字母、数字、下划线、连字符"
-                    error={name && !nameOk ? '名称含非法字符' : undefined}
-                  />
-                  <TextField
-                    label="服务地址"
-                    value={config.server_url ?? ''}
-                    onChange={(next) => update(index, { server_url: next })}
-                    mono
-                    placeholder="https://cookiecloud.example.com/"
-                  />
-                  <TextField
-                    label="UUID"
-                    value={config.uuid ?? ''}
-                    onChange={(next) => update(index, { uuid: next })}
-                    mono
-                  />
-                  <SecretField
-                    label="密码"
-                    value={config.password ?? ''}
-                    onChange={(next) => update(index, { password: next })}
-                  />
-                  <CookieCloudTest
-                    name={name}
-                    serverUrl={config.server_url ?? ''}
-                    uuid={config.uuid ?? ''}
-                    password={config.password ?? ''}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Repeater>
-    </div>
-  );
-}
-
 function TelegramNotificationForm(props: SectionFormProps) {
   const set = patcher(props);
   const threadId = props.value.message_thread_id;
@@ -722,14 +624,7 @@ function WechatForm(props: SectionFormProps) {
 
       <div className="subsection">
         <h4>NGA 登录</h4>
-        <div className="field-grid">
-          <CookieCloudPicker
-            source="nga"
-            value={str(props.value, 'nga_cookiecloud')}
-            onChange={(next) => set('nga_cookiecloud', next)}
-            hint="转发的 NGA 帖子要登录才能读：浏览器登录 NGA，插件同步 nga.cn 的 ngaPassportUid 和 ngaPassportCid。"
-          />
-        </div>
+        <p className="muted">转发的 NGA 帖子要登录才能读，登录会话只在「登录态」页维护（NGA 的登录一年有效）。</p>
       </div>
 
       <div className="subsection">
@@ -772,7 +667,6 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.rednote': RedNoteForm,
   'web.wechat': WechatForm,
   'notifications.telegram': TelegramNotificationForm,
-  cookiecloud: CookieCloudForm,
 };
 
 /**
@@ -892,24 +786,6 @@ export function validateSection(section: string, value: Record<string, unknown>)
     if (num(value, 'sleep_request_seconds', 1) < 0) {
       issues.push('请求间隔不能为负数');
     }
-  }
-
-  if (section === 'cookiecloud') {
-    const configs = list<SharedCookieCloudConfig>(value, 'configs');
-    const seenNames = new Set<string>();
-    configs.forEach((config, index) => {
-      const label = config.name || `#${index + 1}`;
-      const name = config.name ?? '';
-      if (!COOKIECLOUD_NAME_RE.test(name)) {
-        issues.push(`配置 ${label}：名称只能包含字母、数字、下划线、连字符`);
-      } else {
-        const folded = name.toLowerCase();
-        if (seenNames.has(folded)) {
-          issues.push(`配置名重复：${name}`);
-        }
-        seenNames.add(folded);
-      }
-    });
   }
 
   if (section === 'web.kemono') {

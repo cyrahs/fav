@@ -51,7 +51,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from src.core import logger, settings
 from src.tool import database, site_sessions
 from src.tool.site_sessions import StoredCookie, cookie_expiry, cookie_value, cookies_from_browser, without_values
-from src.web import bilibili, pixiv, rednote, rednote_browser, twitter
+from src.web import bilibili, nga_post, pixiv, rednote, rednote_browser, twitter
 from src.web.rednote_browser import build_proxy_settings, clear_stale_profile_locks
 
 if TYPE_CHECKING:
@@ -828,6 +828,10 @@ async def _verify_bilibili(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
     return await bilibili.verify_session(cookies)
 
 
+async def _verify_nga(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
+    return await nga_post.verify_session(cookies)
+
+
 async def _verify_twitter(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
     cfg = settings.load().web.twitter
     return await twitter.verify_session(cookies, username=cfg.username, proxy=cfg.proxy)
@@ -897,6 +901,15 @@ LOGIN_SITES: dict[str, LoginSite] = {
         verify=_verify_twitter,
         proxy=lambda: settings.load().web.twitter.proxy,
         hint='用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。',  # noqa: RUF001
+    ),
+    nga_post.SESSION_SITE: LoginSite(
+        key=nga_post.SESSION_SITE,
+        label='NGA',
+        login_url=nga_post.LOGIN_URL,
+        cookie_urls=nga_post.SESSION_COOKIE_URLS,
+        session_cookie=nga_post.SESSION_COOKIE,
+        verify=_verify_nga,
+        hint='用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。',  # noqa: RUF001
     ),
     rednote.SESSION_SITE: LoginSite(
         key=rednote.SESSION_SITE,

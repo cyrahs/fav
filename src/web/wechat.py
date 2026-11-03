@@ -27,7 +27,7 @@ nothing on command: the plugin taps through its screens to the message and taps
 that, as a person would, so each of these requests names the message. A shared Tieba
 post is saved the same way as an article, from the Tieba client API, with its
 videos next to its pictures (see ``tieba_post``), and so is a shared NGA thread,
-read with the NGA login of a CookieCloud vault (see ``nga_post``). A 视频号 video is not
+read with the NGA login captured on the 登录态 page (see ``nga_post``). A 视频号 video is not
 opened in WeChat at all: TikHub looks it up and the file comes from WeChat's CDN, its
 start decrypted here (see ``wechat_channels``).
 A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
@@ -54,11 +54,11 @@ from typing import Any, NamedTuple
 import httpx
 
 from src.core import logger, settings
-from src.tool import database
-from src.tool.cookiecloud import NGA_PROFILE, CookieCloudClient
+from src.tool import database, site_sessions
 from src.tool.filename import ensure_unique_path, sanitize
 from src.tool.notifications import enqueue_notification
-from src.web.nga_post import LOGIN_COOKIES, NgaError, NgaLoginError, fetch_nga_post, nga_thread_id, parse_nga_link
+from src.web import nga_post
+from src.web.nga_post import NgaError, NgaLoginError, fetch_nga_post, nga_thread_id, parse_nga_link
 from src.web.tieba_post import TiebaError, fetch_tieba_post, parse_tieba_link, thread_id
 from src.web.wechat_article import (
     ArticleLink,
@@ -963,52 +963,29 @@ class Wechat:
                 raise WechatInboxError(str(exc)) from exc
         if nga_thread_id(link.url) is not None:
             try:
-                return await fetch_nga_post(self.web, link, await self._nga_cookies()), ''
+                page = await fetch_nga_post(self.web, link, await self._nga_cookies())
             except NgaLoginError as exc:
+                await site_sessions.record_check(nga_post.SESSION_SITE, ok=False, message=str(exc))
                 raise WechatInboxError(str(exc), notification_dedupe_key=_NGA_LOGIN_KEY) from exc
             except NgaError as exc:
                 raise WechatInboxError(str(exc)) from exc
+            await site_sessions.record_check(nga_post.SESSION_SITE, ok=True)
+            return page, ''
         response = await self.web.get(link.url)
         if is_captcha(str(response.url)):
             return await self._image_post(message, link, final_attempt=final_attempt)
         response.raise_for_status()
         return parse_article_page(response.text), response.text
 
-    def _read_nga_cookies(self) -> dict[str, str]:
-        name = self.cfg.nga_cookiecloud.strip()
-        if not name:
-            msg = 'An NGA thread needs an NGA login: pick the CookieCloud config that carries it in the WeChat settings'
-            raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY)
-        try:
-            vault = settings.resolve_cookiecloud(name)
-        except ValueError as exc:
-            raise WechatInboxError(str(exc), notification_dedupe_key=_NGA_LOGIN_KEY) from exc
-        client = CookieCloudClient(vault.server_url, vault.uuid, vault.password)
-        try:
-            jar = client.get_cookies()
-        except (ConnectionError, ValueError, KeyError) as exc:
-            msg = f'Could not read CookieCloud config {name!r}: {exc}'
-            raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY) from exc
-        finally:
-            client.client.close()
-        wanted = {cookie.lower(): cookie for cookie in LOGIN_COOKIES}
-        cookies: dict[str, str] = {}
-        for domain, entries in jar.items():
-            if domain.lstrip('.') not in NGA_PROFILE.domains:
-                continue
-            for entry in entries:
-                cookie = wanted.get(str(entry.get('name') or '').lower()) if isinstance(entry, dict) else None
-                if cookie and entry.get('value'):
-                    cookies.setdefault(cookie, str(entry['value']))
-        if len(cookies) < len(LOGIN_COOKIES):
-            msg = f'CookieCloud config {name!r} has no NGA login; sign in to NGA in the browser and re-sync the extension'
-            raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY)
-        return cookies
-
     async def _nga_cookies(self) -> dict[str, str]:
-        """The NGA login from CookieCloud, read once a run, so it tracks the browser."""
+        """The NGA login captured on the 登录态 page, read once a run."""
         if self._nga_login is None:
-            self._nga_login = await asyncio.to_thread(self._read_nga_cookies)
+            stored = await site_sessions.load(nga_post.SESSION_SITE)
+            login = nga_post.login_cookies(stored.cookies) if stored is not None else {}
+            if len(login) < len(nga_post.LOGIN_COOKIES):
+                msg = f'An NGA thread needs an NGA login, and NGA is not signed in. {nga_post.RELOGIN_HINT}'
+                raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY)
+            self._nga_login = login
         return self._nga_login
 
     async def _save_article(self, message: dict[str, Any], *, final_attempt: bool = False) -> None:
