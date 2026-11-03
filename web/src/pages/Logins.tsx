@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../api/client';
 import type { LoginAttempt, SiteSession, SiteSessionList } from '../api/types';
@@ -40,9 +40,13 @@ export function LoginsPage() {
     refetchInterval: (query) => (query.state.data?.login?.active ? 2000 : 30000),
   });
 
+  // How a login ended is only news to the visit that started or watched it; the
+  // server keeps reporting the last attempt, which is stale on any later visit.
+  const [watched, setWatched] = useState<string | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
   const start = useMutation({
     mutationFn: (site: string) => api.post<LoginAttempt>(`/api/v2/site-sessions/${site}/login`, {}),
+    onSuccess: (attempt) => setWatched(attempt.started_at),
     onSettled: refresh,
   });
   const cancel = useMutation({
@@ -52,6 +56,10 @@ export function LoginsPage() {
 
   const login = sessions.data?.login ?? null;
   const active = login?.active ? login : null;
+  useEffect(() => {
+    if (active?.started_at) setWatched(active.started_at);
+  }, [active?.started_at]);
+  const ended = login && !login.active && login.started_at && login.started_at === watched ? login : null;
   const labelFor = (site: string) => sessions.data?.items.find((item) => item.site === site)?.label ?? site;
   const hintFor = (site: string) => sessions.data?.items.find((item) => item.site === site)?.hint ?? '';
 
@@ -102,11 +110,11 @@ export function LoginsPage() {
           </tbody>
         </table>
         {start.isError && <p className="warn">{errorText(start.error)}</p>}
-        {login && !login.active && (
-          <p className={login.state === 'saved' ? 'ok' : 'warn'}>
-            {labelFor(login.site)}：{LOGIN_STATE_LABELS[login.state]}
-            {login.state === 'saved' && login.account ? `（账号 ${login.account}）` : ''}
-            {login.message && login.state !== 'saved' ? `：${login.message}` : ''}
+        {ended && (
+          <p className={ended.state === 'saved' ? 'ok' : 'warn'}>
+            {labelFor(ended.site)}：{LOGIN_STATE_LABELS[ended.state]}
+            {ended.state === 'saved' && ended.account ? `（账号 ${ended.account}）` : ''}
+            {ended.message && ended.state !== 'saved' ? `：${ended.message}` : ''}
           </p>
         )}
       </section>

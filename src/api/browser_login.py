@@ -1035,11 +1035,14 @@ LOGIN_SITES: dict[str, LoginSite] = {
 }
 
 
-def bilibili_login_site(account_name: str) -> LoginSite:
-    """One configured Bilibili account's login: each account is its own signed-in user."""
+def bilibili_login_site(account_name: str, *, only_account: bool = False) -> LoginSite:
+    """One configured Bilibili account's login: each account is its own signed-in user.
+
+    The account name only appears in the label when there is more than one to tell apart.
+    """
     return LoginSite(
         key=bilibili.session_site(account_name),
-        label=f'B 站（{account_name}）',  # noqa: RUF001
+        label='Bilibili' if only_account else f'Bilibili（{account_name}）',  # noqa: RUF001
         login_url=bilibili.LOGIN_URL,
         cookie_urls=bilibili.SESSION_COOKIE_URLS,
         session_cookie=bilibili.SESSION_COOKIE,
@@ -1052,8 +1055,9 @@ def bilibili_login_site(account_name: str) -> LoginSite:
 def login_sites() -> dict[str, LoginSite]:
     """Every site the 登录态 page offers right now: the fixed ones, then one per Bilibili account."""
     sites = dict(LOGIN_SITES)
-    for account in settings.load().web.bilibili.accounts:
-        site = bilibili_login_site(account.name)
+    accounts = settings.load().web.bilibili.accounts
+    for account in accounts:
+        site = bilibili_login_site(account.name, only_account=len(accounts) == 1)
         sites[site.key] = site
     return sites
 

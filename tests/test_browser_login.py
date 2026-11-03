@@ -366,6 +366,16 @@ def test_every_bilibili_account_gets_its_own_plain_login(monkeypatch) -> None:
     assert main.controlled is False
     assert main.proxy() == ''
     assert main.after_login is not None
+    assert main.label == 'Bilibili（main）'  # noqa: RUF001
+
+
+def test_a_single_bilibili_account_is_just_bilibili(monkeypatch) -> None:
+    from src.core import settings  # noqa: PLC0415
+
+    cfg = settings.load().web.bilibili
+    monkeypatch.setattr(cfg, 'accounts', [settings.BilibiliAccount(name='main', toview_enabled=True)])
+
+    assert browser_login.login_sites()['bilibili-main'].label == 'Bilibili'
 
 
 def test_what_after_login_reads_is_saved_with_the_session(store) -> None:
