@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,7 +26,8 @@ from tqdm import tqdm
 from src.core import logger, settings
 from src.tool import database, ensure_unique_path, format_video_filename, site_sessions
 from src.tool.notifications import enqueue_notification, format_job_failure_dedupe_key, resolve_notification
-from src.tool.site_sessions import StoredCookie
+from src.tool.site_sessions import StoredCookie, cookie_expiry
+from src.web import bilibili_session
 
 log = logger.get('bilibili')
 _KIBIBYTE = 1024
@@ -151,6 +152,44 @@ async def verify_session(
     mid = str(data.get('mid') or '')
     account = f'{name} ({mid})' if name and mid else name or mid
     return SessionCheck(ok=True, account=account, message='')
+
+
+async def renew_session(site: str, stored: site_sessions.SiteSession) -> site_sessions.SiteSession:
+    """The stored session with a fresh bili_ticket and, when Bilibili asks, a refreshed SESSDATA.
+
+    Each renewal is written back as soon as it happens (``bilibili_session``
+    explains why both matter). A renewal that fails leaves the session as it was:
+    the check that follows is what decides whether the run can go on.
+    """
+    cookies, extra = stored.cookies, dict(stored.extra)
+    try:
+        renewed = await bilibili_session.renew_ticket(cookies)
+    except (bilibili_session.RenewalError, httpx.HTTPError) as exc:
+        log.warning('Could not renew the bili_ticket of %s: %s', site, exc)
+    else:
+        if renewed is not None:
+            await site_sessions.replace_cookies(site, renewed, expires_at=cookie_expiry(renewed, SESSION_COOKIE), extra=extra)
+            cookies = renewed
+            log.info('Renewed the bili_ticket of %s', site)
+
+    token = extra.get(bilibili_session.REFRESH_TOKEN_KEY, '')
+    if not token:
+        log.info('No refresh token stored for %s; signing in again on the 登录态 page lets fav refresh SESSDATA itself', site)
+        return replace(stored, cookies=cookies)
+
+    async def _save(renewal: bilibili_session.Renewal) -> None:
+        extra[bilibili_session.REFRESH_TOKEN_KEY] = renewal.refresh_token
+        await site_sessions.replace_cookies(site, renewal.cookies, expires_at=cookie_expiry(renewal.cookies, SESSION_COOKIE), extra=extra)
+
+    try:
+        refreshed = await bilibili_session.refresh_session(cookies, token, save=_save)
+    except (bilibili_session.RenewalError, httpx.HTTPError) as exc:
+        log.warning('Could not refresh the SESSDATA of %s: %s', site, exc)
+    else:
+        if refreshed is not None:
+            cookies = refreshed.cookies
+            log.info('Refreshed the SESSDATA of %s', site)
+    return replace(stored, cookies=cookies, extra=extra)
 
 
 class Bilibili:
@@ -437,6 +476,7 @@ class Bilibili:
         if stored is None or not stored.cookie(SESSION_COOKIE):
             msg = f'Bilibili account {account.name} is not signed in. {relogin_hint(account.name)}'
             raise SessionError(msg, notification_dedupe_key=f'bilibili:auth:{account.name}')
+        stored = await renew_session(site, stored)
         check = await verify_session(stored.cookies)
         if not check.ok:
             if not check.rejected and not missing_cookies(stored.cookies):

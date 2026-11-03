@@ -28,6 +28,12 @@ class Env(BaseSettings):
     # viewer; the bundled UI is served same-origin. Applied at startup.
     api_cors_origins: str = Field(default='', validation_alias='API_CORS_ORIGINS')
     api_cors_allow_credentials: bool = Field(default=False, validation_alias='API_CORS_ALLOW_CREDENTIALS')
+    # Other services that read a signed-in session from GET /api/v2/credentials/{site}
+    # (src/api/credentials.py), e.g. RSSHub's Bilibili proxy. Entries separated by
+    # whitespace or ';', each ``name:sha256-of-its-token:site[,site...]``. Only the
+    # hash is configured here, so the value is not a secret; the token itself lives
+    # with the client.
+    credential_clients: str = Field(default='', validation_alias='CREDENTIAL_CLIENTS')
 
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 

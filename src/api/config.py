@@ -34,6 +34,7 @@ def load_config_from_env(env=default_env) -> ApiConfig:  # noqa: ANN001
         port=port,
         cors_origins=cors_origins,
         cors_allow_credentials=cors_allow_credentials,
+        credential_clients=str(getattr(env, 'credential_clients', '') or ''),
     )
 
 

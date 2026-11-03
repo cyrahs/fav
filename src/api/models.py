@@ -13,3 +13,5 @@ class ApiConfig:
     port: int = DEFAULT_PORT
     cors_origins: tuple[str, ...] = ()
     cors_allow_credentials: bool = False
+    # Raw CREDENTIAL_CLIENTS (src/api/credentials.py parses it).
+    credential_clients: str = ''

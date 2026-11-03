@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, ARG001, PLR2004
+# ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, ARG001, ARG002, PLR2004, S105, S106, EM101, TRY003
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -819,6 +819,7 @@ class _Sessions:
     def __init__(self, sessions: dict) -> None:
         self.sessions = sessions
         self.checks: list[tuple] = []
+        self.replaced: list[tuple] = []
 
     async def load(self, site):
         cookies = self.sessions.get(site)
@@ -831,12 +832,21 @@ class _Sessions:
     async def record_check(self, site, *, ok, message='') -> None:
         self.checks.append((site, ok, message))
 
+    async def replace_cookies(self, site, cookies, *, expires_at, extra) -> None:
+        self.replaced.append((site, cookies, dict(extra)))
+        self.sessions[site] = cookies
+
     to_netscape = staticmethod(site_sessions_module.to_netscape)
 
 
 def _install_sessions(monkeypatch, sessions: dict, nav=None) -> _Sessions:
     fake = _Sessions(sessions)
     monkeypatch.setattr(bilibili_module, 'site_sessions', fake)
+
+    async def _no_renewal(_site, stored):
+        return stored
+
+    monkeypatch.setattr(bilibili_module, 'renew_session', _no_renewal)
 
     async def _verify(cookies, **_kwargs):
         return nav(cookies) if nav else bilibili_module.SessionCheck(ok=True, account='u (1)', message='')
@@ -925,6 +935,91 @@ def test_create_credential_builds_from_the_stored_session() -> None:
     assert credential.bili_jct == 'v-bili_jct'
     assert credential.buvid3 == 'v-buvid3'
     assert credential.dedeuserid == 'v-DedeUserID'
+
+
+# ---------- renew_session ----------
+
+
+def _session(cookies, extra=None) -> SiteSession:
+    return SiteSession(
+        site='bilibili-main',
+        cookies=cookies,
+        account='u',
+        status='valid',
+        message='',
+        expires_at=None,
+        signed_in_at=None,
+        checked_at=None,
+        extra=extra or {},
+    )
+
+
+def test_renew_session_stores_a_new_ticket_and_a_refreshed_sessdata(monkeypatch) -> None:
+    sessions = _Sessions({})
+    monkeypatch.setattr(bilibili_module, 'site_sessions', sessions)
+    ticket = (*_stored(), StoredCookie(name='bili_ticket', value='t', domain='.bilibili.com'))
+    refreshed = _stored(prefix='new')
+
+    async def _renew_ticket(cookies):
+        return ticket
+
+    async def _refresh(cookies, token, *, save):
+        assert cookies == ticket
+        assert token == 'rt-old'
+        renewal = bilibili_module.bilibili_session.Renewal(cookies=refreshed, refresh_token='rt-new', renewed=['SESSDATA'])
+        await save(renewal)
+        return renewal
+
+    monkeypatch.setattr(bilibili_module.bilibili_session, 'renew_ticket', _renew_ticket)
+    monkeypatch.setattr(bilibili_module.bilibili_session, 'refresh_session', _refresh)
+
+    result = asyncio.run(bilibili_module.renew_session('bilibili-main', _session(_stored(), {'refresh_token': 'rt-old'})))
+
+    assert result.cookies == refreshed
+    assert result.extra == {'refresh_token': 'rt-new'}
+    assert [(cookies, extra) for _, cookies, extra in sessions.replaced] == [
+        (ticket, {'refresh_token': 'rt-old'}),
+        (refreshed, {'refresh_token': 'rt-new'}),
+    ]
+
+
+def test_renew_session_keeps_the_session_when_bilibili_refuses(monkeypatch) -> None:
+    sessions = _Sessions({})
+    monkeypatch.setattr(bilibili_module, 'site_sessions', sessions)
+
+    async def _renew_ticket(cookies):
+        raise bilibili_module.bilibili_session.RenewalError('GenWebTicket: code -400')
+
+    async def _refresh(cookies, token, *, save):
+        raise httpx.ConnectError('down')
+
+    monkeypatch.setattr(bilibili_module.bilibili_session, 'renew_ticket', _renew_ticket)
+    monkeypatch.setattr(bilibili_module.bilibili_session, 'refresh_session', _refresh)
+
+    stored = _session(_stored(), {'refresh_token': 'rt'})
+    result = asyncio.run(bilibili_module.renew_session('bilibili-main', stored))
+
+    assert result.cookies == stored.cookies
+    assert sessions.replaced == []
+
+
+def test_renew_session_without_a_refresh_token_only_renews_the_ticket(monkeypatch) -> None:
+    sessions = _Sessions({})
+    monkeypatch.setattr(bilibili_module, 'site_sessions', sessions)
+
+    async def _renew_ticket(cookies):
+        return None
+
+    async def _refresh(cookies, token, *, save):
+        raise AssertionError('no token, no refresh')
+
+    monkeypatch.setattr(bilibili_module.bilibili_session, 'renew_ticket', _renew_ticket)
+    monkeypatch.setattr(bilibili_module.bilibili_session, 'refresh_session', _refresh)
+
+    result = asyncio.run(bilibili_module.renew_session('bilibili-main', _session(_stored())))
+
+    assert result.cookies == _stored()
+    assert sessions.replaced == []
 
 
 # ---------- verify_session ----------

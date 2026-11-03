@@ -51,7 +51,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from src.core import logger, settings
 from src.tool import database, site_sessions
 from src.tool.site_sessions import StoredCookie, cookie_expiry, cookie_value, cookies_from_browser, without_values
-from src.web import bilibili, nga_post, pixiv, rednote, rednote_browser, twitter
+from src.web import bilibili, bilibili_session, nga_post, pixiv, rednote, rednote_browser, twitter
 from src.web.rednote_browser import build_proxy_settings, clear_stale_profile_locks
 
 if TYPE_CHECKING:
@@ -140,6 +140,10 @@ class LoginSite:
     # False for a site whose session lives in its browser profile: site_sessions then
     # records which cookies exist and when they expire, not their values.
     store_cookie_values: bool = True
+    # Read from the window once the login is verified, before it is closed: secrets
+    # the site keeps outside its cookies (Bilibili's refresh token, in localStorage).
+    # Stored with the session as site_sessions' ``extra``.
+    after_login: Callable[[LoginBrowser], Awaitable[dict[str, str]]] | None = None
 
     def __post_init__(self) -> None:
         if self.verify is None and self.verify_in_browser is None:
@@ -161,6 +165,7 @@ class LoginBrowser(Protocol):
     async def cookies(self, urls: tuple[str, ...]) -> list[dict[str, Any]]: ...
     async def evaluate(self, script: str) -> Any: ...
     async def reload(self) -> None: ...
+    async def local_storage(self, url: str, key: str) -> str: ...
     async def close(self) -> None: ...
 
 
@@ -350,6 +355,7 @@ class BrowserLoginManager:
                         cookies if site.store_cookie_values else without_values(cookies),
                         account=check.account,
                         expires_at=cookie_expiry(cookies, site.session_cookie),
+                        extra=await self._after_login(site, browser),
                     )
                     attempt.state = STATE_SAVED
                     attempt.account = check.account
@@ -359,6 +365,17 @@ class BrowserLoginManager:
 
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(attempt.cancel.wait(), timeout=self._poll_seconds)
+
+    @staticmethod
+    async def _after_login(site: LoginSite, browser: LoginBrowser) -> dict[str, str]:
+        if site.after_login is None:
+            return {}
+        try:
+            return await site.after_login(browser)
+        except Exception:
+            # The login itself is good; only what it could have renewed by itself is lost.
+            log.exception('Reading the extras of a login failed site=%s', site.key)
+            return {}
 
     @staticmethod
     async def _verify(site: LoginSite, browser: LoginBrowser, cookies: tuple[StoredCookie, ...]) -> LoginCheck:
@@ -502,6 +519,10 @@ class _VncChromium:
 
     async def reload(self) -> None:
         await self._page.reload(wait_until='domcontentloaded', timeout=_RELOAD_TIMEOUT_MS)
+
+    async def local_storage(self, url: str, key: str) -> str:  # noqa: ARG002 - part of the protocol
+        msg = 'Reading localStorage is only implemented for the plain login window'
+        raise LoginError(msg)
 
     async def cookies(self, urls: tuple[str, ...]) -> list[dict[str, Any]]:
         if self._closed:
@@ -674,6 +695,60 @@ async def read_devtools_cookies(port: int) -> list[dict[str, Any]]:
     return list(reply.get('result', {}).get('cookies') or [])
 
 
+async def _devtools_call(socket: Any, counter: list[int], method: str, params: dict[str, Any], session: str = '') -> dict[str, Any]:
+    counter[0] += 1
+    message: dict[str, Any] = {'id': counter[0], 'method': method, 'params': params}
+    if session:
+        message['sessionId'] = session
+    await socket.send(json.dumps(message))
+    while True:
+        reply = json.loads(await asyncio.wait_for(socket.recv(), timeout=10))
+        if reply.get('id') == counter[0]:
+            break
+    if 'error' in reply:
+        msg = f'DevTools refused {method}: {reply["error"]}'
+        raise LoginError(msg)
+    return dict(reply.get('result') or {})
+
+
+async def read_devtools_local_storage(port: int, url: str, key: str, *, timeout: float = 10) -> str:  # noqa: ASYNC109
+    """One localStorage entry of ``url``'s origin, read in a background tab opened for it.
+
+    The tab is the browser's own (``Target.createTarget``), opened on ``url`` --
+    best a static file of the site such as robots.txt -- and closed again; the
+    tab the user signs in with is never attached to.
+    """
+    async with httpx.AsyncClient(trust_env=False, timeout=5) as client:
+        version = (await client.get(f'http://127.0.0.1:{port}/json/version')).json()
+    async with websockets.connect(str(version['webSocketDebuggerUrl']), max_size=None, proxy=None, open_timeout=5) as socket:
+        counter = [0]
+        target = (await _devtools_call(socket, counter, 'Target.createTarget', {'url': url, 'background': True}))['targetId']
+        try:
+            session = (await _devtools_call(socket, counter, 'Target.attachToTarget', {'targetId': target, 'flatten': True}))['sessionId']
+            expression = (
+                f"document.readyState === 'complete' && location.origin === {json.dumps(_origin(url))}"
+                f' ? (localStorage.getItem({json.dumps(key)}) || "") : null'
+            )
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout
+            while True:
+                result = await _devtools_call(
+                    socket, counter, 'Runtime.evaluate', {'expression': expression, 'returnByValue': True}, session
+                )
+                value = result.get('result', {}).get('value')
+                if isinstance(value, str) or loop.time() >= deadline:
+                    return value if isinstance(value, str) else ''
+                await asyncio.sleep(0.5)
+        finally:
+            with contextlib.suppress(LoginError, OSError, TimeoutError, websockets.WebSocketException):
+                await _devtools_call(socket, counter, 'Target.closeTarget', {'targetId': target})
+
+
+def _origin(url: str) -> str:
+    parts = urlsplit(url)
+    return f'{parts.scheme}://{parts.netloc}'
+
+
 class _PlainChromium:
     def __init__(self, xvnc: asyncio.subprocess.Process, *, executable: str, profile_dir: Path, proxy: str, display: int) -> None:
         self._xvnc = xvnc
@@ -720,6 +795,11 @@ class _PlainChromium:
     async def reload(self) -> None:
         msg = 'A plain login window cannot be reloaded from here'
         raise LoginError(msg)
+
+    async def local_storage(self, url: str, key: str) -> str:
+        if self.closed:
+            return ''
+        return await read_devtools_local_storage(DEFAULT_DEVTOOLS_PORT, url, key)
 
     async def close(self) -> None:
         try:
@@ -826,6 +906,33 @@ async def _verify_pixiv(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
 
 async def _verify_bilibili(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
     return await bilibili.verify_session(cookies)
+
+
+# Where the login page may have left the refresh token: the passport page signs in
+# on its own origin, the main site's login popup on www. A static file of each
+# origin is enough to read its localStorage.
+_BILIBILI_STORAGE_URLS = ('https://passport.bilibili.com/robots.txt', 'https://www.bilibili.com/robots.txt')
+_BILIBILI_TOKEN_WAIT_SECONDS = 10
+
+
+async def _bilibili_extras(browser: LoginBrowser) -> dict[str, str]:
+    """The refresh token the login page keeps in localStorage, which fav needs to refresh SESSDATA.
+
+    The page writes it as the login answer arrives, about when SESSDATA does, so it
+    is asked for a few times before giving up.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _BILIBILI_TOKEN_WAIT_SECONDS
+    while True:
+        for url in _BILIBILI_STORAGE_URLS:
+            token = await browser.local_storage(url, bilibili_session.REFRESH_TOKEN_STORAGE_KEY)
+            if token:
+                log.info('Captured the Bilibili refresh token from %s', _origin(url))
+                return {bilibili_session.REFRESH_TOKEN_KEY: token}
+        if loop.time() >= deadline:
+            log.warning('The Bilibili login left no refresh token; fav will not be able to refresh SESSDATA itself')
+            return {}
+        await asyncio.sleep(1)
 
 
 async def _verify_nga(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
@@ -937,6 +1044,7 @@ def bilibili_login_site(account_name: str) -> LoginSite:
         cookie_urls=bilibili.SESSION_COOKIE_URLS,
         session_cookie=bilibili.SESSION_COOKIE,
         verify=_verify_bilibili,
+        after_login=_bilibili_extras,
         hint=f'用要给账号 {account_name} 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。',  # noqa: RUF001
     )
 
