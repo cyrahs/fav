@@ -805,6 +805,44 @@ def test_parse_nagami_mapping_reads_name_and_background() -> None:
     }
 
 
+def test_parse_nagami_mapping_reads_ship_grouped_layout() -> None:
+    parsed = parse_nagami_mapping(
+        _nagami_mapping_payload(
+            {
+                '10117': {
+                    'names': {'EN': 'Laffey', 'CN': '拉菲', 'JP': 'ラフィー'},
+                    'skins': [
+                        {
+                            'prefab': 'lafei_4',
+                            'names': {'EN': 'White Rabbit Welcomes the Spring', 'CN': '白兔迎春'},
+                            'servers': ['EN', 'CN', 'JP'],
+                            'bg': '102',
+                            'id': '101173',
+                            'tags': ['live2d', 'bg'],
+                        },
+                    ],
+                },
+                '20101': {
+                    'names': {'EN': '', 'CN': '标枪'},
+                    'skins': [{'prefab': 'biaoqiang_2', 'names': {'CN': '闪耀的白刃'}, 'bg': ''}],
+                },
+            },
+        ),
+    )
+
+    assert {entry.key: (entry.name, entry.background) for entry in parsed.entries} == {
+        'lafei_4': ('Laffey - White Rabbit Welcomes the Spring', '102'),
+        'biaoqiang_2': ('标枪 - 闪耀的白刃', ''),
+    }
+
+
+def test_parse_nagami_mapping_rejects_skin_without_prefab() -> None:
+    payload = _nagami_mapping_payload({'10117': {'names': {'EN': 'Laffey'}, 'skins': [{'names': {'EN': 'X'}}]}})
+
+    with pytest.raises(SourceSchemaError, match='prefab'):
+        parse_nagami_mapping(payload)
+
+
 def test_fetch_l2d_su_snapshot_merges_english_names_and_records_metadata() -> None:
     primary = _ship_index_payload([_ship(1, 'biaoqiang', '标枪', skins=[_skin(11, '闪耀的白刃', key='biaoqiang_2')])])
     english = _ship_index_payload(

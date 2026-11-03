@@ -52,7 +52,10 @@ L2D_SU_SHIP_DETAIL_URL_TEMPLATE = 'https://static.l2d.su/al/data/ships/{region}/
 L2D_SU_REFERER = 'https://l2d.su/'
 L2D_SU_PRIMARY_REGION = 'CN'
 L2D_SU_ENGLISH_REGION = 'EN'
-NAGAMI_MAPPING_URL = 'https://data.nagami.moe/live2d/l2d_mapping.json'
+# nagami moved the mapping under a per-server directory on 2026-11-03; the old root path is now 404.
+# The CN, EN and JP files are identical and carry the names for every server.
+NAGAMI_MAPPING_URL = 'https://data.nagami.moe/live2d/EN/l2d_mapping.json'
+NAGAMI_NAME_LOCALES = ('EN', 'CN', 'JP')
 NAGAMI_LIVE2D_BASE_URL = 'https://cdn.nagami.moe/live2d'
 DEFAULT_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 HTTP_ERROR_MIN = 400
@@ -1081,13 +1084,22 @@ def merge_l2d_su_english_names(primary: L2DSuIndexData, english: L2DSuIndexData)
 
 
 def parse_nagami_mapping(source: str) -> NagamiMappingData:
+    """Read the nagami Live2D mapping.
+
+    Two layouts are accepted. The current one (since 2026-11-03) groups skins by ship id:
+    ``{ship_id: {names: {EN, CN, JP}, skins: [{prefab, names, bg, ...}]}}``. The old one mapped
+    each model key to ``"Ship - Skin"`` or ``{name, bg}``. Both yield one entry per model key,
+    named ``"Ship - Skin"`` in English when available."""
     payload = _decode_json_object(source, context='Nagami mapping')
     entries: list[NagamiMappingEntry] = []
     for key, value in payload.items():
         if not isinstance(key, str) or not key.strip():
             msg = 'Nagami mapping keys must be non-empty strings'
             raise SourceSchemaError(msg)
-        entries.append(_parse_nagami_mapping_entry(key, value))
+        if isinstance(value, dict) and 'skins' in value:
+            entries.extend(_parse_nagami_ship_entries(key, value))
+        else:
+            entries.append(_parse_nagami_mapping_entry(key, value))
     return NagamiMappingData(entries=tuple(sorted(entries, key=lambda entry: entry.key.casefold())))
 
 
@@ -3432,6 +3444,38 @@ def _parse_nagami_mapping_entry(key: str, value: Any) -> NagamiMappingEntry:
         msg = f'Nagami mapping name for {key!r} must be a non-empty string'
         raise SourceSchemaError(msg)
     return NagamiMappingEntry(key=key, name=name, background=background)
+
+
+def _parse_nagami_ship_entries(ship_id: str, value: dict[str, Any]) -> list[NagamiMappingEntry]:
+    skins = value.get('skins')
+    if not isinstance(skins, list):
+        msg = f'Nagami mapping skins for ship {ship_id!r} must be a list'
+        raise SourceSchemaError(msg)
+    ship_name = _nagami_localized_name(value.get('names'))
+    entries: list[NagamiMappingEntry] = []
+    for index, skin in enumerate(skins):
+        context = f'Nagami mapping ship {ship_id!r} skin {index}'
+        if not isinstance(skin, dict):
+            msg = f'{context} must be an object'
+            raise SourceSchemaError(msg)
+        prefab = _optional_str(skin, 'prefab').strip()
+        if not prefab:
+            msg = f'{context} must have a non-empty prefab'
+            raise SourceSchemaError(msg)
+        skin_name = _nagami_localized_name(skin.get('names'))
+        name = ' - '.join(part for part in (ship_name, skin_name) if part) or prefab
+        entries.append(NagamiMappingEntry(key=prefab, name=name, background=_optional_str(skin, 'bg')))
+    return entries
+
+
+def _nagami_localized_name(names: Any) -> str:
+    if not isinstance(names, dict):
+        return ''
+    for locale in NAGAMI_NAME_LOCALES:
+        name = names.get(locale)
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return ''
 
 
 def _assert_object(value: Any, *, context: str) -> bool:
