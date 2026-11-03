@@ -7,6 +7,15 @@ site's login page, and lets the user operate it through noVNC in the web UI. The
 WebSocket that carries VNC is bridged here, gated by a per-login ticket, so the
 VNC port itself never leaves the pod.
 
+The window is a plain Chromium process, not one Playwright drives: nothing attaches
+to its pages, injects scripts or enables a debugging domain on them, so to the site
+it is an ordinary browser. X refuses sign-ins from a Playwright-controlled window
+outright ("temporarily restricted"). The only thing fav asks of the browser is its
+cookie jar, over a browser-level DevTools connection on loopback that never touches
+a page. RedNote is the exception: its crawl is itself a Playwright browser on the
+same profile, presented with an overridden user agent, so its window is that
+controlled browser too (``LoginSite.controlled``).
+
 While the window is open the cookies are polled. As soon as the session cookie
 appears it is checked against the site itself, and a login that passes is stored
 in ``site_sessions`` -- then the browser and the display are shut down again. A
@@ -25,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import secrets
 import signal
@@ -32,7 +42,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
+from urllib.parse import urlsplit
 
+import httpx
+import websockets
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from src.core import logger, settings
@@ -56,6 +69,8 @@ STATE_CANCELLED = 'cancelled'
 DEFAULT_PROFILE_ROOT = Path('./data/login-profiles')
 DEFAULT_DISPLAY = 99
 DEFAULT_VNC_PORT = 5999
+# The plain window's DevTools port, on loopback: how its cookie jar is read.
+DEFAULT_DEVTOOLS_PORT = 5998
 DEFAULT_TIMEOUT_SECONDS = 15 * 60
 DEFAULT_POLL_SECONDS = 2.0
 # A cookie that did not verify is asked about again after this long even when its
@@ -131,6 +146,11 @@ class LoginSite:
             msg = f'Login site {self.key} needs a way to verify a login'
             raise ValueError(msg)
 
+    @property
+    def controlled(self) -> bool:
+        """Whether the window has to be a Playwright browser: only when the login needs its page."""
+        return self.verify_in_browser is not None or self.prepare_page is not None
+
 
 class LoginBrowser(Protocol):
     """What a login needs from a browser. Implemented for real below, faked in tests."""
@@ -145,7 +165,7 @@ class LoginBrowser(Protocol):
 
 
 class BrowserLauncher(Protocol):
-    async def __call__(
+    async def __call__(  # noqa: PLR0913 - keyword-only, mirrors launch_vnc_browser
         self,
         *,
         profile_dir: Path,
@@ -153,6 +173,7 @@ class BrowserLauncher(Protocol):
         display: int,
         vnc_port: int,
         prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None,
+        controlled: bool = False,
     ) -> LoginBrowser: ...
 
 
@@ -190,7 +211,7 @@ class BrowserLoginManager:
     ) -> None:
         self.sites = dict(sites)
         self.vnc_port = vnc_port
-        self._launcher = launcher or launch_vnc_chromium
+        self._launcher = launcher or launch_vnc_browser
         self._profile_root = profile_root
         self._display = display
         self._timeout = timedelta(seconds=timeout_seconds)
@@ -271,6 +292,7 @@ class BrowserLoginManager:
                 display=self._display,
                 vnc_port=self.vnc_port,
                 prepare_page=site.prepare_page,
+                controlled=site.controlled,
             )
             attempt.state = STATE_WAITING
             await browser.open(site.login_url)
@@ -492,23 +514,15 @@ class _VncChromium:
                 await _stop_process(self._xvnc)
 
 
-async def launch_vnc_chromium(
-    *,
-    profile_dir: Path,
-    proxy: str,
-    display: int,
-    vnc_port: int,
-    prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None,
-) -> LoginBrowser:
-    from playwright.async_api import async_playwright  # noqa: PLC0415 - heavy, and only needed for a login
-
-    options = build_login_launch_options(profile_dir=profile_dir, proxy=proxy, display=display)
+async def _prepare_profile_and_display(profile_dir: Path, display: int) -> None:
     await asyncio.to_thread(profile_dir.mkdir, parents=True, exist_ok=True)
     cleared = clear_stale_profile_locks(profile_dir)
     if cleared:
         log.info('Cleared stale profile locks %s', ', '.join(cleared))
     _reap_stale_display(display)
 
+
+async def _start_xvnc(display: int, vnc_port: int) -> asyncio.subprocess.Process:
     xvnc = await asyncio.create_subprocess_exec(
         'Xvnc',
         f':{display}',
@@ -529,9 +543,46 @@ async def launch_vnc_chromium(
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
-    playwright = None
     try:
         await _wait_for_port(vnc_port, xvnc, _XVNC_READY_TIMEOUT_SECONDS)
+    except BaseException:
+        await _stop_process(xvnc)
+        raise
+    return xvnc
+
+
+async def launch_vnc_browser(  # noqa: PLR0913 - keyword-only
+    *,
+    profile_dir: Path,
+    proxy: str,
+    display: int,
+    vnc_port: int,
+    prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None,
+    controlled: bool = False,
+) -> LoginBrowser:
+    """The login window for a site: a plain Chromium, or a Playwright one where the site needs its page."""
+    if controlled:
+        return await launch_vnc_chromium(
+            profile_dir=profile_dir, proxy=proxy, display=display, vnc_port=vnc_port, prepare_page=prepare_page
+        )
+    return await launch_plain_chromium(profile_dir=profile_dir, proxy=proxy, display=display, vnc_port=vnc_port)
+
+
+async def launch_vnc_chromium(
+    *,
+    profile_dir: Path,
+    proxy: str,
+    display: int,
+    vnc_port: int,
+    prepare_page: Callable[[Any, Any], Awaitable[Any]] | None = None,
+) -> LoginBrowser:
+    from playwright.async_api import async_playwright  # noqa: PLC0415 - heavy, and only needed for a login
+
+    options = build_login_launch_options(profile_dir=profile_dir, proxy=proxy, display=display)
+    await _prepare_profile_and_display(profile_dir, display)
+    xvnc = await _start_xvnc(display, vnc_port)
+    playwright = None
+    try:
         playwright = await async_playwright().start()
         context = await playwright.chromium.launch_persistent_context(**options)
     except BaseException:
@@ -540,6 +591,173 @@ async def launch_vnc_chromium(
         await _stop_process(xvnc)
         raise
     return _VncChromium(xvnc, playwright, context, prepare_page)
+
+
+# --- The plain browser: Xvnc + an undriven Chromium -----------------------------------------------
+
+
+def build_plain_chromium_command(*, executable: str, profile_dir: Path, proxy: str, devtools_port: int, url: str) -> list[str]:
+    """The command line of a login window nothing drives, as data.
+
+    No ``--enable-automation`` and no Playwright: the only automation surface is a
+    DevTools port on loopback, which fav uses at the browser level for the cookie
+    jar and never to attach to a page. A proxy is given as a server only: without
+    a driver there is nobody to answer its credential challenge, so a proxy that
+    needs one is refused rather than prompting in the window.
+    """
+    command = [
+        executable,
+        f'--user-data-dir={profile_dir}',
+        f'--remote-debugging-port={devtools_port}',
+        '--remote-debugging-address=127.0.0.1',
+        # The pod runs as root, where Chromium refuses to start sandboxed.
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--no-first-run',
+        '--no-default-browser-check',
+        # Playwright's choice too, so a profile it wrote before still decrypts.
+        '--password-store=basic',
+        # Stopping the window is how every login ends; don't offer to restore it.
+        '--hide-crash-restore-bubble',
+        '--lang=zh-CN',
+        f'--window-size={_SCREEN_WIDTH},{_SCREEN_HEIGHT}',
+        '--window-position=0,0',
+    ]
+    proxy_settings = build_proxy_settings(proxy)
+    if proxy_settings is not None:
+        if proxy_settings.get('username') or proxy_settings.get('password'):
+            msg = 'The login window cannot authenticate to a proxy; use one without credentials for this site.'
+            raise LoginError(msg)
+        command.append(f'--proxy-server={proxy_settings["server"]}')
+    else:
+        # Direct means direct, whatever proxy the environment happens to carry.
+        command.append('--no-proxy-server')
+    command.append(url)
+    return command
+
+
+def cookies_for_urls(cookies: list[dict[str, Any]], urls: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The cookies a browser would send to any of ``urls``, by domain alone (DevTools returns the whole jar)."""
+    hosts = {urlsplit(url).hostname or '' for url in urls}
+    selected: list[dict[str, Any]] = []
+    for cookie in cookies:
+        domain = str(cookie.get('domain') or '')
+        bare = domain.lstrip('.')
+        if any(host == bare or (domain.startswith('.') and host.endswith(f'.{bare}')) for host in hosts):
+            selected.append(cookie)
+    return selected
+
+
+async def read_devtools_cookies(port: int) -> list[dict[str, Any]]:
+    """The browser's whole cookie jar, asked of its browser-level DevTools target.
+
+    ``Storage.getCookies`` on the browser target needs no page session, so no page
+    is attached to and nothing runs in one: this is what keeps the window an
+    ordinary browser to the site being signed in to.
+    """
+    async with httpx.AsyncClient(trust_env=False, timeout=5) as client:
+        version = (await client.get(f'http://127.0.0.1:{port}/json/version')).json()
+    async with websockets.connect(str(version['webSocketDebuggerUrl']), max_size=None, proxy=None, open_timeout=5) as socket:
+        await socket.send(json.dumps({'id': 1, 'method': 'Storage.getCookies'}))
+        while True:
+            reply = json.loads(await asyncio.wait_for(socket.recv(), timeout=5))
+            if reply.get('id') == 1:
+                break
+    if 'error' in reply:
+        msg = f'DevTools refused Storage.getCookies: {reply["error"]}'
+        raise LoginError(msg)
+    return list(reply.get('result', {}).get('cookies') or [])
+
+
+class _PlainChromium:
+    def __init__(self, xvnc: asyncio.subprocess.Process, *, executable: str, profile_dir: Path, proxy: str, display: int) -> None:
+        self._xvnc = xvnc
+        self._executable = executable
+        self._profile_dir = profile_dir
+        self._proxy = proxy
+        self._display = display
+        self._chromium: asyncio.subprocess.Process | None = None
+
+    @property
+    def closed(self) -> bool:
+        if self._xvnc.returncode is not None:
+            return True
+        return self._chromium is not None and self._chromium.returncode is not None
+
+    async def open(self, url: str) -> None:
+        command = build_plain_chromium_command(
+            executable=self._executable, profile_dir=self._profile_dir, proxy=self._proxy, devtools_port=DEFAULT_DEVTOOLS_PORT, url=url
+        )
+        # Its own session, so stopping it reaches the renderers and helpers as well.
+        self._chromium = await asyncio.create_subprocess_exec(
+            *command,
+            env={**os.environ, 'DISPLAY': f':{self._display}', 'TZ': 'Asia/Shanghai'},
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    async def cookies(self, urls: tuple[str, ...]) -> list[dict[str, Any]]:
+        if self.closed:
+            return []
+        try:
+            jar = await read_devtools_cookies(DEFAULT_DEVTOOLS_PORT)
+        except (OSError, httpx.HTTPError, websockets.WebSocketException, TimeoutError, ValueError, KeyError) as exc:
+            # Still starting, or between windows; the next poll asks again.
+            log.debug('DevTools not answering yet: %s', exc.__class__.__name__)
+            return []
+        return cookies_for_urls(jar, urls)
+
+    async def evaluate(self, script: str) -> Any:  # noqa: ARG002 - part of the protocol
+        msg = 'A plain login window has no page to evaluate in'
+        raise LoginError(msg)
+
+    async def reload(self) -> None:
+        msg = 'A plain login window cannot be reloaded from here'
+        raise LoginError(msg)
+
+    async def close(self) -> None:
+        try:
+            if self._chromium is not None:
+                await _stop_process_group(self._chromium)
+        finally:
+            await _stop_process(self._xvnc)
+
+
+async def _stop_process_group(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGTERM)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_PROCESS_STOP_TIMEOUT_SECONDS)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            await process.wait()
+    # Helpers outlive the main process for a moment; make sure none stay behind.
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+
+
+async def _chromium_executable() -> str:
+    from playwright.async_api import async_playwright  # noqa: PLC0415 - only to locate the bundled build
+
+    playwright = await async_playwright().start()
+    try:
+        return playwright.chromium.executable_path
+    finally:
+        await playwright.stop()
+
+
+async def launch_plain_chromium(*, profile_dir: Path, proxy: str, display: int, vnc_port: int) -> LoginBrowser:
+    executable = await _chromium_executable()
+    # Fails on a proxy the window cannot use before anything is started.
+    build_plain_chromium_command(
+        executable=executable, profile_dir=profile_dir, proxy=proxy, devtools_port=DEFAULT_DEVTOOLS_PORT, url='about:blank'
+    )
+    await _prepare_profile_and_display(profile_dir, display)
+    xvnc = await _start_xvnc(display, vnc_port)
+    return _PlainChromium(xvnc, executable=executable, profile_dir=profile_dir, proxy=proxy, display=display)
 
 
 # --- VNC over WebSocket -------------------------------------------------------------------------

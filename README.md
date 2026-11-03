@@ -405,7 +405,12 @@ The 登录态 page lists the sources that need a signed-in session (pixiv, X and
 stored one: account, when it was captured, when its cookie expires, and whether the last crawl found it
 valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
 `Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
-shown in the page through noVNC. The VNC WebSocket (`/api/v2/site-sessions/vnc`) is opened with a
+shown in the page through noVNC. That Chromium is a plain process, not one Playwright drives: nothing
+attaches to its pages or runs scripts in them, so the site sees an ordinary browser (X refuses
+sign-ins from a Playwright-controlled window as "temporarily restricted"). fav only reads its cookie
+jar, with `Storage.getCookies` on the browser-level DevTools target on loopback (port 5998), which
+never touches a page. Because nothing can answer a proxy's credential challenge, a login proxy must
+not need credentials. The VNC WebSocket (`/api/v2/site-sessions/vnc`) is opened with a
 ticket that belongs to that one login, since a browser cannot send the bearer token on a WebSocket.
 
 While the window is open the API polls its cookies. When the session cookie appears it asks the site
@@ -417,7 +422,8 @@ unfinished closes itself after 15 minutes. Nothing runs between logins; a login 
 so successive logins come from the same browser. A login is refused while the RedNote crawl has its
 own browser open, so the two never share the pod's memory limit.
 
-RedNote is the exception to both halves. Its crawl is itself a browser, so the window opens the
+RedNote is the exception to all of this. Its crawl is itself a Playwright browser, so the window is
+one too, and it opens the
 crawl's own profile (`web.rednote.profile_path`) under the crawl's profile lock, presented the way the
 crawl presents it, and the login is confirmed by reading the window's own page rather than by
 replaying its cookies anywhere else. `site_sessions` records only which of its cookies exist and when
