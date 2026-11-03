@@ -1,13 +1,16 @@
-# ruff: noqa: INP001, S101, S106, SLF001, ANN001, ANN002, ANN003, ANN202, ARG001, PLR2004
+# ruff: noqa: INP001, S101, SLF001, ANN001, ANN002, ANN003, ANN202, ARG001, PLR2004
 
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 import pytest
 
+import src.tool.site_sessions as site_sessions_module
 import src.web.bilibili as bilibili_module
 from src.core import settings
+from src.tool.site_sessions import SiteSession, StoredCookie
 from src.web.bilibili import Bilibili
 
 
@@ -713,7 +716,11 @@ def _collect_update_calls(crawler: Bilibili, monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(crawler, 'update_fav', _fake_update_fav)
     monkeypatch.setattr(crawler, '_ensure_table', _fake_ensure_table)
-    monkeypatch.setattr(crawler, '_activate_account', lambda _account: None)
+
+    async def _fake_activate(_account) -> None:
+        return None
+
+    monkeypatch.setattr(crawler, '_activate_account', _fake_activate)
     return calls
 
 
@@ -788,87 +795,180 @@ def test_update_activates_each_account_before_its_favourites(tmp_path, monkeypat
 
     monkeypatch.setattr(crawler, 'update_fav', _fake_update_fav)
     monkeypatch.setattr(crawler, '_ensure_table', _fake_ensure_table)
-    monkeypatch.setattr(crawler, '_activate_account', lambda account: events.append(f'activate:{account.name}'))
+
+    async def _fake_activate(account) -> None:
+        events.append(f'activate:{account.name}')
+
+    monkeypatch.setattr(crawler, '_activate_account', _fake_activate)
 
     asyncio.run(crawler.update())
 
     assert events == ['activate:main', 'fav:100', 'activate:alt', 'fav:100']
 
 
-def test_each_account_uses_its_own_credentials(tmp_path, monkeypatch) -> None:
+_FULL_SESSION = ('SESSDATA', 'bili_jct', 'buvid3', 'DedeUserID')
+
+
+def _stored(names=_FULL_SESSION, *, prefix: str = 'v') -> tuple[StoredCookie, ...]:
+    return tuple(StoredCookie(name=name, value=f'{prefix}-{name}', domain='.bilibili.com') for name in names)
+
+
+class _Sessions:
+    """site_sessions, in memory."""
+
+    def __init__(self, sessions: dict) -> None:
+        self.sessions = sessions
+        self.checks: list[tuple] = []
+
+    async def load(self, site):
+        cookies = self.sessions.get(site)
+        if cookies is None:
+            return None
+        return SiteSession(
+            site=site, cookies=cookies, account='u', status='valid', message='', expires_at=None, signed_in_at=None, checked_at=None
+        )
+
+    async def record_check(self, site, *, ok, message='') -> None:
+        self.checks.append((site, ok, message))
+
+    to_netscape = staticmethod(site_sessions_module.to_netscape)
+
+
+def _install_sessions(monkeypatch, sessions: dict, nav=None) -> _Sessions:
+    fake = _Sessions(sessions)
+    monkeypatch.setattr(bilibili_module, 'site_sessions', fake)
+
+    async def _verify(cookies, **_kwargs):
+        return nav(cookies) if nav else bilibili_module.SessionCheck(ok=True, account='u (1)', message='')
+
+    monkeypatch.setattr(bilibili_module, 'verify_session', _verify)
+    return fake
+
+
+def test_each_account_uses_its_own_login(tmp_path, monkeypatch) -> None:
     crawler = _make_bilibili(tmp_path)
-    settings.load().cookiecloud.configs.extend(
-        [
-            settings.CookieCloudEntry(name='vault-a', server_url='https://cc.a', uuid='uuid-A', password='pw-A'),
-            settings.CookieCloudEntry(name='vault-b', server_url='https://cc.b', uuid='uuid-B', password='pw-B'),
-        ],
-    )
-    crawler.cfg = settings.Bilibili(
-        accounts=[
-            _account('main', cookiecloud='vault-a'),
-            _account('alt', cookiecloud='vault-b'),
-        ],
-    )
-    used: list[tuple[str, str]] = []
+    crawler.cache_dir = tmp_path
+    sessions = _install_sessions(monkeypatch, {'bilibili-main': _stored(prefix='a'), 'bilibili-alt': _stored(prefix='b')})
+    seen: list[tuple[str, str, str]] = []
 
     async def _fake_update_fav(_fav_id: int, _path: Path) -> None:
-        return None
+        seen.append((crawler.cookie_path.name, crawler.credential.sessdata, crawler.cookie_path.read_text()))
 
     async def _fake_ensure_table() -> None:
         return None
 
+    crawler.cfg = settings.Bilibili(accounts=[_account('main'), _account('alt')])
     monkeypatch.setattr(crawler, 'update_fav', _fake_update_fav)
     monkeypatch.setattr(crawler, '_ensure_table', _fake_ensure_table)
-    monkeypatch.setattr(crawler, 'create_credential', lambda _path: object())
-    monkeypatch.setattr(
-        bilibili_module.Bilibili,
-        'update_cookie_from_cookiecloud',
-        staticmethod(lambda path, cfg: used.append((path.name, cfg.uuid))),
-    )
 
     asyncio.run(crawler.update())
 
-    # Separate cookie files, separate credentials.
-    assert used == [('bilibili-main.txt', 'uuid-A'), ('bilibili-alt.txt', 'uuid-B')]
+    # Separate cookie files (for yt-dlp), separate credentials.
+    assert [(name, sessdata) for name, sessdata, _ in seen] == [('bilibili-main.txt', 'a-SESSDATA'), ('bilibili-alt.txt', 'b-SESSDATA')]
+    assert '\tSESSDATA\ta-SESSDATA' in seen[0][2]
+    assert sessions.checks == [('bilibili-main', True, ''), ('bilibili-alt', True, '')]
 
 
-def test_an_account_without_a_cookiecloud_reference_is_reported_as_not_runnable() -> None:
-    cfg = settings.Bilibili(accounts=[_account('main')])
+def test_an_account_never_signed_in_fails_with_the_login_page_hint(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    _install_sessions(monkeypatch, {})
 
-    assert cfg.validate_runnable() == ['accounts[0].cookiecloud']
+    with pytest.raises(bilibili_module.SessionError, match='登录态') as error:
+        asyncio.run(crawler._activate_account(_account('main')))
 
-
-def test_an_account_referencing_a_missing_shared_config_is_reported() -> None:
-    cfg = settings.Bilibili(accounts=[_account('main', cookiecloud='ghost')])
-
-    assert cfg.validate_runnable() == ["accounts[0].cookiecloud (no config named 'ghost')"]
+    assert error.value.notification_dedupe_key == 'bilibili:auth:main'
 
 
-def _cookie_file(path: Path, names: list[str]) -> Path:
-    lines = ['# Netscape HTTP Cookie File']
-    lines.extend(f'.bilibili.com\tTRUE\t/\tTRUE\t4102444800\t{name}\tvalue-{name}' for name in names)
-    path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    return path
+def test_a_session_bilibili_rejects_is_marked_invalid(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    rejected = bilibili_module.SessionCheck(ok=False, account='', message='not signed in', rejected=True)
+    sessions = _install_sessions(monkeypatch, {'bilibili-main': _stored()}, nav=lambda _c: rejected)
+
+    with pytest.raises(bilibili_module.SessionError, match='no longer valid'):
+        asyncio.run(crawler._activate_account(_account('main')))
+
+    assert [(site, ok) for site, ok, _ in sessions.checks] == [('bilibili-main', False)]
 
 
-def test_create_credential_names_the_missing_cookies(tmp_path) -> None:
-    b = _make_bilibili(tmp_path)
-    cookie_path = _cookie_file(tmp_path / 'bilibili-main.txt', ['bili_jct', 'buvid3', 'DedeUserID'])
+def test_bilibili_not_answering_does_not_mark_the_session_invalid(tmp_path, monkeypatch) -> None:
+    crawler = _make_bilibili(tmp_path)
+    unreachable = bilibili_module.SessionCheck(ok=False, account='', message='Bilibili unreachable: ConnectError')
+    sessions = _install_sessions(monkeypatch, {'bilibili-main': _stored()}, nav=lambda _c: unreachable)
 
-    with pytest.raises(bilibili_module.MissingCookiesError) as error:
-        b.create_credential(cookie_path)
+    with pytest.raises(RuntimeError, match='unreachable') as error:
+        asyncio.run(crawler._activate_account(_account('main')))
 
-    # The old code died with ``KeyError: 'sessdata'`` before its own warning could fire.
-    assert error.value.missing == ('sessdata',)
-    assert 'bilibili-main.txt' in str(error.value)
-    assert 'Sign in to bilibili.com' in str(error.value)
+    assert not isinstance(error.value, bilibili_module.SessionError)
+    assert sessions.checks == []
 
 
-def test_create_credential_builds_from_a_complete_cookie_file(tmp_path) -> None:
-    b = _make_bilibili(tmp_path)
-    cookie_path = _cookie_file(tmp_path / 'bilibili-main.txt', ['SESSDATA', 'bili_jct', 'buvid3', 'DedeUserID'])
+def test_an_account_needs_favourites_or_watch_later_but_no_cookiecloud() -> None:
+    assert settings.Bilibili(accounts=[_account('main')]).validate_runnable() == []
+    assert settings.Bilibili(accounts=[_account('main', favorites=[])]).validate_runnable() == ['accounts[0].favorites']
 
-    credential = b.create_credential(cookie_path)
 
-    assert credential.sessdata == 'value-SESSDATA'
-    assert credential.bili_jct == 'value-bili_jct'
+def test_a_stored_cookiecloud_reference_is_ignored() -> None:
+    account = settings.BilibiliAccount.model_validate({'name': 'main', 'toview_enabled': True, 'cookiecloud': 'main'})
+
+    assert not hasattr(account, 'cookiecloud')
+
+
+def test_create_credential_names_the_missing_cookies() -> None:
+    with pytest.raises(bilibili_module.SessionError, match='SESSDATA'):
+        Bilibili.create_credential(_stored(('bili_jct', 'buvid3', 'DedeUserID')))
+
+
+def test_create_credential_builds_from_the_stored_session() -> None:
+    credential = Bilibili.create_credential(_stored())
+
+    assert credential.sessdata == 'v-SESSDATA'
+    assert credential.bili_jct == 'v-bili_jct'
+    assert credential.buvid3 == 'v-buvid3'
+    assert credential.dedeuserid == 'v-DedeUserID'
+
+
+# ---------- verify_session ----------
+
+
+def _nav(status: int, payload: object, seen: list[httpx.Request] | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        return httpx.Response(status, json=payload)
+
+    return httpx.MockTransport(handler)
+
+
+def test_verify_waits_for_every_cookie_a_credential_needs() -> None:
+    check = asyncio.run(bilibili_module.verify_session(_stored(('SESSDATA', 'bili_jct', 'DedeUserID')), transport=_nav(200, {})))
+
+    assert not check.ok
+    assert not check.rejected
+    assert 'buvid3' in check.message
+
+
+def test_verify_names_the_signed_in_user() -> None:
+    seen: list[httpx.Request] = []
+    payload = {'code': 0, 'data': {'isLogin': True, 'uname': '某人', 'mid': 42}}
+
+    check = asyncio.run(bilibili_module.verify_session(_stored(), transport=_nav(200, payload, seen)))
+
+    assert check.ok
+    assert check.account == '某人 (42)'
+    assert 'SESSDATA=v-SESSDATA' in seen[0].headers['Cookie']
+
+
+def test_verify_reports_a_signed_out_session_as_rejected() -> None:
+    check = asyncio.run(
+        bilibili_module.verify_session(_stored(), transport=_nav(200, {'code': -101, 'message': '账号未登录', 'data': {'isLogin': False}}))
+    )
+
+    assert not check.ok
+    assert check.rejected
+
+
+def test_verify_does_not_call_an_error_page_a_rejection() -> None:
+    check = asyncio.run(bilibili_module.verify_session(_stored(), transport=_nav(412, {'code': -412})))
+
+    assert not check.ok
+    assert not check.rejected

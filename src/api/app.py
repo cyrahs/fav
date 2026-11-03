@@ -13,7 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.core import logger
 
-from .browser_login import LOGIN_SITES, BrowserLoginManager, bridge_vnc, rednote_running
+from .browser_login import BrowserLoginManager, bridge_vnc, login_sites, rednote_running
 from .config import load_config_from_env
 from .constants import (
     API_DESCRIPTION,
@@ -113,7 +113,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # noqa: ANN202
         app.state.api_service = service or FavApiService(dsn=resolved_config.dsn, token=resolved_config.token)
-        app.state.browser_login = browser_login or BrowserLoginManager(LOGIN_SITES, busy_check=rednote_running)
+        app.state.browser_login = browser_login or BrowserLoginManager(login_sites, busy_check=rednote_running)
         try:
             async with mcp.session_manager.run():
                 yield

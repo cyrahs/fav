@@ -373,7 +373,7 @@ const SECTION_GROUPS: { title: string; hint: string; matches: (section: string) 
   },
   {
     title: '凭证',
-    hint: '多个源共用的登录凭据。Bilibili 账号、微信源的 NGA 按名称引用这里的 CookieCloud 配置；Pixiv、X、小红书改在「登录态」页登录。',
+    hint: '微信源的 NGA 按名称引用这里的 CookieCloud 配置；Pixiv、X、B 站、小红书改在「登录态」页登录。',
     matches: (section) => section === 'cookiecloud',
   },
   {

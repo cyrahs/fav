@@ -59,39 +59,41 @@ runs often can be kept running quietly. It is per source, not per notification k
   "enabled": true,
   "accounts": [
     {
-      "name": "main",                                  // ASCII slug; names the cookie file
+      "name": "main",                                  // ASCII slug; names its 登录态 login (bilibili-main)
       "favorites": [
         { "fav_id": 123456789, "path": "collection/bilibili/main/fav" },
         { "fav_id": 987654321, "path": "collection/bilibili/main/music" }
       ],
       "toview_enabled": true,                          // watch-later is opt-in per account
-      "toview_path": "collection/bilibili/main/later",  // its own directory, not a subdir of the favourites
-      "cookiecloud": "main"                            // name of an entry in the shared `cookiecloud` section
+      "toview_path": "collection/bilibili/main/later"   // its own directory, not a subdir of the favourites
     }
   ]
 }
 ```
 
 Each favourite list names its own directory, and watch-later has a separate one, so the two no longer
-share a parent. An account needs a reference to a complete CookieCloud config plus either a favourite
-list or `toview_enabled` before it is runnable; the referenced vault *is* the account identity, since
-the watch-later list is always the logged-in user's. Watch-later is still cleared after a successful
-pass, so only enable it for accounts whose list you want consumed.
+share a parent. An account needs either a favourite list or `toview_enabled` before it is runnable.
+Each account signs in on the web UI's 登录态 page, which lists one 「B 站（<name>）」 login per account
+(see [Site logins](#site-logins)); that login *is* the account identity, since the watch-later list is
+always the logged-in user's. The session (`SESSDATA`, `bili_jct`, `buvid3`, `DedeUserID`) is stored in
+`site_sessions` under `bilibili-<name>`, and each run first asks `/x/web-interface/nav` whether it is
+still a login: a session Bilibili rejects marks the login 已失效 and fails the run with a notification to
+sign in again, while Bilibili not answering fails the run without touching the login. Renaming an
+account means signing it in again. CookieCloud is not used for Bilibili (a `cookiecloud` key left in an
+older account row is ignored). Watch-later is still cleared after a successful pass, so only enable it
+for accounts whose list you want consumed.
 
 CookieCloud credentials themselves live in the shared `cookiecloud` section — a named list of
-`{name, server_url, uuid, password}` entries edited in the settings page's credentials partition — and every
-consumer (each Bilibili account, and the WeChat source's NGA login) references one by name, so a vault used by several sources
-is configured once. Legacy rows that still carry inline credentials are hoisted into the shared
-section automatically on the first load after upgrading (identical credentials collapse into a single
-entry).
+`{name, server_url, uuid, password}` entries edited in the settings page's credentials partition — and the
+one consumer left (the WeChat source's NGA login) references one by name.
 
 Deduplication is by `bvid` across the whole `bilibili` table, so a video favourited by two accounts
 downloads once, into whichever directory is reached first.
 
 `POST /api/v2/cookiecloud/test` checks a config's credentials without saving them, and the settings
 page exposes it as a 测试连接 button — inside the shared section (connectivity and decryption only)
-and next to each reference (also checks the vault carries that source's cookies, e.g. `bilibili.com`'s
-`sessdata` / `bili_jct` / `buvid3` / `dedeuserid`). A masked password in the request resolves to the
+and next to each reference (also checks the vault carries that source's cookies, e.g. NGA's
+`ngaPassportUid` / `ngaPassportCid`). A masked password in the request resolves to the
 one stored under that config name, so what is checked is what the crawler would actually use.
 
 #### X liked tweets
@@ -380,7 +382,7 @@ saved on an incomplete source like any other field.
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels,
 Kemono creators and shared CookieCloud configs (the `CookieCloud` block at the bottom of the page,
-with a live connection test; Bilibili accounts, X and pixiv reference its entries by name from a
+with a live connection test; the WeChat source's NGA login references its entries by name from a
 dropdown) — validated locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
 do not appear there at all; their `path` keeps its default and can be changed through the API if a
 deployment needs to. Every listed section also has a `JSON 编辑` toggle for raw editing, which is what
@@ -401,7 +403,7 @@ or on the first 401/403 from the API.
 
 ### Site logins
 
-The 登录态 page lists the sources that need a signed-in session (pixiv, X and RedNote) with the state of the
+The 登录态 page lists the sources that need a signed-in session (pixiv, X, each Bilibili account and RedNote) with the state of the
 stored one: account, when it was captured, when its cookie expires, and whether the last crawl found it
 valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
 `Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
@@ -415,7 +417,7 @@ ticket that belongs to that one login, since a browser cannot send the bearer to
 
 While the window is open the API polls its cookies. When the session cookie appears it asks the site
 whether it is a real login (for pixiv, by reading the private bookmarks, which only the owner can;
-for X, by reading the account's settings),
+for X, by reading the account's settings; for Bilibili, from `nav`),
 stores the cookies in `site_sessions`, and shuts the browser and the display down. A login left
 unfinished closes itself after 15 minutes. Nothing runs between logins; a login takes roughly
 400-600 MB while it is open. Each site keeps its Chromium profile under `data/login-profiles/<site>`

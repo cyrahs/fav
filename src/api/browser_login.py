@@ -51,7 +51,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from src.core import logger, settings
 from src.tool import database, site_sessions
 from src.tool.site_sessions import StoredCookie, cookie_expiry, cookie_value, cookies_from_browser, without_values
-from src.web import pixiv, rednote, rednote_browser, twitter
+from src.web import bilibili, pixiv, rednote, rednote_browser, twitter
 from src.web.rednote_browser import build_proxy_settings, clear_stale_profile_locks
 
 if TYPE_CHECKING:
@@ -199,7 +199,7 @@ class BrowserLoginManager:
 
     def __init__(  # noqa: PLR0913 - every knob is keyword-only and defaulted
         self,
-        sites: Mapping[str, LoginSite],
+        sites: Mapping[str, LoginSite] | Callable[[], Mapping[str, LoginSite]],
         *,
         launcher: BrowserLauncher | None = None,
         profile_root: Path = DEFAULT_PROFILE_ROOT,
@@ -209,7 +209,8 @@ class BrowserLoginManager:
         poll_seconds: float = DEFAULT_POLL_SECONDS,
         busy_check: Callable[[], Awaitable[str]] | None = None,
     ) -> None:
-        self.sites = dict(sites)
+        # A callable is asked again each time, for sites that follow the settings.
+        self._sites = sites
         self.vnc_port = vnc_port
         self._launcher = launcher or launch_vnc_browser
         self._profile_root = profile_root
@@ -220,6 +221,10 @@ class BrowserLoginManager:
         self._lock = asyncio.Lock()
         self._attempt: LoginAttempt | None = None
         self._task: asyncio.Task[None] | None = None
+
+    @property
+    def sites(self) -> dict[str, LoginSite]:
+        return dict(self._sites() if callable(self._sites) else self._sites)
 
     @property
     def attempt(self) -> LoginAttempt | None:
@@ -819,6 +824,10 @@ async def _verify_pixiv(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
     return await pixiv.verify_session(cookie_value(cookies, 'PHPSESSID'), user_id=cfg.user_id, proxy=cfg.proxy)
 
 
+async def _verify_bilibili(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
+    return await bilibili.verify_session(cookies)
+
+
 async def _verify_twitter(cookies: tuple[StoredCookie, ...]) -> LoginCheck:
     cfg = settings.load().web.twitter
     return await twitter.verify_session(cookies, username=cfg.username, proxy=cfg.proxy)
@@ -904,6 +913,28 @@ LOGIN_SITES: dict[str, LoginSite] = {
         hint='用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。',  # noqa: RUF001
     ),
 }
+
+
+def bilibili_login_site(account_name: str) -> LoginSite:
+    """One configured Bilibili account's login: each account is its own signed-in user."""
+    return LoginSite(
+        key=bilibili.session_site(account_name),
+        label=f'B 站（{account_name}）',  # noqa: RUF001
+        login_url=bilibili.LOGIN_URL,
+        cookie_urls=bilibili.SESSION_COOKIE_URLS,
+        session_cookie=bilibili.SESSION_COOKIE,
+        verify=_verify_bilibili,
+        hint=f'用要给账号 {account_name} 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。',  # noqa: RUF001
+    )
+
+
+def login_sites() -> dict[str, LoginSite]:
+    """Every site the 登录态 page offers right now: the fixed ones, then one per Bilibili account."""
+    sites = dict(LOGIN_SITES)
+    for account in settings.load().web.bilibili.accounts:
+        site = bilibili_login_site(account.name)
+        sites[site.key] = site
+    return sites
 
 
 async def rednote_running() -> str:

@@ -328,6 +328,36 @@ def test_pixiv_and_x_sign_in_through_the_plain_window_and_rednote_does_not() -> 
     assert sites['rednote'].controlled is True
 
 
+def test_every_bilibili_account_gets_its_own_plain_login(monkeypatch) -> None:
+    from src.core import settings  # noqa: PLC0415
+
+    cfg = settings.load().web.bilibili
+    monkeypatch.setattr(
+        cfg,
+        'accounts',
+        [settings.BilibiliAccount(name='main', toview_enabled=True), settings.BilibiliAccount(name='alt', toview_enabled=True)],
+    )
+
+    sites = browser_login.login_sites()
+
+    assert {'pixiv', 'twitter', 'rednote'} <= set(sites)
+    main = sites['bilibili-main']
+    assert 'bilibili-alt' in sites
+    assert main.session_cookie == 'SESSDATA'
+    assert main.login_url.startswith('https://passport.bilibili.com/')
+    assert main.controlled is False
+    assert main.proxy() == ''
+
+
+def test_the_manager_follows_a_site_list_that_changes(store) -> None:
+    current = {'demo': _site()}
+    manager = BrowserLoginManager(lambda: dict(current), launcher=_Launcher(_FakeBrowser([[]])))
+
+    assert list(manager.sites) == ['demo']
+    current['other'] = dataclasses.replace(_site(), key='other')
+    assert list(manager.sites) == ['demo', 'other']
+
+
 # ---------- the plain window ----------
 
 

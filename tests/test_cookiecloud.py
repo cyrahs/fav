@@ -10,7 +10,6 @@ from Crypto.Cipher import AES
 from Crypto.Hash import MD5
 from Crypto.Util.Padding import pad
 
-from src.core import settings
 from src.tool.cookiecloud import CookieCloudClient
 
 KEY_IV_LENGTH = 48
@@ -188,32 +187,3 @@ def test_save_to_netscape_format_errors_for_missing_domain(tmp_path: Path) -> No
 
     with pytest.raises(ValueError):
         client.save_to_netscape_format(('missing.com', 'also-missing.com'), tmp_path / 'cookies.txt')
-
-
-def test_save_to_netscape_format_live_bilibili(tmp_path: Path) -> None:
-    # CookieCloud credentials live per bilibili account in the database, so this
-    # live check is skipped unless a real deployment is reachable (see
-    # tests/conftest.py, which pins defaults-only settings by default).
-    settings.use(None)
-    try:
-        snapshot = settings.load(force=True)
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f'Settings database unavailable: {exc}')
-    references = (snapshot.cookiecloud.get(account.cookiecloud) for account in snapshot.web.bilibili.accounts)
-    configured = [entry for entry in references if entry is not None and entry.configured]
-    if not configured:
-        pytest.skip('No bilibili account has CookieCloud configured')
-    cfg = configured[0]
-
-    client = CookieCloudClient(cfg.server_url, cfg.uuid, cfg.password)
-    output_file = tmp_path / 'bilibili_cookies.txt'
-
-    try:
-        client.save_to_netscape_format('bilibili.com', output_file)
-    except ConnectionError as exc:
-        pytest.skip(f'CookieCloud unavailable: {exc}')
-
-    lines = output_file.read_text().splitlines()
-    assert lines[0] == '# Netscape HTTP Cookie File'
-    assert len(lines) > NETSCAPE_HEADER_LINE_COUNT
-    assert any('bilibili.com' in line for line in lines[3:])

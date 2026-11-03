@@ -17,8 +17,11 @@ def _install_cookies(monkeypatch: pytest.MonkeyPatch, cookies) -> None:
     monkeypatch.setattr(cookiecloud_tool.CookieCloudClient, 'get_cookies', _fake_get_cookies)
 
 
-def _bilibili_cookies(names) -> dict:
-    return {'bilibili.com': [{'name': name, 'value': 'v'} for name in names]}
+_NGA = cookiecloud_tool.NGA_PROFILE
+
+
+def _nga_cookies(names) -> dict:
+    return {'nga.cn': [{'name': name, 'value': 'v'} for name in names]}
 
 
 def test_probe_reports_incomplete_config_without_touching_the_network(monkeypatch) -> None:
@@ -35,14 +38,14 @@ def test_probe_reports_incomplete_config_without_touching_the_network(monkeypatc
 
 
 def test_probe_succeeds_when_every_required_cookie_is_present(monkeypatch) -> None:
-    _install_cookies(monkeypatch, {**_bilibili_cookies(cookiecloud_tool.BILIBILI_PROFILE.required_cookies), 'other.com': []})
+    _install_cookies(monkeypatch, {**_nga_cookies(_NGA.required_cookies), 'other.com': []})
 
-    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw')
+    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=_NGA)
 
     assert result.ok is True
     assert result.code == 'ok'
     assert result.domain_count == 2
-    assert result.domain_cookie_count == 4
+    assert result.domain_cookie_count == 2
 
 
 def test_probe_without_a_profile_stops_after_decryption(monkeypatch) -> None:
@@ -58,15 +61,15 @@ def test_probe_without_a_profile_stops_after_decryption(monkeypatch) -> None:
 
 
 def test_probe_matches_required_cookie_names_case_insensitively(monkeypatch) -> None:
-    _install_cookies(monkeypatch, _bilibili_cookies(['SESSDATA', 'bili_jct', 'buvid3', 'DedeUserID']))
+    _install_cookies(monkeypatch, _nga_cookies(['ngaPassportUid', 'ngaPassportCid']))
 
-    assert cookiecloud_tool.probe('https://cc.example', 'u', 'pw').ok is True
+    assert cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=_NGA).ok is True
 
 
-def test_probe_flags_a_vault_missing_bilibili_cookies(monkeypatch) -> None:
+def test_probe_flags_a_vault_missing_the_sources_cookies(monkeypatch) -> None:
     _install_cookies(monkeypatch, {'example.com': [{'name': 'a', 'value': 'b'}]})
 
-    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw')
+    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=_NGA)
 
     assert result.ok is False
     assert result.code == 'no_domain_cookies'
@@ -74,13 +77,13 @@ def test_probe_flags_a_vault_missing_bilibili_cookies(monkeypatch) -> None:
 
 
 def test_probe_lists_the_specific_missing_cookies(monkeypatch) -> None:
-    _install_cookies(monkeypatch, _bilibili_cookies(['sessdata', 'buvid3']))
+    _install_cookies(monkeypatch, _nga_cookies(['ngapassportuid']))
 
-    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw')
+    result = cookiecloud_tool.probe('https://cc.example', 'u', 'pw', profile=_NGA)
 
     assert result.ok is False
     assert result.code == 'missing_cookies'
-    assert result.missing_cookies == ('bili_jct', 'dedeuserid')
+    assert result.missing_cookies == ('ngapassportcid',)
 
 
 def test_probe_separates_an_unreachable_server_from_a_bad_password(monkeypatch) -> None:
