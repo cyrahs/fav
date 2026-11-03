@@ -311,6 +311,102 @@ def test_pixiv_is_a_login_site() -> None:
     assert site.login_url.startswith('https://accounts.pixiv.net/login')
 
 
+def test_a_site_without_a_page_hook_gets_the_plain_window(store) -> None:
+    launcher = _Launcher(_FakeBrowser([[_cookie('SID', 'user_1')]]))
+
+    asyncio.run(_finish(_manager(launcher)))
+
+    assert _site().controlled is False
+    assert launcher.calls[0]['controlled'] is False
+
+
+def test_pixiv_and_x_sign_in_through_the_plain_window_and_rednote_does_not() -> None:
+    sites = browser_login.LOGIN_SITES
+
+    assert sites['pixiv'].controlled is False
+    assert sites['twitter'].controlled is False
+    assert sites['rednote'].controlled is True
+
+
+# ---------- the plain window ----------
+
+
+def _plain_command(proxy: str = '') -> list[str]:
+    return browser_login.build_plain_chromium_command(
+        executable='/opt/chrome', profile_dir=Path('/data/profiles/x'), proxy=proxy, devtools_port=5998, url='https://x.com/i/flow/login'
+    )
+
+
+def test_the_plain_window_is_not_an_automated_browser() -> None:
+    command = _plain_command()
+
+    assert command[0] == '/opt/chrome'
+    assert command[-1] == 'https://x.com/i/flow/login'
+    assert '--user-data-dir=/data/profiles/x' in command
+    # DevTools on loopback only, and none of the switches that mark a driven browser.
+    assert '--remote-debugging-port=5998' in command
+    assert '--remote-debugging-address=127.0.0.1' in command
+    assert not any(arg.startswith(('--enable-automation', '--headless', '--remote-debugging-pipe')) for arg in command)
+    assert not any(arg.startswith('--proxy-server') for arg in command)
+
+
+def test_the_plain_window_uses_the_sites_proxy() -> None:
+    assert '--proxy-server=http://home.proxy.svc.cluster.local' in _plain_command('http://home.proxy.svc.cluster.local')
+
+
+def test_the_plain_window_refuses_a_proxy_with_credentials() -> None:
+    with pytest.raises(browser_login.LoginError, match='proxy'):
+        _plain_command('http://user:pass@proxy.example:3128')
+
+
+def test_the_jar_is_narrowed_to_the_sites_cookies() -> None:
+    jar = [
+        {'name': 'auth_token', 'domain': '.x.com'},
+        {'name': 'host_only', 'domain': 'x.com'},
+        {'name': 'sub_only', 'domain': 'api.x.com'},
+        {'name': 'other', 'domain': '.pixiv.net'},
+        {'name': 'lookalike', 'domain': '.notx.com'},
+    ]
+
+    names = [c['name'] for c in browser_login.cookies_for_urls(jar, ('https://x.com/',))]
+
+    assert names == ['auth_token', 'host_only']
+
+
+def test_devtools_cookies_are_read_at_the_browser_level() -> None:
+    import json  # noqa: PLC0415
+
+    import websockets  # noqa: PLC0415
+    from websockets.datastructures import Headers  # noqa: PLC0415
+    from websockets.http11 import Response  # noqa: PLC0415
+
+    jar = [{'name': 'auth_token', 'value': 'v', 'domain': '.x.com', 'path': '/', 'expires': 1_900_000_000}]
+    received: list[dict] = []
+
+    async def main() -> list[dict]:
+        port = 0
+
+        def process_request(connection, request):
+            if request.path == '/json/version':
+                body = json.dumps({'webSocketDebuggerUrl': f'ws://127.0.0.1:{port}/devtools/browser/abc'}).encode()
+                return Response(200, 'OK', Headers([('Content-Type', 'application/json'), ('Content-Length', str(len(body)))]), body)
+            return None
+
+        async def handler(socket) -> None:
+            message = json.loads(await socket.recv())
+            received.append(message)
+            # An unrelated event first: the reply is matched by its id.
+            await socket.send(json.dumps({'method': 'Target.targetCreated', 'params': {}}))
+            await socket.send(json.dumps({'id': message['id'], 'result': {'cookies': jar}}))
+
+        async with websockets.serve(handler, '127.0.0.1', 0, process_request=process_request) as server:
+            port = server.sockets[0].getsockname()[1]
+            return await browser_login.read_devtools_cookies(port)
+
+    assert asyncio.run(main()) == jar
+    assert received == [{'id': 1, 'method': 'Storage.getCookies'}]
+
+
 # ---------- a site whose crawl is a browser (RedNote) ----------
 
 
