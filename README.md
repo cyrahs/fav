@@ -17,6 +17,7 @@ the `app_settings` table and is edited from the web UI.
 | `API_PORT` | no | `8091` | API listen port |
 | `API_CORS_ORIGINS` | no | empty | Comma-separated origins, for separate front ends such as the Live2D viewer |
 | `API_CORS_ALLOW_CREDENTIALS` | no | `false` | Only if a browser must send credentialed requests |
+| `CREDENTIAL_CLIENTS` | no | empty | Services allowed to read a stored login from `GET /api/v2/credentials/{site}` (see [Sharing a login](#sharing-a-login-with-other-services)) |
 | `LOG_LEVEL` | no | `INFO` | `DEBUG` makes a run explain itself — every intercepted request, and the *shape* of the payloads a source parses (key names and types, never values) |
 | `TZ` | no | `UTC` | Scheduler timezone |
 
@@ -80,7 +81,13 @@ Each account signs in on the web UI's 登录态 page, which lists one 「B 站�
 always the logged-in user's. The session (`SESSDATA`, `bili_jct`, `buvid3`, `DedeUserID`) is stored in
 `site_sessions` under `bilibili-<name>`, and each run first asks `/x/web-interface/nav` whether it is
 still a login: a session Bilibili rejects marks the login 已失效 and fails the run with a notification to
-sign in again, while Bilibili not answering fails the run without touching the login. Renaming an
+sign in again, while Bilibili not answering fails the run without touching the login. Before that
+check the run keeps the session alive the way a browser would (`src/web/bilibili_session.py`): it
+fetches a new `bili_ticket` once the stored one has less than two days left, and when
+`/cookie/info` asks for it, trades the refresh token (`ac_time_value`, read from the login window's
+localStorage when the login is captured and kept in `site_sessions.extra`) for a new `SESSDATA` and
+`bili_jct`, storing them before confirming the trade. A failed renewal only logs a warning. A login
+captured before this existed has no refresh token; signing in again once adds it. Renaming an
 account means signing it in again. (A `cookiecloud` key left in an older account row from the retired
 CookieCloud integration is ignored.) Watch-later is still cleared after a successful pass, so only enable it
 for accounts whose list you want consumed.
@@ -423,6 +430,21 @@ replaying its cookies anywhere else. `site_sessions` records only which of its c
 they expire, for the page's status, never their values; the crawl reads the profile. The window keeps
 to one tab: the UA override is per tab, so any second tab is closed as it opens.
 
+#### Sharing a login with other services
+
+Another service on the cluster that needs one of these logins (RSSHub's Bilibili proxy) reads it from
+`GET /api/v2/credentials/{site}` rather than keeping a login of its own. The answer is the stored
+cookies with their values (`name`, `value`, `domain`, `path`, `expires`), the account and the last
+check's status, marked `Cache-Control: no-store`; extras such as the Bilibili refresh token are never
+served, and a session whose values live in a browser profile (RedNote) answers 404. The endpoint is read
+only: fav stays the one writer, so a client can never refresh a session and retire the cookies fav
+holds.
+
+It does not take `API_TOKEN`. Each client has its own bearer token and may read only its sites, given
+in `CREDENTIAL_CLIENTS` as whitespace- or `;`-separated `name:sha256:site[,site...]` entries, where
+`sha256` is the hex SHA-256 of the client's token (`printf %s "$TOKEN" | sha256sum`). Only the hash is
+configured on fav's side, so the value is not a secret. A malformed value stops the API from starting.
+
 ## API Backend
 
 This repository exposes an internal FastAPI backend for control, archived catalog reads, and Hanime1 scan-target creation.
@@ -476,7 +498,8 @@ Protected endpoints:
 - `GET /api/v2/azurlane/sidebar/characters`
 - `GET /api/v2/azurlane/characters/{character_key}`
 
-All `/api/v2/*` endpoints require:
+All `/api/v2/*` endpoints except `/api/v2/credentials/{site}` (see
+[Sharing a login](#sharing-a-login-with-other-services)) require:
 
 - `Authorization: Bearer <API_TOKEN>`
 

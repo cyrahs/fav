@@ -1,4 +1,4 @@
-# ruff: noqa: ANN001, ANN003, ANN202, ARG001, ARG002, INP001, PLR2004, S101, S105, SLF001
+# ruff: noqa: ANN001, ANN003, ANN202, ARG001, ARG002, INP001, PLR2004, S101, S105, SLF001, EM101, TRY003
 
 import asyncio
 import dataclasses
@@ -50,6 +50,8 @@ class _FakeBrowser:
         self.opened: list[str] = []
         self.closed_calls = 0
         self.closed = False
+        self.storage: dict[tuple[str, str], str] = {}
+        self.storage_reads: list[tuple[str, str]] = []
 
     async def open(self, url: str) -> None:
         self.opened.append(url)
@@ -62,6 +64,10 @@ class _FakeBrowser:
 
     async def cookies(self, urls: tuple[str, ...]) -> list[dict]:
         return self.cookie_rounds.pop(0) if len(self.cookie_rounds) > 1 else self.cookie_rounds[0]
+
+    async def local_storage(self, url: str, key: str) -> str:
+        self.storage_reads.append((url, key))
+        return self.storage.get((url, key), '')
 
     async def close(self) -> None:
         self.closed_calls += 1
@@ -84,11 +90,13 @@ class _Launcher:
 class _Store:
     def __init__(self) -> None:
         self.saved: list[tuple] = []
+        self.extras: list[dict] = []
         self.checks: list[tuple] = []
         self.sessions: dict[str, SiteSession] = {}
 
-    async def save_signed_in(self, site, cookies, *, account, expires_at) -> None:
+    async def save_signed_in(self, site, cookies, *, account, expires_at, extra=None) -> None:
         self.saved.append((site, cookies, account, expires_at))
+        self.extras.append(extra or {})
 
     async def record_check(self, site, *, ok, message='') -> None:
         self.checks.append((site, ok, message))
@@ -357,6 +365,54 @@ def test_every_bilibili_account_gets_its_own_plain_login(monkeypatch) -> None:
     assert main.login_url.startswith('https://passport.bilibili.com/')
     assert main.controlled is False
     assert main.proxy() == ''
+    assert main.after_login is not None
+
+
+def test_what_after_login_reads_is_saved_with_the_session(store) -> None:
+    browser = _FakeBrowser([[_cookie('SID', 'user_42')]])
+
+    async def _extras(window):
+        return {'refresh_token': await window.local_storage('https://example.com/robots.txt', 'tok')}
+
+    browser.storage[('https://example.com/robots.txt', 'tok')] = 'rt-1'
+    site = dataclasses.replace(_site(), after_login=_extras)
+    manager = BrowserLoginManager({'demo': site}, launcher=_Launcher(browser), profile_root=Path('/p'), poll_seconds=0.01)
+
+    attempt = asyncio.run(_finish(manager))
+
+    assert attempt.state == STATE_SAVED
+    assert store.extras == [{'refresh_token': 'rt-1'}]
+
+
+def test_a_failing_after_login_still_saves_the_login(store) -> None:
+    browser = _FakeBrowser([[_cookie('SID', 'user_42')]])
+
+    async def _extras(_window):
+        raise RuntimeError('devtools gone')
+
+    site = dataclasses.replace(_site(), after_login=_extras)
+    manager = BrowserLoginManager({'demo': site}, launcher=_Launcher(browser), profile_root=Path('/p'), poll_seconds=0.01)
+
+    attempt = asyncio.run(_finish(manager))
+
+    assert attempt.state == STATE_SAVED
+    assert store.extras == [{}]
+
+
+def test_the_bilibili_refresh_token_is_read_from_either_origin(monkeypatch) -> None:
+    browser = _FakeBrowser([[]])
+    browser.storage[('https://www.bilibili.com/robots.txt', 'ac_time_value')] = 'rt-www'
+
+    extras = asyncio.run(browser_login._bilibili_extras(browser))
+
+    assert extras == {'refresh_token': 'rt-www'}
+    assert browser.storage_reads[0][0] == 'https://passport.bilibili.com/robots.txt'
+
+
+def test_a_bilibili_login_without_a_refresh_token_saves_no_extras(monkeypatch) -> None:
+    monkeypatch.setattr(browser_login, '_BILIBILI_TOKEN_WAIT_SECONDS', 0)
+
+    assert asyncio.run(browser_login._bilibili_extras(_FakeBrowser([[]]))) == {}
 
 
 def test_the_manager_follows_a_site_list_that_changes(store) -> None:

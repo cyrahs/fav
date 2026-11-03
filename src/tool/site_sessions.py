@@ -15,7 +15,7 @@ only ever report names, counts and expiry times.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS site_sessions (
     signed_in_at TIMESTAMPTZ NULL,
     checked_at TIMESTAMPTZ NULL
 );
+ALTER TABLE site_sessions ADD COLUMN IF NOT EXISTS extra TEXT NOT NULL DEFAULT '{}';
 """
 
 _MESSAGE_MAX_CHARS = 500
@@ -64,6 +65,9 @@ class SiteSession:
     expires_at: datetime | None
     signed_in_at: datetime | None
     checked_at: datetime | None
+    # Site-specific secrets that are not cookies, such as Bilibili's refresh token
+    # (``ac_time_value`` in the page's localStorage). Never shown by any view.
+    extra: dict[str, str] = field(default_factory=dict)
 
     def cookie(self, name: str) -> str:
         """The value of one cookie, matched case-insensitively; empty when absent."""
@@ -160,6 +164,14 @@ def _decode_cookies(raw: Any) -> tuple[StoredCookie, ...]:
     return tuple(cookies)
 
 
+def _decode_extra(raw: Any) -> dict[str, str]:
+    try:
+        value = json.loads(raw) if isinstance(raw, str) and raw else {}
+    except ValueError:
+        value = {}
+    return {str(k): str(v) for k, v in value.items() if v} if isinstance(value, dict) else {}
+
+
 def _row_to_session(row: dict[str, Any]) -> SiteSession:
     return SiteSession(
         site=str(row['site']),
@@ -170,11 +182,20 @@ def _row_to_session(row: dict[str, Any]) -> SiteSession:
         expires_at=row.get('expires_at'),
         signed_in_at=row.get('signed_in_at'),
         checked_at=row.get('checked_at'),
+        extra=_decode_extra(row.get('extra')),
     )
 
 
+_table_ready = False
+
+
 async def ensure_table() -> None:
+    # Once per process: ADD COLUMN takes an exclusive lock even when it has nothing to do.
+    global _table_ready
+    if _table_ready:
+        return
     await database.query_db(_DDL)
+    _table_ready = True
 
 
 async def load(site: str) -> SiteSession | None:
@@ -189,13 +210,20 @@ async def load_all() -> dict[str, SiteSession]:
     return {str(row['site']): _row_to_session(row) for row in rows}
 
 
-async def save_signed_in(site: str, cookies: tuple[StoredCookie, ...], *, account: str, expires_at: datetime | None) -> None:
+async def save_signed_in(
+    site: str,
+    cookies: tuple[StoredCookie, ...],
+    *,
+    account: str,
+    expires_at: datetime | None,
+    extra: dict[str, str] | None = None,
+) -> None:
     """Replace a site's session with a freshly verified login."""
     await ensure_table()
     await database.query_db(
         """
-        INSERT INTO site_sessions (site, cookies, account, status, message, expires_at, signed_in_at, checked_at)
-        VALUES (?, ?, ?, ?, '', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO site_sessions (site, cookies, account, status, message, expires_at, signed_in_at, checked_at, extra)
+        VALUES (?, ?, ?, ?, '', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
         ON CONFLICT (site) DO UPDATE SET
             cookies = EXCLUDED.cookies,
             account = EXCLUDED.account,
@@ -203,9 +231,29 @@ async def save_signed_in(site: str, cookies: tuple[StoredCookie, ...], *, accoun
             message = '',
             expires_at = EXCLUDED.expires_at,
             signed_in_at = EXCLUDED.signed_in_at,
-            checked_at = EXCLUDED.checked_at
+            checked_at = EXCLUDED.checked_at,
+            extra = EXCLUDED.extra
         """,
-        (site, _encode_cookies(cookies), account, STATUS_VALID, expires_at),
+        (site, _encode_cookies(cookies), account, STATUS_VALID, expires_at, json.dumps(extra or {})),
+    )
+
+
+async def replace_cookies(
+    site: str,
+    cookies: tuple[StoredCookie, ...],
+    *,
+    expires_at: datetime | None,
+    extra: dict[str, str],
+) -> None:
+    """Store cookies a crawler renewed itself, keeping who signed in and when."""
+    await ensure_table()
+    await database.query_db(
+        """
+        UPDATE site_sessions
+        SET cookies = ?, expires_at = ?, extra = ?, status = ?, message = '', checked_at = CURRENT_TIMESTAMP
+        WHERE site = ?
+        """,
+        (_encode_cookies(cookies), expires_at, json.dumps(extra), STATUS_VALID, site),
     )
 
 

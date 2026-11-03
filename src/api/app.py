@@ -26,6 +26,8 @@ from .constants import (
     READINESS_ENDPOINT,
     TAG_SYSTEM,
 )
+from .credentials import CredentialClient, parse_clients
+from .credentials import router as credentials_router
 from .errors import ApiError
 from .mcp_server import build_mcp_server
 from .routes import router as api_router
@@ -104,6 +106,7 @@ def create_app(
     config=None,  # noqa: ANN001
     service: FavApiService | None = None,
     browser_login: BrowserLoginManager | None = None,
+    credential_clients: tuple[CredentialClient, ...] | None = None,
 ) -> FastAPI:
     resolved_config = config if config is not None else (load_config_from_env() if service is None else None)
     owned_service = service is None
@@ -139,7 +142,12 @@ def create_app(
             allow_headers=['Authorization', 'Content-Type'],
         )
     _register_exception_handlers(app)
+    if credential_clients is None:
+        # Parsed here, so a malformed CREDENTIAL_CLIENTS stops the API from starting.
+        credential_clients = parse_clients(resolved_config.credential_clients if resolved_config is not None else '')
+    app.state.credential_clients = credential_clients
     app.include_router(api_router)
+    app.include_router(credentials_router)
     # The MCP endpoint is a plain ASGI route next to the API rather than a mount,
     # so it answers at /mcp itself instead of redirecting to /mcp/.
     app.router.routes.extend(mcp_app.routes)
