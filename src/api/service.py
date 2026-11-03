@@ -14,7 +14,6 @@ from pydantic import ValidationError as PydanticValidationError
 from src.core import logger, settings
 from src.core.settings import SECTION_MODELS, UnknownSectionError
 from src.service.jobs import ScheduledJob, build_jobs
-from src.tool import cookiecloud as cookiecloud_tool
 from src.tool.azurlane_l2d_sources import probe_l2d_su_origin
 from src.tool.control_queue import (
     ControlRequest,
@@ -70,7 +69,7 @@ from .schemas import (
     SettingsSection,
     TelegramNotificationTestResponse,
 )
-from .settings_masking import keep_secret, mask_section, unmask_section
+from .settings_masking import mask_section, unmask_section
 
 log = logger.get('fav-api')
 
@@ -481,40 +480,6 @@ class FavApiService:
             'message': result.message,
             'exit_ip': result.exit_ip,
             'direct': result.direct,
-        }
-
-    def _stored_cookiecloud_password(self, name: str) -> str:
-        """The password stored for one shared CookieCloud config, matched by name."""
-        configs = self._stored_section('cookiecloud').get('configs')
-        for candidate in configs if isinstance(configs, list) else []:
-            if isinstance(candidate, dict) and str(candidate.get('name') or '') == name:
-                return str(candidate.get('password') or '')
-        return ''
-
-    def test_cookiecloud(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Check CookieCloud credentials without saving them.
-
-        The draft from the form wins, except that a masked or omitted password is
-        resolved against the shared config named by ``name``. An empty ``source``
-        checks connectivity and decryption only; a known source also checks that
-        the vault carries the cookies that source needs.
-        """
-        source = str(payload.get('source') or '')
-        profile = cookiecloud_tool.PROFILES.get(source) if source else None
-        if source and profile is None:
-            raise ApiError(status_code=422, code='invalid_settings', message=f'Unknown cookiecloud source: {source}')
-
-        draft = {key: str(payload.get(key) or '') for key in ('server_url', 'uuid', 'password')}
-        keep_secret(draft, 'password', self._stored_cookiecloud_password(str(payload.get('name') or '')))
-
-        result = cookiecloud_tool.probe(draft['server_url'], draft['uuid'], draft['password'], profile=profile)
-        return {
-            'ok': result.ok,
-            'code': result.code,
-            'message': result.message,
-            'domain_count': result.domain_count,
-            'domain_cookie_count': result.domain_cookie_count,
-            'missing_cookies': list(result.missing_cookies),
         }
 
     def list_archive_sources(self) -> list[dict[str, Any]]:

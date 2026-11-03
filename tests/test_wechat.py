@@ -18,6 +18,8 @@ from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
 from src.api.settings_masking import MASK_SUFFIX, mask_section, unmask_section
 from src.core import settings
+from src.tool.site_sessions import SiteSession, StoredCookie
+from src.web import nga_post
 from src.web.nga_post import floor_images, nga_thread_id, original_url, parse_nga_link
 from src.web.tieba_post import parse_tieba_link
 from src.web.wechat import (
@@ -1196,28 +1198,40 @@ def _nga_web(**overrides: httpx.Response) -> _NgaWeb:
     return _NgaWeb(responses=responses)
 
 
+class _NgaSessions:
+    """Stands in for src.tool.site_sessions: an optional NGA login, and the checks recorded."""
+
+    def __init__(self, login: dict[str, str] | None) -> None:
+        self.login = login
+        self.checks: list[tuple[bool, str]] = []
+
+    async def load(self, site: str) -> SiteSession | None:
+        assert site == 'nga'
+        if self.login is None:
+            return None
+        cookies = tuple(StoredCookie(name=name, value=value, domain='.nga.cn') for name, value in self.login.items())
+        return SiteSession(
+            site=site,
+            cookies=cookies,
+            account='42',
+            status='valid',
+            message='',
+            expires_at=None,
+            signed_in_at=None,
+            checked_at=None,
+        )
+
+    async def record_check(self, site: str, *, ok: bool, message: str = '') -> None:
+        assert site == 'nga'
+        self.checks.append((ok, message))
+
+
 @pytest.fixture
-def nga_vault(monkeypatch) -> dict[str, list[dict]]:
-    """A CookieCloud vault named 'browser' holding an NGA login, as the extension files it."""
-    jar = {
-        '.nga.cn': [{'name': name, 'value': value} for name, value in _NGA_LOGIN.items()],
-        'pixiv.net': [{'name': 'PHPSESSID', 'value': 'other-site'}],
-    }
-
-    class _Vault:
-        def __init__(self, *_credentials) -> None:
-            self.client = httpx.Client()
-
-        def get_cookies(self) -> dict[str, list[dict]]:
-            return jar
-
-    monkeypatch.setattr(wechat_module, 'CookieCloudClient', _Vault)
-    monkeypatch.setattr(
-        wechat_module.settings,
-        'resolve_cookiecloud',
-        lambda name: settings.CookieCloudEntry(name=name, server_url='https://cc', uuid='u', password='p'),
-    )
-    return jar
+def nga_session(monkeypatch) -> _NgaSessions:
+    """The NGA login captured on the 登录态 page."""
+    sessions = _NgaSessions(dict(_NGA_LOGIN))
+    monkeypatch.setattr(wechat_module, 'site_sessions', sessions)
+    return sessions
 
 
 def test_an_nga_share_names_its_thread() -> None:
@@ -1243,8 +1257,8 @@ def test_nga_pictures_are_the_uploads_behind_the_first_floor_s_renditions() -> N
     assert floor_images(first) == [_NGA_ATTACH.format(name) for name in 'ABC']
 
 
-def test_an_nga_thread_keeps_the_pictures_of_its_first_floor(fake_db, notifications, nga_vault, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret', nga_cookiecloud='browser')
+def test_an_nga_thread_keeps_the_pictures_of_its_first_floor(fake_db, notifications, nga_session, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
     inbox = _FakeInbox([], events=[_event(5, _nga_message())])
     web = _nga_web()
 
@@ -1259,10 +1273,12 @@ def test_an_nga_thread_keeps_the_pictures_of_its_first_floor(fake_db, notificati
     (notification,) = notifications
     assert notification['link_url'] == _NGA_SHARE_URL
     assert notification['body'] == '二次元国家地理 | 3 images | From wxid_sender'
+    assert nga_session.checks == [(True, '')]
 
 
-def test_an_nga_thread_waits_for_a_login_without_using_up_its_tries(fake_db, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret', nga_cookiecloud='')
+def test_an_nga_thread_waits_for_a_login_without_using_up_its_tries(fake_db, monkeypatch, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    monkeypatch.setattr(wechat_module, 'site_sessions', _NgaSessions(None))
     inbox = _FakeInbox([], events=[_event(5, _nga_message())])
 
     with pytest.raises(WechatInboxError, match='NGA login'):
@@ -1273,9 +1289,9 @@ def test_an_nga_thread_waits_for_a_login_without_using_up_its_tries(fake_db, tmp
     assert not any(tmp_path.rglob('*'))
 
 
-def test_an_expired_nga_login_is_reported_as_a_login_problem(fake_db, nga_vault, tmp_path) -> None:
-    _configure_wechat(path=tmp_path, token='secret', nga_cookiecloud='browser')
-    nga_vault['.nga.cn'] = [{'name': 'ngaPassportUid', 'value': '42'}, {'name': 'ngaPassportCid', 'value': 'stale'}]
+def test_an_expired_nga_login_is_reported_as_a_login_problem(fake_db, nga_session, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    nga_session.login = {'ngaPassportUid': '42', 'ngaPassportCid': 'stale'}
     inbox = _FakeInbox([], events=[_event(5, _nga_message())])
 
     with pytest.raises(WechatInboxError, match='signed-in session'):
@@ -1284,6 +1300,57 @@ def test_an_expired_nga_login_is_reported_as_a_login_problem(fake_db, nga_vault,
     row = fake_db.queue[(81, _CREATE_TIME + 81)]
     assert (row['status'], row['attempts']) == ('pending', 0)
     assert '未登录' in row['last_error']
+    assert '登录态' in row['last_error']
+    ((ok, message),) = nga_session.checks
+    assert not ok
+    assert '未登录' in message
+
+
+def _nga_cookies(**login: str) -> tuple[StoredCookie, ...]:
+    return tuple(StoredCookie(name=name, value=value, domain='.nga.cn') for name, value in login.items())
+
+
+def test_an_nga_login_is_verified_against_the_notification_list() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={'data': {'0': []}, 'time': 1})
+
+    check = asyncio.run(nga_post.verify_session(_nga_cookies(**_NGA_LOGIN), transport=httpx.MockTransport(handler)))
+
+    assert (check.ok, check.account) == (True, '42')
+    (request,) = seen
+    assert request.url.params['__lib'] == 'noti'
+    assert request.headers['Cookie'] == 'ngaPassportUid=42; ngaPassportCid=session-cid'
+
+
+def test_nga_turning_the_session_away_is_not_a_login() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={'error': ['你必须先登录论坛'], 'time': 1})
+
+    check = asyncio.run(nga_post.verify_session(_nga_cookies(**_NGA_LOGIN), transport=httpx.MockTransport(handler)))
+
+    assert not check.ok
+    assert '登录' in check.message
+
+
+def test_an_nga_login_needs_both_passport_cookies() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:  # pragma: no cover - never reached
+        raise AssertionError
+
+    check = asyncio.run(nga_post.verify_session(_nga_cookies(ngaPassportUid='42'), transport=httpx.MockTransport(handler)))
+
+    assert not check.ok
+
+
+def test_nga_answering_oddly_does_not_hold_the_login_up() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, text='<html>bad gateway</html>')
+
+    check = asyncio.run(nga_post.verify_session(_nga_cookies(**_NGA_LOGIN), transport=httpx.MockTransport(handler)))
+
+    assert (check.ok, check.account) == (True, '42')
 
 
 def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications, tmp_path) -> None:

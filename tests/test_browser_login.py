@@ -326,6 +326,16 @@ def test_pixiv_and_x_sign_in_through_the_plain_window_and_rednote_does_not() -> 
     assert sites['pixiv'].controlled is False
     assert sites['twitter'].controlled is False
     assert sites['rednote'].controlled is True
+    assert sites['nga'].controlled is False
+
+
+def test_nga_is_a_login_site() -> None:
+    site = browser_login.LOGIN_SITES['nga']
+
+    assert site.session_cookie == 'ngaPassportCid'
+    assert site.login_url.startswith('https://bbs.nga.cn/nuke.php?__lib=login')
+    assert site.cookie_urls == ('https://bbs.nga.cn/',)
+    assert site.proxy() == ''
 
 
 def test_every_bilibili_account_gets_its_own_plain_login(monkeypatch) -> None:

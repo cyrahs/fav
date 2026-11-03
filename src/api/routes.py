@@ -40,8 +40,6 @@ from .schemas import (
     BD2CharacterListResponse,
     BD2SidebarCharacter,
     BD2SidebarCharacterListResponse,
-    CookieCloudTestRequest,
-    CookieCloudTestResult,
     Hanime1Author,
     Hanime1AuthorCreate,
     Hanime1AuthorListResponse,
@@ -432,17 +430,6 @@ def test_azurlane_proxy(payload: AzurLaneProxyTestRequest, service: ApiServiceDe
 def test_rednote_proxy(payload: RedNoteProxyTestRequest, service: ApiServiceDep) -> RedNoteProxyTestResult:
     """Check that xiaohongshu.com is reachable through a proxy, without saving it."""
     return RedNoteProxyTestResult.model_validate(service.test_rednote_proxy(payload.model_dump()))
-
-
-@router.post(
-    '/cookiecloud/test',
-    operation_id='testCookieCloud',
-    response_model=CookieCloudTestResult,
-    tags=[TAG_SETTINGS],
-)
-def test_cookiecloud(payload: CookieCloudTestRequest, service: ApiServiceDep) -> CookieCloudTestResult:
-    """Check a CookieCloud configuration without saving it."""
-    return CookieCloudTestResult.model_validate(service.test_cookiecloud(payload.model_dump()))
 
 
 @router.get(

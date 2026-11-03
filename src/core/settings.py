@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 """
 
+# Sections of features that have been removed. CookieCloud's held vault passwords,
+# so a retired section is deleted rather than left behind unread.
+_RETIRED_SECTIONS = ('cookiecloud',)
+
 _CACHE_TTL_SECONDS = 2.0
 
 log = logger.get('settings')
@@ -62,71 +66,6 @@ class ScheduleJob(BaseModel):
     def validate_runnable(self) -> list[str]:
         """Return the field names that must be filled in before this job can run."""
         return []
-
-
-class CookieCloud(BaseModel):
-    server_url: str = ''
-    uuid: str = ''
-    password: str = ''
-
-    def validate_runnable(self) -> list[str]:
-        return [name for name in ('server_url', 'uuid', 'password') if not getattr(self, name).strip()]
-
-    @property
-    def configured(self) -> bool:
-        return not self.validate_runnable()
-
-
-class CookieCloudEntry(CookieCloud):
-    """One named vault in the shared ``cookiecloud`` section."""
-
-    name: str
-
-    @field_validator('name')
-    @classmethod
-    def normalize_name(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            msg = 'cookiecloud config name cannot be empty'
-            raise ValueError(msg)
-        if not _ACCOUNT_NAME_RE.fullmatch(normalized):
-            msg = 'cookiecloud config name must contain only ASCII letters, digits, underscores, or hyphens'
-            raise ValueError(msg)
-        return normalized
-
-
-class CookieCloudConfigs(BaseModel):
-    """The shared registry of named CookieCloud vaults.
-
-    Sources reference an entry by name instead of carrying their own copy of the
-    credentials, so one browser vault is configured once and shared.
-    """
-
-    configs: list[CookieCloudEntry] = Field(default_factory=list)
-
-    @model_validator(mode='after')
-    def validate_unique_names(self) -> Self:
-        seen: set[str] = set()
-        for entry in self.configs:
-            normalized = entry.name.casefold()
-            if normalized in seen:
-                msg = f'duplicate cookiecloud config name: {entry.name}'
-                raise ValueError(msg)
-            seen.add(normalized)
-        return self
-
-    def get(self, name: str) -> CookieCloudEntry | None:
-        normalized = name.strip().casefold()
-        return next((entry for entry in self.configs if entry.name.casefold() == normalized), None)
-
-
-def resolve_cookiecloud(name: str) -> CookieCloudEntry:
-    """The shared CookieCloud config a source references, or a clear error."""
-    entry = load().cookiecloud.get(name)
-    if entry is None:
-        msg = f'CookieCloud config {name!r} is not defined; add it in the CookieCloud block on the settings page.'
-        raise ValueError(msg)
-    return entry
 
 
 class BilibiliFavorite(BaseModel):
@@ -771,9 +710,6 @@ class Wechat(ScheduleJob):
     api_url: str = 'http://favinbox-oracle.proxy.svc'
     # FAVINBOX_TOKEN from /etc/favinbox.env on the host running the service.
     token: str = ''
-    # Name of an entry in the shared `cookiecloud` section carrying an NGA login.
-    # Only shared NGA threads need it: NGA shows most boards to members only.
-    nga_cookiecloud: str = ''
     # 视频号 videos are looked up through TikHub (https://tikhub.io), billed per
     # lookup; without a key they wait in the queue. api.tikhub.dev serves mainland China.
     tikhub_api_url: str = 'https://api.tikhub.io'
@@ -843,11 +779,9 @@ class Web(BaseModel):
 class Settings(BaseModel):
     web: Web = Field(default_factory=Web)
     notifications: Notifications = Field(default_factory=Notifications)
-    cookiecloud: CookieCloudConfigs = Field(default_factory=CookieCloudConfigs)
 
 
-# The UI renders sections in this order; `cookiecloud` is deliberately last so the
-# shared registry sits below the sources that reference it.
+# The UI renders sections in this order.
 SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.bilibili': Bilibili,
     'web.telegram': Telegram,
@@ -863,7 +797,6 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.rednote': RedNote,
     'web.wechat': Wechat,
     'notifications.telegram': TelegramNotification,
-    'cookiecloud': CookieCloudConfigs,
 }
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
@@ -871,7 +804,6 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 # UI needs to show and edit them as ordinary text, and masking them cost more in
 # round-trip machinery than the credential inside was worth.
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
-    'cookiecloud': ('configs[].password',),
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
     'web.wechat': ('token', 'tikhub_token'),
@@ -928,6 +860,8 @@ def ensure_table_sync(*, force: bool = False) -> None:
             cursor.execute(CREATE_APP_SETTINGS_TABLE_SQL)
     except (psycopg.errors.UniqueViolation, psycopg.errors.DuplicateTable):
         log.debug('app_settings was created concurrently by another process')
+    with _connect() as conn, conn.cursor() as cursor:
+        cursor.execute('DELETE FROM app_settings WHERE section = ANY(%s);', (list(_RETIRED_SECTIONS),))
     with _table_lock:
         _table_ready = True
 

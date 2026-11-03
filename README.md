@@ -39,10 +39,12 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `web.wechat`, `cookiecloud`,
-`notifications.telegram`. The settings page groups them into three partitions — sources (`web.*`),
-credentials (`cookiecloud`) and notifications (`notifications.*`) — and shows only display names,
-never these internal keys.
+`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `web.wechat`,
+`notifications.telegram`. The settings page groups them into two partitions — sources (`web.*`) and
+notifications (`notifications.*`) — and shows only display names, never these internal keys. Site
+logins are not settings: they live on the 登录态 page (see [Site logins](#site-logins)). The
+`cookiecloud` section of the retired CookieCloud integration is deleted from `app_settings` on startup,
+since it held vault passwords.
 
 Every `web.*` section carries `cron`, `enabled` and `notify`, all three edited on the jobs page
 rather than the settings page. `notify` defaults to true and covers everything that source sends to
@@ -79,22 +81,12 @@ always the logged-in user's. The session (`SESSDATA`, `bili_jct`, `buvid3`, `Ded
 `site_sessions` under `bilibili-<name>`, and each run first asks `/x/web-interface/nav` whether it is
 still a login: a session Bilibili rejects marks the login 已失效 and fails the run with a notification to
 sign in again, while Bilibili not answering fails the run without touching the login. Renaming an
-account means signing it in again. CookieCloud is not used for Bilibili (a `cookiecloud` key left in an
-older account row is ignored). Watch-later is still cleared after a successful pass, so only enable it
+account means signing it in again. (A `cookiecloud` key left in an older account row from the retired
+CookieCloud integration is ignored.) Watch-later is still cleared after a successful pass, so only enable it
 for accounts whose list you want consumed.
-
-CookieCloud credentials themselves live in the shared `cookiecloud` section — a named list of
-`{name, server_url, uuid, password}` entries edited in the settings page's credentials partition — and the
-one consumer left (the WeChat source's NGA login) references one by name.
 
 Deduplication is by `bvid` across the whole `bilibili` table, so a video favourited by two accounts
 downloads once, into whichever directory is reached first.
-
-`POST /api/v2/cookiecloud/test` checks a config's credentials without saving them, and the settings
-page exposes it as a 测试连接 button — inside the shared section (connectivity and decryption only)
-and next to each reference (also checks the vault carries that source's cookies, e.g. NGA's
-`ngaPassportUid` / `ngaPassportCid`). A masked password in the request resolves to the
-one stored under that config name, so what is checked is what the crawler would actually use.
 
 #### X liked tweets
 
@@ -137,8 +129,8 @@ appears, the login is checked against X's account settings, whose screen name ha
 (the likes timeline is readable only by its owner). Each run writes the stored cookies to a
 temporary cookies.txt for gallery-dl. A run that gallery-dl cannot authenticate marks the login
 已失效 on the page and fails with one deduplicated `twitter:auth` notification asking for a new
-login; with no login captured at all it fails the same way. CookieCloud is not used for X (a
-`cookiecloud` key left in an older `web.twitter` row is ignored).
+login; with no login captured at all it fails the same way. (A `cookiecloud` key left in an older
+`web.twitter` row is ignored.)
 
 Photos, videos and GIFs are all collected — X stores a GIF as a short video, so `include_videos`
 covers both. Setting `video_path` keeps videos and GIFs on a different disk from the images; leave it
@@ -183,8 +175,7 @@ The bookmarks listing refuses anonymous requests, so the session is a `PHPSESSID
 the web UI's 登录态 page (see [Site logins](#site-logins)); the cookie is stored in the database and read
 at the start of every run. A run that finds pixiv rejecting it marks the login 已失效 there and fails with
 one deduplicated notification asking for a new login; with no login captured at all it fails the same
-way. CookieCloud is not used for pixiv (a `cookiecloud` key left in an older `web.pixiv` row is
-ignored). The logged-in user's id is embedded
+way. (A `cookiecloud` key left in an older `web.pixiv` row is ignored.) The logged-in user's id is embedded
 in the cookie's value (`{user_id}_{hash}`), so `user_id` normally stays empty. Image originals on
 `i.pximg.net` need only the `Referer` header, never the cookie.
 
@@ -332,9 +323,11 @@ recorded in `wechat_article`. Image posts (贴图), which mp.weixin.qq.com hides
 read through the service's `/post/page`, which has the account's WeChat open them. A shared Baidu Tieba
 post is kept the same way: its first floor is read through the Tieba client API (replies are left out), and its
 pictures saved at original size. So is a shared NGA thread, whose first floor is read from `read.php`'s JSON
-with the NGA login (`ngaPassportUid`, `ngaPassportCid`) of the CookieCloud config named in
-`web.wechat.nga_cookiecloud`: NGA shows most boards to members only. Until that login works, the thread
-waits without using up its tries. A 视频号 (Channels) video is not opened in WeChat: TikHub's
+with the NGA login (`ngaPassportUid`, `ngaPassportCid`) captured on the 登录态 page (see
+[Site logins](#site-logins)): NGA shows most boards to members only. NGA issues both cookies for a year and
+never needs them refreshed, so one sign-in lasts until NGA ends the session or the year runs out. Until
+there is a login, the thread waits without using up its tries; a thread NGA refuses as 未登录 marks the
+login 已失效 on the page, and the thread waits the same way. A 视频号 (Channels) video is not opened in WeChat: TikHub's
 `fetch_video_detail` (key in `web.wechat.tikhub_token`, about $0.01 per lookup) answers with its CDN
 address and a `decode_key`. The best encoding that address offers is downloaded (`X-snsvideoflag=xWT111`,
 720p for a 1080p upload; the CDN's default is 576p, and the original upload is not offered), and its first 128 KB are decrypted with the ISAAC-64
@@ -352,12 +345,11 @@ Required fields are enforced by `validate_runnable()` only when a source is enab
 them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete source parked rather than
 crashing.
 
-Secrets (`cookiecloud.configs[].password`, `web.telegram.accounts[].api_hash`,
-`notifications.telegram.bot_token`, `web.wechat.token`) are stored in
+Secrets (`web.telegram.accounts[].api_hash`, `notifications.telegram.bot_token`,
+`web.wechat.token`, `web.wechat.tikhub_token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
-UI cannot shuffle credentials between them; the same holds for the shared CookieCloud passwords,
-matched by config name. (`web.rednote.proxy` and the other proxy URLs are deliberately shown in
+UI cannot shuffle credentials between them. (`web.rednote.proxy` and the other proxy URLs are deliberately shown in
 plain text.)
 
 The worker polls `app_settings` every 15 seconds and reschedules APScheduler jobs in place, so
@@ -381,13 +373,11 @@ saved on an incomplete source like any other field.
 
 The settings page owns everything else and renders a typed form per section — checkboxes for toggles
 and media-type routing, repeatable rows for Bilibili accounts/favourites, Telegram accounts/channels,
-Kemono creators and shared CookieCloud configs (the `CookieCloud` block at the bottom of the page,
-with a live connection test; the WeChat source's NGA login references its entries by name from a
-dropdown) — validated locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
+and Kemono creators — validated locally before submitting. Sources whose only settings are cron/enabled (StellaSora, BD2, Azur Lane)
 do not appear there at all; their `path` keeps its default and can be changed through the API if a
 deployment needs to. Every listed section also has a `JSON 编辑` toggle for raw editing, which is what
-a section gets if this build predates it. Secret fields (`api_hash`, CookieCloud password, Telegram
-bot token) read back masked; leaving the mask in place keeps the stored value. Note that `PUT` replaces a
+a section gets if this build predates it. Secret fields (`api_hash`, Telegram bot token, the WeChat
+tokens) read back masked; leaving the mask in place keeps the stored value. Note that `PUT` replaces a
 whole section, so a partial payload resets omitted fields to their defaults — the UI always sends the
 complete object.
 
@@ -403,7 +393,7 @@ or on the first 401/403 from the API.
 
 ### Site logins
 
-The 登录态 page lists the sources that need a signed-in session (pixiv, X, each Bilibili account and RedNote) with the state of the
+The 登录态 page lists the sources that need a signed-in session (pixiv, X, each Bilibili account, NGA and RedNote) with the state of the
 stored one: account, when it was captured, when its cookie expires, and whether the last crawl found it
 valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
 `Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
@@ -417,7 +407,8 @@ ticket that belongs to that one login, since a browser cannot send the bearer to
 
 While the window is open the API polls its cookies. When the session cookie appears it asks the site
 whether it is a real login (for pixiv, by reading the private bookmarks, which only the owner can;
-for X, by reading the account's settings; for Bilibili, from `nav`),
+for X, by reading the account's settings; for Bilibili, from `nav`; for NGA, by reading the
+notification list, which turns guests away),
 stores the cookies in `site_sessions`, and shuts the browser and the display down. A login left
 unfinished closes itself after 15 minutes. Nothing runs between logins; a login takes roughly
 400-600 MB while it is open. Each site keeps its Chromium profile under `data/login-profiles/<site>`
@@ -469,7 +460,6 @@ Protected endpoints:
 - `GET /api/v2/settings`
 - `GET /api/v2/settings/{section}`
 - `PUT /api/v2/settings/{section}`
-- `POST /api/v2/cookiecloud/test`
 - `GET /api/v2/site-sessions`
 - `POST /api/v2/site-sessions/{site}/login`
 - `DELETE /api/v2/site-sessions/login`

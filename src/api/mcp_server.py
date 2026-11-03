@@ -166,7 +166,7 @@ def build_mcp_server(get_service: Callable[[], FavApiService]) -> FastMCP:  # no
     @mcp.tool()
     async def get_settings(section: str = '') -> list[dict[str, Any]] | dict[str, Any]:
         """Settings as the web UI shows them, secrets masked. Without a section, every section.
-        Sections are named like web.wechat, web.azurlane, notifications.telegram, cookiecloud."""
+        Sections are named like web.wechat, web.azurlane, notifications.telegram."""
         service = get_service()
         if section:
             return await _call_service(service.get_settings_section, section)

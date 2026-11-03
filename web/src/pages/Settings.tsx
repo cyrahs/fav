@@ -361,20 +361,14 @@ function Hanime1Authors() {
 
 /**
  * The settings page is partitioned by what a section configures, not by where it
- * lives in the backend: crawled sources first, then credentials shared between
- * them, then how results are announced. Sections a newer backend adds land in a
- * trailing group instead of disappearing.
+ * lives in the backend: crawled sources first, then how results are announced.
+ * Sections a newer backend adds land in a trailing group instead of disappearing.
  */
 const SECTION_GROUPS: { title: string; hint: string; matches: (section: string) => boolean }[] = [
   {
     title: '源',
     hint: '抓取的站点。所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。Telegram 的实时监听在进程启动时建立，改动其账号后需重启 worker。',
     matches: (section) => section.startsWith('web.'),
-  },
-  {
-    title: '凭证',
-    hint: '微信源的 NGA 按名称引用这里的 CookieCloud 配置；Pixiv、X、B 站、小红书改在「登录态」页登录。',
-    matches: (section) => section === 'cookiecloud',
   },
   {
     title: '通知',

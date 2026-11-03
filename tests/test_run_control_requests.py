@@ -664,12 +664,12 @@ def test_run_job_handles_cancelled_error_and_closes_worker(monkeypatch) -> None:
 
 
 def test_format_exception_names_the_host_for_a_messageless_transport_error() -> None:
-    request = httpx.Request('GET', 'https://cookiecloud.example.com/get/secret-vault-id')
+    request = httpx.Request('GET', 'https://vault.example.com/get/secret-vault-id')
     exc = httpx.ConnectTimeout('', request=request)
 
     formatted = run_module._format_exception(exc)
 
-    assert formatted == 'ConnectTimeout: while requesting cookiecloud.example.com'
+    assert formatted == 'ConnectTimeout: while requesting vault.example.com'
     assert 'secret-vault-id' not in formatted
     assert run_module._format_exception(httpx.ConnectTimeout('')) == 'ConnectTimeout'
 

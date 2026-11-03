@@ -119,8 +119,7 @@ A source is a duck type, not a base class. `JobSpec.factory()` must return an ob
 - `src/api/`: FastAPI app — `routes.py`, `service.py` (logic), `schemas.py`, `archive.py`
   (read-only archive browsing over whitelisted tables/columns), `settings_masking.py`
 - `src/tool/database.py`: async pooled PostgreSQL helpers
-- `src/tool/cookiecloud.py`: fetch + decrypt CookieCloud cookies (Bilibili and X sessions)
-- `src/tool/site_sessions.py` + `src/api/browser_login.py`: logins captured on the 登录态 page (pixiv) —
+- `src/tool/site_sessions.py` + `src/api/browser_login.py`: logins captured on the 登录态 page (pixiv, X, Bilibili, NGA, RedNote) —
   a one-off Xvnc + headed Chromium the user signs in to through noVNC, stored in `site_sessions`
 - `src/web/rednote_browser.py`: the signed-in Chromium profile that source reads through
 - `src/tool/notifications.py`, `control_queue.py`, `telegram_bot.py`: the outbox and trigger queue
@@ -152,13 +151,6 @@ sets fake bootstrap env vars before `src.*` is imported. Tests mutate that yield
 configure a source. Fake the network by injecting `httpx.MockTransport` or a stub client; fake the
 database by monkeypatching the module's `database` attribute.
 
-`tests/test_cookiecloud.py::test_save_to_netscape_format_live_bilibili` is a live test, skipped
-unless a real deployment is reachable. To skip it explicitly:
-
-```bash
-uv run pytest -k 'not test_save_to_netscape_format_live_bilibili'
-```
-
 ### Database
 
 `src/tool/database.py` accepts **SQLite-flavoured SQL and translates it**, which is easy to trip
@@ -189,7 +181,7 @@ written to disk. Outputs are rooted at a path from the settings table, usually `
 
 ### Network + external services
 
-Nearly every module talks to a real external service (PostgreSQL, CookieCloud, Bilibili, Telegram,
+Nearly every module talks to a real external service (PostgreSQL, Bilibili, Telegram,
 Kemono, l2d.su, X). Prefer dependency injection and fakes in tests. If an integration test is truly
 necessary, make it skip cleanly when its config or secrets are absent.
 
@@ -209,11 +201,9 @@ across several hand-maintained registries, and missing one fails in a way that i
 5. `src/api/archive.py`: an `ARCHIVE_SOURCES` entry and an `_EXTERNAL_URL_BUILDERS` entry, so rows
    show up on the records page with a working link back to the origin.
 6. `src/api/settings_masking.py`: a branch per section that holds a secret.
-7. `src/tool/cookiecloud.py`: for a cookie-based source, a `CookieProfile` in `PROFILES`. That dict
-   is what backs the settings page's 测试连接 button; without an entry the endpoint rejects the source.
-   Credentials themselves live in the shared `cookiecloud` section: give the source a
-   `cookiecloud: str = ''` reference field, gate it with `_cookiecloud_reference_issues()` in
-   `validate_runnable()`, and resolve it at crawl time with `settings.resolve_cookiecloud(name)`.
+7. `src/api/browser_login.py`: for a source that needs a signed-in session, a `LoginSite` (login URL,
+   the cookie whose arrival means a login, and a `verify` that asks the site). The crawler reads the
+   captured cookies with `site_sessions.load(<site>)` and reports each run with `record_check`.
 8. `web/src/labels.ts`: the display name — this is the single place a source is named for the UI.
    Then either a form in `web/src/components/sectionForms.tsx` (registered in `SECTION_FORMS`, with
    any client-side rules in `validateSection`) or an entry in `JOBS_PAGE_ONLY_SECTIONS` if cron and
@@ -250,7 +240,7 @@ build. Verify with `uv run pytest` and the commands above instead.
 
 ## Making Changes Safely
 
-- Avoid logging secrets (CookieCloud passwords, PostgreSQL credentials, Telegram API hash and bot
+- Avoid logging secrets (site-session cookies, PostgreSQL credentials, Telegram API hash and bot
   token, proxy URLs with embedded credentials).
 - Keep `.env` out of git history (it is gitignored; do not override that).
 - Secrets in `app_settings` are masked on read and restored on write. Preserve that round trip when

@@ -50,13 +50,6 @@ def _accounts(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [account for account in accounts if isinstance(account, dict)]
 
 
-def _configs(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    configs = payload.get('configs')
-    if not isinstance(configs, list):
-        return []
-    return [config for config in configs if isinstance(config, dict)]
-
-
 def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
     masked = dict(payload)
     if section == 'notifications.telegram':
@@ -68,10 +61,6 @@ def mask_section(section: str, payload: dict[str, Any]) -> dict[str, Any]:
         masked['accounts'] = [{**account} for account in _accounts(masked)]
         for account in _accounts(masked):
             _mask_scalar(account, 'api_hash')
-    elif section == 'cookiecloud':
-        masked['configs'] = [{**config} for config in _configs(masked)]
-        for config in _configs(masked):
-            _mask_scalar(config, 'password')
     return masked
 
 
@@ -90,9 +79,4 @@ def unmask_section(section: str, payload: dict[str, Any], stored: dict[str, Any]
         merged['accounts'] = [{**account} for account in _accounts(merged)]
         for account in _accounts(merged):
             keep_secret(account, 'api_hash', stored_hashes.get(str(account.get('name') or ''), ''))
-    elif section == 'cookiecloud':
-        stored_passwords = {str(config.get('name') or ''): str(config.get('password') or '') for config in _configs(stored)}
-        merged['configs'] = [{**config} for config in _configs(merged)]
-        for config in _configs(merged):
-            keep_secret(config, 'password', stored_passwords.get(str(config.get('name') or ''), ''))
     return merged
