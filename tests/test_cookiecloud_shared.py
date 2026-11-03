@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, S105
+# ruff: noqa: INP001, S101
 
 import pytest
 from pydantic import ValidationError
@@ -44,78 +44,26 @@ def test_the_shared_section_is_registered_for_the_ui() -> None:
     assert next(reversed(settings.SECTION_MODELS)) == 'cookiecloud'
 
 
-# ---------- migration of legacy inline credentials ----------
+# ---------- leftovers of sources that left CookieCloud ----------
 
 
-def _legacy_rows() -> dict:
-    shared_creds = {'server_url': 'https://cc.example', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
-    return {
+def test_leftover_cookiecloud_fields_still_build_settings() -> None:
+    # Bilibili, X and pixiv sign in on the 登录态 page now; whatever CookieCloud
+    # fields their rows still carry, inline or by name, are ignored.
+    creds = {'server_url': 'https://cc.example', 'uuid': 'u', 'password': 'p'}
+    rows = {
+        'cookiecloud': {'configs': [{'name': 'main', **creds}]},
         'web.bilibili': {
             'accounts': [
-                {'name': 'main', 'toview_enabled': True, 'cookiecloud': dict(shared_creds)},
-                {
-                    'name': 'alt',
-                    'toview_enabled': True,
-                    'cookiecloud': {'server_url': 'https://cc.alt', 'uuid': 'alt-uuid', 'password': 'alt-pw'},
-                },
+                {'name': 'main', 'toview_enabled': True, 'cookiecloud': 'main'},
+                {'name': 'alt', 'toview_enabled': True, 'cookiecloud': dict(creds)},
             ],
         },
-        # X and pixiv no longer read CookieCloud: their leftovers are not migrated, only ignored.
-        'web.twitter': {'username': 'me', 'cookiecloud': dict(shared_creds)},
-        'web.pixiv': {'cookiecloud': dict(shared_creds)},
+        'web.twitter': {'username': 'me', 'cookiecloud': dict(creds)},
+        'web.pixiv': {'cookiecloud': 'main'},
     }
 
-
-def test_migration_hoists_inline_credentials_into_the_shared_registry() -> None:
-    rows = _legacy_rows()
-
-    changed = settings.migrate_legacy_cookiecloud(rows)
-
-    assert changed == {'cookiecloud', 'web.bilibili'}
-    # Each distinct set of credentials becomes one entry named after its account.
-    registry = {entry['name']: entry for entry in rows['cookiecloud']['configs']}
-    assert set(registry) == {'main', 'alt'}
-    assert registry['main']['password'] == 'shared-pw'
-    assert rows['web.bilibili']['accounts'][0]['cookiecloud'] == 'main'
-    assert rows['web.bilibili']['accounts'][1]['cookiecloud'] == 'alt'
-    leftover = {'server_url': 'https://cc.example', 'uuid': 'shared-uuid', 'password': 'shared-pw'}
-    assert rows['web.twitter']['cookiecloud'] == leftover
-    assert rows['web.pixiv']['cookiecloud'] == leftover
-
-    # The migrated rows build a valid settings tree.
     snapshot = settings.build_settings(rows)
-    assert snapshot.cookiecloud.get('main').uuid == 'shared-uuid'
 
-
-def test_migration_is_idempotent() -> None:
-    rows = _legacy_rows()
-    settings.migrate_legacy_cookiecloud(rows)
-
-    assert settings.migrate_legacy_cookiecloud(rows) == set()
-
-
-def test_migration_avoids_name_collisions_with_existing_entries() -> None:
-    rows = {
-        'cookiecloud': {'configs': [{'name': 'main', 'server_url': 'https://cc.other', 'uuid': 'o', 'password': 'o'}]},
-        'web.bilibili': {
-            'accounts': [
-                {'name': 'main', 'toview_enabled': True, 'cookiecloud': {'server_url': 'https://cc.main', 'uuid': 'm', 'password': 'm'}},
-            ],
-        },
-    }
-
-    settings.migrate_legacy_cookiecloud(rows)
-
-    names = [entry['name'] for entry in rows['cookiecloud']['configs']]
-    assert names == ['main', 'main-2']
-    assert rows['web.bilibili']['accounts'][0]['cookiecloud'] == 'main-2'
-
-
-def test_migration_leaves_already_migrated_rows_alone() -> None:
-    rows = {
-        'cookiecloud': {'configs': [{'name': 'main', 'server_url': 'https://cc', 'uuid': 'u', 'password': 'p'}]},
-        'web.bilibili': {'accounts': [{'name': 'main', 'toview_enabled': True, 'cookiecloud': 'main'}]},
-        'web.twitter': {'username': 'me', 'cookiecloud': 'main'},
-    }
-
-    assert settings.migrate_legacy_cookiecloud(rows) == set()
+    assert [account.name for account in snapshot.web.bilibili.accounts] == ['main', 'alt']
+    assert snapshot.cookiecloud.get('main').uuid == 'u'

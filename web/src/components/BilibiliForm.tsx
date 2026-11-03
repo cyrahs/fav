@@ -1,5 +1,4 @@
 import { CheckboxField, NumberField, Repeater, TextField } from './Field';
-import { CookieCloudPicker } from './CookieCloudPicker';
 import { list, patcher, str, type SectionFormProps } from './sectionFields';
 
 export interface BilibiliFavorite {
@@ -12,8 +11,6 @@ export interface BilibiliAccount {
   favorites?: BilibiliFavorite[];
   toview_enabled?: boolean;
   toview_path?: string;
-  /** Name of an entry in the shared `cookiecloud` section. */
-  cookiecloud?: string;
 }
 
 const ACCOUNT_NAME_RE = /^[A-Za-z0-9_-]+$/;
@@ -122,7 +119,7 @@ export function BilibiliForm(props: SectionFormProps) {
         count={accounts.length}
         addLabel="添加账号"
         empty="还没有账号，Bilibili 任务会保持未就绪。"
-        hint="每个账号引用一个 CookieCloud 配置——那个 vault 就是这个账号的身份。"
+        hint="每个账号在「登录态」页单独登录——那次登录就是这个账号的身份。"
         onAdd={() =>
           set('accounts', [
             ...accounts,
@@ -131,7 +128,6 @@ export function BilibiliForm(props: SectionFormProps) {
               favorites: [],
               toview_enabled: false,
               toview_path: 'collection/bilibili/toview',
-              cookiecloud: '',
             },
           ])
         }
@@ -169,7 +165,7 @@ export function BilibiliForm(props: SectionFormProps) {
                     onChange={(next) => update(index, { name: next })}
                     mono
                     invalid={!nameOk}
-                    hint="仅限字母、数字、下划线、连字符；也是 cookie 文件名的一部分"
+                    hint="仅限字母、数字、下划线、连字符；登录态页按这个名称列出它，改名后要重新登录"
                     error={name && !nameOk ? '名称含非法字符' : undefined}
                   />
                 </div>
@@ -196,17 +192,6 @@ export function BilibiliForm(props: SectionFormProps) {
                   onChange={(next) => update(index, { favorites: next })}
                 />
 
-                <div className="subsection">
-                  <h4>登录会话</h4>
-                  <div className="field-grid">
-                    <CookieCloudPicker
-                      source="bilibili"
-                      value={account.cookiecloud ?? ''}
-                      onChange={(next) => update(index, { cookiecloud: next })}
-                      hint="浏览器插件需要同步 bilibili.com 的登录 cookie。"
-                    />
-                  </div>
-                </div>
               </div>
             );
           })}

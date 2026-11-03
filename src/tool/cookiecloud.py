@@ -28,11 +28,6 @@ class CookieProfile:
     required_cookies: tuple[str, ...]
 
 
-# The cookies src/web/bilibili.py needs to build a Credential.
-BILIBILI_PROFILE = CookieProfile(
-    domains=('bilibili.com',),
-    required_cookies=('sessdata', 'bili_jct', 'buvid3', 'dedeuserid'),
-)
 # NGA sets its login on .nga.cn; a browser that signed in on another of the
 # forum's hostnames files it there instead.
 NGA_PROFILE = CookieProfile(
@@ -40,7 +35,6 @@ NGA_PROFILE = CookieProfile(
     required_cookies=('ngapassportuid', 'ngapassportcid'),
 )
 PROFILES: dict[str, CookieProfile] = {
-    'bilibili': BILIBILI_PROFILE,
     'nga': NGA_PROFILE,
 }
 
@@ -202,7 +196,7 @@ def _fetch_for_probe(server_url: str, uuid: str, password: str) -> tuple[dict[st
         client.client.close()
 
 
-def probe(server_url: str, uuid: str, password: str, *, profile: CookieProfile | None = BILIBILI_PROFILE) -> CookieCloudProbe:
+def probe(server_url: str, uuid: str, password: str, *, profile: CookieProfile | None = None) -> CookieCloudProbe:
     """Fetch and decrypt a CookieCloud vault, reporting why it is unusable if it is.
 
     Distinguishes the failure modes an operator actually needs to tell apart: the

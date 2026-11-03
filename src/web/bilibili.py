@@ -1,23 +1,32 @@
-"""Provides functionality to interact with Bilibili API."""
+"""Provides functionality to interact with Bilibili API.
+
+Each account's session is the one captured on the 登录态 page
+(``src/tool/site_sessions.py``), stored under ``session_site(account.name)``: a
+plain browser login, verified against ``/x/web-interface/nav``. The run checks it
+the same way before it walks the account, so a session Bilibili has dropped is
+reported as a sign-in to redo rather than as an API error halfway through.
+"""
 
 import asyncio
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Coroutine
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import bilibili_api as api
+import httpx
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from src.core import logger, settings
-from src.tool import CookieCloudClient, database, ensure_unique_path, format_video_filename
+from src.tool import database, ensure_unique_path, format_video_filename, site_sessions
 from src.tool.notifications import enqueue_notification, format_job_failure_dedupe_key, resolve_notification
+from src.tool.site_sessions import StoredCookie
 
 log = logger.get('bilibili')
 _KIBIBYTE = 1024
@@ -54,27 +63,94 @@ SELECT EXISTS (
 _BILIBILI_ADD_BVID_ARBITER_SQL = 'ALTER TABLE bilibili ADD CONSTRAINT bilibili_bvid_unique UNIQUE (bvid);'
 
 
-class MissingCookiesError(RuntimeError):
-    """The CookieCloud vault no longer carries the cookies a Credential needs.
-
-    Nearly always the browser signed out of bilibili.com, so the message says so;
-    a bare ``KeyError: 'sessdata'`` in the failure notification does not.
-    """
-
-    def __init__(self, *, cookie_path: Path, missing: list[str]) -> None:
-        super().__init__(
-            f'bilibili.com cookies missing from CookieCloud ({cookie_path.name}): {", ".join(missing)}. '
-            'Sign in to bilibili.com in the browser CookieCloud syncs from.',
-        )
-        self.missing = tuple(missing)
-
-
 class DownloadError(RuntimeError):
     """Raised when a download fails after retries."""
 
     def __init__(self, message: str, *, notification_dedupe_key: str = '') -> None:
         super().__init__(message)
         self.notification_dedupe_key = notification_dedupe_key
+
+
+class SessionError(DownloadError):
+    """An account has no usable login: never signed in, signed out, or missing a cookie."""
+
+
+# --- The 登录态 login -------------------------------------------------------------------------
+
+LOGIN_URL = 'https://passport.bilibili.com/login'
+SESSION_COOKIE_URLS = ('https://www.bilibili.com/',)
+SESSION_COOKIE = 'SESSDATA'
+# What a Credential is built from; Bilibili sets buvid3 on the first page view, the
+# rest when the login completes.
+REQUIRED_COOKIES = ('SESSDATA', 'bili_jct', 'buvid3', 'DedeUserID')
+_NAV_URL = 'https://api.bilibili.com/x/web-interface/nav'
+_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+_NOT_LOGGED_IN_CODE = -101
+_HTTP_OK = 200
+
+
+def session_site(account_name: str) -> str:
+    """The site_sessions key, and 登录态 site, of one configured account."""
+    return f'bilibili-{account_name}'
+
+
+def relogin_hint(account_name: str) -> str:
+    return f"Sign in to Bilibili account {account_name} again on fav's 登录态 page."
+
+
+@dataclass(frozen=True)
+class SessionCheck:
+    ok: bool
+    account: str
+    message: str
+    # Bilibili itself said the session is not a login, as opposed to not answering.
+    rejected: bool = False
+
+
+def _cookie_map(cookies: tuple[StoredCookie, ...]) -> dict[str, str]:
+    return {c.name.lower(): c.value for c in cookies if c.value}
+
+
+def missing_cookies(cookies: tuple[StoredCookie, ...]) -> list[str]:
+    present = _cookie_map(cookies)
+    return [name for name in REQUIRED_COOKIES if name.lower() not in present]
+
+
+async def verify_session(
+    cookies: tuple[StoredCookie, ...],
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> SessionCheck:
+    """Whether a set of bilibili.com cookies is a live login, and for which user.
+
+    ``nav`` answers for whoever the cookies belong to: ``isLogin`` with the user's
+    name and mid, or code -101 for no login at all.
+    """
+    missing = missing_cookies(cookies)
+    if missing:
+        return SessionCheck(ok=False, account='', message=f'cookies not set yet: {", ".join(missing)}')
+    header = '; '.join(f'{c.name}={c.value}' for c in cookies if c.value)
+    async with httpx.AsyncClient(
+        headers={'User-Agent': _USER_AGENT, 'Referer': 'https://www.bilibili.com/', 'Cookie': header},
+        transport=transport,
+        timeout=30,
+    ) as client:
+        try:
+            response = await client.get(_NAV_URL)
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            return SessionCheck(ok=False, account='', message=f'Bilibili unreachable: {exc.__class__.__name__}')
+    data = payload.get('data') if isinstance(payload, dict) else None
+    data = data if isinstance(data, dict) else {}
+    code = payload.get('code') if isinstance(payload, dict) else None
+    if code == _NOT_LOGGED_IN_CODE or (code == 0 and not data.get('isLogin')):
+        return SessionCheck(ok=False, account='', message='Bilibili says these cookies are not signed in', rejected=True)
+    if response.status_code != _HTTP_OK or code != 0:
+        return SessionCheck(ok=False, account='', message=f'Bilibili nav answered HTTP {response.status_code}, code {code}')
+    name = str(data.get('uname') or '')
+    mid = str(data.get('mid') or '')
+    account = f'{name} ({mid})' if name and mid else name or mid
+    return SessionCheck(ok=True, account=account, message='')
 
 
 class Bilibili:
@@ -350,34 +426,41 @@ class Bilibili:
         row = await cursor.fetchone()
         return bool(row and row['has_bvid_arbiter'])
 
-    @staticmethod
-    def update_cookie_from_cookiecloud(save_path: Path, cc_cfg: settings.CookieCloud) -> None:
-        """Fetch this account's bilibili.com cookies into a Netscape cookie file."""
-        client = CookieCloudClient(cc_cfg.server_url, cc_cfg.uuid, cc_cfg.password)
-        client.save_to_netscape_format('bilibili.com', save_path)
-
-    def _activate_account(self, account: settings.BilibiliAccount) -> None:
+    async def _activate_account(self, account: settings.BilibiliAccount) -> None:
         """Point the shared cookie/credential state at one account.
 
-        Each account gets its own cookie file, and the video info cache is dropped
-        because visibility of a video depends on who is logged in.
+        Each account gets its own cookie file (for yt-dlp), and the video info cache
+        is dropped because visibility of a video depends on who is logged in.
         """
+        site = session_site(account.name)
+        stored = await site_sessions.load(site)
+        if stored is None or not stored.cookie(SESSION_COOKIE):
+            msg = f'Bilibili account {account.name} is not signed in. {relogin_hint(account.name)}'
+            raise SessionError(msg, notification_dedupe_key=f'bilibili:auth:{account.name}')
+        check = await verify_session(stored.cookies)
+        if not check.ok:
+            if not check.rejected and not missing_cookies(stored.cookies):
+                # Bilibili not answering is a network failure, not a signed-out session.
+                msg = f'Could not check the Bilibili session of {account.name}: {check.message}'
+                raise RuntimeError(msg)
+            msg = f'Bilibili session of {account.name} is no longer valid ({check.message}). {relogin_hint(account.name)}'
+            await site_sessions.record_check(site, ok=False, message=msg)
+            raise SessionError(msg, notification_dedupe_key=f'bilibili:auth:{account.name}')
+        await site_sessions.record_check(site, ok=True)
         self.cookie_path = self.cache_dir / f'bilibili-{account.name}.txt'
-        self.update_cookie_from_cookiecloud(self.cookie_path, settings.resolve_cookiecloud(account.cookiecloud))
-        self.credential = self.create_credential(self.cookie_path)
+        await asyncio.to_thread(self.cookie_path.write_text, site_sessions.to_netscape(stored.cookies), encoding='utf-8')
+        self.credential = self.create_credential(stored.cookies)
         self.info_cache = {}
 
-    def create_credential(self, cookie_path: Path) -> api.Credential:
-        """Create credential from cookie file."""
-        cookie_jar = MozillaCookieJar(cookie_path)
-        cookie_jar.load()
-        cookies = [cookie.__dict__ for cookie in cookie_jar]
-        cookies = {cookies['name'].lower(): cookies['value'] for cookies in cookies}
-        needed_cookies = ['sessdata', 'bili_jct', 'buvid3', 'dedeuserid']
-        missing = [name for name in needed_cookies if name not in cookies]
+    @staticmethod
+    def create_credential(cookies: tuple[StoredCookie, ...]) -> api.Credential:
+        """Create a credential from the stored session cookies."""
+        missing = missing_cookies(cookies)
         if missing:
-            raise MissingCookiesError(cookie_path=cookie_path, missing=missing)
-        return api.Credential(**{k: cookies[k] for k in needed_cookies})
+            msg = f'Bilibili session lacks cookies: {", ".join(missing)}'
+            raise SessionError(msg)
+        values = _cookie_map(cookies)
+        return api.Credential(**{name.lower(): values[name.lower()] for name in REQUIRED_COOKIES})
 
     async def check_valid(self, v: api.video.Video) -> bool:
         """Check if the video is valid."""
@@ -641,7 +724,7 @@ class Bilibili:
 
         for account in self.cfg.accounts:
             log.info('Processing bilibili account %s', account.name)
-            await asyncio.to_thread(self._activate_account, account)
+            await self._activate_account(account)
             for favorite in account.favorites:
                 log.info('Account %s: favourite list %d -> %s', account.name, favorite.fav_id, favorite.path)
                 await self.update_fav(favorite.fav_id, favorite.path)

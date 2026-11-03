@@ -559,7 +559,7 @@ function RedNoteForm(props: SectionFormProps) {
 const COOKIECLOUD_NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 /**
- * The shared CookieCloud registry. Sources (Bilibili 账号、NGA) reference an
+ * The shared CookieCloud registry. Sources (now only NGA) reference an
  * entry here by name, so one browser vault is configured once and shared.
  */
 function CookieCloudForm(props: SectionFormProps) {
@@ -579,7 +579,7 @@ function CookieCloudForm(props: SectionFormProps) {
         label="配置"
         count={configs.length}
         addLabel="添加配置"
-        empty="还没有 CookieCloud 配置；需要登录会话的 Bilibili 账号会保持未就绪。"
+        empty="还没有 CookieCloud 配置；微信源的 NGA 帖子会拿不到登录 cookie。"
         hint="各来源在自己的设置里按名称引用这里的条目，同一个浏览器 vault 只需配置一次。"
         onAdd={() => set('configs', [...configs, { name: '', server_url: '', uuid: '', password: '' }])}
       >

@@ -919,7 +919,7 @@ def delete_nikke_live2d_view_override(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-LoginSitePath = Annotated[str, Path(min_length=1, max_length=64, pattern=r'^[a-z0-9_]+$')]
+LoginSitePath = Annotated[str, Path(min_length=1, max_length=96, pattern=r'^[A-Za-z0-9_-]+$')]
 
 
 def _login_manager(request: Request) -> BrowserLoginManager:
