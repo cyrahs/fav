@@ -256,7 +256,9 @@ runs it, and answers a route that still returns nothing with a 500 naming it.
 ### Opening messages by tapping
 
 `/ui/open` opens a message the way a person does. It brings WeChat to the front
-if it is not (as its launcher icon would), taps Back until WeChat shows its chat
+if it is not (as its launcher icon would; Android 12 refuses this when WeChat
+has no screen open at all, and the call then fails asking for WeChat to be
+opened on the device), taps Back until WeChat shows its chat
 list or the right chat, taps the conversation, finds the message's bubble and
 taps it. When the bubble is not on screen it scrolls the chat until it is,
 however far back the message is: up by default, and down when the send times of
@@ -277,6 +279,13 @@ failed one. Before opening a message of another chat it first backs out to the
 chat list (the plugin cannot always tell which chat it is in), and a chat left
 unused for two minutes is backed out of too, so later messages there are not
 marked read.
+
+Only one `/ui/open` or `/ui/close` runs at a time; a second waits up to 15
+minutes for the first, then fails with `another UI action is running`. Since
+v0.4.12 the action runs behind a `FutureTask` and the lock is released as soon
+as it returns: an interpreter error inside it (which a script `catch` does not
+see) used to skip the unlock and leave every later UI action failing until
+WeChat restarted.
 
 Views are recognised by what they carry, not by WeChat's obfuscated class
 names: a bubble's tag holds its message (an object with a public
