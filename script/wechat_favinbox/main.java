@@ -44,7 +44,7 @@ import org.json.JSONObject;
 // returns void), and keeps state shared with callbacks in Atomic* holders: script
 // variables captured by a lambda or an anonymous class are treated as final.
 
-String PLUGIN_VERSION = "0.4.11";
+String PLUGIN_VERSION = "0.4.12";
 int WAIT_MS = 60000;
 int PAGE_SIZE = 100;
 int MAX_JSON_BODY = 1024 * 1024;
@@ -1835,10 +1835,13 @@ void uiForeground(List steps) {
     if (act != null && !uiIsMainScreen(act)) return;
     uiStartLauncher(0);
     uiSleep(1500, 2500);
-    act = getTopActivity();
-    if (act == null || !act.hasWindowFocus()) {
+    // A new variable, not `act` again: WeChat's getTopActivity() hands back a
+    // bare null when no WeChat screen exists, and assigning that to an existing
+    // variable is an interpreter error ("null variable value") in this BeanShell.
+    android.app.Activity after = getTopActivity();
+    if (after == null || !after.hasWindowFocus()) {
         steps.add("asked WeChat to come to the front, but it did not");
-        throw new IllegalStateException("WeChat is not on screen and did not come to the front; open WeChat on the device");
+        throw new IllegalStateException("WeChat is not on screen and did not come to the front (Android blocks a background app from opening its own screen); open WeChat on the device");
     }
     steps.add("brought WeChat to the front");
 }
@@ -2117,31 +2120,45 @@ JSONObject uiClose(boolean home) {
     return j;
 }
 
-// One UI action at a time. No try/finally: the lock is released on both paths
-// by hand, and an empty answer is reported rather than passed on.
+// One UI action at a time. The action runs behind a Java-level FutureTask, and
+// the lock is released as soon as task.run() returns, which it always does:
+// an interpreter error (for example "null variable value") is not caught by a
+// script catch and used to skip the unlock, leaving every later UI action to
+// time out with "another UI action is running" until WeChat restarted.
 JSONObject uiLocked(String what, JSONObject b) {
     if (!uiLock.tryLock(15, java.util.concurrent.TimeUnit.MINUTES)) throw new IllegalStateException("another UI action is running");
-    Object[] box = new Object[1];
-    Throwable failure = null;
-    try {
-        if (what.equals("open")) {
-            List texts = new ArrayList();
-            JSONArray a = b.optJSONArray("texts");
-            for (int i = 0; a != null && i < a.length(); i++) {
-                String t = a.optString(i, "").trim();
-                if (t.length() > 0) texts.add(t);
+    final String w = what;
+    final JSONObject body = b;
+    java.util.concurrent.FutureTask task = new java.util.concurrent.FutureTask(new java.util.concurrent.Callable() {
+        public Object call() {
+            Object answer = null;
+            try {
+                answer = uiRun(w, body);
+            } catch (Throwable e) {
+                answer = new java.util.concurrent.ExecutionException(e);
             }
-            box[0] = uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
-        } else {
-            box[0] = uiClose(b.optBoolean("home", true));
+            return answer;
         }
-    } catch (Throwable e) {
-        failure = e;
-    }
+    });
+    task.run();
     uiLock.unlock();
-    if (failure != null) throw failure;
-    if (box[0] == null) throw new IllegalStateException("ui " + what + " returned nothing");
-    return (JSONObject) box[0];
+    Object result = task.get();
+    if (result instanceof java.util.concurrent.ExecutionException) throw (Throwable) result;
+    if (result == null) throw new IllegalStateException("ui " + what + " returned nothing (a script error in the plugin; see logcat)");
+    return (JSONObject) result;
+}
+
+JSONObject uiRun(String what, JSONObject b) {
+    if (what.equals("open")) {
+        List texts = new ArrayList();
+        JSONArray a = b.optJSONArray("texts");
+        for (int i = 0; a != null && i < a.length(); i++) {
+            String t = a.optString(i, "").trim();
+            if (t.length() > 0) texts.add(t);
+        }
+        return uiOpenMessage(b.getString("talker"), b.getLong("msg_id"), b.optLong("create_time", 0L), texts);
+    }
+    return uiClose(b.optBoolean("home", true));
 }
 
 // Which control-flow forms come back with their value in this BeanShell. Each
