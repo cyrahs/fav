@@ -146,6 +146,10 @@ _OBJ_LINE_PREFIXES = (b'#', b'g ', b'o ', b'v ', b'vt ', b'vn ', b'f ', b's ', b
 _MESH_UNAVAILABLE_REASON = 'response is not a Wavefront OBJ; the CDN hosts no mesh here'
 _CDN_REJECTION_REASON = 'cdn rejection response'
 _MANIFEST_SCHEMA_VERSION = 1
+# Characters whose manifests are built from one asset query. The archive holds ~176k asset rows;
+# loading them in one query took the worker from ~110 MiB to ~1.4 GiB, and glibc kept most of it
+# after the run. A batch of this size is a few thousand rows.
+_MANIFEST_CHARACTER_BATCH = 25
 _ASSET_AVAILABLE_STATUS = 'downloaded'
 # Assets without which the model cannot be rendered at all. Everything else -- motions,
 # expressions, faces, icons, voices -- is a companion file: the source advertises plenty it
@@ -1241,29 +1245,35 @@ class AzurLane:
         if not character_rows:
             return
 
-        model_rows = await self._manifest_model_rows()
-        asset_rows = await self._manifest_asset_rows([_row_text(row, 'model_id') for row in model_rows])
+        model_ids_by_character_key: dict[str, list[str]] = {}
+        model_rows_by_character_key: dict[str, list[dict[str, Any]]] = {}
+        for row in await self._manifest_model_rows():
+            character_key = _row_text(row, 'character_key')
+            model_ids_by_character_key.setdefault(character_key, []).append(_row_text(row, 'model_id'))
+            model_rows_by_character_key.setdefault(character_key, []).append(row)
 
-        assets_by_model_id: dict[str, list[dict[str, Any]]] = {}
-        for row in asset_rows:
-            assets_by_model_id.setdefault(_row_text(row, 'model_id'), []).append(row)
+        ordered = sorted(character_rows, key=lambda item: _row_text(item, 'character_key'))
+        for start in range(0, len(ordered), _MANIFEST_CHARACTER_BATCH):
+            batch = ordered[start : start + _MANIFEST_CHARACTER_BATCH]
+            model_ids = [model_id for row in batch for model_id in model_ids_by_character_key.get(_row_text(row, 'character_key'), [])]
+            assets_by_model_id: dict[str, list[dict[str, Any]]] = {}
+            for asset_row in await self._manifest_asset_rows(model_ids):
+                assets_by_model_id.setdefault(_row_text(asset_row, 'model_id'), []).append(asset_row)
 
-        models_by_character_key: dict[str, list[dict[str, Any]]] = {}
-        for row in model_rows:
-            model_id = _row_text(row, 'model_id')
-            assets = _model_assets(assets_by_model_id.get(model_id, []))
-            models_by_character_key.setdefault(_row_text(row, 'character_key'), []).append(_model_payload(row, assets))
-
-        for row in sorted(character_rows, key=lambda item: _row_text(item, 'character_key')):
-            root = _character_manifest_root(self.path, row)
-            models = sorted(
-                models_by_character_key.get(_row_text(row, 'character_key'), []),
-                key=lambda item: (item['type'], item['costume']['key'], item['model_id']),
-            )
-            manifest = _character_payload(row, models, root)
-            _write_json(root / 'manifest.json', manifest)
-            _write_json(root / 'character.json', _character_summary_payload(manifest))
-            await self._write_character_detail(root, row)
+            for row in batch:
+                character_key = _row_text(row, 'character_key')
+                root = _character_manifest_root(self.path, row)
+                models = sorted(
+                    (
+                        _model_payload(model_row, _model_assets(assets_by_model_id.get(_row_text(model_row, 'model_id'), [])))
+                        for model_row in model_rows_by_character_key.get(character_key, [])
+                    ),
+                    key=lambda item: (item['type'], item['costume']['key'], item['model_id']),
+                )
+                manifest = _character_payload(row, models, root)
+                _write_json(root / 'manifest.json', manifest)
+                _write_json(root / 'character.json', _character_summary_payload(manifest))
+                await self._write_character_detail(root, row)
 
     async def _write_character_detail(self, root: Path, character_row: dict[str, Any]) -> None:
         source_id = _row_int(character_row, 'source_id')
