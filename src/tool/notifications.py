@@ -191,6 +191,11 @@ class NotificationRecord:
 
 
 JOB_RUN_FAILURE_KEY = 'run'
+# A message a source received but could not save anything from: pinned until the
+# source resolves it, when the message is saved after all or deleted.
+KIND_UNSUPPORTED_MESSAGE = 'unsupported_message'
+KIND_UNSUPPORTED_RESOLVED = 'unsupported_resolved'
+PINNED_KINDS = frozenset({'job_failed', KIND_UNSUPPORTED_MESSAGE})
 
 
 def format_job_failure_dedupe_key(*, job_key: str, failure_key: str) -> str:
@@ -246,6 +251,8 @@ def _notification_delivery_fields(
     normalized_body = body.strip()
     normalized_link_url = link_url.strip()
     is_active_job_failure = kind == 'job_failed' and webhook_action != WEBHOOK_ACTION_RESOLVE
+    # What stays pinned until it is resolved: a failing job, and a message nothing could be saved from.
+    pins = kind in PINNED_KINDS and webhook_action != WEBHOOK_ACTION_RESOLVE
 
     # The header names the app and the source, so the title line is free to be the item itself.
     if normalized_header:
@@ -266,8 +273,8 @@ def _notification_delivery_fields(
     # Only the first occurrence of a failure rings the phone: the repeats still
     # arrive and take over the pin, so the chat shows the problem is still there,
     # without a daily alert for something already known.
-    disable_notification = not is_active_job_failure or occurrence_count > 1
-    return '\n'.join(parts), not bool(normalized_link_url), disable_notification, is_active_job_failure
+    disable_notification = not pins or occurrence_count > 1
+    return '\n'.join(parts), not bool(normalized_link_url), disable_notification, pins
 
 
 def _from_row(row: Mapping[str, Any]) -> NotificationRecord:

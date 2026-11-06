@@ -648,6 +648,12 @@ leaves out service messages, and a picture or video of a type the channel has no
 after this was first deployed are reported: WeChat records the moment in `wechat_state.unsupported_since`, and Telegram
 keeps them out of its look back over a channel's history.
 
+The report is an `unsupported_message` notification, pinned like a failing job. The message is checked again on every
+run (WeChat keeps its row as `reported`, Telegram re-reads the channel's reported messages on each reconciliation): once
+a later version can save it, it is queued as real work, and saving it resolves the report, which unpins it. Deleting a
+reported Telegram message stops the checks but leaves the pin to be removed by hand, as does any report that is to be
+ignored.
+
 ### TikHub
 
 TikHub is configured once, in its own `services.tikhub` section (`token`, `api_url`; 设置 → 第三方服务), and used by the

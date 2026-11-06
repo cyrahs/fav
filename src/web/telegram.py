@@ -16,16 +16,19 @@ from tqdm import tqdm
 from src.core import logger, settings
 from src.core.settings import TelegramAccount, TelegramChannel, TelegramMediaType
 from src.tool import database, format_media_filename, sanitize
-from src.tool.notifications import enqueue_notification
+from src.tool.notifications import KIND_UNSUPPORTED_MESSAGE, KIND_UNSUPPORTED_RESOLVED, enqueue_notification, resolve_notification
 from src.tool.telegram_queue import (
     TelegramJobType,
     TelegramMediaJob,
     claim_next_telegram_media_job,
+    close_unsupported_report,
     enqueue_telegram_media_job,
     ensure_telegram_media_queue_table,
     mark_telegram_media_job_completed,
     mark_telegram_media_job_discarded,
     mark_telegram_media_job_retry,
+    open_unsupported_reports,
+    requeue_unsupported_report,
     reset_processing_telegram_media_jobs,
     telegram_media_retry_delay,
 )
@@ -85,7 +88,9 @@ LINK_JOB: TelegramJobType = 'link'
 # A message with nothing to save: no picture or video, and no link post_links reads.
 # In a channel with ``report_unsupported`` it is reported rather than skipped, so
 # nothing sent there is lost silently. Only messages that arrive from now on count:
-# history scans leave them out.
+# history scans leave them out. The report stays pinned and the message is checked
+# again on every reconciliation: once this source learns to save it, it is queued
+# again, and saving it unpins the report.
 UNSUPPORTED_JOB: TelegramJobType = 'unsupported'
 _JOB_TYPES = frozenset({'video', 'image', LINK_JOB, UNSUPPORTED_JOB})
 # Job types the worker reads the message for itself rather than downloading a route's media.
@@ -720,6 +725,16 @@ class Telegram:
             log.info('Telegram channel %s is cooling down for %.0fs; skip reconciliation', channel_name, state.cooldown_remaining_seconds)
             return
 
+        if UNSUPPORTED_JOB in media_types:
+            await self._recheck_unsupported(
+                account=account,
+                channel_id=channel_id,
+                channel=channel,
+                client=selected_client,
+                channel_name=channel_name,
+                job_types=media_types,
+            )
+
         backfilled_media_types = await self.get_backfilled_media_types(account.name, channel_id)
         pending_backfill_types = [media_type for media_type in media_types if media_type not in backfilled_media_types]
         if state.last_scanned_message_id > 0 and pending_backfill_types:
@@ -1064,16 +1079,69 @@ class Telegram:
         log.warning('Telegram message %s/%s in %s has nothing to save: %s', job.channel_id, job.message_id, channel_name, reason)
         try:
             await enqueue_notification(
-                kind='download_failed',
+                kind=KIND_UNSUPPORTED_MESSAGE,
                 source='telegram',
                 header='Telegram',
                 title=f'{channel_name} #{job.message_id}',
                 link_url=f'https://t.me/c/{job.channel_id}/{job.message_id}',
                 body=reason,
                 payload={'account_name': account.name, 'channel_name': channel_name, 'message_id': job.message_id, 'reason': reason},
+                dedupe_key=self._unsupported_key(account.name, job.channel_id, job.message_id),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue the unsupported-message notification for message %s: %s', job.message_id, exc)
+
+    @staticmethod
+    def _unsupported_key(account_name: str, channel_id: int, message_id: int) -> str:
+        return f'telegram:unsupported:{account_name}:{channel_id}:{message_id}'
+
+    async def _resolve_unsupported(self, account: TelegramAccount, channel_name: str, job: TelegramMediaJob, saved: Path) -> None:
+        """Unpin the report of a message that was saved after all; nothing happens when it was never reported."""
+        try:
+            await resolve_notification(
+                dedupe_key=self._unsupported_key(account.name, job.channel_id, job.message_id),
+                kind=KIND_UNSUPPORTED_RESOLVED,
+                source='telegram',
+                header='Telegram',
+                title=f'{channel_name} #{job.message_id}',
+                link_url=f'https://t.me/c/{job.channel_id}/{job.message_id}',
+                body=f'Saved after all: {saved.name}',
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to resolve the unsupported-message report for message %s: %s', job.message_id, exc)
+
+    async def _recheck_unsupported(  # noqa: PLR0913
+        self,
+        *,
+        account: TelegramAccount,
+        channel_id: int,
+        channel: Channel,
+        client: TelegramClient,
+        channel_name: str,
+        job_types: list[TelegramJobType],
+    ) -> None:
+        """Queue again each reported message this source has since learned to save."""
+        message_ids = await open_unsupported_reports(account.name, channel_id)
+        if not message_ids:
+            return
+        messages = await client.get_messages(channel, ids=message_ids)
+        requeued = 0
+        for message_id, message in zip(message_ids, messages, strict=True):
+            if message is None:
+                # Deleted from the channel: nothing left to save. The report stays pinned until it is unpinned by hand.
+                await close_unsupported_report(account.name, channel_id, message_id, reason='Message was deleted')
+                continue
+            media_type = self._message_media_type(message, set(job_types))
+            if media_type is None or media_type == UNSUPPORTED_JOB:
+                continue
+            entry = self._build_standalone_entry(TelegramMediaEntry(msg=message, filename='', media_type=media_type))
+            if await requeue_unsupported_report(account.name, channel_id, message_id, media_type=media_type, title=entry.filename):
+                requeued += 1
+        if requeued:
+            log.info('Telegram queued %d reported messages in %s again: they can be saved now', requeued, channel_name)
+            wake_event = self._worker_wake_events.get(account.name)
+            if wake_event is not None:
+                wake_event.set()
 
     @staticmethod
     async def _notify_link_failure(job: TelegramMediaJob, body: str, *, dedupe_key: str = '') -> None:
@@ -1200,6 +1268,7 @@ class Telegram:
             return False
 
         await mark_telegram_media_job_completed(job, owner_token)
+        await self._resolve_unsupported(account, channel_name, job, result)
         log.notice('Telegram queue completed account=%s channel=%s message=%s: %s', account.name, job.channel_id, job.message_id, result)
         return True
 
