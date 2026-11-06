@@ -642,7 +642,8 @@ image post sent through Telegram cannot be read (mp.weixin.qq.com puts it behind
 
 TikHub is configured once, in its own `services.tikhub` section (`token`, `api_url`; 设置 → 第三方服务), and used by the
 WeChat 视频号 lookup and by Zhihu links from either source. `POST /api/v2/services/tikhub/test` checks the saved key with
-TikHub's free account lookup and answers with the key's name, balance and free credit. A database that still holds the
+TikHub's free account lookup and answers with the key's name, balance and free credit; the settings page shows it
+when the section opens, with a button to refresh it. A database that still holds the
 key under the old `web.wechat.tikhub_token` / `tikhub_api_url` fields has them moved to `services.tikhub` at startup.
 
 ### In Telegram

@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { Hanime1Author, Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
 import { TelegramNotificationTest } from '../components/TelegramNotificationTest';
-import { TikHubTest } from '../components/TikHubTest';
+import { TIKHUB_ACCOUNT_QUERY_KEY, TikHubTest } from '../components/TikHubTest';
 import { JOBS_PAGE_ONLY_SECTIONS, SECTION_FORMS, validateSection } from '../components/sectionForms';
 import { formatDateTime } from '../format';
 import { sectionLabel } from '../labels';
@@ -70,6 +70,9 @@ function SectionEditor({ section }: { section: SettingsSection }) {
       window.setTimeout(() => setSaved(false), 2500);
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
       void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      if (section.section === 'services.tikhub') {
+        void queryClient.invalidateQueries({ queryKey: TIKHUB_ACCOUNT_QUERY_KEY });
+      }
     },
     onError: (err: Error) => {
       if (err instanceof ApiError && err.details) {
