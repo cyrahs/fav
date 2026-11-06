@@ -367,6 +367,26 @@ def test_first_failure_rings_and_repeats_stay_silent() -> None:
     assert repeat_markdown.endswith('Occurrences: 4')
 
 
+def test_an_unsupported_message_stays_pinned_until_it_is_resolved() -> None:
+    def _fields(kind: str, action: str) -> tuple[str, bool, bool, bool]:
+        return notifications_module._notification_delivery_fields(
+            kind=kind,
+            header='Telegram',
+            title='fav #130',
+            body='Link not supported: https://example.com/x',
+            link_url='https://t.me/c/1/130',
+            image_url='',
+            webhook_action=action,
+            occurrence_count=1,
+        )
+
+    _, _, silent, pin = _fields(notifications_module.KIND_UNSUPPORTED_MESSAGE, WEBHOOK_ACTION_UPSERT)
+    _, _, _, resolved_pin = _fields(notifications_module.KIND_UNSUPPORTED_RESOLVED, notifications_module.WEBHOOK_ACTION_RESOLVE)
+
+    assert (silent, pin) == (False, True)
+    assert resolved_pin is False
+
+
 def test_image_url_is_not_rendered_as_redundant_caption_link() -> None:
     markdown, disable_web_page_preview, disable_notification, pin = notifications_module._notification_delivery_fields(
         kind='download_completed',

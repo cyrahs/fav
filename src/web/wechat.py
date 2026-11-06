@@ -33,7 +33,9 @@ decrypted here (see ``wechat_channels``).
 Any other message received in a private chat (a text, a file, a link to a site
 ``post_links`` does not read) is reported through the notification channels rather
 than skipped, so nothing forwarded is lost without a word. Only messages that arrive
-after this was first deployed are reported, not the event log's history.
+after this was first deployed are reported, not the event log's history. The report
+stays pinned, and the row waits as ``reported``: every run checks it again, queues it
+as real work once this source has learned to save it, and saving it unpins the report.
 A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
 logs while it is loaded.
@@ -61,7 +63,7 @@ import httpx
 from src.core import logger, settings
 from src.tool import database
 from src.tool.filename import ensure_unique_path, sanitize
-from src.tool.notifications import enqueue_notification
+from src.tool.notifications import KIND_UNSUPPORTED_MESSAGE, KIND_UNSUPPORTED_RESOLVED, enqueue_notification, resolve_notification
 from src.web import post_links
 from src.web.post_links import PostCaptchaError, PostLinkError, file_head, is_mp4, shared_link, write_stream
 from src.web.wechat_article import (
@@ -578,9 +580,58 @@ class Wechat:
         )
         return status == 'failed'
 
+    async def _recheck_reported(self) -> None:
+        """Queue again each reported message this source has since learned to save."""
+        rows = await database.query_db(
+            "SELECT msg_id, create_time, message FROM wechat_events WHERE status = 'reported' ORDER BY create_time, msg_id;",
+        )
+        requeued = 0
+        for row in rows:
+            message = row['message'] if isinstance(row['message'], dict) else json.loads(row['message'])
+            # The queue keeps only received private messages, so the event is rebuilt as one.
+            work = work_for({'kind': 'message', 'data': {**message, 'chat': 'private', 'is_send': False}})
+            if work is None or work == WORK_UNSUPPORTED:
+                continue
+            await database.query_db(
+                """
+                UPDATE wechat_events SET work = ?, status = 'pending', attempts = 0, last_error = '', updated_at = CURRENT_TIMESTAMP
+                WHERE msg_id = ? AND create_time = ? AND status = 'reported';
+                """,
+                (work, row['msg_id'], row['create_time']),
+            )
+            requeued += 1
+        if requeued:
+            log.info('WeChat queued %d reported messages again: they can be saved now', requeued)
+
+    async def _mark_reported(self, row: dict[str, Any]) -> None:
+        await database.query_db(
+            "UPDATE wechat_events SET status = 'reported', updated_at = CURRENT_TIMESTAMP WHERE msg_id = ? AND create_time = ?;",
+            (row['msg_id'], row['create_time']),
+        )
+
+    @staticmethod
+    def _unsupported_key(message: dict[str, Any]) -> str:
+        return f'wechat:unsupported:{message["msg_id"]}:{message["create_time"]}'
+
+    async def _resolve_unsupported(self, message: dict[str, Any], work: str) -> None:
+        """Unpin the report of a message that was saved after all; nothing happens when it was never reported."""
+        sender = await self._sender_name(str(message.get('sender') or message.get('talker') or ''))
+        try:
+            await resolve_notification(
+                dedupe_key=self._unsupported_key(message),
+                kind=KIND_UNSUPPORTED_RESOLVED,
+                source='wechat',
+                header='WeChat',
+                title=f'From {sender}',
+                body=f'Saved after all as {work} | Message ID {message["msg_id"]}',
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to resolve the unsupported-message report for WeChat message %s: %s', message['msg_id'], exc)
+
     async def _work_queue(self) -> tuple[int, list[str]]:
         saved = 0
         failures: list[str] = []
+        await self._recheck_reported()
         for row in await self._pending_work():
             message = row['message'] if isinstance(row['message'], dict) else json.loads(row['message'])
             try:
@@ -592,6 +643,8 @@ class Wechat:
                     await self._save_sticker(message)
                 elif row['work'] == WORK_UNSUPPORTED:
                     await self._report_unsupported(message)
+                    await self._mark_reported(row)
+                    continue
                 else:
                     await self._save_bridge_image(message)
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
@@ -603,6 +656,8 @@ class Wechat:
                 failures.append(f'{row["work"]} {row["msg_id"]}{" (gave up)" if gave_up else ""}: {error[:200]}')
                 continue
             await self._finish_work(row)
+            # A row requeued from a report unpins it; for any other row this finds nothing to resolve.
+            await self._resolve_unsupported(message, row['work'])
             saved += 1
         return saved, failures
 
@@ -729,12 +784,13 @@ class Wechat:
         log.warning('WeChat message %s from %s has nothing to save: %s', message['msg_id'], sender, reason)
         try:
             await enqueue_notification(
-                kind='download_failed',
+                kind=KIND_UNSUPPORTED_MESSAGE,
                 source='wechat',
                 header='WeChat',
                 title=f'From {sender}',
                 body=f'{reason} | Message ID {message["msg_id"]}',
                 payload={'msg_id': message['msg_id'], 'sender': str(message.get('sender') or ''), 'reason': reason},
+                dedupe_key=self._unsupported_key(message),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue the unsupported-message notification for WeChat message %s: %s', message['msg_id'], exc)

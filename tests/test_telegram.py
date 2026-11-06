@@ -1038,7 +1038,7 @@ def test_post_link_messages_are_scanned_as_links() -> None:
 
 
 def _link_job_fakes(monkeypatch, tg: Telegram, message: object) -> dict[str, list]:
-    seen: dict[str, list] = {'queries': [], 'notifications': [], 'completed': [], 'retries': [], 'discarded': []}
+    seen: dict[str, list] = {'queries': [], 'notifications': [], 'completed': [], 'retries': [], 'discarded': [], 'resolved': []}
 
     class _Client(_DummyClient):
         async def get_messages(self, *_args, **_kwargs):
@@ -1050,6 +1050,9 @@ def _link_job_fakes(monkeypatch, tg: Telegram, message: object) -> dict[str, lis
 
     async def _notify(**kwargs) -> None:
         seen['notifications'].append(kwargs)
+
+    async def _resolve(**kwargs) -> None:
+        seen['resolved'].append(kwargs)
 
     async def _complete(job: TelegramMediaJob, _owner_token: str) -> bool:
         seen['completed'].append(job.message_id)
@@ -1072,6 +1075,7 @@ def _link_job_fakes(monkeypatch, tg: Telegram, message: object) -> dict[str, lis
     monkeypatch.setattr(tg, 'set_channel_cooldown', _unexpected_cooldown)
     monkeypatch.setattr(telegram_module.database, 'query_db', _query)
     monkeypatch.setattr(telegram_module, 'enqueue_notification', _notify)
+    monkeypatch.setattr(telegram_module, 'resolve_notification', _resolve)
     monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_completed', _complete)
     monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_retry', _retry)
     monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_discarded', _discard)
@@ -1123,6 +1127,8 @@ def test_link_job_saves_pictures_and_videos_to_their_routes(monkeypatch, tmp_pat
     assert insert[-1] == 'link'
     assert seen['notifications'][0]['link_url'] == 'https://www.zhihu.com/answer/2100311203096573240'
     assert seen['notifications'][0]['payload']['image_path'].endswith('-1 [10].jpg')
+    # Saving a message clears its unsupported report, if it ever had one.
+    assert seen['resolved'][0]['dedupe_key'] == 'telegram:unsupported:default:123:10'
 
     # A second try finds the files the first one saved and downloads nothing again.
     fetched.clear()
@@ -1210,7 +1216,8 @@ def test_unsupported_job_is_reported_and_completed(monkeypatch) -> None:
     assert downloaded is False
     assert seen['completed'] == [10]
     notification = seen['notifications'][0]
-    assert notification['kind'] == 'download_failed'
+    assert notification['kind'] == 'unsupported_message'
+    assert notification['dedupe_key'] == 'telegram:unsupported:default:123:10'
     assert notification['body'] == 'Link not supported: https://example.com/x'
     assert notification['link_url'] == 'https://t.me/c/123/10'
 
@@ -1241,3 +1248,40 @@ def test_a_running_listener_follows_channel_edits(monkeypatch) -> None:
 
     assert seen['completed'] == [10]
     assert seen['notifications'][0]['body'] == 'Nothing to download: a text message: just a note'
+
+
+def test_reported_messages_are_queued_again_once_they_can_be_saved(monkeypatch) -> None:
+    tg = _make_telegram()
+    requeued: list[tuple[int, str, str]] = []
+    closed: list[int] = []
+
+    class _Client(_DummyClient):
+        async def get_messages(self, _channel, *, ids):
+            assert ids == [10, 11, 12]
+            return [_message(10, message=_ZHIHU_SHARE), None, _message(12, message='still just a note')]
+
+    async def _requeue(_account, _channel, message_id, *, media_type, title) -> bool:
+        requeued.append((message_id, media_type, title))
+        return True
+
+    async def _close(_account, _channel, message_id, *, reason) -> bool:
+        closed.append(message_id)
+        return True
+
+    monkeypatch.setattr(telegram_module, 'open_unsupported_reports', lambda *_args, **_kwargs: asyncio.sleep(0, result=[10, 11, 12]))
+    monkeypatch.setattr(telegram_module, 'requeue_unsupported_report', _requeue)
+    monkeypatch.setattr(telegram_module, 'close_unsupported_report', _close)
+
+    asyncio.run(
+        tg._recheck_unsupported(
+            account=_split_account(report_unsupported=True),
+            channel_id=123,
+            channel=object(),
+            client=_Client(),
+            channel_name='fav',
+            job_types=['image', 'video', 'link', 'unsupported'],
+        ),
+    )
+
+    assert requeued == [(10, 'link', '高跟鞋配白丝真的很难看吗？ - 知乎用户的回答 - 知乎')]
+    assert closed == [11]

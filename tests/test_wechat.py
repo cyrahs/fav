@@ -1,4 +1,4 @@
-# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, C901, EM101, INP001, PLR0911, PLR0913, PLR2004, S101, S105, S106, RUF001, TRY003
+# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, C901, EM101, INP001, PLR0911, PLR0912, PLR0913, PLR2004, S101, S105, S106, RUF001, TRY003
 
 import asyncio
 import base64
@@ -132,6 +132,15 @@ class _FakeDatabase:
         elif sql.startswith('SELECT msg_id, create_time, work, message, attempts FROM wechat_events'):
             rows = sorted(self.queue.values(), key=lambda row: (row['create_time'], row['msg_id']))
             return [dict(row) for row in rows if row['status'] == 'pending']
+        elif sql.startswith("SELECT msg_id, create_time, message FROM wechat_events WHERE status = 'reported'"):
+            rows = sorted(self.queue.values(), key=lambda row: (row['create_time'], row['msg_id']))
+            return [dict(row) for row in rows if row['status'] == 'reported']
+        elif sql.startswith("UPDATE wechat_events SET status = 'reported'"):
+            self.queue[tuple(params)]['status'] = 'reported'
+        elif sql.startswith('UPDATE wechat_events SET work = ?'):
+            work, msg_id, create_time = params
+            if self.queue[(msg_id, create_time)]['status'] == 'reported':
+                self.queue[(msg_id, create_time)].update(work=work, status='pending', attempts=0, last_error='')
         elif sql.startswith('UPDATE wechat_events'):
             status, attempts, last_error, msg_id, create_time = params
             self.queue[(msg_id, create_time)].update(status=status, attempts=attempts, last_error=last_error)
@@ -326,14 +335,26 @@ def fake_db(monkeypatch) -> _FakeDatabase:
     return db
 
 
+class _Sent(list):
+    """Notifications queued, with the reports resolved beside them."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.resolved: list[dict] = []
+
+
 @pytest.fixture(autouse=True)
-def notifications(monkeypatch) -> list[dict]:
-    sent: list[dict] = []
+def notifications(monkeypatch) -> _Sent:
+    sent = _Sent()
 
     async def record(**kwargs) -> None:
         sent.append(kwargs)
 
+    async def resolve(**kwargs) -> None:
+        sent.resolved.append(kwargs)
+
     monkeypatch.setattr(wechat_module, 'enqueue_notification', record)
+    monkeypatch.setattr(wechat_module, 'resolve_notification', resolve)
     return sent
 
 
@@ -1902,7 +1923,33 @@ def test_messages_with_nothing_to_save_are_reported_from_now_on(fake_db, notific
     asyncio.run(_source(inbox).update())
 
     assert (50, _CREATE_TIME + 50) not in fake_db.queue
-    assert fake_db.queue[(51, now + 60_000)]['status'] == 'done'
-    assert [(n['kind'], n['body']) for n in notifications] == [
-        ('download_failed', 'Link not supported: https://example.com/a | Message ID 51')
+    # The report stays open: the row waits to be checked again on later runs.
+    assert fake_db.queue[(51, now + 60_000)]['status'] == 'reported'
+    assert [(n['kind'], n['body'], n['dedupe_key']) for n in notifications] == [
+        ('unsupported_message', 'Link not supported: https://example.com/a | Message ID 51', f'wechat:unsupported:51:{now + 60_000}'),
     ]
+
+
+def test_a_reported_message_is_saved_once_supported_and_its_report_resolved(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret')
+    # Reported by an earlier version that did not read Tieba links yet.
+    message = _tieba_message()
+    fake_db.state['events_after'] = '9'
+    fake_db.state['work_version'] = '8'
+    fake_db.state['unsupported_since'] = '0'
+    fake_db.queue[(message['msg_id'], message['create_time'])] = {
+        'msg_id': message['msg_id'],
+        'create_time': message['create_time'],
+        'work': 'unsupported',
+        'seq': 5,
+        'message': queued_message(message, 'unsupported'),
+        'status': 'reported',
+        'attempts': 0,
+        'last_error': '',
+    }
+
+    asyncio.run(_source(_FakeInbox([], events=[]), _tieba_web()).update())
+
+    row = fake_db.queue[(message['msg_id'], message['create_time'])]
+    assert (row['work'], row['status']) == ('article', 'done')
+    assert [n['dedupe_key'] for n in notifications.resolved] == [f'wechat:unsupported:{message["msg_id"]}:{message["create_time"]}']

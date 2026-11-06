@@ -285,3 +285,59 @@ async def mark_telegram_media_job_retry(
 
 def telegram_media_retry_delay(attempt_count: int) -> float:
     return min(30.0 * (2 ** max(0, attempt_count - 1)), 1800.0)
+
+
+# A reported 'unsupported' job stays 'completed' while its report is open: it is
+# re-checked until the message is saved after all or deleted.
+
+
+async def open_unsupported_reports(account_name: str, channel_id: int, *, limit: int = 100) -> list[int]:
+    """The ids of a channel's messages reported as having nothing to save, whose report is still open."""
+    rows = await database.query_db(
+        """
+        SELECT message_id FROM telegram_media_queue
+        WHERE account_name = ? AND channel_id = ? AND media_type = 'unsupported' AND status = 'completed'
+        ORDER BY message_id
+        LIMIT ?;
+        """,
+        (account_name, channel_id, limit),
+    )
+    return [int(row['message_id']) for row in rows]
+
+
+async def requeue_unsupported_report(
+    account_name: str,
+    channel_id: int,
+    message_id: int,
+    *,
+    media_type: TelegramJobType,
+    title: str,
+) -> bool:
+    """Queue a reported message again as something saveable, once this source has learned to save it."""
+    rows = await database.query_db(
+        """
+        UPDATE telegram_media_queue
+        SET media_type = ?, title = ?, status = 'pending', attempt_count = 0, owner_token = NULL,
+            last_error = '', available_at = CURRENT_TIMESTAMP, completed_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE account_name = ? AND channel_id = ? AND message_id = ?
+          AND media_type = 'unsupported' AND status = 'completed'
+        RETURNING message_id;
+        """,
+        (media_type, title, account_name, channel_id, message_id),
+    )
+    return bool(rows)
+
+
+async def close_unsupported_report(account_name: str, channel_id: int, message_id: int, *, reason: str) -> bool:
+    """Close a report whose message is gone; False when there was no open report for it."""
+    rows = await database.query_db(
+        """
+        UPDATE telegram_media_queue
+        SET status = 'discarded', last_error = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE account_name = ? AND channel_id = ? AND message_id = ?
+          AND media_type = 'unsupported' AND status = 'completed'
+        RETURNING message_id;
+        """,
+        (reason[:1000], account_name, channel_id, message_id),
+    )
+    return bool(rows)
