@@ -83,8 +83,9 @@ _RECONNECT_MAX_SECONDS = 300.0
 # falling back to the other.
 LINK_JOB: TelegramJobType = 'link'
 # A message with nothing to save: no picture or video, and no link post_links reads.
-# It is reported rather than skipped, so nothing sent to a channel is lost silently.
-# Only messages that arrive from now on count: history scans leave them out.
+# In a channel with ``report_unsupported`` it is reported rather than skipped, so
+# nothing sent there is lost silently. Only messages that arrive from now on count:
+# history scans leave them out.
 UNSUPPORTED_JOB: TelegramJobType = 'unsupported'
 _JOB_TYPES = frozenset({'video', 'image', LINK_JOB, UNSUPPORTED_JOB})
 # Job types the worker reads the message for itself rather than downloading a route's media.
@@ -387,8 +388,11 @@ class Telegram:
 
     @staticmethod
     def _job_types(media_routes: dict[TelegramMediaType, TelegramChannel]) -> list[TelegramJobType]:
-        """What a channel's messages are scanned for: its configured media, links to posts, and the rest to report."""
-        return [*media_routes, LINK_JOB, UNSUPPORTED_JOB]
+        """What a channel's messages are scanned for: its configured media, links to posts, and the rest where it is reported."""
+        job_types: list[TelegramJobType] = [*media_routes, LINK_JOB]
+        if any(route.report_unsupported for route in media_routes.values()):
+            job_types.append(UNSUPPORTED_JOB)
+        return job_types
 
     @staticmethod
     def _history_types(media_types: list[TelegramJobType]) -> list[TelegramJobType]:

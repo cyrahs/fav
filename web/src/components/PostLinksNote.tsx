@@ -13,7 +13,7 @@ export function PostLinksNote({ where }: { where: string }) {
         <li>NGA 帖子（需要在「登录态」页登录 NGA）</li>
         <li>知乎回答、专栏文章、想法（需要在「第三方服务」配置 TikHub）</li>
       </ul>
-      <p className="muted">缺登录或缺 key 时链接会排队等待，不会耗尽重试次数。不支持的链接和没有可下载内容的消息会发通知。</p>
+      <p className="muted">缺登录或缺 key 时链接会排队等待，不会耗尽重试次数。不支持的链接和没有可下载内容的消息会发通知（Telegram 只在勾了「报告未下载」的频道）。</p>
     </div>
   );
 }

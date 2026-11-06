@@ -273,7 +273,7 @@ def test_split_routes_reconcile_channel_once_and_stop_cursor_at_limit(monkeypatc
         cursors.append(message_id)
 
     monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
-    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'video', 'link', 'unsupported'}))
+    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'video', 'link'}))
     monkeypatch.setattr(tg, 'scan_media', _fake_scan)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_downloaded)
     monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
@@ -285,7 +285,7 @@ def test_split_routes_reconcile_channel_once_and_stop_cursor_at_limit(monkeypatc
     assert cursors == [102]
     assert scan_calls == [
         {
-            'media_types': ['image', 'video', 'link', 'unsupported'],
+            'media_types': ['image', 'video', 'link'],
             'client': tg.client,
             'min_message_id': 100,
             'limit': 10,
@@ -324,7 +324,7 @@ def test_reconciliation_enqueues_whole_album_before_advancing_cursor(monkeypatch
         cursors.append(message_id)
 
     monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
-    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'link', 'unsupported'}))
+    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'link'}))
     monkeypatch.setattr(tg, 'scan_media', _fake_scan)
     monkeypatch.setattr(tg, 'get_downloaded_ids', lambda *_args, **_kwargs: asyncio.sleep(0, result=[]))
     monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
@@ -427,9 +427,8 @@ def test_new_media_type_backfills_full_recent_window(monkeypatch) -> None:
 
     assert queued == [92, 93]
     # Links are a type of their own, so a channel that never had them scanned backfills them too.
-    # Messages with nothing to save are only reported from now on: the look back leaves them out.
-    assert marked == [['video', 'link', 'unsupported']]
-    assert scans == [(['video', 'link'], True), (['image', 'video', 'link', 'unsupported'], False)]
+    assert marked == [['video', 'link']]
+    assert scans == [(['video', 'link'], True), (['image', 'video', 'link'], False)]
 
 
 def test_backfill_failure_does_not_mark_complete(monkeypatch) -> None:
@@ -1005,11 +1004,11 @@ _ZHIHU_SHARE = (
 )
 
 
-def _split_account(tmp_path: Path | None = None) -> telegram_module.TelegramAccount:
+def _split_account(tmp_path: Path | None = None, *, report_unsupported: bool = False) -> telegram_module.TelegramAccount:
     base = tmp_path or Path('./collection')
     return _account(
         channels=[
-            telegram_module.TelegramChannel(id=123, path=base / 'image', media_types=['image']),
+            telegram_module.TelegramChannel(id=123, path=base / 'image', media_types=['image'], report_unsupported=report_unsupported),
             telegram_module.TelegramChannel(id=123, path=base / 'video', media_types=['video']),
         ],
     )
@@ -1200,7 +1199,12 @@ def test_unsupported_job_is_reported_and_completed(monkeypatch) -> None:
     seen = _link_job_fakes(monkeypatch, tg, _message(10, message='see https://example.com/x'))
 
     downloaded = asyncio.run(
-        tg._process_job(account=_split_account(), client=seen['client'][0], job=_job(media_type='unsupported'), owner_token='o'),
+        tg._process_job(
+            account=_split_account(report_unsupported=True),
+            client=seen['client'][0],
+            job=_job(media_type='unsupported'),
+            owner_token='o',
+        ),
     )
 
     assert downloaded is False
@@ -1209,3 +1213,18 @@ def test_unsupported_job_is_reported_and_completed(monkeypatch) -> None:
     assert notification['kind'] == 'download_failed'
     assert notification['body'] == 'Link not supported: https://example.com/x'
     assert notification['link_url'] == 'https://t.me/c/123/10'
+
+
+def test_only_channels_that_report_unsupported_scan_for_it(monkeypatch) -> None:
+    tg = _make_telegram()
+    listened = _split_account().channel_routes()[123]
+    inbox = _split_account(report_unsupported=True).channel_routes()[123]
+
+    assert tg._job_types(listened) == ['image', 'video', 'link']
+    assert tg._job_types(inbox) == ['image', 'video', 'link', 'unsupported']
+
+    # A job queued while the channel reported them is dropped once it stops.
+    seen = _link_job_fakes(monkeypatch, tg, _message(10, message='just a note'))
+    asyncio.run(tg._process_job(account=_split_account(), client=seen['client'][0], job=_job(media_type='unsupported'), owner_token='o'))
+    assert seen['notifications'] == []
+    assert seen['discarded'] == ['Configured media is no longer available']

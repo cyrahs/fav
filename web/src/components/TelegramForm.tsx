@@ -8,6 +8,7 @@ export interface TelegramChannel {
   id?: number;
   path?: string;
   media_types?: TelegramMediaType[];
+  report_unsupported?: boolean;
 }
 
 export interface TelegramAccount {
@@ -61,6 +62,7 @@ function ChannelsEditor({ channels, accountName, onChange }: ChannelsEditorProps
             <th>频道 ID</th>
             <th>保存路径</th>
             <th>媒体类型</th>
+            <th title="自己往里发东西的频道：一条消息没有能下载的内容时发通知。只是监听的频道不用开。">报告未下载</th>
             <th />
           </tr>
         </thead>
@@ -98,6 +100,14 @@ function ChannelsEditor({ channels, accountName, onChange }: ChannelsEditorProps
                     options={MEDIA_TYPES}
                     onChange={(next) => update(index, { media_types: next })}
                     error={mediaTypes.length === 0 ? '至少选一种' : undefined}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label="报告未下载"
+                    checked={channel.report_unsupported ?? false}
+                    onChange={(event) => update(index, { report_unsupported: event.target.checked })}
                   />
                 </td>
                 <td className="actions">

@@ -640,7 +640,8 @@ image post sent through Telegram cannot be read (mp.weixin.qq.com puts it behind
 
 ### Messages With Nothing To Save
 
-Every message sent to the WeChat account or a Telegram channel is expected to hold something to save. One that does not
+Every message sent to the WeChat account, or to a Telegram channel with `report_unsupported` on (设置 → Telegram, 报告未下载:
+a channel someone sends things to on purpose, not one only listened to), is expected to hold something to save. One that does not
 (a link to a site no source reads, a text, a file, a voice message) is reported with a `download_failed` notification
 naming what it held, instead of being skipped. WeChat leaves out system notices, recalled messages and 拍一拍; Telegram
 leaves out service messages, and a picture or video of a type the channel has no route for. Only messages that arrive

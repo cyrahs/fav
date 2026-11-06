@@ -192,6 +192,9 @@ class TelegramChannel(BaseModel):
     id: int
     path: Path
     media_types: list[TelegramMediaType] = Field(default_factory=lambda: ['video'])
+    # For a channel someone sends things to on purpose, where every message should hold
+    # something to save: one that does not is reported. Off for channels only listened to.
+    report_unsupported: bool = False
 
     @field_validator('id')
     @classmethod
