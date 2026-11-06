@@ -188,7 +188,7 @@ export function TelegramForm(props: SectionFormProps) {
         count={accounts.length}
         addLabel="添加账号"
         empty="还没有账号，Telegram 任务会保持未就绪。"
-        hint="改动账号后需要重启 worker，实时监听在进程启动时建立。"
+        hint="已有频道的路径、媒体类型和报告开关保存后立即生效；改动账号的 api_id、api_hash 或 session 后需要重启 worker。"
         onAdd={() =>
           set('accounts', [
             ...accounts,

@@ -1228,3 +1228,16 @@ def test_only_channels_that_report_unsupported_scan_for_it(monkeypatch) -> None:
     asyncio.run(tg._process_job(account=_split_account(), client=seen['client'][0], job=_job(media_type='unsupported'), owner_token='o'))
     assert seen['notifications'] == []
     assert seen['discarded'] == ['Configured media is no longer available']
+
+
+def test_a_running_listener_follows_channel_edits(monkeypatch) -> None:
+    tg = _make_telegram()
+    started_with = _split_account()
+    _update_telegram_cfg({'accounts': [_split_account(report_unsupported=True)]})
+
+    # The listener still holds the account it connected with; the routes come from the settings.
+    seen = _link_job_fakes(monkeypatch, tg, _message(10, message='just a note'))
+    asyncio.run(tg._process_job(account=started_with, client=seen['client'][0], job=_job(media_type='unsupported'), owner_token='o'))
+
+    assert seen['completed'] == [10]
+    assert seen['notifications'][0]['body'] == 'Nothing to download: a text message: just a note'

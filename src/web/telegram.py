@@ -138,6 +138,17 @@ class Telegram:
         # Long-lived runtime: resolve per access so UI edits apply without a restart.
         return settings.load().web.telegram
 
+    def _channel_routes(self, account: TelegramAccount) -> dict[int, dict[TelegramMediaType, TelegramChannel]]:
+        """The account's channels as the settings have them now, not as they were when its listener started.
+
+        A listener keeps the account it connected with, so channels, routes and
+        their options are looked up again by account name: an edit in the UI applies
+        to the next message without a restart. The login (api id, hash, session)
+        is still read only when the listener connects.
+        """
+        current = next((item for item in self.cfg.resolved_accounts() if item.name == account.name), account)
+        return current.channel_routes()
+
     def __del__(self) -> None:
         with contextlib.suppress(Exception):
             self._tmp_dir.cleanup()
@@ -696,7 +707,7 @@ class Telegram:
 
         if isinstance(channel_id, TelegramChannel):
             channel_id = channel_id.id
-        media_routes = account.channel_routes().get(channel_id)
+        media_routes = self._channel_routes(account).get(channel_id)
         if media_routes is None:
             msg = f'telegram channel is not configured: {channel_id}'
             raise ValueError(msg)
@@ -773,7 +784,7 @@ class Telegram:
     async def _reconcile_account(self, account: TelegramAccount, client: TelegramClient) -> None:
         lock = self._reconciliation_locks.setdefault(account.name, asyncio.Lock())
         async with lock:
-            for channel_id in account.channel_routes():
+            for channel_id in self._channel_routes(account):
                 try:
                     await self.update_channel(channel_id, account, client=client)
                 except FloodWaitError as exc:
@@ -811,7 +822,7 @@ class Telegram:
         channel_id = self._message_channel_id(messages[0])
         if channel_id is None:
             return
-        media_routes = account.channel_routes().get(channel_id)
+        media_routes = self._channel_routes(account).get(channel_id)
         if media_routes is None:
             return
         entries = self._build_scan_from_messages(messages, self._job_types(media_routes)).media
@@ -1086,7 +1097,7 @@ class Telegram:
         job: TelegramMediaJob,
         owner_token: str,
     ) -> bool:
-        media_routes = account.channel_routes().get(job.channel_id, {})
+        media_routes = self._channel_routes(account).get(job.channel_id, {})
         channel_cfg = next(iter(media_routes.values()), None) if job.media_type in _MESSAGE_JOBS else media_routes.get(job.media_type)
         if channel_cfg is None:
             await mark_telegram_media_job_discarded(job, owner_token, error='Media route is no longer configured')
@@ -1400,7 +1411,7 @@ class Telegram:
         return Path(path_text).expanduser().resolve()
 
     async def set_account_cooldown(self, account: TelegramAccount, seconds: float, *, error: str = '') -> None:
-        for channel_id in account.channel_routes():
+        for channel_id in self._channel_routes(account):
             await self.set_channel_cooldown(account.name, channel_id, seconds, error=error)
 
 
