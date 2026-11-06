@@ -372,7 +372,7 @@ function Hanime1Authors() {
 const SECTION_GROUPS: { title: string; hint: string; matches: (section: string) => boolean }[] = [
   {
     title: '源',
-    hint: '抓取的站点。所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。Telegram 的实时监听在进程启动时建立，改动其账号后需重启 worker。',
+    hint: '抓取的站点。所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。Telegram 已有频道的保存路径、媒体类型和报告开关保存后立即生效；账号的登录信息（api_id、api_hash、session）在进程启动时读取，改动后需重启 worker。',
     matches: (section) => section.startsWith('web.'),
   },
   {
