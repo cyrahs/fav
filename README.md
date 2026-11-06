@@ -624,6 +624,20 @@ Each `(channel ID, media type)` route must be unique within an account. Declarin
 configuration error, including conflicts between equivalent positive Telethon IDs and `-100...` Bot API IDs. Destination directories are
 created lazily when their first media file is downloaded.
 
+## Telegram Zhihu Links
+
+A message whose text or link preview points at a Zhihu answer (`zhihu.com/question/<q>/answer/<id>` or
+`zhihu.com/answer/<id>`), column article (`zhuanlan.zhihu.com/p/<id>`) or pin (`zhihu.com/pin/<id>`), and that carries no
+media of its own, is queued as a `link` job in every configured channel. Zhihu answers datacenter addresses with HTTP 403
+and a login wall, so the post is looked up through TikHub (`fetch_answer_detail`, `fetch_column_article_detail`,
+`fetch_pin_detail`, about $0.001 a lookup) with the key the WeChat source already holds, `web.wechat.tikhub_token`. The
+pictures (full size, from `*.zhimg.com`) go to the channel's `image` route and the videos (the widest quality
+`lens.zhihu.com` lists) to its `video` route; a channel with only one route takes both. Files are named
+`[author]title-N [post id].ext`, where the title is the question's, the article's or the pin's opening text. A link whose
+post cannot be read is retried with the queue's backoff and given up after five tries with a `download_failed`
+notification. Links are scanned as a type of their own, so the first run after an upgrade backfills the latest
+`scan_limit` messages of each channel for them, as for a newly configured media type.
+
 ## Telegram Downloader Safety
 
 Telegram accounts keep a long-running Telethon connection. New single-media messages and albums are persisted to

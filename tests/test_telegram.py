@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S101, S106, ANN001, ANN002, ANN003, ANN202, ARG001, EM101, FBT003, PLR2004, SLF001, TRY003
+# ruff: noqa: INP001, S101, S106, ANN001, ANN002, ANN003, ANN202, ARG001, EM101, FBT003, PLR2004, RUF001, SLF001, TRY003
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -273,7 +273,7 @@ def test_split_routes_reconcile_channel_once_and_stop_cursor_at_limit(monkeypatc
         cursors.append(message_id)
 
     monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
-    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'video'}))
+    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'video', 'link'}))
     monkeypatch.setattr(tg, 'scan_media', _fake_scan)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_downloaded)
     monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
@@ -285,7 +285,7 @@ def test_split_routes_reconcile_channel_once_and_stop_cursor_at_limit(monkeypatc
     assert cursors == [102]
     assert scan_calls == [
         {
-            'media_types': ['image', 'video'],
+            'media_types': ['image', 'video', 'link'],
             'client': tg.client,
             'min_message_id': 100,
             'limit': 10,
@@ -324,7 +324,7 @@ def test_reconciliation_enqueues_whole_album_before_advancing_cursor(monkeypatch
         cursors.append(message_id)
 
     monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
-    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image'}))
+    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'link'}))
     monkeypatch.setattr(tg, 'scan_media', _fake_scan)
     monkeypatch.setattr(tg, 'get_downloaded_ids', lambda *_args, **_kwargs: asyncio.sleep(0, result=[]))
     monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
@@ -426,8 +426,9 @@ def test_new_media_type_backfills_full_recent_window(monkeypatch) -> None:
     asyncio.run(tg.update_channel(123, account))
 
     assert queued == [92, 93]
-    assert marked == [['video']]
-    assert scans == [(['video'], True), (['image', 'video'], False)]
+    # Links are a type of their own, so a channel that never had them scanned backfills them too.
+    assert marked == [['video', 'link']]
+    assert scans == [(['video', 'link'], True), (['image', 'video', 'link'], False)]
 
 
 def test_backfill_failure_does_not_mark_complete(monkeypatch) -> None:
@@ -996,3 +997,165 @@ def test_account_lock_name_uses_effective_telethon_session_file(tmp_path) -> Non
 
     assert Telegram._account_lock_name(plain_account) == Telegram._account_lock_name(suffixed_account)
     assert Telegram._account_lock_name(plain_account) == f'telegram-session:{(tmp_path / "shared.session").resolve()}'
+
+
+_ZHIHU_SHARE = (
+    '高跟鞋配白丝真的很难看吗？ - 知乎用户的回答 - 知乎\nhttps://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240'
+)
+
+
+def _split_account() -> telegram_module.TelegramAccount:
+    return _account(
+        channels=[
+            telegram_module.TelegramChannel(id=123, path=Path('./collection/image'), media_types=['image']),
+            telegram_module.TelegramChannel(id=123, path=Path('./collection/video'), media_types=['video']),
+        ],
+    )
+
+
+def test_zhihu_link_messages_are_scanned_as_links() -> None:
+    tg = _make_telegram()
+    preview = SimpleNamespace(webpage=SimpleNamespace(url='https://zhuanlan.zhihu.com/p/42'))
+    messages = [
+        _message(1, message=_ZHIHU_SHARE),
+        _message(2, message='', media=preview),
+        _message(3, message=_ZHIHU_SHARE, media=telegram_module.MessageMediaPhoto(photo=object())),
+        _message(4, message='https://example.com/post/1'),
+    ]
+
+    scan = tg._build_scan_from_messages(messages, ['image', 'video', 'link'])
+
+    assert [(item.msg.id, item.media_type, item.filename) for item in scan.media] == [
+        (1, 'link', '高跟鞋配白丝真的很难看吗？ - 知乎用户的回答 - 知乎'),
+        (2, 'link', 'link_2'),
+        (3, 'image', _ZHIHU_SHARE),
+    ]
+    assert tg._build_scan_from_messages(messages[:1], ['image', 'video']).media == []
+
+
+def test_link_job_saves_pictures_and_videos_to_their_routes(monkeypatch, tmp_path) -> None:
+    tg = _make_telegram()
+    account = _account(
+        channels=[
+            telegram_module.TelegramChannel(id=123, path=tmp_path / 'image', media_types=['image']),
+            telegram_module.TelegramChannel(id=123, path=tmp_path / 'video', media_types=['video']),
+        ],
+    )
+    message = _message(10, message=_ZHIHU_SHARE)
+    queries: list[tuple[str, object]] = []
+    notifications: list[dict[str, object]] = []
+    completed: list[int] = []
+    post = telegram_module.ZhihuPost(
+        link=telegram_module.ZhihuLink('answer', '2100311203096573240'),
+        title='高跟鞋配白丝真的很难看吗？',
+        author='someone',
+        published_at=None,
+        images=['https://pica.zhimg.com/v2-a_r.jpg', 'https://pica.zhimg.com/v2-b_r.png?source=1'],
+        videos=[telegram_module.zhihu_post.ZhihuVideo(id='99')],
+    )
+    fetched: list[str] = []
+
+    class _Client(_DummyClient):
+        async def get_messages(self, *_args, **_kwargs):
+            return message
+
+    async def _fetch_post(_client, link, *, api_url, token):
+        assert link.id == '2100311203096573240'
+        return post
+
+    async def _fetch_file(url: str, dst_path: Path, *, read_seconds: float) -> bool:
+        fetched.append(url)
+        await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(dst_path.write_bytes, b'x')
+        return True
+
+    async def _query(sql: str, params=None) -> list[dict[str, object]]:
+        queries.append((sql, params))
+        return []
+
+    async def _notify(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    async def _complete(job: TelegramMediaJob, _owner_token: str) -> bool:
+        completed.append(job.message_id)
+        return True
+
+    monkeypatch.setattr(tg, 'is_downloaded', lambda *_args: asyncio.sleep(0, result=False))
+    monkeypatch.setattr(tg, 'get_channel_state', lambda *_args: asyncio.sleep(0, result=telegram_module.TelegramChannelState(0, True)))
+    monkeypatch.setattr(tg, 'mark_channel_downloaded', lambda *_args: asyncio.sleep(0))
+    monkeypatch.setattr(tg, '_fetch_file', _fetch_file)
+    monkeypatch.setattr(telegram_module.zhihu_post, 'fetch_post', _fetch_post)
+    monkeypatch.setattr(
+        telegram_module.zhihu_post, 'resolve_video', lambda *_args: asyncio.sleep(0, result='https://vdn3.vzuu.com/HD/v.mp4')
+    )
+    monkeypatch.setattr(telegram_module.database, 'query_db', _query)
+    monkeypatch.setattr(telegram_module, 'enqueue_notification', _notify)
+    monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_completed', _complete)
+
+    downloaded = asyncio.run(tg._process_job(account=account, client=_Client(), job=_job(media_type='link'), owner_token='owner'))
+
+    assert downloaded is True
+    assert completed == [10]
+    assert fetched == [*post.images, 'https://vdn3.vzuu.com/HD/v.mp4']
+    assert sorted(path.name for path in (tmp_path / 'image').iterdir()) == [
+        '[someone]高跟鞋配白丝真的很难看吗？-1 [2100311203096573240].jpg',
+        '[someone]高跟鞋配白丝真的很难看吗？-2 [2100311203096573240].png',
+    ]
+    assert [path.name for path in (tmp_path / 'video').iterdir()] == ['[someone]高跟鞋配白丝真的很难看吗？ [2100311203096573240].mp4']
+    insert = next(params for sql, params in queries if 'INSERT INTO telegram ' in sql)
+    assert insert[-1] == 'link'
+    assert notifications[0]['link_url'] == 'https://www.zhihu.com/answer/2100311203096573240'
+    assert notifications[0]['payload']['image_path'].endswith('-1 [2100311203096573240].jpg')
+
+    # A second run finds the files a previous try saved and downloads nothing again.
+    fetched.clear()
+    images, videos = asyncio.run(tg._save_link_media(post, image_dir=tmp_path / 'image', video_dir=tmp_path / 'video'))
+    assert fetched == []
+    assert (len(images), len(videos)) == (2, 1)
+
+
+def test_unreadable_link_is_retried_then_given_up_without_cooldown(monkeypatch) -> None:
+    tg = _make_telegram()
+    message = _message(10, message=_ZHIHU_SHARE)
+    retries: list[float] = []
+    discarded: list[str] = []
+    notifications: list[dict[str, object]] = []
+
+    class _Client(_DummyClient):
+        async def get_messages(self, *_args, **_kwargs):
+            return message
+
+    async def _fetch_post(*_args, **_kwargs):
+        raise telegram_module.ZhihuError('it may have been deleted')
+
+    async def _retry(_job, _owner_token, *, error: str, delay_seconds: float) -> bool:
+        retries.append(delay_seconds)
+        return True
+
+    async def _discard(_job, _owner_token, *, error: str) -> bool:
+        discarded.append(error)
+        return True
+
+    async def _unexpected_cooldown(*_args, **_kwargs) -> None:
+        raise AssertionError('An unreadable post must not cool the channel down')
+
+    async def _notify(**kwargs) -> None:
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(tg, 'is_downloaded', lambda *_args: asyncio.sleep(0, result=False))
+    monkeypatch.setattr(tg, 'get_channel_state', lambda *_args: asyncio.sleep(0, result=telegram_module.TelegramChannelState(0, True)))
+    monkeypatch.setattr(tg, 'set_channel_cooldown', _unexpected_cooldown)
+    monkeypatch.setattr(telegram_module.zhihu_post, 'fetch_post', _fetch_post)
+    monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_retry', _retry)
+    monkeypatch.setattr(telegram_module, 'mark_telegram_media_job_discarded', _discard)
+    monkeypatch.setattr(telegram_module, 'enqueue_notification', _notify)
+
+    account = _split_account()
+    asyncio.run(tg._process_job(account=account, client=_Client(), job=_job(media_type='link', attempt_count=1), owner_token='o'))
+    assert retries == [30.0]
+    assert discarded == []
+
+    last = telegram_module._LINK_MAX_ATTEMPTS
+    asyncio.run(tg._process_job(account=account, client=_Client(), job=_job(media_type='link', attempt_count=last), owner_token='o'))
+    assert discarded == ['ZhihuError: it may have been deleted']
+    assert notifications[0]['kind'] == 'download_failed'
