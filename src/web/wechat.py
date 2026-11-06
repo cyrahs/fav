@@ -25,11 +25,15 @@ come from the service's ``POST /post/page`` instead: it has the agent's WeChat
 open the post and returns the page from WeChat's web view cache. WeChat opens
 nothing on command: the plugin taps through its screens to the message and taps
 that, as a person would, so each of these requests names the message. A shared Tieba
-post is saved the same way as an article, from the Tieba client API, with its
-videos next to its pictures (see ``tieba_post``), and so is a shared NGA thread,
-read with the NGA login captured on the 登录态 page (see ``nga_post``). A 视频号 video is not
-opened in WeChat at all: TikHub looks it up and the file comes from WeChat's CDN, its
-start decrypted here (see ``wechat_channels``).
+post, NGA thread or Zhihu post is saved the same way as an article, with its videos
+next to its pictures; ``post_links`` reads every kind of post, for Telegram as much
+as for this source. A 视频号 video is not opened in WeChat at all: TikHub (the key in
+``services.tikhub``) looks it up and the file comes from WeChat's CDN, its start
+decrypted here (see ``wechat_channels``).
+Any other message received in a private chat (a text, a file, a link to a site
+``post_links`` does not read) is reported through the notification channels rather
+than skipped, so nothing forwarded is lost without a word. Only messages that arrive
+after this was first deployed are reported, not the event log's history.
 A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
 logs while it is loaded.
@@ -45,6 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -54,22 +59,20 @@ from typing import Any, NamedTuple
 import httpx
 
 from src.core import logger, settings
-from src.tool import database, site_sessions
+from src.tool import database
 from src.tool.filename import ensure_unique_path, sanitize
 from src.tool.notifications import enqueue_notification
-from src.web import nga_post
-from src.web.nga_post import NgaError, NgaLoginError, fetch_nga_post, nga_thread_id, parse_nga_link
-from src.web.tieba_post import TiebaError, fetch_tieba_post, parse_tieba_link, thread_id
+from src.web import post_links
+from src.web.post_links import PostCaptchaError, PostLinkError, file_head, is_mp4, shared_link, write_stream
 from src.web.wechat_article import (
+    LINK_SHARE_TYPE,
+    VIDEO_SHARE_TYPE,
     ArticleLink,
     ArticlePage,
     PostVideo,
+    appmsg_link,
     canonical_url,
     cover_only_page,
-    image_extension,
-    is_captcha,
-    original_image_url,
-    parse_article_link,
     parse_article_page,
 )
 from src.web.wechat_channels import (
@@ -109,26 +112,31 @@ _LINK_WAIT_SECONDS = 20
 _TAP_OPEN_SECONDS = 1200
 _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
-_WORK_VERSION = '7'
+_WORK_VERSION = '8'
 _WORK_VERSION_KEY = 'work_version'
+# From when messages with nothing to save are reported (ms, as create_time): older
+# ones in the event log were never meant to be.
+_UNSUPPORTED_SINCE_KEY = 'unsupported_since'
 _NGA_LOGIN_KEY = 'wechat:nga-login'
 _TIKHUB_KEY = 'wechat:tikhub'
+# A post_links failure that waits on a setting, under the key it is reported with.
+_NEEDS_KEYS = {'nga-login': _NGA_LOGIN_KEY, 'tikhub': _TIKHUB_KEY}
 _TIKHUB_VIDEO_DETAIL = '/api/v1/wechat_channels/v2/fetch_video_detail'
 # TikHub asks WeChat while the request waits and bills a lookup even when the
 # client gave up on it, so give it a generous minute.
 _TIKHUB_READ_SECONDS = 60
 # TikHub's answers to a missing or spent key: settings to fix, not failed tries.
 _TIKHUB_ACCOUNT_STATUSES = frozenset({401, 402, 403})
-# How long a post's video may take to download from its CDN.
-_POST_VIDEO_READ_SECONDS = 600
-# A phone browser, as the share link would open in. mp.weixin.qq.com serves the
-# full page to it without a login.
-_ARTICLE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'
+_POST_VIDEO_READ_SECONDS = post_links.VIDEO_READ_SECONDS
 
 WORK_IMAGE = 'image'
 WORK_STICKER = 'sticker'
 WORK_ARTICLE = 'article'
 WORK_CHANNEL_VIDEO = 'channel_video'
+WORK_UNSUPPORTED = 'unsupported'
+# Messages that carry nothing anyone sent on purpose: not reported as unsupported.
+_SILENT_KINDS = frozenset({'system', 'recalled', 'pat', 'voip'})
+_APPMSG_TITLE_RE = re.compile(r'<appmsg\b.*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>', re.DOTALL)
 
 
 class _FetchedVideo(NamedTuple):
@@ -181,9 +189,13 @@ def pending_images(items: list[Any]) -> list[dict[str, Any]]:
 
 
 def work_for(event: Any) -> str | None:
-    """What a bridge event asks of this source: an image, a sticker, an article, a 视频号 video, or nothing.
+    """What a bridge event asks of this source: an image, a sticker, an article, a 视频号 video, a report, or nothing.
 
-    Articles are 公众号 articles, Tieba posts and NGA threads. Whenever this learns a new kind
+    Any other message someone sent (a text, a file, a link to a site no source reads)
+    is ``WORK_UNSUPPORTED``: it is reported, so it does not go missing silently.
+
+    Articles are the posts ``post_links`` reads: 公众号 articles, Tieba posts, NGA threads and
+    Zhihu answers, articles and pins. Whenever this learns a new kind
     of message, bump ``_WORK_VERSION`` so the event log is read again from the
     start and messages skipped before are picked up.
 
@@ -205,14 +217,27 @@ def work_for(event: Any) -> str | None:
         work = WORK_STICKER
     elif shared_link(content) is not None:
         work = WORK_ARTICLE
+    elif parse_channel_video(content) is not None:
+        work = WORK_CHANNEL_VIDEO
     else:
-        work = WORK_CHANNEL_VIDEO if parse_channel_video(content) is not None else None
+        work = None if message.get('kind') in _SILENT_KINDS else WORK_UNSUPPORTED
     return work
 
 
-def shared_link(content: str) -> ArticleLink | None:
-    """The article or forum post a link card shares, if it is one this source saves."""
-    return parse_article_link(content) or parse_tieba_link(content) or parse_nga_link(content)
+def unsupported_reason(message: dict[str, Any]) -> str:
+    """What a message with nothing to save holds, for the notification that reports it."""
+    kind = str(message.get('kind') or 'unknown')
+    content = str(message.get('content') or '')
+    if kind == 'text':
+        return post_links.unsupported_reason(post_links.first_url(content), f'a text message: {content.strip()[:100]}')
+    card = appmsg_link(content, (LINK_SHARE_TYPE, VIDEO_SHARE_TYPE))
+    if card is not None:
+        return post_links.unsupported_reason(card.url, '')
+    title = _APPMSG_TITLE_RE.search(content)
+    what = f'a WeChat {kind} message'
+    if title and title.group(1).strip():
+        what += f': {title.group(1).strip()[:100]}'
+    return post_links.unsupported_reason('', what)
 
 
 def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
@@ -222,7 +247,7 @@ def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
     key; the bridge finds the image by id, so neither is stored.
     """
     kept = {key: message.get(key) for key in ('msg_id', 'create_time', 'type', 'kind', 'talker', 'sender')}
-    if work in {WORK_ARTICLE, WORK_CHANNEL_VIDEO, WORK_STICKER}:
+    if work in {WORK_ARTICLE, WORK_CHANNEL_VIDEO, WORK_STICKER, WORK_UNSUPPORTED}:
         kept['content'] = message.get('content')
     image = message.get('image')
     if work == WORK_IMAGE and isinstance(image, dict):
@@ -300,32 +325,12 @@ def open_target(message: dict[str, Any], texts: tuple[str, ...]) -> dict[str, An
     }
 
 
-def _file_head(path: Path) -> bytes:
-    with path.open('rb') as fh:
-        return fh.read(16)
-
-
 def _decrypt_file_head(path: Path, decode_key: int) -> None:
     """Undo WeChat's encryption of the start of a downloaded 视频号 video, in place."""
     with path.open('r+b') as file:
         head = file.read(ENCRYPTED_BYTES)
         file.seek(0)
         file.write(decrypt_head(head, decode_key))
-
-
-def _is_mp4(head: bytes) -> bool:
-    return head[4:8] == b'ftyp'
-
-
-async def _write_stream(response: httpx.Response, path: Path) -> None:
-    """Write a streamed response body to ``path``, creating its folder."""
-    await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
-    fh = await asyncio.to_thread(path.open, 'wb')
-    try:
-        async for chunk in response.aiter_bytes():
-            await asyncio.to_thread(fh.write, chunk)
-    finally:
-        await asyncio.to_thread(fh.close)
 
 
 def post_video_name(index: int, count: int) -> str:
@@ -361,17 +366,9 @@ class Wechat:
             timeout=_REQUEST_TIMEOUT_SECONDS,
             trust_env=False,
         )
-        # Articles are public pages, and the cluster reaches them directly. No
-        # Referer: mmbiz answers an image request carrying a foreign one with a
-        # 140x140 placeholder.
-        self.web = httpx.AsyncClient(
-            headers={'User-Agent': _ARTICLE_USER_AGENT},
-            timeout=_REQUEST_TIMEOUT_SECONDS,
-            follow_redirects=True,
-            trust_env=False,
-        )
+        # Posts are public pages, and the cluster reaches them directly.
+        self.web = post_links.new_client()
         self._sender_names: dict[str, str] = {}
-        self._nga_login: dict[str, str] | None = None
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -486,6 +483,15 @@ class Wechat:
             await self._save_cursor(0)
         await self._save_state(_WORK_VERSION_KEY, _WORK_VERSION)
 
+    async def _unsupported_since(self) -> int:
+        """When reporting messages with nothing to save began; set to now the first time."""
+        rows = await database.query_db('SELECT value FROM wechat_state WHERE key = ?;', (_UNSUPPORTED_SINCE_KEY,))
+        if rows and str(rows[0]['value']).isdigit():
+            return int(rows[0]['value'])
+        since = int(datetime.now(UTC).timestamp() * 1000)
+        await self._save_state(_UNSUPPORTED_SINCE_KEY, str(since))
+        return since
+
     async def _fetch_events(self, after: int) -> tuple[int, list[dict[str, Any]]]:
         try:
             response = await self.client.get(self._url('/wx/events'), params={'after': after, 'limit': _EVENT_PAGE_SIZE})
@@ -522,6 +528,7 @@ class Wechat:
         """Queue the new events worth keeping and move the cursor past all of them."""
         await self._rescan_for_new_work()
         cursor = await self._cursor()
+        unsupported_since = await self._unsupported_since()
         queued = 0
         while True:
             last_seq, events = await self._fetch_events(cursor)
@@ -540,6 +547,8 @@ class Wechat:
                 log.warning('WeChat bridge events %d-%d were rotated out before this source read them', cursor + 1, events[0]['seq'] - 1)
             for event in events:
                 work = work_for(event)
+                if work == WORK_UNSUPPORTED and event['data']['create_time'] < unsupported_since:
+                    continue
                 if work is not None and await self._queue(event, work):
                     queued += 1
             cursor = max(event['seq'] for event in events)
@@ -581,6 +590,8 @@ class Wechat:
                     await self._save_channel_video(message)
                 elif row['work'] == WORK_STICKER:
                     await self._save_sticker(message)
+                elif row['work'] == WORK_UNSUPPORTED:
+                    await self._report_unsupported(message)
                 else:
                     await self._save_bridge_image(message)
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
@@ -712,6 +723,22 @@ class Wechat:
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue wechat download notification for message %s: %s', item['msg_id'], exc)
 
+    async def _report_unsupported(self, message: dict[str, Any]) -> None:
+        reason = unsupported_reason(message)
+        sender = await self._sender_name(str(message.get('sender') or message.get('talker') or ''))
+        log.warning('WeChat message %s from %s has nothing to save: %s', message['msg_id'], sender, reason)
+        try:
+            await enqueue_notification(
+                kind='download_failed',
+                source='wechat',
+                header='WeChat',
+                title=f'From {sender}',
+                body=f'{reason} | Message ID {message["msg_id"]}',
+                payload={'msg_id': message['msg_id'], 'sender': str(message.get('sender') or ''), 'reason': reason},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue the unsupported-message notification for WeChat message %s: %s', message['msg_id'], exc)
+
     async def _keep_image(self, item: dict[str, Any], content: bytes, content_type: str) -> None:
         local_path = await self._store_image(item, content, content_type)
         await self._record(item, local_path, len(content))
@@ -820,21 +847,7 @@ class Wechat:
 
     async def _article_image(self, url: str) -> tuple[bytes, str] | None:
         """One body image at full size, else as the page shows it; None when neither loads."""
-        for candidate in dict.fromkeys((original_image_url(url), url)):
-            try:
-                response = await self.web.get(candidate)
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                log.info('Article image %s failed: %s', candidate, exc)
-                continue
-            content_type = response.headers.get('content-type', '')
-            if response.headers.get('error-message'):
-                # Tieba's answer to an expired grant: its logo, with this header.
-                log.info('Article image %s refused: %s', candidate, response.headers['error-message'])
-                continue
-            if response.content and content_type.lower().startswith('image/'):
-                return response.content, sniff_extension(response.content) or image_extension(candidate, content_type)
-        return None
+        return await post_links.fetch_image(self.web, url)
 
     def _write_article(
         self,
@@ -955,38 +968,13 @@ class Wechat:
             return cover, ''
 
     async def _article_page(self, message: dict[str, Any], link: ArticleLink, *, final_attempt: bool) -> tuple[ArticlePage, str]:
-        """The shared page and its HTML, if any was kept: a 公众号 article, a Tieba post or an NGA thread."""
-        if thread_id(link.url) is not None:
-            try:
-                return await fetch_tieba_post(self.web, link), ''
-            except TiebaError as exc:
-                raise WechatInboxError(str(exc)) from exc
-        if nga_thread_id(link.url) is not None:
-            try:
-                page = await fetch_nga_post(self.web, link, await self._nga_cookies())
-            except NgaLoginError as exc:
-                await site_sessions.record_check(nga_post.SESSION_SITE, ok=False, message=str(exc))
-                raise WechatInboxError(str(exc), notification_dedupe_key=_NGA_LOGIN_KEY) from exc
-            except NgaError as exc:
-                raise WechatInboxError(str(exc)) from exc
-            await site_sessions.record_check(nga_post.SESSION_SITE, ok=True)
-            return page, ''
-        response = await self.web.get(link.url)
-        if is_captcha(str(response.url)):
+        """The shared page and its HTML, if any was kept, as ``post_links`` reads it."""
+        try:
+            return await post_links.fetch_page(self.web, link)
+        except PostCaptchaError:
             return await self._image_post(message, link, final_attempt=final_attempt)
-        response.raise_for_status()
-        return parse_article_page(response.text), response.text
-
-    async def _nga_cookies(self) -> dict[str, str]:
-        """The NGA login captured on the 登录态 page, read once a run."""
-        if self._nga_login is None:
-            stored = await site_sessions.load(nga_post.SESSION_SITE)
-            login = nga_post.login_cookies(stored.cookies) if stored is not None else {}
-            if len(login) < len(nga_post.LOGIN_COOKIES):
-                msg = f'An NGA thread needs an NGA login, and NGA is not signed in. {nga_post.RELOGIN_HINT}'
-                raise WechatInboxError(msg, notification_dedupe_key=_NGA_LOGIN_KEY)
-            self._nga_login = login
-        return self._nga_login
+        except PostLinkError as exc:
+            raise WechatInboxError(str(exc), notification_dedupe_key=_NEEDS_KEYS.get(exc.needs, '')) from exc
 
     async def _save_article(self, message: dict[str, Any], *, final_attempt: bool = False) -> None:
         content = str(message.get('content') or '')
@@ -1030,19 +1018,7 @@ class Wechat:
 
     async def _post_video(self, video: PostVideo, partial: Path) -> _FetchedVideo | None:
         """Download one of a post's videos to ``partial``, with its cover; None when it does not load as an MP4."""
-        try:
-            async with self.web.stream(
-                'GET', video.url, timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_POST_VIDEO_READ_SECONDS)
-            ) as response:
-                response.raise_for_status()
-                await _write_stream(response, partial)
-        except httpx.HTTPError as exc:
-            log.info('Post video %s failed: %s', video.url, exc)
-            await asyncio.to_thread(partial.unlink, missing_ok=True)
-            return None
-        if not _is_mp4(await asyncio.to_thread(_file_head, partial)):
-            log.info('Post video %s is not an MP4', video.url)
-            await asyncio.to_thread(partial.unlink, missing_ok=True)
+        if not await post_links.fetch_video(self.web, video, partial):
             return None
         cover = await self._article_image(video.cover_url) if video.cover_url else None
         return _FetchedVideo(partial, cover)
@@ -1140,16 +1116,16 @@ class Wechat:
 
     async def _video_source(self, video: ChannelVideo) -> VideoSource:
         """Where the video file is and how to decrypt it, as TikHub looks it up."""
-        cfg = self.cfg
-        if not cfg.tikhub_token:
-            msg = '视频号 videos need a TikHub API key (web.wechat.tikhub_token)'
+        tikhub = settings.load().services.tikhub
+        if not tikhub.token:
+            msg = '视频号 videos need a TikHub API key (services.tikhub)'
             raise WechatInboxError(msg, notification_dedupe_key=_TIKHUB_KEY)
         failure = f'TikHub could not look up 视频号 video {video.object_id}'
         try:
             response = await self.web.post(
-                f'{cfg.tikhub_api_url}{_TIKHUB_VIDEO_DETAIL}',
+                f'{tikhub.api_url}{_TIKHUB_VIDEO_DETAIL}',
                 json=tikhub_lookup(video),
-                headers={'Authorization': f'Bearer {cfg.tikhub_token}'},
+                headers={'Authorization': f'Bearer {tikhub.token}'},
                 timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_TIKHUB_READ_SECONDS),
             )
         except httpx.HTTPError as exc:
@@ -1179,14 +1155,14 @@ class Wechat:
                 'GET', source.url, timeout=httpx.Timeout(_REQUEST_TIMEOUT_SECONDS, read=_POST_VIDEO_READ_SECONDS)
             ) as response:
                 response.raise_for_status()
-                await _write_stream(response, partial)
+                await write_stream(response, partial)
         except httpx.HTTPError as exc:
             # A transfer cut short leaves a partial file nothing else would clean up.
             await asyncio.to_thread(partial.unlink, missing_ok=True)
             msg = f'{failure}: {exc}'
             raise WechatInboxError(msg) from exc
         await asyncio.to_thread(_decrypt_file_head, partial, source.decode_key)
-        if not _is_mp4(await asyncio.to_thread(_file_head, partial)):
+        if not is_mp4(await asyncio.to_thread(file_head, partial)):
             await asyncio.to_thread(partial.unlink, missing_ok=True)
             msg = f'{failure}: it is not an MP4 once decrypted'
             raise WechatInboxError(msg)

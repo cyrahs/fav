@@ -21,6 +21,7 @@ const SECTION_LABELS: Record<string, string> = {
   'web.rednote': '小红书',
   'web.wechat': '微信',
   'notifications.telegram': 'Telegram 通知',
+  'services.tikhub': 'TikHub',
 };
 
 /** `fallback` is the backend name, used for a section this build predates. */

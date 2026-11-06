@@ -68,6 +68,7 @@ from .schemas import (
     SiteSessionListResponse,
     SiteSessionView,
     TelegramNotificationTestResponse,
+    TikHubTestResponse,
 )
 
 router = APIRouter(prefix=API_V2_PREFIX, dependencies=[Depends(require_api_token)])
@@ -408,6 +409,17 @@ def update_settings_section(
 async def test_telegram_notification(service: ApiServiceDep) -> TelegramNotificationTestResponse:
     """Send a test message with the stored bot credentials."""
     return service.model_telegram_notification_test(await service.test_telegram_notification())
+
+
+@router.post(
+    '/services/tikhub/test',
+    operation_id='testTikHub',
+    response_model=TikHubTestResponse,
+    tags=[TAG_SETTINGS],
+)
+async def test_tikhub(service: ApiServiceDep) -> TikHubTestResponse:
+    """Check the stored TikHub key and read the balance left on its account (not billed)."""
+    return TikHubTestResponse.model_validate(await service.test_tikhub())
 
 
 @router.post(

@@ -26,6 +26,7 @@ from src.tool.hanime1_series import Hanime1SeriesService
 from src.tool.kemono_creator import KemonoCreatorResolver
 from src.tool.runtime_config import Hanime1ParserIncompatibleError
 from src.tool.telegram_bot import TelegramDeliveryError, TelegramDeliveryResult, TelegramNotConfiguredError, send_test_notification
+from src.tool.tikhub import TikHubError, check_account
 from src.web.rednote_browser import probe_proxy as probe_rednote_proxy
 
 from .archive import ARCHIVE_SOURCES, ArchiveLibrary, UnknownArchiveSourceError
@@ -445,6 +446,18 @@ class FavApiService:
             'message_id': result.message_id,
             'warnings': list(result.warnings),
         }
+
+    async def test_tikhub(self) -> dict[str, object]:
+        """Check the saved TikHub key and read the balance left on its account."""
+        stored = self._settings_section_getter('services.tikhub')
+        if not isinstance(stored, settings.TikHub):
+            stored = settings.TikHub.model_validate(stored.model_dump())
+        try:
+            account = await check_account(stored)
+        except TikHubError as exc:
+            status = 422 if exc.code == 'tikhub_not_configured' else 502
+            raise ApiError(status_code=status, code=exc.code, message=str(exc)) from None
+        return {'key_name': account.key_name, 'balance': account.balance, 'free_credit': account.free_credit}
 
     def test_azurlane_proxy(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Check that the l2d.su origin is reachable through a proxy, without saving it.

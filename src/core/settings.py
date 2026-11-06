@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS app_settings (
 # so a retired section is deleted rather than left behind unread.
 _RETIRED_SECTIONS = ('cookiecloud',)
 
+# Fields that moved out of a section into a section of their own: (old section, old
+# field) -> (new section, new field). ensure_table_sync() carries a stored value over
+# once, when the new section has none yet, and drops it from the old row either way.
+_MOVED_FIELDS: dict[tuple[str, str], tuple[str, str]] = {
+    ('web.wechat', 'tikhub_api_url'): ('services.tikhub', 'api_url'),
+    ('web.wechat', 'tikhub_token'): ('services.tikhub', 'token'),
+}
+
 _CACHE_TTL_SECONDS = 2.0
 
 log = logger.get('settings')
@@ -184,6 +192,9 @@ class TelegramChannel(BaseModel):
     id: int
     path: Path
     media_types: list[TelegramMediaType] = Field(default_factory=lambda: ['video'])
+    # For a channel someone sends things to on purpose, where every message should hold
+    # something to save: one that does not is reported. Off for channels only listened to.
+    report_unsupported: bool = False
 
     @field_validator('id')
     @classmethod
@@ -710,17 +721,13 @@ class Wechat(ScheduleJob):
     api_url: str = 'http://favinbox-oracle.proxy.svc'
     # FAVINBOX_TOKEN from /etc/favinbox.env on the host running the service.
     token: str = ''
-    # 视频号 videos are looked up through TikHub (https://tikhub.io), billed per
-    # lookup; without a key they wait in the queue. api.tikhub.dev serves mainland China.
-    tikhub_api_url: str = 'https://api.tikhub.io'
-    tikhub_token: str = ''
 
-    @field_validator('api_url', 'tikhub_api_url')
+    @field_validator('api_url')
     @classmethod
     def normalize_api_url(cls, value: str) -> str:
         return value.strip().rstrip('/')
 
-    @field_validator('token', 'tikhub_token')
+    @field_validator('token')
     @classmethod
     def normalize_token(cls, value: str) -> str:
         return value.strip()
@@ -760,6 +767,39 @@ class Notifications(BaseModel):
     telegram: TelegramNotification = Field(default_factory=TelegramNotification)
 
 
+class TikHub(BaseModel):
+    """TikHub (https://tikhub.io), a paid API that reads sites which refuse the cluster.
+
+    Billed per lookup from one account balance, whichever source asks: 视频号 videos
+    shared in WeChat and Zhihu posts linked from WeChat or Telegram. Without a key
+    those wait in their queues rather than failing.
+    """
+
+    # api.tikhub.dev serves mainland China.
+    api_url: str = 'https://api.tikhub.io'
+    token: str = ''
+
+    @field_validator('api_url')
+    @classmethod
+    def normalize_api_url(cls, value: str) -> str:
+        return value.strip().rstrip('/')
+
+    @field_validator('token')
+    @classmethod
+    def normalize_token(cls, value: str) -> str:
+        return value.strip()
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.token)
+
+
+class Services(BaseModel):
+    """Third-party services that sources share rather than own."""
+
+    tikhub: TikHub = Field(default_factory=TikHub)
+
+
 class Web(BaseModel):
     bilibili: Bilibili = Field(default_factory=Bilibili)
     telegram: Telegram = Field(default_factory=Telegram)
@@ -779,6 +819,7 @@ class Web(BaseModel):
 class Settings(BaseModel):
     web: Web = Field(default_factory=Web)
     notifications: Notifications = Field(default_factory=Notifications)
+    services: Services = Field(default_factory=Services)
 
 
 # The UI renders sections in this order.
@@ -797,6 +838,7 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     'web.rednote': RedNote,
     'web.wechat': Wechat,
     'notifications.telegram': TelegramNotification,
+    'services.tikhub': TikHub,
 }
 
 # Written by the UI, never echoed back in full. See src/api/settings_masking.py.
@@ -806,7 +848,8 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
 SENSITIVE_FIELDS: dict[str, tuple[str, ...]] = {
     'web.telegram': ('accounts[].api_hash',),
     'notifications.telegram': ('bot_token',),
-    'web.wechat': ('token', 'tikhub_token'),
+    'web.wechat': ('token',),
+    'services.tikhub': ('token',),
 }
 
 
@@ -862,8 +905,49 @@ def ensure_table_sync(*, force: bool = False) -> None:
         log.debug('app_settings was created concurrently by another process')
     with _connect() as conn, conn.cursor() as cursor:
         cursor.execute('DELETE FROM app_settings WHERE section = ANY(%s);', (list(_RETIRED_SECTIONS),))
+    _move_fields_sync()
     with _table_lock:
         _table_ready = True
+
+
+def moved_fields(rows: dict[str, Any]) -> dict[str, Any]:
+    """The rows that change when moved fields are carried to their new sections, as they become."""
+    changed: dict[str, Any] = {}
+    for (old_section, old_field), (new_section, new_field) in _MOVED_FIELDS.items():
+        old_row = changed.get(old_section, rows.get(old_section))
+        if not isinstance(old_row, dict) or old_field not in old_row:
+            continue
+        old_row = {key: value for key, value in old_row.items() if key != old_field}
+        changed[old_section] = old_row
+        value = rows[old_section][old_field]
+        new_row = changed.get(new_section, rows.get(new_section))
+        new_row = dict(new_row) if isinstance(new_row, dict) else {}
+        if value not in (None, '') and not new_row.get(new_field):
+            new_row[new_field] = value
+            changed[new_section] = new_row
+    return changed
+
+
+def _move_fields_sync() -> None:
+    old_sections = sorted({section for section, _field in _MOVED_FIELDS})
+    with _connect() as conn, conn.transaction(), conn.cursor() as cursor:
+        cursor.execute(
+            'SELECT section, value FROM app_settings WHERE section = ANY(%s) FOR UPDATE;',
+            (old_sections + sorted({section for section, _field in _MOVED_FIELDS.values()}),),
+        )
+        rows = {str(row['section']): row['value'] for row in cursor.fetchall()}
+        changed = moved_fields(rows)
+        for section, value in changed.items():
+            cursor.execute(
+                """
+                INSERT INTO app_settings (section, value, updated_at)
+                VALUES (%s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (section) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;
+                """,
+                (section, json.dumps(value, ensure_ascii=False)),
+            )
+    if changed:
+        log.info('Moved settings fields into their own sections: %s', ', '.join(sorted(changed)))
 
 
 def _fetch_rows_sync() -> dict[str, Any]:

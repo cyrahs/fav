@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError, MessageIdInvalidError, RPCError
 from telethon.tl.types import Channel, DocumentAttributeVideo, Message, MessageMediaDocument, MessageMediaPhoto, PeerChannel
@@ -17,6 +18,7 @@ from src.core.settings import TelegramAccount, TelegramChannel, TelegramMediaTyp
 from src.tool import database, format_media_filename, sanitize
 from src.tool.notifications import enqueue_notification
 from src.tool.telegram_queue import (
+    TelegramJobType,
     TelegramMediaJob,
     claim_next_telegram_media_job,
     enqueue_telegram_media_job,
@@ -27,6 +29,9 @@ from src.tool.telegram_queue import (
     reset_processing_telegram_media_jobs,
     telegram_media_retry_delay,
 )
+from src.web import post_links
+from src.web.post_links import PostCaptchaError, PostLinkError
+from src.web.wechat_article import ArticleLink, ArticlePage, canonical_url
 
 log = logger.get('telegram')
 
@@ -72,13 +77,32 @@ _ALBUM_SETTLE_SECONDS = 2.0
 _QUEUE_IDLE_POLL_SECONDS = 1.0
 _RECONNECT_INITIAL_SECONDS = 5.0
 _RECONNECT_MAX_SECONDS = 300.0
+# A message that links a post (see post_links: a 公众号 article, a Tieba post, an
+# NGA thread, a Zhihu answer, article or pin) rather than carrying media: the post's
+# pictures go to the channel's image route and its videos to its video route, each
+# falling back to the other.
+LINK_JOB: TelegramJobType = 'link'
+# A message with nothing to save: no picture or video, and no link post_links reads.
+# In a channel with ``report_unsupported`` it is reported rather than skipped, so
+# nothing sent there is lost silently. Only messages that arrive from now on count:
+# history scans leave them out.
+UNSUPPORTED_JOB: TelegramJobType = 'unsupported'
+_JOB_TYPES = frozenset({'video', 'image', LINK_JOB, UNSUPPORTED_JOB})
+# Job types the worker reads the message for itself rather than downloading a route's media.
+_MESSAGE_JOBS = frozenset({LINK_JOB, UNSUPPORTED_JOB})
+# A link whose post cannot be read is given up after this many tries and reported.
+_LINK_MAX_ATTEMPTS = 5
+# A link that waits on a login or a key is tried again this often, without giving up.
+_LINK_WAIT_SECONDS = 1800.0
+# What post_links.fetch_image names a picture's extension.
+_LINK_IMAGE_EXTENSIONS = ('jpg', 'png', 'gif', 'webp', 'bmp')
 
 
 @dataclass(frozen=True, slots=True)
 class TelegramMediaEntry:
     msg: Message
     filename: str
-    media_type: TelegramMediaType
+    media_type: TelegramJobType
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +131,7 @@ class Telegram:
         self._close_event = asyncio.Event()
         self._running = False
         self._closed = False
+        self._web: httpx.AsyncClient | None = None
 
     @property
     def cfg(self) -> settings.Telegram:
@@ -131,6 +156,10 @@ class Telegram:
                     await client.disconnect()
         self._clients.clear()
         self.client = None
+        if self._web is not None:
+            with contextlib.suppress(Exception):
+                await self._web.aclose()
+            self._web = None
         self._tmp_dir.cleanup()
 
     async def _initialize_tables(self) -> None:
@@ -275,7 +304,7 @@ class Telegram:
         )
 
     @staticmethod
-    async def get_backfilled_media_types(account_name: str, channel_id: int) -> set[TelegramMediaType]:
+    async def get_backfilled_media_types(account_name: str, channel_id: int) -> set[TelegramJobType]:
         rows = await database.query_db(
             """
             SELECT media_type
@@ -284,13 +313,13 @@ class Telegram:
             """,
             (account_name, channel_id),
         )
-        return {row['media_type'] for row in rows if row['media_type'] in {'video', 'image'}}
+        return {row['media_type'] for row in rows if row['media_type'] in _JOB_TYPES}
 
     @staticmethod
     async def mark_media_types_backfilled(
         account_name: str,
         channel_id: int,
-        media_types: list[TelegramMediaType],
+        media_types: list[TelegramJobType],
     ) -> None:
         for media_type in media_types:
             await database.query_db(
@@ -333,12 +362,64 @@ class Telegram:
         return not any(Telegram._is_sticker_attribute(attr) for attr in attrs)
 
     @staticmethod
-    def _message_media_type(msg: Message, media_types: set[TelegramMediaType]) -> TelegramMediaType | None:
+    def _message_link(msg: Message) -> ArticleLink | None:
+        """The post a message links, from its text or its link preview."""
+        webpage = getattr(getattr(msg, 'media', None), 'webpage', None)
+        return post_links.find_link(getattr(msg, 'message', '') or '', getattr(webpage, 'url', '') or '')
+
+    @staticmethod
+    def _message_media_type(msg: Message, media_types: set[TelegramJobType]) -> TelegramJobType | None:
+        """What a message is queued as; None for one this channel does not save.
+
+        A picture or video of a type the channel has no route for is left alone on
+        purpose. A service message (a pin, a title change) carries nothing either.
+        """
         if 'video' in media_types and Telegram._is_video_message(msg):
             return 'video'
         if 'image' in media_types and Telegram._is_image_message(msg):
             return 'image'
+        if Telegram._is_video_message(msg) or Telegram._is_image_message(msg) or getattr(msg, 'action', None) is not None:
+            return None
+        if LINK_JOB in media_types and Telegram._message_link(msg) is not None:
+            return LINK_JOB
+        if UNSUPPORTED_JOB in media_types and Telegram._message_link(msg) is None:
+            return UNSUPPORTED_JOB
         return None
+
+    @staticmethod
+    def _job_types(media_routes: dict[TelegramMediaType, TelegramChannel]) -> list[TelegramJobType]:
+        """What a channel's messages are scanned for: its configured media, links to posts, and the rest where it is reported."""
+        job_types: list[TelegramJobType] = [*media_routes, LINK_JOB]
+        if any(route.report_unsupported for route in media_routes.values()):
+            job_types.append(UNSUPPORTED_JOB)
+        return job_types
+
+    @staticmethod
+    def _history_types(media_types: list[TelegramJobType]) -> list[TelegramJobType]:
+        """The types a look back over a channel's history scans for: old messages with nothing to save go unreported."""
+        return [media_type for media_type in media_types if media_type != UNSUPPORTED_JOB]
+
+    @staticmethod
+    def _unsupported_reason(msg: Message) -> str:
+        """What a message with nothing to save holds, for the notification that reports it."""
+        webpage = getattr(getattr(msg, 'media', None), 'webpage', None)
+        text = (getattr(msg, 'message', '') or '').strip()
+        url = post_links.first_url(text, getattr(webpage, 'url', '') or '')
+        media = getattr(msg, 'media', None)
+        if getattr(msg, 'sticker', None):
+            what = 'a sticker'
+        elif isinstance(media, MessageMediaDocument):
+            document = getattr(media, 'document', None)
+            names = [getattr(attr, 'file_name', '') for attr in Telegram._document_attrs(msg)]
+            name = next((name for name in names if name), '') or getattr(document, 'mime_type', '') or 'unknown type'
+            what = f'a file ({name})'
+        elif media is not None and webpage is None:
+            what = f'a {media.__class__.__name__.removeprefix("MessageMedia").lower() or "media"} message'
+        elif text:
+            what = f'a text message: {text[:100]}'
+        else:
+            what = 'an empty message'
+        return post_links.unsupported_reason(url, what)
 
     @staticmethod
     def _message_id(msg: Message) -> int:
@@ -381,7 +462,7 @@ class Telegram:
     def _build_scan_from_messages(
         self,
         messages: list[Message],
-        media_types: list[TelegramMediaType],
+        media_types: list[TelegramJobType],
     ) -> TelegramChannelScan:
         media: list[TelegramMediaEntry] = []
         group_captions: dict[int, str] = {}
@@ -413,7 +494,7 @@ class Telegram:
     async def scan_media(  # noqa: PLR0913
         self,
         channel: Channel,
-        media_types: list[TelegramMediaType],
+        media_types: list[TelegramJobType],
         *,
         client: TelegramClient | None = None,
         min_message_id: int = 0,
@@ -455,6 +536,9 @@ class Telegram:
     @staticmethod
     def _build_standalone_entry(item: TelegramMediaEntry) -> TelegramMediaEntry:
         caption = (getattr(item.msg, 'message', '') or '').strip()
+        if item.media_type == LINK_JOB:
+            # The text before the URL: share texts put the title first.
+            caption = caption.splitlines()[0].strip() if caption else ''
         return replace(item, filename=caption or Telegram._fallback_title(item))
 
     async def get_media(self, channel: Channel, media_types: list[TelegramMediaType]) -> list[TelegramMediaEntry]:
@@ -561,13 +645,17 @@ class Telegram:
         account: TelegramAccount,
         channel_id: int,
         channel: Channel,
-        media_types: list[TelegramMediaType],
+        media_types: list[TelegramJobType],
         client: TelegramClient,
         channel_name: str,
     ) -> None:
+        scan_types = self._history_types(media_types)
+        if not scan_types:
+            await self.mark_media_types_backfilled(account.name, channel_id, media_types)
+            return
         scan = await self.scan_media(
             channel,
-            media_types,
+            scan_types,
             client=client,
             min_message_id=0,
             limit=self.cfg.scan_limit,
@@ -612,7 +700,7 @@ class Telegram:
         if media_routes is None:
             msg = f'telegram channel is not configured: {channel_id}'
             raise ValueError(msg)
-        media_types = list(media_routes)
+        media_types = self._job_types(media_routes)
         channel = await selected_client.get_entity(PeerChannel(channel_id))
         channel_name = getattr(channel, 'username', None) or getattr(channel, 'title', str(channel_id)) or str(channel_id)
         channel_name = sanitize(channel_name)
@@ -633,9 +721,10 @@ class Telegram:
                 channel_name=channel_name,
             )
 
+        # A channel seen for the first time looks back over its history.
         scan = await self.scan_media(
             channel,
-            media_types,
+            media_types if state.last_scanned_message_id > 0 else self._history_types(media_types),
             client=selected_client,
             min_message_id=state.last_scanned_message_id,
             limit=self.cfg.scan_limit,
@@ -725,7 +814,7 @@ class Telegram:
         media_routes = account.channel_routes().get(channel_id)
         if media_routes is None:
             return
-        entries = self._build_scan_from_messages(messages, list(media_routes)).media
+        entries = self._build_scan_from_messages(messages, self._job_types(media_routes)).media
         if not entries:
             return
         inserted = await self._enqueue_entries(
@@ -802,7 +891,194 @@ class Telegram:
         )
         return result
 
-    async def _process_job(  # noqa: C901, PLR0911
+    def _http(self) -> httpx.AsyncClient:
+        if self._web is None:
+            self._web = post_links.new_client()
+        return self._web
+
+    @staticmethod
+    def _link_filename(page: ArticlePage, message_id: int, suffix: str, ext: str) -> str:
+        """``[account]title[-suffix] [message id].ext``, as the channel's own media are named."""
+        title = f'{page.title}-{suffix}' if suffix else page.title
+        return format_media_filename(title=title, media_id=str(message_id), uploader=page.account or None, ext=ext)
+
+    def _existing_image(self, image_dir: Path, page: ArticlePage, message_id: int, suffix: str) -> Path | None:
+        for ext in _LINK_IMAGE_EXTENSIONS:
+            path = image_dir / self._link_filename(page, message_id, suffix, ext)
+            if path.exists():
+                return path
+        return None
+
+    async def _save_link_media(
+        self,
+        page: ArticlePage,
+        message_id: int,
+        *,
+        image_dir: Path,
+        video_dir: Path,
+    ) -> tuple[list[Path], list[Path]]:
+        """Download the post's pictures and videos; a file a previous try saved is kept as it is."""
+        images: list[Path] = []
+        for index, url in enumerate(page.images, start=1):
+            suffix = str(index) if len(page.images) > 1 else ''
+            existing = await asyncio.to_thread(self._existing_image, image_dir, page, message_id, suffix)
+            if existing is not None:
+                images.append(existing)
+                continue
+            fetched = await post_links.fetch_image(self._http(), url)
+            if fetched is None:
+                continue
+            content, ext = fetched
+            dst_path = image_dir / self._link_filename(page, message_id, suffix, ext)
+            await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(dst_path.write_bytes, content)
+            images.append(dst_path)
+        videos: list[Path] = []
+        for index, video in enumerate(page.videos, start=1):
+            suffix = f'video-{index}' if len(page.videos) > 1 else ''
+            dst_path = video_dir / self._link_filename(page, message_id, suffix, 'mp4')
+            if await asyncio.to_thread(dst_path.exists):
+                videos.append(dst_path)
+                continue
+            partial = self.cache_dir / f'{uuid4().hex}.part'
+            if await post_links.fetch_video(self._http(), video, partial):
+                await asyncio.to_thread(dst_path.parent.mkdir, parents=True, exist_ok=True)
+                await asyncio.to_thread(shutil.move, partial, dst_path)
+                videos.append(dst_path)
+        return images, videos
+
+    async def _archive_link_job(
+        self,
+        *,
+        account: TelegramAccount,
+        media_routes: dict[TelegramMediaType, TelegramChannel],
+        channel_name: str,
+        job: TelegramMediaJob,
+        link: ArticleLink,
+    ) -> Path:
+        site = post_links.site_name(link)
+        try:
+            page, _html = await post_links.fetch_page(self._http(), link)
+        except PostCaptchaError as exc:
+            # WeChat opens such a post in WeChat itself; from here there is no way past it.
+            msg = f'{exc}; share it to WeChat instead'
+            raise PostLinkError(msg) from exc
+        title = page.title or link.title or job.title
+        page = replace(page, title=title)
+        image_route = media_routes.get('image') or media_routes['video']
+        video_route = media_routes.get('video') or media_routes['image']
+        images, videos = await self._save_link_media(page, job.message_id, image_dir=image_route.path, video_dir=video_route.path)
+        if not images and not videos:
+            msg = f'{canonical_url(link.url)} has no pictures or videos that could be downloaded'
+            if page.images or page.videos:
+                msg = (
+                    f'none of the {len(page.images)} images and {len(page.videos)} videos of {canonical_url(link.url)} could be downloaded'
+                )
+            raise PostLinkError(msg)
+        await database.query_db(
+            """
+            INSERT INTO telegram (account_name, message_id, channel_id, title, channel_name, media_type)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (account_name, channel_id, message_id) DO NOTHING;
+            """,
+            (account.name, job.message_id, job.channel_id, title, channel_name, LINK_JOB),
+        )
+        await self.mark_channel_downloaded(account.name, job.channel_id)
+        counts = f'{len(images)}/{len(page.images)} images, {len(videos)}/{len(page.videos)} videos'
+        log.info('Saved %s post %s from %s (%s)', site, canonical_url(link.url), channel_name, counts)
+        payload: dict[str, object] = {
+            'account_name': account.name,
+            'channel_name': channel_name,
+            'message_id': job.message_id,
+            'url': canonical_url(link.url),
+            'images': [str(path) for path in images],
+            'videos': [str(path) for path in videos],
+        }
+        if images:
+            payload['image_path'] = str(images[0])
+        try:
+            await enqueue_notification(
+                kind='download_completed',
+                source='telegram',
+                header='Telegram',
+                title=title,
+                link_url=canonical_url(link.url),
+                body=f'{site}{f" · {page.account}" if page.account else ""} | {counts}',
+                payload=payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue the link download notification for message %s: %s', job.message_id, exc)
+        return (images or videos)[0]
+
+    async def _archive_message(  # noqa: PLR0913
+        self,
+        *,
+        account: TelegramAccount,
+        media_routes: dict[TelegramMediaType, TelegramChannel],
+        channel_cfg: TelegramChannel,
+        channel_name: str,
+        job: TelegramMediaJob,
+        message: Message,
+    ) -> Path | None:
+        link = self._message_link(message) if job.media_type == LINK_JOB else None
+        if link is not None:
+            return await self._archive_link_job(
+                account=account,
+                media_routes=media_routes,
+                channel_name=channel_name,
+                job=job,
+                link=link,
+            )
+        return await self._archive_job(account=account, channel_cfg=channel_cfg, channel_name=channel_name, job=job, message=message)
+
+    async def _link_failed(self, job: TelegramMediaJob, owner_token: str, exc: PostLinkError) -> None:
+        error = f'{exc.__class__.__name__}: {exc}'
+        if exc.needs:
+            # A login to capture or a key to set: wait for it, however long, and say so once.
+            await mark_telegram_media_job_retry(job, owner_token, error=error, delay_seconds=_LINK_WAIT_SECONDS)
+            log.warning('Telegram link message %s/%s waits for %s: %s', job.channel_id, job.message_id, exc.needs, exc)
+            await self._notify_link_failure(job, f'Waiting for a setting: {exc}', dedupe_key=f'telegram:links:{exc.needs}')
+            return
+        if job.attempt_count < _LINK_MAX_ATTEMPTS:
+            delay = telegram_media_retry_delay(job.attempt_count)
+            await mark_telegram_media_job_retry(job, owner_token, error=error, delay_seconds=delay)
+            log.warning('Telegram link message %s/%s will be retried in %.0fs: %s', job.channel_id, job.message_id, delay, exc)
+            return
+        await mark_telegram_media_job_discarded(job, owner_token, error=error)
+        log.warning('Telegram link message %s/%s given up after %d tries: %s', job.channel_id, job.message_id, job.attempt_count, exc)
+        await self._notify_link_failure(job, f'Gave up on the link after {job.attempt_count} tries: {exc}')
+
+    async def _report_unsupported(self, account: TelegramAccount, channel_name: str, job: TelegramMediaJob, message: Message) -> None:
+        reason = self._unsupported_reason(message)
+        log.warning('Telegram message %s/%s in %s has nothing to save: %s', job.channel_id, job.message_id, channel_name, reason)
+        try:
+            await enqueue_notification(
+                kind='download_failed',
+                source='telegram',
+                header='Telegram',
+                title=f'{channel_name} #{job.message_id}',
+                link_url=f'https://t.me/c/{job.channel_id}/{job.message_id}',
+                body=reason,
+                payload={'account_name': account.name, 'channel_name': channel_name, 'message_id': job.message_id, 'reason': reason},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue the unsupported-message notification for message %s: %s', job.message_id, exc)
+
+    @staticmethod
+    async def _notify_link_failure(job: TelegramMediaJob, body: str, *, dedupe_key: str = '') -> None:
+        try:
+            await enqueue_notification(
+                kind='download_failed',
+                source='telegram',
+                header='Telegram',
+                title=job.title,
+                body=body,
+                dedupe_key=dedupe_key,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue the link failure notification for message %s: %s', job.message_id, exc)
+
+    async def _process_job(  # noqa: C901, PLR0911, PLR0912, PLR0915
         self,
         *,
         account: TelegramAccount,
@@ -810,7 +1086,8 @@ class Telegram:
         job: TelegramMediaJob,
         owner_token: str,
     ) -> bool:
-        channel_cfg = account.channel_routes().get(job.channel_id, {}).get(job.media_type)
+        media_routes = account.channel_routes().get(job.channel_id, {})
+        channel_cfg = next(iter(media_routes.values()), None) if job.media_type in _MESSAGE_JOBS else media_routes.get(job.media_type)
         if channel_cfg is None:
             await mark_telegram_media_job_discarded(job, owner_token, error='Media route is no longer configured')
             return False
@@ -837,12 +1114,18 @@ class Telegram:
             if message is None:
                 await mark_telegram_media_job_discarded(job, owner_token, error='Message was deleted or is unavailable')
                 return False
-            current_media_type = self._message_media_type(message, set(channel_cfg.media_types))
+            job_types = set(self._job_types(media_routes)) if job.media_type in _MESSAGE_JOBS else set(channel_cfg.media_types)
+            current_media_type = self._message_media_type(message, job_types)
             if current_media_type is None or current_media_type != job.media_type:
                 await mark_telegram_media_job_discarded(job, owner_token, error='Configured media is no longer available')
                 return False
-            result = await self._archive_job(
+            if job.media_type == UNSUPPORTED_JOB:
+                await self._report_unsupported(account, channel_name, job, message)
+                await mark_telegram_media_job_completed(job, owner_token)
+                return False
+            result = await self._archive_message(
                 account=account,
+                media_routes=media_routes,
                 channel_cfg=channel_cfg,
                 channel_name=channel_name,
                 job=job,
@@ -859,6 +1142,10 @@ class Telegram:
                 return False
         except asyncio.CancelledError:
             raise
+        except PostLinkError as exc:
+            # Before the generic handlers: a post that will not load is no reason to cool the channel down.
+            await self._link_failed(job, owner_token, exc)
+            return False
         except MessageIdInvalidError as exc:
             await mark_telegram_media_job_discarded(job, owner_token, error=f'{exc.__class__.__name__}: {exc}')
             return False

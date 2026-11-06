@@ -335,7 +335,7 @@ with the NGA login (`ngaPassportUid`, `ngaPassportCid`) captured on the 登录�
 never needs them refreshed, so one sign-in lasts until NGA ends the session or the year runs out. Until
 there is a login, the thread waits without using up its tries; a thread NGA refuses as 未登录 marks the
 login 已失效 on the page, and the thread waits the same way. A 视频号 (Channels) video is not opened in WeChat: TikHub's
-`fetch_video_detail` (key in `web.wechat.tikhub_token`, about $0.01 per lookup) answers with its CDN
+`fetch_video_detail` (key in `services.tikhub.token`, about $0.01 per lookup) answers with its CDN
 address and a `decode_key`. The best encoding that address offers is downloaded (`X-snsvideoflag=xWT111`,
 720p for a 1080p upload; the CDN's default is 576p, and the original upload is not offered), and its first 128 KB are decrypted with the ISAAC-64
 keystream that key seeds. Without a key the video waits without using up its tries. It is saved as
@@ -353,7 +353,7 @@ them as `missing_fields`, and the scheduler keeps an enabled-but-incomplete sour
 crashing.
 
 Secrets (`web.telegram.accounts[].api_hash`, `notifications.telegram.bot_token`,
-`web.wechat.token`, `web.wechat.tikhub_token`) are stored in
+`web.wechat.token`, `services.tikhub.token`) are stored in
 plain text but are masked on read (`aa78••••`). Sending a masked value back — or omitting the field —
 keeps the stored secret. Telegram secrets are matched by account name, so reordering accounts in the
 UI cannot shuffle credentials between them. (`web.rednote.proxy` and the other proxy URLs are deliberately shown in
@@ -623,6 +623,48 @@ media_types = ["video"]
 Each `(channel ID, media type)` route must be unique within an account. Declaring the same media type more than once for a channel is a
 configuration error, including conflicts between equivalent positive Telethon IDs and `-100...` Bot API IDs. Destination directories are
 created lazily when their first media file is downloaded.
+
+## Post Links
+
+WeChat (a shared link card) and Telegram (a message's text or link preview) save links to the same kinds of post, through
+one module, `src/web/post_links.py`: 公众号 articles, Baidu Tieba posts, NGA threads, and Zhihu answers
+(`zhihu.com/question/<q>/answer/<id>` or `zhihu.com/answer/<id>`), column articles (`zhuanlan.zhihu.com/p/<id>`) and pins
+(`zhihu.com/pin/<id>`). It recognises the link, reads the post's pictures and videos, and downloads them; each source
+decides where the files go and how the save is recorded.
+
+An NGA thread needs the NGA login captured on the 登录态 page. Zhihu answers datacenter addresses with HTTP 403 and a
+login wall, so a Zhihu post is looked up through TikHub (`fetch_answer_detail`, `fetch_column_article_detail`,
+`fetch_pin_detail`, about $0.001 a lookup); its pictures come at full size from `*.zhimg.com` and its videos at the widest
+quality `lens.zhihu.com` lists. Without the login or the TikHub key, a link waits without using up its tries. A 公众号
+image post sent through Telegram cannot be read (mp.weixin.qq.com puts it behind a captcha); share it to WeChat instead.
+
+### Messages With Nothing To Save
+
+Every message sent to the WeChat account, or to a Telegram channel with `report_unsupported` on (设置 → Telegram, 报告未下载:
+a channel someone sends things to on purpose, not one only listened to), is expected to hold something to save. One that does not
+(a link to a site no source reads, a text, a file, a voice message) is reported with a `download_failed` notification
+naming what it held, instead of being skipped. WeChat leaves out system notices, recalled messages and 拍一拍; Telegram
+leaves out service messages, and a picture or video of a type the channel has no route for. Only messages that arrive
+after this was first deployed are reported: WeChat records the moment in `wechat_state.unsupported_since`, and Telegram
+keeps them out of its look back over a channel's history.
+
+### TikHub
+
+TikHub is configured once, in its own `services.tikhub` section (`token`, `api_url`; 设置 → 第三方服务), and used by the
+WeChat 视频号 lookup and by Zhihu links from either source. `POST /api/v2/services/tikhub/test` checks the saved key with
+TikHub's free account lookup and answers with the key's name, balance and free credit; the settings page shows it
+when the section opens, with a button to refresh it. A database that still holds the
+key under the old `web.wechat.tikhub_token` / `tikhub_api_url` fields has them moved to `services.tikhub` at startup.
+
+### In Telegram
+
+A message that carries no media of its own and links one of these posts is queued as a `link` job in every configured
+channel. The pictures go to the channel's `image` route and the videos to its `video` route; a channel with only one
+route takes both. Files are named `[author]title-N [message id].ext`, where the title is the post's (for Zhihu, the
+question's, the article's or the pin's opening text). A link whose post cannot be read is retried with the queue's backoff
+and given up after five tries with a `download_failed` notification; one that waits on a login or a key is retried every
+30 minutes with a notification saying what it needs. Links are scanned as a type of their own, so the first run after an
+upgrade backfills the latest `scan_limit` messages of each channel for them, as for a newly configured media type.
 
 ## Telegram Downloader Safety
 
