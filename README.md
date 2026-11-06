@@ -638,6 +638,15 @@ login wall, so a Zhihu post is looked up through TikHub (`fetch_answer_detail`, 
 quality `lens.zhihu.com` lists. Without the login or the TikHub key, a link waits without using up its tries. A 公众号
 image post sent through Telegram cannot be read (mp.weixin.qq.com puts it behind a captcha); share it to WeChat instead.
 
+### Messages With Nothing To Save
+
+Every message sent to the WeChat account or a Telegram channel is expected to hold something to save. One that does not
+(a link to a site no source reads, a text, a file, a voice message) is reported with a `download_failed` notification
+naming what it held, instead of being skipped. WeChat leaves out system notices, recalled messages and 拍一拍; Telegram
+leaves out service messages, and a picture or video of a type the channel has no route for. Only messages that arrive
+after this was first deployed are reported: WeChat records the moment in `wechat_state.unsupported_since`, and Telegram
+keeps them out of its look back over a channel's history.
+
 ### TikHub
 
 TikHub is configured once, in its own `services.tikhub` section (`token`, `api_url`; 设置 → 第三方服务), and used by the

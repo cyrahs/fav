@@ -30,6 +30,10 @@ next to its pictures; ``post_links`` reads every kind of post, for Telegram as m
 as for this source. A 视频号 video is not opened in WeChat at all: TikHub (the key in
 ``services.tikhub``) looks it up and the file comes from WeChat's CDN, its start
 decrypted here (see ``wechat_channels``).
+Any other message received in a private chat (a text, a file, a link to a site
+``post_links`` does not read) is reported through the notification channels rather
+than skipped, so nothing forwarded is lost without a word. Only messages that arrive
+after this was first deployed are reported, not the event log's history.
 A failed item is retried on later runs, up to ``_MAX_ATTEMPTS`` times. Last, the run drains the
 inbox as it always has, which catches what the event log misses: the plugin only
 logs while it is loaded.
@@ -45,6 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -60,9 +65,12 @@ from src.tool.notifications import enqueue_notification
 from src.web import post_links
 from src.web.post_links import PostCaptchaError, PostLinkError, file_head, is_mp4, shared_link, write_stream
 from src.web.wechat_article import (
+    LINK_SHARE_TYPE,
+    VIDEO_SHARE_TYPE,
     ArticleLink,
     ArticlePage,
     PostVideo,
+    appmsg_link,
     canonical_url,
     cover_only_page,
     parse_article_page,
@@ -106,6 +114,9 @@ _CURSOR_KEY = 'events_after'
 # What work_for() recognises; see there.
 _WORK_VERSION = '8'
 _WORK_VERSION_KEY = 'work_version'
+# From when messages with nothing to save are reported (ms, as create_time): older
+# ones in the event log were never meant to be.
+_UNSUPPORTED_SINCE_KEY = 'unsupported_since'
 _NGA_LOGIN_KEY = 'wechat:nga-login'
 _TIKHUB_KEY = 'wechat:tikhub'
 # A post_links failure that waits on a setting, under the key it is reported with.
@@ -122,6 +133,10 @@ WORK_IMAGE = 'image'
 WORK_STICKER = 'sticker'
 WORK_ARTICLE = 'article'
 WORK_CHANNEL_VIDEO = 'channel_video'
+WORK_UNSUPPORTED = 'unsupported'
+# Messages that carry nothing anyone sent on purpose: not reported as unsupported.
+_SILENT_KINDS = frozenset({'system', 'recalled', 'pat', 'voip'})
+_APPMSG_TITLE_RE = re.compile(r'<appmsg\b.*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>', re.DOTALL)
 
 
 class _FetchedVideo(NamedTuple):
@@ -174,7 +189,10 @@ def pending_images(items: list[Any]) -> list[dict[str, Any]]:
 
 
 def work_for(event: Any) -> str | None:
-    """What a bridge event asks of this source: an image, a sticker, an article, a 视频号 video, or nothing.
+    """What a bridge event asks of this source: an image, a sticker, an article, a 视频号 video, a report, or nothing.
+
+    Any other message someone sent (a text, a file, a link to a site no source reads)
+    is ``WORK_UNSUPPORTED``: it is reported, so it does not go missing silently.
 
     Articles are the posts ``post_links`` reads: 公众号 articles, Tieba posts, NGA threads and
     Zhihu answers, articles and pins. Whenever this learns a new kind
@@ -199,9 +217,27 @@ def work_for(event: Any) -> str | None:
         work = WORK_STICKER
     elif shared_link(content) is not None:
         work = WORK_ARTICLE
+    elif parse_channel_video(content) is not None:
+        work = WORK_CHANNEL_VIDEO
     else:
-        work = WORK_CHANNEL_VIDEO if parse_channel_video(content) is not None else None
+        work = None if message.get('kind') in _SILENT_KINDS else WORK_UNSUPPORTED
     return work
+
+
+def unsupported_reason(message: dict[str, Any]) -> str:
+    """What a message with nothing to save holds, for the notification that reports it."""
+    kind = str(message.get('kind') or 'unknown')
+    content = str(message.get('content') or '')
+    if kind == 'text':
+        return post_links.unsupported_reason(post_links.first_url(content), f'a text message: {content.strip()[:100]}')
+    card = appmsg_link(content, (LINK_SHARE_TYPE, VIDEO_SHARE_TYPE))
+    if card is not None:
+        return post_links.unsupported_reason(card.url, '')
+    title = _APPMSG_TITLE_RE.search(content)
+    what = f'a WeChat {kind} message'
+    if title and title.group(1).strip():
+        what += f': {title.group(1).strip()[:100]}'
+    return post_links.unsupported_reason('', what)
 
 
 def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
@@ -211,7 +247,7 @@ def queued_message(message: dict[str, Any], work: str) -> dict[str, Any]:
     key; the bridge finds the image by id, so neither is stored.
     """
     kept = {key: message.get(key) for key in ('msg_id', 'create_time', 'type', 'kind', 'talker', 'sender')}
-    if work in {WORK_ARTICLE, WORK_CHANNEL_VIDEO, WORK_STICKER}:
+    if work in {WORK_ARTICLE, WORK_CHANNEL_VIDEO, WORK_STICKER, WORK_UNSUPPORTED}:
         kept['content'] = message.get('content')
     image = message.get('image')
     if work == WORK_IMAGE and isinstance(image, dict):
@@ -447,6 +483,15 @@ class Wechat:
             await self._save_cursor(0)
         await self._save_state(_WORK_VERSION_KEY, _WORK_VERSION)
 
+    async def _unsupported_since(self) -> int:
+        """When reporting messages with nothing to save began; set to now the first time."""
+        rows = await database.query_db('SELECT value FROM wechat_state WHERE key = ?;', (_UNSUPPORTED_SINCE_KEY,))
+        if rows and str(rows[0]['value']).isdigit():
+            return int(rows[0]['value'])
+        since = int(datetime.now(UTC).timestamp() * 1000)
+        await self._save_state(_UNSUPPORTED_SINCE_KEY, str(since))
+        return since
+
     async def _fetch_events(self, after: int) -> tuple[int, list[dict[str, Any]]]:
         try:
             response = await self.client.get(self._url('/wx/events'), params={'after': after, 'limit': _EVENT_PAGE_SIZE})
@@ -483,6 +528,7 @@ class Wechat:
         """Queue the new events worth keeping and move the cursor past all of them."""
         await self._rescan_for_new_work()
         cursor = await self._cursor()
+        unsupported_since = await self._unsupported_since()
         queued = 0
         while True:
             last_seq, events = await self._fetch_events(cursor)
@@ -501,6 +547,8 @@ class Wechat:
                 log.warning('WeChat bridge events %d-%d were rotated out before this source read them', cursor + 1, events[0]['seq'] - 1)
             for event in events:
                 work = work_for(event)
+                if work == WORK_UNSUPPORTED and event['data']['create_time'] < unsupported_since:
+                    continue
                 if work is not None and await self._queue(event, work):
                     queued += 1
             cursor = max(event['seq'] for event in events)
@@ -542,6 +590,8 @@ class Wechat:
                     await self._save_channel_video(message)
                 elif row['work'] == WORK_STICKER:
                     await self._save_sticker(message)
+                elif row['work'] == WORK_UNSUPPORTED:
+                    await self._report_unsupported(message)
                 else:
                     await self._save_bridge_image(message)
             except (httpx.HTTPError, OSError, WechatInboxError) as exc:
@@ -672,6 +722,22 @@ class Wechat:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning('Failed to enqueue wechat download notification for message %s: %s', item['msg_id'], exc)
+
+    async def _report_unsupported(self, message: dict[str, Any]) -> None:
+        reason = unsupported_reason(message)
+        sender = await self._sender_name(str(message.get('sender') or message.get('talker') or ''))
+        log.warning('WeChat message %s from %s has nothing to save: %s', message['msg_id'], sender, reason)
+        try:
+            await enqueue_notification(
+                kind='download_failed',
+                source='wechat',
+                header='WeChat',
+                title=f'From {sender}',
+                body=f'{reason} | Message ID {message["msg_id"]}',
+                payload={'msg_id': message['msg_id'], 'sender': str(message.get('sender') or ''), 'reason': reason},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning('Failed to enqueue the unsupported-message notification for WeChat message %s: %s', message['msg_id'], exc)
 
     async def _keep_image(self, item: dict[str, Any], content: bytes, content_type: str) -> None:
         local_path = await self._store_image(item, content, content_type)

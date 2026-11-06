@@ -6,7 +6,7 @@ from src.core.settings import TelegramMediaType
 from src.tool import database
 
 # A queued message is media of a configured type, or a link to a post whose media is fetched from its site.
-TelegramJobType = TelegramMediaType | Literal['link']
+TelegramJobType = TelegramMediaType | Literal['link', 'unsupported']
 TelegramQueueSource = Literal['event', 'reconciliation']
 TelegramQueueStatus = Literal['pending', 'processing', 'completed', 'discarded']
 

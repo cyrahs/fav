@@ -122,6 +122,25 @@ def find_link(*texts: str) -> ArticleLink | None:
     return None
 
 
+def first_url(*texts: str) -> str:
+    """The first web address in any of ``texts``, saveable or not; empty when there is none."""
+    for text in texts:
+        match = _URL_RE.search(text or '')
+        if match:
+            return match.group(0)
+    return ''
+
+
+def unsupported_reason(url: str, what: str) -> str:
+    """Why a message was not saved, for the notification that says so.
+
+    ``what`` names the message when it links nothing: a text, a file, a sticker.
+    """
+    if url:
+        return f'Link not supported: {url}'
+    return f'Nothing to download: {what}'
+
+
 def shared_link(content: str) -> ArticleLink | None:
     """The post a WeChat link card shares, if it is one this module reads.
 

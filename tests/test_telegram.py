@@ -273,7 +273,7 @@ def test_split_routes_reconcile_channel_once_and_stop_cursor_at_limit(monkeypatc
         cursors.append(message_id)
 
     monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
-    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'video', 'link'}))
+    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'video', 'link', 'unsupported'}))
     monkeypatch.setattr(tg, 'scan_media', _fake_scan)
     monkeypatch.setattr(tg, 'get_downloaded_ids', _fake_downloaded)
     monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
@@ -285,7 +285,7 @@ def test_split_routes_reconcile_channel_once_and_stop_cursor_at_limit(monkeypatc
     assert cursors == [102]
     assert scan_calls == [
         {
-            'media_types': ['image', 'video', 'link'],
+            'media_types': ['image', 'video', 'link', 'unsupported'],
             'client': tg.client,
             'min_message_id': 100,
             'limit': 10,
@@ -324,7 +324,7 @@ def test_reconciliation_enqueues_whole_album_before_advancing_cursor(monkeypatch
         cursors.append(message_id)
 
     monkeypatch.setattr(tg, 'get_channel_state', _fake_state)
-    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'link'}))
+    monkeypatch.setattr(tg, 'get_backfilled_media_types', lambda *_args: asyncio.sleep(0, result={'image', 'link', 'unsupported'}))
     monkeypatch.setattr(tg, 'scan_media', _fake_scan)
     monkeypatch.setattr(tg, 'get_downloaded_ids', lambda *_args, **_kwargs: asyncio.sleep(0, result=[]))
     monkeypatch.setattr(tg, 'set_channel_last_scanned_message_id', _fake_cursor)
@@ -427,8 +427,9 @@ def test_new_media_type_backfills_full_recent_window(monkeypatch) -> None:
 
     assert queued == [92, 93]
     # Links are a type of their own, so a channel that never had them scanned backfills them too.
-    assert marked == [['video', 'link']]
-    assert scans == [(['video', 'link'], True), (['image', 'video', 'link'], False)]
+    # Messages with nothing to save are only reported from now on: the look back leaves them out.
+    assert marked == [['video', 'link', 'unsupported']]
+    assert scans == [(['video', 'link'], True), (['image', 'video', 'link', 'unsupported'], False)]
 
 
 def test_backfill_failure_does_not_mark_complete(monkeypatch) -> None:
@@ -1166,3 +1167,45 @@ def test_link_waiting_on_a_setting_is_never_given_up(monkeypatch) -> None:
     assert seen['retries'] == [telegram_module._LINK_WAIT_SECONDS]
     assert seen['discarded'] == []
     assert seen['notifications'][0]['dedupe_key'] == 'telegram:links:tikhub'
+
+
+def test_messages_with_nothing_to_save_are_queued_to_be_reported() -> None:
+    tg = _make_telegram()
+    file_media = _document_media('application/octet-stream', [SimpleNamespace(file_name='clip.mkv')])
+    messages = [
+        _message(1, message='https://example.com/post/1'),
+        _message(2, message='just a note'),
+        _message(3, media=file_media, document=file_media.document),
+        _message(4, action=SimpleNamespace()),
+        _message(5, message=_ZHIHU_SHARE),
+        _message(6, media=telegram_module.MessageMediaPhoto(photo=object())),
+    ]
+
+    scan = tg._build_scan_from_messages(messages, ['video', 'link', 'unsupported'])
+
+    # A picture in a channel with no image route stays unsaved on purpose, and a service message has nothing.
+    assert [(item.msg.id, item.media_type) for item in scan.media] == [
+        (1, 'unsupported'),
+        (2, 'unsupported'),
+        (3, 'unsupported'),
+        (5, 'link'),
+    ]
+    assert tg._unsupported_reason(messages[0]) == 'Link not supported: https://example.com/post/1'
+    assert tg._unsupported_reason(messages[1]) == 'Nothing to download: a text message: just a note'
+    assert tg._unsupported_reason(messages[2]) == 'Nothing to download: a file (clip.mkv)'
+
+
+def test_unsupported_job_is_reported_and_completed(monkeypatch) -> None:
+    tg = _make_telegram()
+    seen = _link_job_fakes(monkeypatch, tg, _message(10, message='see https://example.com/x'))
+
+    downloaded = asyncio.run(
+        tg._process_job(account=_split_account(), client=seen['client'][0], job=_job(media_type='unsupported'), owner_token='o'),
+    )
+
+    assert downloaded is False
+    assert seen['completed'] == [10]
+    notification = seen['notifications'][0]
+    assert notification['kind'] == 'download_failed'
+    assert notification['body'] == 'Link not supported: https://example.com/x'
+    assert notification['link_url'] == 'https://t.me/c/123/10'
