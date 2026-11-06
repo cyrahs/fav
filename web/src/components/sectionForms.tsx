@@ -14,6 +14,7 @@ import {
 } from './Field';
 import { AzurLaneProxyTest } from './AzurLaneProxyTest';
 import { BilibiliForm, validateBilibili } from './BilibiliForm';
+import { PostLinksNote } from './PostLinksNote';
 import { RedNoteProxyTest } from './RedNoteProxyTest';
 import { TelegramForm, validateTelegram } from './TelegramForm';
 import {
@@ -602,7 +603,6 @@ function TelegramNotificationForm(props: SectionFormProps) {
 function WechatForm(props: SectionFormProps) {
   const set = patcher(props);
   const token = str(props.value, 'token');
-  const tikhubToken = str(props.value, 'tikhub_token');
 
   return (
     <div className="field-grid">
@@ -622,33 +622,44 @@ function WechatForm(props: SectionFormProps) {
         hint={token.includes('•') ? undefined : 'oracle 上 /etc/favinbox.env 里的 FAVINBOX_TOKEN。'}
       />
 
-      <div className="subsection">
-        <h4>NGA 登录</h4>
-        <p className="muted">转发的 NGA 帖子要登录才能读，登录会话只在「登录态」页维护（NGA 的登录一年有效）。</p>
-      </div>
+      <PostLinksNote where="私聊转发来" />
 
       <div className="subsection">
-        <h4>视频号（TikHub）</h4>
-        <div className="field-grid">
-          <SecretField
-            label="TikHub API Key"
-            value={tikhubToken}
-            onChange={(next) => set('tikhub_token', next)}
-            hint={
-              tikhubToken.includes('•')
-                ? undefined
-                : '视频号不在微信里打开，改由 TikHub 查到视频地址再下载解密，每条约 0.01 美元。没填时视频号消息排队等待。'
-            }
-          />
-          <TextField
-            label="TikHub 地址"
-            value={str(props.value, 'tikhub_api_url')}
-            onChange={(next) => set('tikhub_api_url', next)}
-            mono
-            placeholder="https://api.tikhub.io"
-            hint="中国大陆可改用 https://api.tikhub.dev。"
-          />
-        </div>
+        <h4>视频号</h4>
+        <p className="muted">
+          视频号不在微信里打开，改由 TikHub 查到视频地址再下载解密，每条约 0.01 美元。TikHub 的 key 在「第三方服务」里配置，没配置时视频号消息排队等待。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function TikHubForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const token = str(props.value, 'token');
+
+  return (
+    <div className="field-grid">
+      <SecretField
+        label="API Key"
+        value={token}
+        onChange={(next) => set('token', next)}
+        hint={token.includes('•') ? undefined : 'tikhub.io 用户中心里创建的 API Key。'}
+      />
+      <TextField
+        label="API 地址"
+        value={str(props.value, 'api_url')}
+        onChange={(next) => set('api_url', next)}
+        mono
+        placeholder="https://api.tikhub.io"
+        hint="中国大陆可改用 https://api.tikhub.dev。"
+      />
+      <div className="subsection">
+        <h4>用在</h4>
+        <ul className="muted">
+          <li>微信转发的视频号：每条约 0.01 美元</li>
+          <li>微信或 Telegram 发来的知乎链接：每条约 0.001 美元</li>
+        </ul>
       </div>
     </div>
   );
@@ -666,6 +677,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
   'web.wechat': WechatForm,
+  'services.tikhub': TikHubForm,
   'notifications.telegram': TelegramNotificationForm,
 };
 
@@ -772,8 +784,11 @@ export function validateSection(section: string, value: Record<string, unknown>)
     if (url && !/^https?:\/\//.test(url)) {
       issues.push('FavInbox 地址必须以 http:// 或 https:// 开头');
     }
-    const tikhubUrl = str(value, 'tikhub_api_url').trim();
-    if (tikhubUrl && !/^https?:\/\//.test(tikhubUrl)) {
+  }
+
+  if (section === 'services.tikhub') {
+    const url = str(value, 'api_url').trim();
+    if (url && !/^https?:\/\//.test(url)) {
       issues.push('TikHub 地址必须以 http:// 或 https:// 开头');
     }
   }

@@ -1,4 +1,4 @@
-# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, C901, EM101, INP001, PLR0911, PLR0913, PLR2004, S101, S105, S106, TRY003
+# ruff: noqa: ANN001, ANN002, ANN003, ANN202, ARG001, C901, EM101, INP001, PLR0911, PLR0913, PLR2004, S101, S105, S106, RUF001, TRY003
 
 import asyncio
 import base64
@@ -13,6 +13,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
 import src.service.jobs as jobs_module
+import src.web.post_links as post_links_module
 import src.web.wechat as wechat_module
 from src.api.archive import ARCHIVE_SOURCES, _external_url
 from src.api.schemas import JobRequestTarget
@@ -53,8 +54,15 @@ _JPEG = b'\xff\xd8\xff\xe0original-bytes'
 
 
 def _configure_wechat(**updates: object) -> settings.Wechat:
-    """Mutate the pinned settings snapshot that Wechat() reads in __init__."""
-    cfg = settings.load().web.wechat
+    """Mutate the pinned settings snapshot that Wechat() reads in __init__.
+
+    ``tikhub_token`` and ``tikhub_api_url`` set the shared TikHub service, where the key lives.
+    """
+    snapshot = settings.load()
+    for key, field in (('tikhub_token', 'token'), ('tikhub_api_url', 'api_url')):
+        if key in updates:
+            setattr(snapshot.services.tikhub, field, updates.pop(key))
+    cfg = snapshot.web.wechat
     for key, value in updates.items():
         setattr(cfg, key, value)
     return cfg
@@ -342,15 +350,23 @@ def test_a_configured_source_is_runnable_and_its_url_is_normalised() -> None:
 
 
 def test_the_token_is_masked_and_survives_a_save_of_the_masked_form() -> None:
-    stored = {'api_url': 'http://favinbox-oracle.proxy.svc', 'token': 'abcdef123456', 'tikhub_token': 'tikhub-secret'}
+    stored = {'api_url': 'http://favinbox-oracle.proxy.svc', 'token': 'abcdef123456'}
 
     masked = mask_section('web.wechat', stored)
     merged = unmask_section('web.wechat', masked, stored)
 
     assert masked['token'] == f'abcd{MASK_SUFFIX}'
-    assert masked['tikhub_token'] == f'tikh{MASK_SUFFIX}'
     assert masked['api_url'] == stored['api_url']
     assert merged == stored
+
+
+def test_the_tikhub_key_is_masked_in_its_own_section() -> None:
+    stored = {'api_url': 'https://api.tikhub.io', 'token': 'tikhub-secret'}
+
+    masked = mask_section('services.tikhub', stored)
+
+    assert masked['token'] == f'tikh{MASK_SUFFIX}'
+    assert unmask_section('services.tikhub', masked, stored) == stored
 
 
 # ---------- selection and naming ----------
@@ -519,7 +535,7 @@ def test_a_bridge_image_is_saved_recorded_and_dropped_from_the_inbox(fake_db, no
     assert not [request for request in inbox.requests if request.url.path.startswith('/file/')]
     image_request = next(request for request in inbox.requests if request.url.path == '/wx/image')
     assert dict(image_request.url.params) == {'talker': 'wxid_sender', 'msg_id': '45', 'create_time': str(_CREATE_TIME + 45)}
-    assert fake_db.state == {'events_after': '7', 'work_version': '7'}
+    assert fake_db.state == {'events_after': '7', 'work_version': '8'}
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert [n['payload']['msg_id'] for n in notifications] == [45]
 
@@ -1032,6 +1048,41 @@ def test_a_tieba_post_keeps_the_pictures_of_its_first_floor(fake_db, notificatio
     assert notification['body'] == '显卡吧 | 3 images | From wxid_sender'
 
 
+_ZHIHU_SHARE_URL = 'https://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240?share_code=x'
+_ZHIHU_TIKHUB = 'https://api.tikhub.io/api/v1/zhihu/web/fetch_answer_detail?answer_id=2100311203096573240'
+_ZHIHU_PIC = 'https://pica.zhimg.com/v2-{}_r.jpg'
+
+
+def test_a_zhihu_answer_is_saved_like_any_shared_post(fake_db, notifications, tmp_path) -> None:
+    _configure_wechat(path=tmp_path, token='secret', tikhub_token='tikhub-key')
+    content = _share(url=_ZHIHU_SHARE_URL).replace('<title>每日分享</title>', '<title>高跟鞋配白丝真的很难看吗？</title>')
+    inbox = _FakeInbox([], events=[_event(5, _message(64, type=49, kind='app', content=content, image=None))])
+    answer = {
+        'data': {
+            'content': ''.join(f'<figure><img data-original="{_ZHIHU_PIC.format(name)}"/></figure>' for name in 'AB'),
+            'author': {'name': '知乎用户'},
+            'question': {'title': '高跟鞋配白丝真的很难看吗？'},
+            'created_time': 1793533212,
+        },
+    }
+    jpeg = {'content-type': 'image/jpeg'}
+    web = _FakeWeb(
+        {
+            _ZHIHU_TIKHUB: httpx.Response(200, json=answer),
+            **{_ZHIHU_PIC.format(name): httpx.Response(200, content=_JPEG, headers=jpeg) for name in 'AB'},
+        },
+    )
+
+    asyncio.run(_source(inbox, web).update())
+
+    tikhub = next(request for request in web.requests if request.url.host == 'api.tikhub.io')
+    assert tikhub.headers['authorization'] == 'Bearer tikhub-key'
+    (row,) = fake_db.inserts('wechat_article')
+    assert row[5:8] == ('https://www.zhihu.com/answer/2100311203096573240', '高跟鞋配白丝真的很难看吗？', '知乎用户')
+    assert sorted(path.name for path in (tmp_path / row[10]).iterdir()) == ['01.jpg', '02.jpg', 'article.json']
+    assert fake_db.queue[(64, _CREATE_TIME + 64)]['status'] == 'done'
+
+
 def test_an_expired_tieba_grant_is_not_saved_as_a_picture(fake_db, notifications, tmp_path) -> None:
     _configure_wechat(path=tmp_path, token='secret')
     inbox = _FakeInbox([], events=[_event(5, _tieba_message())])
@@ -1230,7 +1281,7 @@ class _NgaSessions:
 def nga_session(monkeypatch) -> _NgaSessions:
     """The NGA login captured on the 登录态 page."""
     sessions = _NgaSessions(dict(_NGA_LOGIN))
-    monkeypatch.setattr(wechat_module, 'site_sessions', sessions)
+    monkeypatch.setattr(post_links_module, 'site_sessions', sessions)
     return sessions
 
 
@@ -1278,7 +1329,7 @@ def test_an_nga_thread_keeps_the_pictures_of_its_first_floor(fake_db, notificati
 
 def test_an_nga_thread_waits_for_a_login_without_using_up_its_tries(fake_db, monkeypatch, tmp_path) -> None:
     _configure_wechat(path=tmp_path, token='secret')
-    monkeypatch.setattr(wechat_module, 'site_sessions', _NgaSessions(None))
+    monkeypatch.setattr(post_links_module, 'site_sessions', _NgaSessions(None))
     inbox = _FakeInbox([], events=[_event(5, _nga_message())])
 
     with pytest.raises(WechatInboxError, match='NGA login'):
@@ -1376,7 +1427,7 @@ def test_new_kinds_of_work_read_the_event_log_again_once(fake_db, notifications,
     assert inbox.event_requests() == [0, 6]
     assert fake_db.queue[(45, _CREATE_TIME + 45)]['status'] == 'done'
     assert fake_db.queue[(63, _CREATE_TIME + 63)]['status'] == 'done'
-    assert fake_db.state == {'events_after': '6', 'work_version': '7'}
+    assert fake_db.state == {'events_after': '6', 'work_version': '8'}
     assert len(notifications) == 1
 
 

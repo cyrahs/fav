@@ -708,6 +708,12 @@ class TelegramNotificationTestResponse(ApiSchema):
     warnings: list[str] = Field(default_factory=list)
 
 
+class TikHubTestResponse(ApiSchema):
+    key_name: str = ''
+    balance: float
+    free_credit: float
+
+
 class AzurLaneProxyTestRequest(ApiSchema):
     # A masked value (or an omitted one) means "test what is already stored".
     origin_proxy: str = ''

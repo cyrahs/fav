@@ -103,6 +103,12 @@ export interface TelegramNotificationTest {
   message_id: number | null;
   warnings: string[];
 }
+export interface TikHubTest {
+  key_name: string;
+  balance: number;
+  free_credit: number;
+}
+
 export interface SiteSession {
   site: string;
   label: string;

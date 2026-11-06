@@ -42,7 +42,7 @@ log = logger.get('wechat')
 
 # Every hostname NGA serves the forum under; the share card uses bbs.nga.cn.
 NGA_HOSTS = frozenset({'bbs.nga.cn', 'nga.cn', 'ngabbs.com', 'nga.178.com', 'bbs.ngacn.cc', 'g.nga.cn'})
-_READ_URL = 'https://bbs.nga.cn/read.php'
+READ_URL = 'https://bbs.nga.cn/read.php'
 # img.nga.178.com, the host older posts and clients name, no longer resolves;
 # img.nga.cn serves the same /attachments/ paths.
 _ATTACHMENT_BASE = 'https://img.nga.cn/attachments/'
@@ -142,7 +142,7 @@ def parse_nga_link(content: str) -> ArticleLink | None:
     tid = nga_thread_id(link.url)
     if tid is None:
         return None
-    return ArticleLink(url=f'{_READ_URL}?tid={tid}', title=link.title, description=link.description)
+    return ArticleLink(url=f'{READ_URL}?tid={tid}', title=link.title, description=link.description)
 
 
 def original_url(src: str) -> str | None:
@@ -216,7 +216,7 @@ async def fetch_nga_post(client: httpx.AsyncClient, link: ArticleLink, cookies: 
         msg = f'{link.url} is not an NGA thread'
         raise NgaError(msg)
     cookie = '; '.join(f'{name}={cookies[name]}' for name in LOGIN_COOKIES if cookies.get(name))
-    response = await client.get(_READ_URL, params={'tid': tid, '__output': '11'}, headers={'Cookie': cookie})
+    response = await client.get(READ_URL, params={'tid': tid, '__output': '11'}, headers={'Cookie': cookie})
     try:
         payload = response.json()
     except ValueError:

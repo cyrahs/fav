@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { Hanime1Author, Hanime1Seed, ListResponse, SettingsSection } from '../api/types';
 import { TelegramNotificationTest } from '../components/TelegramNotificationTest';
+import { TikHubTest } from '../components/TikHubTest';
 import { JOBS_PAGE_ONLY_SECTIONS, SECTION_FORMS, validateSection } from '../components/sectionForms';
 import { formatDateTime } from '../format';
 import { sectionLabel } from '../labels';
@@ -115,6 +116,7 @@ function SectionEditor({ section }: { section: SettingsSection }) {
       )}
 
       {section.section === 'notifications.telegram' && <TelegramNotificationTest dirty={dirty} />}
+      {section.section === 'services.tikhub' && <TikHubTest dirty={dirty} />}
 
       {/* Authors and seeds live in their own tables and apply immediately, so they
           render outside the form draft and are untouched by 保存/重置. */}
@@ -369,6 +371,11 @@ const SECTION_GROUPS: { title: string; hint: string; matches: (section: string) 
     title: '源',
     hint: '抓取的站点。所有配置存放在数据库里，保存后立即生效。cron 与启用开关在「任务」页调整。Telegram 的实时监听在进程启动时建立，改动其账号后需重启 worker。',
     matches: (section) => section.startsWith('web.'),
+  },
+  {
+    title: '第三方服务',
+    hint: '几个源共用的外部服务，在这里配置一次。',
+    matches: (section) => section.startsWith('services.'),
   },
   {
     title: '通知',

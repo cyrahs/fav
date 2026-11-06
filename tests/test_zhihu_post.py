@@ -44,14 +44,6 @@ def test_parse_zhihu_url(url, expected) -> None:
     assert zhihu_post.parse_zhihu_url(url) == expected
 
 
-def test_find_zhihu_link_reads_share_text_and_preview() -> None:
-    share = '高跟鞋配白丝真的很难看吗？ - 知乎用户mYQRnd的回答 - 知乎\nhttps://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240'
-    assert zhihu_post.find_zhihu_link(share) == ZhihuLink('answer', '2100311203096573240')
-    assert zhihu_post.find_zhihu_link('看这个（https://zhuanlan.zhihu.com/p/42）') == ZhihuLink('article', '42')
-    assert zhihu_post.find_zhihu_link('no link here', 'https://www.zhihu.com/pin/7') == ZhihuLink('pin', '7')
-    assert zhihu_post.find_zhihu_link('https://www.bilibili.com/video/BV1xx') is None
-
-
 def test_answer_content_keeps_full_size_pictures_once_and_skips_video_posters() -> None:
     assert zhihu_post.content_images(_ANSWER_HTML) == [
         'https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567',
@@ -184,3 +176,25 @@ def test_resolve_video_takes_widest_lens_entry_and_falls_back() -> None:
     assert asyncio.run(_run(ZhihuVideo(id='1'))) == 'https://vdn3.vzuu.com/HD/v.mp4'
     assert asyncio.run(_run(ZhihuVideo(id='2', fallback_url='https://vdn3.vzuu.com/HD/p.mp4'))) == 'https://vdn3.vzuu.com/HD/p.mp4'
     assert asyncio.run(_run(ZhihuVideo(id='2'))) == ''
+
+
+def test_fetch_page_resolves_videos_and_drops_ones_without_a_play_url() -> None:
+    lens = {'playlist': {'HD': {'width': 720, 'height': 1280, 'play_url': 'https://vdn3.vzuu.com/HD/v.mp4'}}}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == 'api.tikhub.io':
+            content = _ANSWER_HTML + _ANSWER_HTML.replace('2091194612627121396', '1')
+            return httpx.Response(200, json={'data': {'content': content, 'author': {'name': 'a'}, 'question': {'title': 'Q'}}})
+        if request.url.path.endswith('/2091194612627121396'):
+            return httpx.Response(200, json=lens)
+        return httpx.Response(403, json={'error': {'code': 40362}})
+
+    async def _run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_handler)) as client:
+            return await zhihu_post.fetch_page(client, ZhihuLink('answer', '9'), api_url='https://api.tikhub.io', token='key')
+
+    page = asyncio.run(_run())
+    assert (page.title, page.account) == ('Q', 'a')
+    assert len(page.images) == 2
+    assert [video.url for video in page.videos] == ['https://vdn3.vzuu.com/HD/v.mp4']
+    assert page.videos[0].cover_url == 'https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a'

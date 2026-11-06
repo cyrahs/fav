@@ -4,8 +4,8 @@ Zhihu answers the cluster's addresses with HTTP 403 for every page and for its
 ``/api/v4`` JSON (error 40353, "please sign in"), so the post itself is looked
 up through TikHub (https://tikhub.io), which signs and proxies the request:
 ``fetch_answer_detail``, ``fetch_column_article_detail`` and
-``fetch_pin_detail``, each billed at about $0.001 a call. The key is the one the
-WeChat source already holds for 视频号 lookups (``web.wechat.tikhub_token``).
+``fetch_pin_detail``, each billed at about $0.001 a call, with the key in
+``services.tikhub`` that 视频号 lookups use too.
 
 Everything after that is public. An answer's or article's ``content`` is HTML:
 each picture is an ``<img>`` whose ``data-original`` is the full-size upload on
@@ -29,8 +29,13 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
+from src.core import logger
+from src.web.wechat_article import ArticlePage, PostVideo
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+log = logger.get('links')
 
 ZhihuKind = Literal['answer', 'article', 'pin']
 
@@ -44,8 +49,6 @@ _TIKHUB_ACCOUNT_STATUSES = frozenset({401, 402, 403})
 _LENS_API = 'https://lens.zhihu.com/api/v4/videos/{video_id}'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36'
 
-# Stops at whitespace, quotes and closing brackets, including the full-width ones Chinese text puts around a link.
-_URL_RE = re.compile(r'https?://[^\s<>"\'\]\uff09\u3011]+', re.IGNORECASE)
 _ANSWER_PATH_RE = re.compile(r'/(?:question/\d+/)?answer/(\d+)')
 _ARTICLE_PATH_RE = re.compile(r'/p/(\d+)')
 _PIN_PATH_RE = re.compile(r'/pin/(\d+)')
@@ -123,16 +126,6 @@ def parse_zhihu_url(url: str) -> ZhihuLink | None:  # noqa: PLR0911
         return ZhihuLink('answer', match.group(1))
     if match := _PIN_PATH_RE.fullmatch(path):
         return ZhihuLink('pin', match.group(1))
-    return None
-
-
-def find_zhihu_link(*texts: str) -> ZhihuLink | None:
-    """The first Zhihu answer, article or pin linked from any of ``texts``."""
-    for text in texts:
-        for match in _URL_RE.finditer(text or ''):
-            link = parse_zhihu_url(match.group(0))
-            if link is not None:
-                return link
     return None
 
 
@@ -253,7 +246,7 @@ def parse_post(link: ZhihuLink, data: Mapping[str, Any]) -> ZhihuPost:
 async def fetch_post(client: httpx.AsyncClient, link: ZhihuLink, *, api_url: str, token: str) -> ZhihuPost:
     """Look the post up through TikHub."""
     if not token:
-        msg = 'Zhihu links need a TikHub API key (web.wechat.tikhub_token)'
+        msg = 'Zhihu links need a TikHub API key (services.tikhub)'
         raise ZhihuAccountError(msg)
     path, param = _TIKHUB_ENDPOINTS[link.kind]
     try:
@@ -267,7 +260,7 @@ async def fetch_post(client: httpx.AsyncClient, link: ZhihuLink, *, api_url: str
         msg = f'TikHub did not answer for {link.url}: {exc.__class__.__name__}: {exc}'
         raise ZhihuError(msg) from exc
     if response.status_code in _TIKHUB_ACCOUNT_STATUSES:
-        msg = f'TikHub refused the API key (HTTP {response.status_code}); check web.wechat.tikhub_token and the account balance'
+        msg = f'TikHub refused the API key (HTTP {response.status_code}); check the key in services.tikhub and the account balance'
         raise ZhihuAccountError(msg)
     try:
         payload = response.json()
@@ -299,3 +292,16 @@ async def resolve_video(client: httpx.AsyncClient, video: ZhihuVideo) -> str:
         payload = {}
     url = _best_playlist_url(payload.get('playlist') if isinstance(payload, dict) else None)
     return url or video.fallback_url
+
+
+async def fetch_page(client: httpx.AsyncClient, link: ZhihuLink, *, api_url: str, token: str) -> ArticlePage:
+    """The post as a page of pictures and videos, each video resolved to a URL to download now."""
+    post = await fetch_post(client, link, api_url=api_url, token=token)
+    videos: list[PostVideo] = []
+    for video in post.videos:
+        url = await resolve_video(client, video)
+        if url:
+            videos.append(PostVideo(url, video.cover_url))
+        else:
+            log.info('Zhihu video %s of %s has no play URL', video.id, link.url)
+    return ArticlePage(title=post.title, account=post.author, published_at=post.published_at, images=post.images, videos=videos)

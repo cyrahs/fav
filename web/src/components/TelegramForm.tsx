@@ -1,4 +1,5 @@
 import { CheckboxGroup, NumberField, Repeater, SecretField, TextField, type Option } from './Field';
+import { PostLinksNote } from './PostLinksNote';
 import { list, num, patcher, str, type SectionFormProps } from './sectionFields';
 
 export type TelegramMediaType = 'video' | 'image';
@@ -130,6 +131,7 @@ export function TelegramForm(props: SectionFormProps) {
 
   return (
     <div className="field-grid">
+      <PostLinksNote where="频道里只发了" />
       <details className="subsection">
         <summary>抓取节流参数</summary>
         <div className="field-grid">
