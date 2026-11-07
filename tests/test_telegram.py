@@ -1127,6 +1127,7 @@ def test_link_job_saves_pictures_and_videos_to_their_routes(monkeypatch, tmp_pat
     assert insert[-1] == 'link'
     assert seen['notifications'][0]['link_url'] == 'https://www.zhihu.com/answer/2100311203096573240'
     assert seen['notifications'][0]['payload']['image_path'].endswith('-1 [10].jpg')
+    assert seen['notifications'][0]['image_url'] == ''
     # Saving a message clears its unsupported report, if it ever had one.
     assert seen['resolved'][0]['dedupe_key'] == 'telegram:unsupported:default:123:10'
 
@@ -1135,6 +1136,35 @@ def test_link_job_saves_pictures_and_videos_to_their_routes(monkeypatch, tmp_pat
     images, videos = asyncio.run(tg._save_link_media(page, 10, image_dir=tmp_path / 'image', video_dir=tmp_path / 'video'))
     assert fetched == []
     assert (len(images), len(videos)) == (2, 1)
+
+
+def test_link_job_of_videos_alone_shows_the_video_cover(monkeypatch, tmp_path) -> None:
+    tg = _make_telegram()
+    seen = _link_job_fakes(monkeypatch, tg, _message(10, message=_ZHIHU_SHARE))
+    page = telegram_module.ArticlePage(
+        title='黑色高跟鞋搭配什么颜色袜子好看？',
+        account='someone',
+        published_at=None,
+        images=[],
+        videos=[
+            telegram_module.post_links.PostVideo('https://vdn3.vzuu.com/HD/a.mp4'),
+            telegram_module.post_links.PostVideo('https://vdn3.vzuu.com/HD/b.mp4', 'https://picx.zhimg.com/v2-cover.png'),
+        ],
+    )
+
+    async def _fetch_video(_client, _video, partial: Path) -> bool:
+        await asyncio.to_thread(partial.write_bytes, b'video')
+        return True
+
+    monkeypatch.setattr(telegram_module.post_links, 'fetch_page', lambda *_args: asyncio.sleep(0, result=(page, '')))
+    monkeypatch.setattr(telegram_module.post_links, 'fetch_video', _fetch_video)
+
+    account = _split_account(tmp_path)
+    assert asyncio.run(tg._process_job(account=account, client=seen['client'][0], job=_job(media_type='link'), owner_token='o')) is True
+
+    notification = seen['notifications'][0]
+    assert notification['image_url'] == 'https://picx.zhimg.com/v2-cover.png'
+    assert 'image_path' not in notification['payload']
 
 
 def test_unreadable_link_is_retried_then_given_up(monkeypatch) -> None:

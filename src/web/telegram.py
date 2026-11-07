@@ -1022,6 +1022,8 @@ class Telegram:
         }
         if images:
             payload['image_path'] = str(images[0])
+        # A post of videos alone shows its first video's cover, which Telegram fetches itself.
+        cover_url = '' if images else next((video.cover_url for video in page.videos if video.cover_url), '')
         try:
             await enqueue_notification(
                 kind='download_completed',
@@ -1029,6 +1031,7 @@ class Telegram:
                 header='Telegram',
                 title=title,
                 link_url=canonical_url(link.url),
+                image_url=cover_url,
                 body=f'{site}{f" · {page.account}" if page.account else ""} | {counts}',
                 payload=payload,
             )
