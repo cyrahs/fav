@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import contextlib
+import ctypes
 import inspect
 import os
 import shutil
@@ -173,6 +174,19 @@ async def _safe_close(job_name: str, worker: object) -> None:
             await maybe_awaitable
     except Exception as exc:  # noqa: BLE001
         log.warning('Failed to close %s resources: %s', job_name, exc)
+
+
+def _release_freed_memory() -> None:
+    """Hand memory a finished job freed back to the system.
+
+    glibc keeps freed heap pages for reuse, so a job that briefly held a lot (the Azur Lane manifest
+    pass once peaked at ~1.4 GiB) left the worker that size until it restarted. ``malloc_trim``
+    returns those pages; it is glibc-only, so anywhere else this is a no-op.
+    """
+    try:
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except (OSError, AttributeError):
+        return
 
 
 async def _enqueue_job_failed_notification(
@@ -396,6 +410,7 @@ async def _run_job(*, job: ScheduledJob, worker: object | None = None, close_wor
     finally:
         if close_worker:
             await _safe_close(job.name, selected_worker)
+        _release_freed_memory()
 
 
 def _reload_jobs_sync() -> list[ScheduledJob]:

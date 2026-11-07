@@ -2356,6 +2356,58 @@ def test_azurlane_backend_manifests_are_deterministically_ordered(tmp_path: Path
     ]
 
 
+def test_azurlane_backend_manifests_query_assets_one_character_batch_at_a_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Loading every asset row at once took the worker to ~1.4 GiB, so each batch of characters
+    reads only its own models' assets, and every manifest still lists exactly its own."""
+    fake_db = _install_fake_database(monkeypatch)
+    monkeypatch.setattr(azurlane_module, '_MANIFEST_CHARACTER_BATCH', 1)
+    keys = ('ayanami', 'javelin', 'laffey')
+    for source_id, key in enumerate(keys, start=1):
+        model_id = f'azurlane:live2d:{key}:{key}'
+        fake_db.characters[key] = {
+            'character_key': key,
+            'source_id': source_id,
+            'name_en': key.title(),
+            'manifest_path': (tmp_path / key / 'manifest.json').as_posix(),
+            'active': True,
+        }
+        fake_db.models[model_id] = {
+            'model_id': model_id,
+            'model_type': 'live2d',
+            'source': 'l2d.su',
+            'character_key': key,
+            'costume_key': key,
+            'costume_id': source_id,
+            'primary_url': _live2d_url(key),
+            'active': True,
+        }
+        url = _live2d_url(key)
+        fake_db.assets[url] = {'url': url, 'normalized_url': url, 'kind': 'live2d.model3', 'status': 'downloaded'}
+        fake_db.model_assets.append(
+            {
+                'model_id': model_id,
+                'url': url,
+                'kind': 'live2d.model3',
+                'context_hash': f'hash-{key}',
+                'local_path': f'assets/live2d/{key}/{key}.model3.json',
+                'original_filename': f'{key}.model3.json',
+                'fallback_url': '',
+                'context_json': {},
+            },
+        )
+
+    crawler = AzurLane(path=tmp_path, api_request_interval_seconds=0, cdn_request_interval_seconds=0, asset_process_concurrency=1)
+    asyncio.run(crawler._write_backend_manifests())
+
+    asset_queries = [sql for sql in fake_db.queries if 'FROM azurlane_model_assets AS ma JOIN azurlane_assets AS a' in sql]
+    assert len(asset_queries) == len(keys)
+    for key in keys:
+        manifest_path = tmp_path / key / 'manifest.json'
+        payload = json.loads(manifest_path.read_text(encoding='utf-8'))
+        assert [model['model_id'] for model in payload['models']] == [f'azurlane:live2d:{key}:{key}']
+        assert [asset['local_path'] for asset in payload['models'][0]['assets']] == [f'assets/live2d/{key}/{key}.model3.json']
+
+
 def test_azurlane_hashed_build_keeps_the_archive_and_decrypts_new_skins(  # noqa: C901
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
