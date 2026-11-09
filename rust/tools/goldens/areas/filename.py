@@ -24,6 +24,14 @@ SANITIZE_CASES: list[tuple[str, int]] = [
     ('', 200),
     ('   ', 200),
     ('a' * 10, 0),
+    # str.strip() removes more than ASCII whitespace; Rust's trim() differs on \x1c-\x1f.
+    ('\x1c\x1d\x1e\x1fcontrols\x1f', 200),
+    ('\x85next line\x85', 200),
+    ('\xa0no-break\xa0', 200),
+    ('\u3000全角空格\u3000', 200),
+    ('\u2028line sep\u2029', 200),
+    ('\u200bzero width stays\u200b', 200),
+    ('\x0bvt\x0cff', 200),
 ]
 
 MEDIA_CASES: list[dict[str, Any]] = [
@@ -36,6 +44,9 @@ MEDIA_CASES: list[dict[str, Any]] = [
     {'title': 'short', 'media_id': '7', 'uploader': None, 'ext': 'mp4', 'max_total_bytes': 10},
     {'title': '😀' * 70, 'media_id': '😀', 'uploader': None, 'ext': 'gif'},
     {'title': '  spaced  ', 'media_id': ' 9 ', 'uploader': ' u ', 'ext': 'png'},
+    {'title': 'whitespace uploader', 'media_id': '1', 'uploader': '   ', 'ext': 'mp4'},
+    {'title': 'budget goes negative', 'media_id': 'i' * 100, 'uploader': 'u' * 100, 'ext': 'mp4', 'max_total_bytes': 150},
+    {'title': '\u3000title\xa0', 'media_id': '\x1c2\x1f', 'uploader': '\x85up\x85', 'ext': 'mp4'},
 ]
 
 

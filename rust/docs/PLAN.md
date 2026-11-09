@@ -31,6 +31,9 @@ experiment log below in the same PR. Read this file, `CONVENTIONS.md`, `PARITY.m
 - Azur Lane: replay only (origin reachable only from nas-us-1).
 - The Python tree on `rust` stays untouched. It is the reference and the golden generator. Do not merge `main` into `rust`.
 - PRs target `rust`, never `main`.
+- Never run `ci.yml` by hand (`workflow_dispatch`) and never push a tag from this branch: `ci.yml` cannot be
+  changed here, and either would build and push an image from `rust` (not tagged `latest`, so Flux would not
+  pick it up, but it is still a publish).
 
 ## Goals and non-goals
 
@@ -187,3 +190,4 @@ the independent review found; review findings are summarised with a link to the 
 
 | WP | PR | Rework | Independent review findings | Notes |
 | --- | --- | --- | --- | --- |
+| WP0 | #133 | 1 push after review | 0 blockers, 8 should-fix, 7 nits: goldens could be generated from a shadow copy of `src/` under `rust/`; `cfg_attr(..., ignore)` slipped past the ignore check; tests could be parked in an invented WP or moved out of a done one; `ci.yml` dispatch/tags could publish from `rust`; APScheduler DST repeat recorded without a note; JSON and filename goldens missed formats and edge cases; `min_id` advice wrong and RedNote click/scroll/reload/cookie-filter APIs missing from the coverage check. All fixed in the PR except `ci.yml` (rule added above) | Probe crate exercises a real Chromium in CI |

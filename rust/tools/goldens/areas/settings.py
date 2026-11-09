@@ -1,4 +1,9 @@
-"""Settings defaults exactly as `app_settings` stores them (WP1), and the section registry."""
+"""Settings defaults as `save_section` writes them (WP1), and the section registry.
+
+`app_settings.value` is JSONB, so PostgreSQL normalises the text it is given: what matters
+is the value, not these bytes. The text is kept so a Rust writer can be diffed against it
+before the database sees it.
+"""
 
 from __future__ import annotations
 

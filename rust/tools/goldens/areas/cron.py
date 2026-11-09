@@ -5,8 +5,11 @@ Tuesdays), `7` is rejected, and DST gaps and repeats are resolved its own way. T
 worker builds its triggers in `run.py::_sync_schedule` and the API shows the next fire
 time through `src/api/ops.py::next_fire_time`; both use `from_crontab(cron, timezone=TZ)`.
 
-A chain is what the scheduler does after each run: the next fire time strictly after
-the previous one, `get_next_fire_time(previous, previous)`.
+A chain is what the scheduler does after each run: `get_next_fire_time(previous, previous)`.
+That is normally the next fire time after the previous one, but not always: APScheduler
+3.11 can return the previous time again around a DST fall-back (`15 1 * * *` in
+America/New_York on 2026-11-01 repeats 01:15-05:00). The goldens record what Python does;
+`rust/docs/DIVERGENCES.md` (D3) says what the Rust scheduler does instead.
 """
 
 from __future__ import annotations

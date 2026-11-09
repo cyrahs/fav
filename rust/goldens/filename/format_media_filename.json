@@ -85,6 +85,34 @@
         "ext": "png"
       },
       "result": "[u]spaced [9].png"
+    },
+    {
+      "args": {
+        "title": "whitespace uploader",
+        "media_id": "1",
+        "uploader": "   ",
+        "ext": "mp4"
+      },
+      "result": "whitespace uploader [1].mp4"
+    },
+    {
+      "args": {
+        "title": "budget goes negative",
+        "media_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "uploader": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+        "ext": "mp4",
+        "max_total_bytes": 150
+      },
+      "result": "[uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu] [iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii].mp4"
+    },
+    {
+      "args": {
+        "title": "　title ",
+        "media_id": "\u001c2\u001f",
+        "uploader": "up",
+        "ext": "mp4"
+      },
+      "result": "[up]title [2].mp4"
     }
   ]
 }

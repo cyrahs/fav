@@ -75,9 +75,11 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
   Stack several `// py:` lines when one Rust test covers several Python tests. Port the intent of the
   assertions, not the mocking mechanics, and never weaken an assertion: if Python checks an exact string,
   so does Rust.
-- Scope: `rust/parity/scope.toml` says which work package owns which Python test. If a package needs to
-  split a file, add the more specific patterns there in its PR. Set the package's `status = "done"` in the PR
-  that finishes it; CI then requires every test in scope to be ported or waived.
+- Scope: `rust/parity/scope.toml` says which work package owns which Python test (only `WP0`..`WP18`). If a
+  package needs to split a file, add the more specific patterns there in its PR. Set the package's
+  `status = "done"` in the PR that finishes it; CI then requires every test in scope to be ported or waived,
+  and compares with the base branch so a done package can never be reopened or lose tests. When `WP18` is
+  done, nothing may be pending anywhere.
 - Waivers: `rust/parity/waivers.toml`, one entry per test with a reason that says why the behaviour does not
   exist in the Rust build (for example the SQLite-dialect translation layer). The independent review reads
   every waiver.
@@ -93,6 +95,9 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
 
 - Goldens are deterministic outputs of the Python baseline, committed under `rust/goldens/<area>/`. They are
   produced only by `rust/tools/goldens/generate.py`; a porting session never writes expected values by hand.
+  The generator refuses to run if `src` or any imported module (other than `areas/`) resolves under `rust/`.
+  An area module must call the real Python code; one that returns literals defeats the check, and the
+  independent review looks for exactly that.
 - To add goldens, add or extend a module in `rust/tools/goldens/areas/` (`GOLDENS = {path: producer}`) that
   calls the real Python code, then run from the repository root:
 
@@ -104,7 +109,8 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
   Use Python 3.12 (production's version); the repository's `.python-version` says 3.13, so set `UV_PYTHON`.
 - Rust tests read goldens with `include_str!` or from `env!("CARGO_MANIFEST_DIR")/../../goldens/...` and
   compare byte for byte where the plan says so.
-- Areas from WP0: `json` (every `json.dumps` format the code uses, `default=str` values), `filename`,
+- Areas from WP0: `json` (every `json.dumps` format the code uses, `default=str` values, non-string keys and
+  non-finite floats), `filename`,
   `db` (advisory lock ids), `scheduler` (APScheduler `from_crontab` next fire times, including its Monday=0
   weekdays and DST handling), `settings` (stored defaults, section registry), `jobs` (`JOB_SPECS`).
 

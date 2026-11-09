@@ -37,8 +37,36 @@ GOLDEN_DIR = RUST_DIR / 'goldens'
 os.environ.setdefault('POSTGRES_DSN', 'postgresql://goldens@127.0.0.1:1/never-connected')
 os.environ.setdefault('API_TOKEN', 'token-for-goldens')
 os.environ['TZ'] = 'UTC'
+# The repository root goes first and `areas` is found after it, so nothing under rust/
+# can shadow the Python code the goldens must come from (`_assert_real_sources`).
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(HERE))
+sys.path.append(str(HERE))
+
+
+def _assert_real_sources() -> None:
+    """Fail unless `src` is the repository's own tree and third-party code is not under rust/."""
+    import apscheduler  # noqa: PLC0415
+    import src  # noqa: PLC0415
+
+    # `src` is a namespace package (no __init__.py), so a regular `src` package anywhere
+    # on sys.path would win over it; insist on exactly the repository's directory.
+    src_dirs = [Path(entry).resolve() for entry in src.__path__]
+    if src_dirs != [REPO_ROOT / 'src']:
+        msg = f'src resolves to {src_dirs}, not {REPO_ROOT / "src"}; goldens must come from the baseline tree'
+        raise SystemExit(msg)
+    for module in (apscheduler,):
+        location = Path(module.__file__).resolve()
+        if location.is_relative_to(RUST_DIR):
+            msg = f'{module.__name__} resolves to {location}, inside rust/'
+            raise SystemExit(msg)
+    for name, module in list(sys.modules.items()):
+        location = getattr(module, '__file__', None)
+        if not location or name == 'areas' or name.startswith('areas.'):
+            continue
+        resolved = Path(location).resolve()
+        if resolved != Path(__file__).resolve() and resolved.is_relative_to(RUST_DIR):
+            msg = f'module {name} was loaded from {location}, inside rust/'
+            raise SystemExit(msg)
 
 
 def _pin_default_settings() -> None:
@@ -59,6 +87,7 @@ def _render(area: str, cases: list[object]) -> str:
 
 
 def build() -> dict[str, str]:
+    _assert_real_sources()
     _pin_default_settings()
     import areas  # noqa: PLC0415
 
@@ -70,6 +99,7 @@ def build() -> dict[str, str]:
                 msg = f'golden {relative} is produced twice'
                 raise SystemExit(msg)
             outputs[relative] = _render(info.name, producer())
+    _assert_real_sources()
     return outputs
 
 

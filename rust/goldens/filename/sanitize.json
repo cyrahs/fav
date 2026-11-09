@@ -88,6 +88,41 @@
       "name": "aaaaaaaaaa",
       "max_bytes": 0,
       "result": ""
+    },
+    {
+      "name": "\u001c\u001d\u001e\u001fcontrols\u001f",
+      "max_bytes": 200,
+      "result": "controls"
+    },
+    {
+      "name": "next line",
+      "max_bytes": 200,
+      "result": "next line"
+    },
+    {
+      "name": " no-break ",
+      "max_bytes": 200,
+      "result": "no-break"
+    },
+    {
+      "name": "　全角空格　",
+      "max_bytes": 200,
+      "result": "全角空格"
+    },
+    {
+      "name": " line sep ",
+      "max_bytes": 200,
+      "result": "line sep"
+    },
+    {
+      "name": "​zero width stays​",
+      "max_bytes": 200,
+      "result": "​zero width stays​"
+    },
+    {
+      "name": "\u000bvt\fff",
+      "max_bytes": 200,
+      "result": "vt\fff"
     }
   ]
 }

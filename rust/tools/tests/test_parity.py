@@ -170,3 +170,52 @@ def test_parity_md_must_be_regenerated(repo: Path) -> None:
     assert parity.run(write=False, pytest_listing=None, rust_listing=None) == 0
     text = (repo / 'rust' / 'docs' / 'PARITY.md').read_text(encoding='utf-8')
     assert '4 Python test functions at the baseline: 0 ported, 0 waived, 4 pending.' in text
+
+
+def test_tests_cannot_be_parked_in_an_invented_package(repo: Path) -> None:
+    _scope(repo, alpha='pending', beta='pending', extra=']\n\n[WP99]\ntests = ["tests/test_beta.py::test_four"')
+    _, errors = _collect()
+    assert any('WP99 is not a work package of the plan' in error for error in errors)
+
+
+def test_a_package_done_on_the_base_branch_keeps_its_status_and_tests(repo: Path) -> None:
+    base = repo / 'base-scope.toml'
+    base.write_text(
+        '[WP1]\nstatus = "pending"\ntests = ["tests/test_alpha.py"]\n\n[WP2]\nstatus = "done"\ntests = ["tests/test_beta.py"]\n',
+        encoding='utf-8',
+    )
+    (repo / 'rust' / 'parity' / 'waivers.toml').write_text(
+        '[[waiver]]\ntest = "tests/test_beta.py::test_four"\nreason = "Covers a code path the Rust build does not have."\n',
+        encoding='utf-8',
+    )
+    _scope(repo, alpha='pending', beta='done')
+    report = parity.Report()
+    parity.collect(report, pytest_listing=None, rust_listing=None, base_scope=base)
+    assert report.errors == []
+
+    _scope(repo, alpha='pending', beta='pending')
+    report = parity.Report()
+    parity.collect(report, pytest_listing=None, rust_listing=None, base_scope=base)
+    assert any('WP2 was done on the base branch and cannot be reopened' in error for error in report.errors)
+
+    (repo / 'rust' / 'parity' / 'scope.toml').write_text(
+        '[WP1]\nstatus = "pending"\ntests = ["tests/test_alpha.py", "tests/test_beta.py::test_four"]\n\n'
+        '[WP2]\nstatus = "done"\ntests = ["tests/test_beta.py"]\n',
+        encoding='utf-8',
+    )
+    report = parity.Report()
+    parity.collect(report, pytest_listing=None, rust_listing=None, base_scope=base)
+    assert any('belonged to WP2, done on the base branch; it cannot move to WP1' in error for error in report.errors)
+
+
+def test_the_final_audit_requires_nothing_pending_anywhere(repo: Path) -> None:
+    (repo / 'rust' / 'parity' / 'scope.toml').write_text(
+        '[WP1]\nstatus = "pending"\ntests = ["tests/test_alpha.py"]\n\n[WP18]\nstatus = "done"\ntests = ["tests/test_beta.py"]\n',
+        encoding='utf-8',
+    )
+    (repo / 'rust' / 'parity' / 'waivers.toml').write_text(
+        '[[waiver]]\ntest = "tests/test_beta.py::test_four"\nreason = "Covers a code path the Rust build does not have."\n',
+        encoding='utf-8',
+    )
+    _, errors = _collect()
+    assert sum('the parity audit) is done but' in error for error in errors) == 3

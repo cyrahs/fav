@@ -21,6 +21,10 @@
       "mirrors": "src/core/settings.py rows, src/web/wechat.py: ensure_ascii=False, default separators, insertion order"
     },
     {
+      "name": "pretty_unsorted",
+      "mirrors": "src/web/wechat.py article.json on disk: indent=2, ensure_ascii=False, insertion order, no trailing newline"
+    },
+    {
       "name": "sorted_plain",
       "mirrors": "src/api/routes.py search haystack: ensure_ascii=False, sort_keys, default separators"
     },

@@ -89,6 +89,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v5
+      with:
+        # The parity check reads the base branch's scope.toml.
+        fetch-depth: 0
 
     - name: Install the pinned toolchain (rust/rust-toolchain.toml)
       run: |
@@ -111,8 +114,13 @@ jobs:
         echo "FAV_TEST_CHROMIUM=${chromium}" >> "$GITHUB_ENV"
         "${chromium}" --version
 
-    - name: Test
-      run: cargo test --workspace --locked
+    - name: Test (no test may be ignored)
+      run: |
+        cargo test --workspace --locked 2>&1 | tee "$RUNNER_TEMP/cargo-test.log"
+        if grep -E '^test result: .* [1-9][0-9]* ignored' "$RUNNER_TEMP/cargo-test.log"; then
+          echo "::error::ignored tests are not allowed on the rust branch"
+          exit 1
+        fi
 
     - name: List compiled tests for the parity check
       run: cargo test --workspace --locked -- --list --format terse > "$RUNNER_TEMP/rust-tests.txt"
@@ -127,10 +135,18 @@ jobs:
       run: |
         uv sync --locked
         uv run pytest --collect-only -q > "$RUNNER_TEMP/pytest-collected.txt"
+        base_args=()
+        if git show "${BASE_REV}:rust/parity/scope.toml" > "$RUNNER_TEMP/base-scope.toml" 2>/dev/null; then
+          base_args=(--base-scope "$RUNNER_TEMP/base-scope.toml")
+        else
+          echo "no scope.toml at ${BASE_REV}; skipping the base comparison"
+        fi
         uv run python rust/tools/parity/parity.py --check \
           --pytest-collected "$RUNNER_TEMP/pytest-collected.txt" \
-          --rust-tests "$RUNNER_TEMP/rust-tests.txt"
+          --rust-tests "$RUNNER_TEMP/rust-tests.txt" \
+          "${base_args[@]}"
       working-directory: .
       env:
+        BASE_REV: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
         POSTGRES_DSN: postgresql://tests@127.0.0.1:5432/fav-tests
         API_TOKEN: token-for-tests

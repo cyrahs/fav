@@ -42,6 +42,9 @@ TEST_ATTRIBUTE = re.compile(r'^\s*#\[\s*(?:[\w:]+::)?test\b')
 FN_LINE = re.compile(r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(?P<name>\w+)')
 MIN_REASON_CHARS = 20
 STATUSES = ('pending', 'in-progress', 'done')
+# The plan's work packages and nothing else, so tests cannot be parked in an invented one.
+WORK_PACKAGES = tuple(f'WP{number}' for number in range(19))
+FINAL_WP = 'WP18'
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,11 +148,17 @@ def rust_test_names(listing: Path) -> set[str]:
 
 def load_scope(report: Report, known: list[str]) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """Return (test id -> WP, WP -> status, WP -> title)."""
-    raw = tomllib.loads(SCOPE_FILE.read_text(encoding='utf-8'))
+    return _load_scope_text(report, known, SCOPE_FILE.read_text(encoding='utf-8'))
+
+
+def _load_scope_text(report: Report, known: list[str], text: str) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    raw = tomllib.loads(text)
     statuses: dict[str, str] = {}
     titles: dict[str, str] = {}
     patterns: list[tuple[str, str]] = []
     for wp, entry in raw.items():
+        if wp not in WORK_PACKAGES:
+            report.error(f'scope.toml: {wp} is not a work package of the plan ({WORK_PACKAGES[0]}..{WORK_PACKAGES[-1]})')
         status = entry.get('status', 'pending')
         if status not in STATUSES:
             report.error(f'scope.toml: {wp} has status {status!r}; use one of {", ".join(STATUSES)}')
@@ -186,6 +195,20 @@ def _specificity(pattern: str) -> int:
     if '::' not in pattern:
         return 0
     return 1 if any(char in pattern for char in '*?[') else 2
+
+
+def check_against_base(report: Report, base_scope: Path, known: list[str], assignment: dict[str, str], statuses: dict[str, str]) -> None:
+    """A finished package stays finished: its status and its tests cannot move later."""
+    base_report = Report()
+    base_assignment, base_statuses, _ = _load_scope_text(base_report, known, base_scope.read_text(encoding='utf-8'))
+    for wp, status in base_statuses.items():
+        if status == 'done' and statuses.get(wp) != 'done':
+            report.error(f'scope.toml: {wp} was done on the base branch and cannot be reopened')
+    for test_id, base_wp in base_assignment.items():
+        if base_statuses.get(base_wp) == 'done' and assignment.get(test_id) != base_wp:
+            report.error(
+                f'scope.toml: {test_id} belonged to {base_wp}, done on the base branch; it cannot move to {assignment.get(test_id)}'
+            )
 
 
 def load_waivers(report: Report, known: set[str]) -> dict[str, str]:
@@ -323,7 +346,7 @@ def _check_claims(report: Report, claims: dict[str, list[RustTest]], known: set[
                 report.error(f'{claim.path}:{claim.line}: {claim.name} carries a `// py:` claim but cargo does not list it as a test')
 
 
-def collect(report: Report, *, pytest_listing: Path | None, rust_listing: Path | None) -> Parity:
+def collect(report: Report, *, pytest_listing: Path | None, rust_listing: Path | None, base_scope: Path | None = None) -> Parity:
     known = python_tests()
     known_set = set(known)
     if len(known_set) != len(known):
@@ -339,16 +362,22 @@ def collect(report: Report, *, pytest_listing: Path | None, rust_listing: Path |
         report.error(f'{test_id} is both ported and waived; drop the waiver')
 
     assignment, statuses, titles = load_scope(report, known)
+    if base_scope is not None:
+        check_against_base(report, base_scope, known, assignment, statuses)
     parity = Parity(known, claims, waivers, assignment, statuses, titles)
     for test_id, wp in assignment.items():
         if statuses.get(wp) == 'done' and parity.state(test_id) == 'pending':
             report.error(f'{wp} is done but {test_id} is neither ported nor waived')
+    if statuses.get(FINAL_WP) == 'done':
+        for test_id in known:
+            if parity.state(test_id) == 'pending':
+                report.error(f'{FINAL_WP} (the parity audit) is done but {test_id} is still pending')
     return parity
 
 
-def run(*, write: bool, pytest_listing: Path | None, rust_listing: Path | None) -> int:
+def run(*, write: bool, pytest_listing: Path | None, rust_listing: Path | None, base_scope: Path | None = None) -> int:
     report = Report()
-    parity = collect(report, pytest_listing=pytest_listing, rust_listing=rust_listing)
+    parity = collect(report, pytest_listing=pytest_listing, rust_listing=rust_listing, base_scope=base_scope)
     text = render(parity)
     if write:
         PARITY_MD.write_text(text, encoding='utf-8')
@@ -370,8 +399,11 @@ def main() -> int:
     mode.add_argument('--write', action='store_true', help='validate and regenerate PARITY.md')
     parser.add_argument('--pytest-collected', type=Path, help='output of `pytest --collect-only -q`, to cross-check the AST scan')
     parser.add_argument('--rust-tests', type=Path, help='output of `cargo test -- --list --format terse`, to check claims compile')
+    parser.add_argument(
+        '--base-scope', type=Path, help="the base branch's scope.toml; packages done there must stay done and keep their tests"
+    )
     args = parser.parse_args()
-    return run(write=args.write, pytest_listing=args.pytest_collected, rust_listing=args.rust_tests)
+    return run(write=args.write, pytest_listing=args.pytest_collected, rust_listing=args.rust_tests, base_scope=args.base_scope)
 
 
 if __name__ == '__main__':

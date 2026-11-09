@@ -95,23 +95,41 @@ pub async fn connect(session: Arc<MemorySession>, api_id: i32, flood_sleep_thres
     Ok((client, authorized))
 }
 
-/// `iter_messages(channel, limit=..., min_id=..., reverse=...)`: grammers'
-/// `MessageIter` has no `min_id`, so the raw `messages.getHistory` call is used.
-pub async fn history_after(
+/// `iter_messages(channel, limit=..., min_id=..., reverse=True)`. Telethon does not send
+/// `min_id`: in reverse it pages upward from `offset_id = min_id + 1` with a negative
+/// `add_offset` and drops anything `<= min_id` on the client. grammers' reverse iterator
+/// does the same from `offset_id(min_id)` (it sets the request's `min_id` to the offset,
+/// which is exclusive), so every message newer than `min_id` arrives, oldest first, page
+/// after page, however large the backlog.
+pub async fn history_after(client: &Client, channel: PeerRef, min_id: i32, limit: Option<usize>) -> Result<Vec<Message>, InvocationError> {
+    let mut iter = client.iter_messages(channel).reverse(true).offset_id(min_id);
+    if let Some(limit) = limit {
+        iter = iter.limit(limit);
+    }
+    let mut out = Vec::new();
+    while let Some(message) = iter.next().await? {
+        out.push(message);
+    }
+    Ok(out)
+}
+
+/// The raw call stays available for anything the iterator does not expose.
+pub async fn raw_history(
     client: &Client,
     channel: &PeerRef,
-    min_id: i32,
+    offset_id: i32,
+    add_offset: i32,
     limit: i32,
 ) -> Result<tl::enums::messages::Messages, InvocationError> {
     client
         .invoke(&tl::functions::messages::GetHistory {
             peer: channel.into(),
-            offset_id: 0,
+            offset_id,
             offset_date: 0,
-            add_offset: 0,
+            add_offset,
             limit,
             max_id: 0,
-            min_id,
+            min_id: 0,
             hash: 0,
         })
         .await

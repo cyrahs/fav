@@ -18,8 +18,8 @@ members = [
     "crates/fav",
     "probes/api-coverage",
 ]
-# `cargo build` / `cargo test` at the root skip the probe crate; CI checks it
-# in its own job.
+# Plain `cargo build` / `cargo test` skip the probe crate; `--workspace` (what CI
+# runs) includes it.
 default-members = [
     "crates/fav-core",
     "crates/fav-db",

@@ -19,7 +19,7 @@ use chromiumoxide::handler::Handler;
 use chromiumoxide::page::Page;
 use futures::StreamExt;
 
-/// The arguments Playwright 1.59 passes to Chromium for a persistent context,
+/// The arguments Playwright (1.61.0 in `uv.lock`) passes to Chromium for a persistent context,
 /// minus `--enable-automation` (`ignore_default_args`), plus the two fav adds.
 /// WP16 copies the full list from the pinned Playwright release; this subset is
 /// what the probe needs to show an exact, ordered argument list reaches Chromium.
@@ -144,6 +144,50 @@ pub async fn authenticate_proxy(page: &Page, username: &str, password: &str) -> 
     .await
 }
 
+/// `page.locator(selector, has_text=label).first.click()`: the first match whose text
+/// contains `label`, scrolled into view and clicked at its centre. No match is an error,
+/// never a silent no-op (a missed click once reached a live account, `rednote_browser.py`).
+/// Playwright's actionability waits (visible, stable, receives events) are WP16's to add.
+pub async fn click_first_with_text(page: &Page, selector: &str, label: &str) -> Result<(), CdpError> {
+    for element in page.find_elements(selector).await? {
+        if element.inner_text().await?.is_some_and(|text| text.contains(label)) {
+            element.scroll_into_view().await?;
+            element.click().await?;
+            return Ok(());
+        }
+    }
+    Err(CdpError::msg(format!("no {selector} element contains {label:?}")))
+}
+
+/// `page.mouse.move(x, y)` then `page.mouse.wheel(0, dy)`.
+pub async fn wheel_at(page: &Page, x: f64, y: f64, delta_y: f64) -> Result<(), CdpError> {
+    use chromiumoxide::cdp::browser_protocol::input::{DispatchMouseEventParams, DispatchMouseEventType};
+    page.move_mouse(chromiumoxide::layout::Point::new(x, y)).await?;
+    let wheel = DispatchMouseEventParams::builder()
+        .r#type(DispatchMouseEventType::MouseWheel)
+        .x(x)
+        .y(y)
+        .delta_x(0.0)
+        .delta_y(delta_y)
+        .build()
+        .map_err(CdpError::msg)?;
+    page.execute(wheel).await?;
+    Ok(())
+}
+
+/// `context.cookies([WEB_ORIGIN])`: only the cookies that would be sent to those URLs.
+pub async fn cookies_for(page: &Page, urls: &[&str]) -> Result<Vec<(String, String)>, CdpError> {
+    use chromiumoxide::cdp::browser_protocol::network::GetCookiesParams as NetworkGetCookies;
+    let params = NetworkGetCookies::builder().urls(urls.iter().map(|url| (*url).to_owned())).build();
+    let cookies = page.execute(params).await?;
+    Ok(cookies
+        .result
+        .cookies
+        .into_iter()
+        .map(|cookie| (cookie.name, cookie.value))
+        .collect())
+}
+
 /// `add_init_script(...)`.
 pub async fn add_init_script(page: &Page, source: &str) -> chromiumoxide::Result<()> {
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(source)).await?;
@@ -208,6 +252,13 @@ mod tests {
             .or_else(|| Some(PathBuf::from("/opt/pw-browsers/chromium")).filter(|path| path.exists()))
     }
 
+    /// Two tabs like RedNote's profile page, and a page tall enough to scroll.
+    const TABS_PAGE: &str = "<html><body style='margin:0'>\
+        <div style='height:3000px'>\
+        <span class='reds-tab-item' onclick='window.__tab=\"notes\"'>笔记</span>\
+        <span class='reds-tab-item' onclick='window.__tab=\"liked\"'>赞过 12</span>\
+        </div><script>window.__loads=(Number(sessionStorage.loads)||0)+1;sessionStorage.loads=window.__loads;</script></body></html>";
+
     /// A one-file HTTP server on loopback: `/` is a page that fetches `/like/page`.
     async fn serve() -> std::net::SocketAddr {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -221,6 +272,12 @@ mod tests {
                     let request = String::from_utf8_lossy(&buf[..read]);
                     let (content_type, body, cookie) = if request.starts_with("GET /like/page") {
                         ("application/json", r#"{"data":{"notes":[1,2]}}"#.to_owned(), "")
+                    } else if request.starts_with("GET /tabs") {
+                        (
+                            "text/html; charset=utf-8",
+                            TABS_PAGE.to_owned(),
+                            "Set-Cookie: tab_seen=1; Path=/tabs\r\n",
+                        )
                     } else {
                         (
                             "text/html",
@@ -389,6 +446,64 @@ mod tests {
             .into_value()
             .unwrap();
         assert_eq!(text, "proxied");
+
+        browser.close().await.unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), process.wait()).await;
+        handler.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn clicks_scrolls_reloads_and_filters_cookies_like_the_liked_tab_flow() {
+        let Some(executable) = chromium() else {
+            assert!(std::env::var_os("CI").is_none(), "CI must set FAV_TEST_CHROMIUM");
+            return;
+        };
+        let addr = serve().await;
+        let profile = tempfile::tempdir().unwrap();
+        let argv = launch_argv(profile.path(), true, None);
+        let LaunchedBrowser {
+            mut browser,
+            mut process,
+            handler,
+        } = launch(&executable, &argv, Duration::from_secs(30)).await.unwrap();
+        let page = browser.new_page("about:blank").await.unwrap();
+        emulate_context(&page, 1280, 800).await.unwrap();
+
+        goto_dom_content_loaded(&page, &format!("http://{addr}/"), Duration::from_secs(20))
+            .await
+            .unwrap();
+        goto_dom_content_loaded(&page, &format!("http://{addr}/tabs"), Duration::from_secs(20))
+            .await
+            .unwrap();
+
+        click_first_with_text(&page, ".reds-tab-item", "赞过").await.unwrap();
+        let tab: String = page.evaluate("() => window.__tab").await.unwrap().into_value().unwrap();
+        assert_eq!(tab, "liked");
+        let missing = click_first_with_text(&page, ".reds-tab-item", "收藏").await;
+        assert!(missing.is_err(), "a missing tab must be an error, not a silent no-op");
+
+        wheel_at(&page, 640.0, 400.0, 900.0).await.unwrap();
+        let mut scrolled = 0.0_f64;
+        for _ in 0..50 {
+            scrolled = page.evaluate("() => window.scrollY").await.unwrap().into_value().unwrap();
+            if scrolled > 0.0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(scrolled > 0.0, "the wheel did not scroll the page");
+
+        page.reload().await.unwrap();
+        let loads: i64 = page.evaluate("() => window.__loads").await.unwrap().into_value().unwrap();
+        assert_eq!(loads, 2);
+
+        let on_tabs = cookies_for(&page, &[&format!("http://{addr}/tabs")]).await.unwrap();
+        assert!(
+            on_tabs.iter().any(|(name, _)| name == "tab_seen") && on_tabs.iter().any(|(name, _)| name == "web_session"),
+            "{on_tabs:?}"
+        );
+        let on_root = cookies_for(&page, &[&format!("http://{addr}/")]).await.unwrap();
+        assert!(!on_root.iter().any(|(name, _)| name == "tab_seen"), "{on_root:?}");
 
         browser.close().await.unwrap();
         let _ = tokio::time::timeout(Duration::from_secs(10), process.wait()).await;

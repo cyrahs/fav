@@ -32,6 +32,10 @@ FORMATS: dict[str, tuple[str, Any]] = {
         'src/core/settings.py rows, src/web/wechat.py: ensure_ascii=False, default separators, insertion order',
         lambda value: json.dumps(value, ensure_ascii=False),
     ),
+    'pretty_unsorted': (
+        'src/web/wechat.py article.json on disk: indent=2, ensure_ascii=False, insertion order, no trailing newline',
+        lambda value: json.dumps(value, ensure_ascii=False, indent=2),
+    ),
     'sorted_plain': (
         'src/api/routes.py search haystack: ensure_ascii=False, sort_keys, default separators',
         lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True),
@@ -111,6 +115,26 @@ DEFAULT_STR_VALUES: list[tuple[str, str, object]] = [
 ]
 
 
+# Values `json.loads` can never produce, but call sites can pass: non-string keys (which
+# `sort_keys` orders by their own type, so 9 sorts before 10), tuples, and the non-finite
+# floats Python writes by default (`allow_nan=True`). `expr` is the Python source of the
+# value; the Rust test builds the same value by hand from it.
+PYTHON_VALUES: list[tuple[str, object]] = [
+    ("{10: 'a', 9: 'b', 100: 'c'}", {10: 'a', 9: 'b', 100: 'c'}),
+    ("{-1: 'neg', 0: 'zero', 2: 'two'}", {-1: 'neg', 0: 'zero', 2: 'two'}),
+    ("{1.5: 'x', 0.25: 'y'}", {1.5: 'x', 0.25: 'y'}),
+    ("{True: 't', False: 'f'}", {True: 't', False: 'f'}),
+    ("{None: 'none'}", {None: 'none'}),
+    ("{'k': (1, 'two', (3,))}", {'k': (1, 'two', (3,))}),
+    ("[float('nan'), float('inf'), float('-inf')]", [float('nan'), float('inf'), float('-inf')]),
+    ("{'b': 1.0, 'a': -0.0}", {'b': 1.0, 'a': -0.0}),
+]
+
+
+def _python_value_cases() -> list[dict[str, Any]]:
+    return [{'expr': expr, 'outputs': {name: function(value) for name, (_, function) in FORMATS.items()}} for expr, value in PYTHON_VALUES]
+
+
 def _default_str_cases() -> list[dict[str, Any]]:
     hash_dumps = FORMATS['hash'][1]
     return [
@@ -123,4 +147,5 @@ GOLDENS = {
     'json/formats.json': _formats,
     'json/dumps.json': _dumps_cases,
     'json/default_str.json': _default_str_cases,
+    'json/python_values.json': _python_value_cases,
 }

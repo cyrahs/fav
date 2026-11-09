@@ -7,7 +7,7 @@ webp. WP0 checked each candidate crate against what the Python code actually cal
 | Python | Crate (pinned) | Verdict |
 | --- | --- | --- |
 | Telethon 1.43 | `grammers-client` / `-session` / `-mtsender` / `-tl-types` **0.12.0** | Sufficient, with raw-API fallbacks for two gaps |
-| Playwright 1.59 | `chromiumoxide` **0.9.1** (CDP client only) | Sufficient as a CDP client; do not use its launcher |
+| Playwright 1.61 (`uv.lock`) | `chromiumoxide` **0.9.1** (CDP client only) | Sufficient as a CDP client; do not use its launcher |
 | `mcp` 1.30 (FastMCP) | `rmcp` **3.9.0** | Sufficient |
 | Pillow 11 (animated webp) | `webp-animation` **0.10.0** (bundled static libwebp) + `image` 0.25 | Sufficient |
 
@@ -28,13 +28,20 @@ Probe: `probes/api-coverage/src/telegram.rs`.
 | `client.disconnected` | `SenderPoolRunner::run()` returning | Compiles |
 | `receive_updates=True, catch_up=True`, `events.NewMessage()` | `Client::stream_updates(updates, UpdatesConfiguration { catch_up: true })`, `Update::NewMessage` | Compiles |
 | `events.Album()` | **No equivalent.** Group `NewMessage` updates by `grouped_id` ourselves | Compiles |
-| `iter_messages(channel, limit, min_id, reverse, wait_time)` | `MessageIter` has `limit`, `reverse`, `offset_id` but **no `min_id`**: use raw `messages.getHistory { min_id, .. }` through `Client::invoke`. `wait_time` is our own sleep between pages | Compiles |
+| `iter_messages(channel, limit, min_id, reverse=True, wait_time)` | Telethon never sends `min_id`: in reverse it pages upward from `offset_id = min_id + 1` with a negative `add_offset` and drops ids `<= min_id` client-side. grammers' `iter_messages(peer).reverse(true).offset_id(min_id)` pages the same way (its request `min_id` is the exclusive offset). `wait_time` is our own sleep between pages | Compiles |
+| `iter_messages(channel, limit, min_id, reverse=False)` (newest window) | `iter_messages(peer).limit(n)`, stopping at ids `<= min_id` ourselves, as Telethon does | Compiles |
 | `get_entity(PeerChannel(id))`, `get_messages(channel, ids=...)` | `Session::peer_ref` (access hash from the cache) + `Client::resolve_peer`, `Client::get_messages_by_id` | Compiles |
 | `MessageMediaPhoto`, `DocumentAttributeVideo`, sticker / custom-emoji attributes, `mime_type`, `grouped_id` | `Media::{Photo, Document, Sticker}`, `Document::mime_type()`, the raw `tl` attributes, `Message::grouped_id()` | Compiles |
 | `download_media(file=..., progress_callback=...)` | `Client::iter_download` chunk by chunk (progress is ours). `Client::download_media` has no progress callback but downloads big files over parallel workers | Compiles |
 
 Notes for WP15:
 
+- The probe's login test only round-trips the values of a `sessions` row into grammers; it does not read a
+  `.session` file. WP15 reads real files (generate one with Telethon in a golden) and also imports the
+  `entities` table: `get_entity(PeerChannel(id))` needs the access hash stored there. `server_address` can be
+  IPv6 in Telethon; the probe's struct is IPv4 only.
+- Telethon retries a request up to `request_retries` (default 5) and sleeps through every `FLOOD_WAIT` under
+  the threshold; the probe's policy retries once. Copy Telethon's counts.
 - Session file. Telethon's `.session` is SQLite: `sessions(dc_id, server_address, port, auth_key,
   takeout_id, tmp_auth_key)`, `entities(id, hash, username, phone, name, date)` with marked ids (`-100…` for
   channels), `update_state(id, pts, qts, date, seq)`, `sent_files`, `version`. Reading it needs an SQLite
@@ -63,7 +70,12 @@ Probe: `probes/api-coverage/src/cdp.rs`. Two tests drive a real headless Chromiu
 | `page.on('request' / 'response' / 'requestfinished' / 'requestfailed')`, `response.json()` | `Network.requestWillBeSent` / `responseReceived` / `loadingFinished` / `loadingFailed` streams, `Network.getResponseBody` | Test |
 | `goto(url, wait_until='domcontentloaded')` | `Page.navigate` + `Page.domContentEventFired` | Test |
 | `page.evaluate(...)`, `wait_for_function(...)` | `Page::evaluate`; `wait_for_function` becomes a polling loop | Test (evaluate) |
-| `context.cookies(...)` / `Storage.getCookies` | `Storage.getCookies` through `Browser::execute` | Test |
+| `locator('.reds-tab-item', has_text=label).first.click()`, `locator(css).click()` | `Page::find_elements` + `Element::inner_text` filter + `scroll_into_view` + `Element::click`; no match is an error | Test (click lands; missing tab errors) |
+| `get_by_text(title, exact=True).last.click()` (Nikke runtime) | Same building blocks with an exact text match on the last element | Compiles (shares the click path) |
+| `mouse.move(x, y)`, `mouse.wheel(0, dy)`, `mouse.click(x, y)` | `Page::move_mouse`, `Input.dispatchMouseEvent { type: mouseWheel }`, `Page::click(Point)` | Test (move + wheel scrolls) |
+| `page.reload(wait_until='domcontentloaded')` | `Page::reload` | Test |
+| `context.cookies()` / `Storage.getCookies` | `Storage.getCookies` through `Browser::execute` | Test |
+| `context.cookies([WEB_ORIGIN])` (URL-filtered) | `Network.getCookies { urls }` | Test (path-scoped cookie only for its URL) |
 | `proxy={'server', 'username', 'password'}` | `--proxy-server` + `Page::authenticate` (answers `Fetch.authRequired`) | Test (loopback proxy demanding Basic auth) |
 
 Notes for WP16:
@@ -73,6 +85,11 @@ Notes for WP16:
   Copying Playwright's argument list exactly (the plan's requirement) is only possible by spawning Chromium
   ourselves; `launch_argv` in the probe shows the shape. Copy the full default list from the Playwright
   release in `uv.lock`, minus `--enable-automation`.
+- Playwright's click waits for actionability (attached, visible, stable, enabled, receives the pointer at
+  the click point) and retries until its timeout; `Element::click` does none of that. WP16 adds those waits
+  and the hit test, because `rednote_browser.py` relies on a click either landing or failing loudly.
+- The headed login window (`browser_login.py`, `channel='chromium'`, `headless=False` on Xvnc's display) is
+  the same spawn path without `--headless` and with `DISPLAY` set; not exercised here (no X server in CI).
 - `HeadlessMode` is not re-exported (`chromiumoxide::browser::config` is private); irrelevant once we spawn.
 - `navigator.webdriver` is absent from the returned value when `undefined`; evaluate a boolean instead.
 - The CDP types are generated from a fixed protocol revision. Events Chromium sends that the revision does

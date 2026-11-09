@@ -7,12 +7,25 @@
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
+# Tripwire: the baseline is fixed for the whole rewrite (PLAN.md decision 3). Changing it
+# means editing this line too, which a reviewer cannot miss.
+expected_baseline=67609f60ab9fd1065601aaaa60ac04a22044c406
 baseline="$(tr -d '[:space:]' < rust/BASELINE)"
 status=0
+
+if [[ "${baseline}" != "${expected_baseline}" ]]; then
+  echo "error: rust/BASELINE is ${baseline}, but the agreed baseline is ${expected_baseline}"
+  exit 1
+fi
 
 if ! git cat-file -e "${baseline}^{commit}" 2>/dev/null; then
   echo "error: baseline ${baseline} is not in this clone; fetch it first (git fetch origin ${baseline})"
   exit 1
+fi
+
+if ! git merge-base --is-ancestor "${baseline}" HEAD; then
+  echo "error: the baseline ${baseline} is not an ancestor of HEAD"
+  status=1
 fi
 
 changed="$(git diff --name-only "${baseline}" -- . ':(exclude)rust' ':(exclude).github/workflows/rust.yml')"
@@ -22,7 +35,9 @@ if [[ -n "${changed}" ]]; then
   status=1
 fi
 
-ignored="$(grep -rnE '#\[ignore' --include='*.rs' rust/ --exclude-dir=target || true)"
+# `#[ignore]`, `#[ignore = "..."]` and `#[cfg_attr(..., ignore)]` on one line. CI also
+# fails when `cargo test` reports any ignored test, which catches multi-line spellings.
+ignored="$(grep -rnE '#!?\[[^]]*\bignore\b' --include='*.rs' rust/ --exclude-dir=target || true)"
 if [[ -n "${ignored}" ]]; then
   echo "error: ignored tests are not allowed on the rust branch:"
   sed 's/^/  /' <<< "${ignored}"
