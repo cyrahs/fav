@@ -1,0 +1,14 @@
+[package]
+name = "fav-db"
+description = "PostgreSQL pool, consolidated schema and advisory locks for fav"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fav-core.workspace = true

@@ -1,0 +1,169 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "settings",
+  "cases": [
+    {
+      "settings": {
+        "web": {
+          "bilibili": {
+            "cron": "*/30 * * * *",
+            "enabled": false,
+            "notify": true,
+            "proxy": "",
+            "accounts": []
+          },
+          "telegram": {
+            "cron": "*/30 * * * *",
+            "enabled": false,
+            "notify": true,
+            "accounts": [],
+            "scan_limit": 50,
+            "download_limit_per_channel": 2,
+            "download_delay_seconds": 60.0,
+            "channel_cooldown_seconds": 1800.0,
+            "history_wait_seconds": 1.0,
+            "flood_sleep_threshold_seconds": 300
+          },
+          "stellasora": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/stellasora"
+          },
+          "nikke": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/nikke",
+            "runtime_capture_enabled": false,
+            "runtime_capture_timeout_seconds": 60.0,
+            "runtime_capture_force_refresh": false
+          },
+          "bd2": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/bd2"
+          },
+          "azurlane": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/azurlane",
+            "origin_proxy": "",
+            "origin_connect_host": "static.l2d.su",
+            "origin_request_interval_seconds": 1.0
+          },
+          "hanime1": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/hanime1",
+            "host": "https://hanime1.me",
+            "user_lang": "zhs",
+            "ranking": {
+              "enabled": false,
+              "periods": [
+                "weekly",
+                "monthly"
+              ],
+              "pages": 1,
+              "deep_scan": {
+                "enabled": false,
+                "quota": 0.25,
+                "max_extra_pages": 5
+              }
+            }
+          },
+          "jandan": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/jandan",
+            "api_url": "https://joiningss.com/jd/api",
+            "user_id": 0,
+            "fav_types": [
+              1,
+              2,
+              6
+            ],
+            "fav_num_limit": 45
+          },
+          "kemono": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/kemono",
+            "base_url": "https://pawchive.pw",
+            "file_base_url": "https://file.pawchive.pw",
+            "thumbnail_base_url": "https://img.pawchive.pw",
+            "sleep_request_seconds": 1.0,
+            "creators": []
+          },
+          "twitter": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/twitter",
+            "video_path": null,
+            "username": "",
+            "sleep_request_seconds": 2.0,
+            "abort_after": 20,
+            "proxy": "",
+            "include_retweets": true,
+            "include_videos": true
+          },
+          "pixiv": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/pixiv",
+            "user_id": "",
+            "sleep_request_seconds": 1.0,
+            "proxy": ""
+          },
+          "rednote": {
+            "cron": "0 */6 * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/rednote",
+            "video_path": null,
+            "profile_path": "data/rednote-profile",
+            "proxy": "",
+            "allow_direct_connection": false,
+            "proxy_media": false,
+            "user_id": "",
+            "sleep_request_seconds": 3.0,
+            "abort_after": 2,
+            "max_pages_per_run": 40,
+            "headless": true
+          },
+          "wechat": {
+            "cron": "*/15 * * * *",
+            "enabled": false,
+            "notify": true,
+            "path": "collection/wechat",
+            "api_url": "http://favinbox-oracle.proxy.svc",
+            "token": ""
+          }
+        },
+        "notifications": {
+          "telegram": {
+            "enabled": false,
+            "bot_token": "",
+            "chat_id": "",
+            "message_thread_id": null
+          }
+        },
+        "services": {
+          "tikhub": {
+            "api_url": "https://api.tikhub.io",
+            "token": ""
+          }
+        }
+      }
+    }
+  ]
+}

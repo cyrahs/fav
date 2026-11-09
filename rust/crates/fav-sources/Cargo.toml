@@ -1,0 +1,18 @@
+[package]
+name = "fav-sources"
+description = "One module per fav content source"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fav-core.workspace = true
+fav-db.workspace = true
+fav-net.workspace = true
+fav-runtime.workspace = true
+fav-browser.workspace = true

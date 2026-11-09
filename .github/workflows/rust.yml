@@ -1,0 +1,136 @@
+name: Rust rewrite
+
+# Checks for the `rust` branch (rust/docs/PLAN.md). Read-only by design: no job here
+# builds or publishes an image, and none has a token that could. Deployment stays with
+# ci.yml, which only publishes from main.
+
+on:
+  push:
+    branches: [ rust ]
+  pull_request:
+    branches: [ rust ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Production runs Python 3.12; goldens are generated with the same version.
+  UV_PYTHON: '3.12'
+
+jobs:
+  # The Python tree is the reference and must stay byte-identical to rust/BASELINE.
+  tree:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Python tree unchanged, no ignored Rust tests
+      run: rust/tools/check_tree.sh
+
+  python-tools:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v9.0.0
+      with:
+        python-version: '3.12'
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync --locked
+
+    - name: Goldens match the Python baseline
+      run: uv run python rust/tools/goldens/generate.py --check
+
+    - name: Tool self-tests
+      run: uv run pytest rust/tools/tests -q -p no:cacheprovider
+
+    - name: Ruff (rust/tools)
+      run: |
+        uv run ruff check rust/tools
+        uv run ruff format --check rust/tools
+
+  rust:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tests
+          POSTGRES_DB: fav-tests
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tests -d fav-tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: rust
+
+    env:
+      # Tests that need PostgreSQL create their own temporary database through this.
+      FAV_TEST_DATABASE_URL: postgresql://tests@127.0.0.1:5432/fav-tests
+      RUSTFLAGS: -D warnings
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install the pinned toolchain (rust/rust-toolchain.toml)
+      run: |
+        rustup toolchain install
+        rustup show active-toolchain
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: rust
+
+    - name: Format
+      run: cargo fmt --all -- --check
+
+    - name: Clippy
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+    - name: Locate Chromium for the CDP tests
+      run: |
+        chromium="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+        echo "FAV_TEST_CHROMIUM=${chromium}" >> "$GITHUB_ENV"
+        "${chromium}" --version
+
+    - name: Test
+      run: cargo test --workspace --locked
+
+    - name: List compiled tests for the parity check
+      run: cargo test --workspace --locked -- --list --format terse > "$RUNNER_TEMP/rust-tests.txt"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v9.0.0
+      with:
+        python-version: '3.12'
+        enable-cache: true
+
+    - name: Test parity
+      run: |
+        uv sync --locked
+        uv run pytest --collect-only -q > "$RUNNER_TEMP/pytest-collected.txt"
+        uv run python rust/tools/parity/parity.py --check \
+          --pytest-collected "$RUNNER_TEMP/pytest-collected.txt" \
+          --rust-tests "$RUNNER_TEMP/rust-tests.txt"
+      working-directory: .
+      env:
+        POSTGRES_DSN: postgresql://tests@127.0.0.1:5432/fav-tests
+        API_TOKEN: token-for-tests

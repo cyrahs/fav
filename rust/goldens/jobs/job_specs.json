@@ -1,0 +1,92 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "jobs",
+  "cases": [
+    {
+      "key": "bilibili",
+      "name": "Bilibili",
+      "attr": "bilibili",
+      "required_commands": [
+        "yt-dlp"
+      ]
+    },
+    {
+      "key": "hanime1",
+      "name": "Hanime1",
+      "attr": "hanime1",
+      "required_commands": [
+        "yt-dlp"
+      ]
+    },
+    {
+      "key": "jandan",
+      "name": "Jandan",
+      "attr": "jandan",
+      "required_commands": []
+    },
+    {
+      "key": "kemono",
+      "name": "Kemono",
+      "attr": "kemono",
+      "required_commands": []
+    },
+    {
+      "key": "nikke",
+      "name": "Nikke",
+      "attr": "nikke",
+      "required_commands": []
+    },
+    {
+      "key": "bd2",
+      "name": "BD2",
+      "attr": "bd2",
+      "required_commands": []
+    },
+    {
+      "key": "azurlane",
+      "name": "Azur Lane",
+      "attr": "azurlane",
+      "required_commands": []
+    },
+    {
+      "key": "telegram",
+      "name": "Telegram",
+      "attr": "telegram",
+      "required_commands": []
+    },
+    {
+      "key": "stellasora",
+      "name": "Stella Sora",
+      "attr": "stellasora",
+      "required_commands": []
+    },
+    {
+      "key": "twitter",
+      "name": "X",
+      "attr": "twitter",
+      "required_commands": [
+        "gallery-dl"
+      ]
+    },
+    {
+      "key": "pixiv",
+      "name": "Pixiv",
+      "attr": "pixiv",
+      "required_commands": []
+    },
+    {
+      "key": "rednote",
+      "name": "RedNote",
+      "attr": "rednote",
+      "required_commands": []
+    },
+    {
+      "key": "wechat",
+      "name": "WeChat",
+      "attr": "wechat",
+      "required_commands": []
+    }
+  ]
+}

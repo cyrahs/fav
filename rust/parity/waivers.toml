@@ -1,0 +1,8 @@
+# Python tests that have no Rust counterpart, each with the reason. Read by
+# rust/tools/parity/parity.py. A reason says why the behaviour under test does not
+# exist in the Rust build (for example the SQLite-dialect translation layer), not
+# that porting it was inconvenient. The independent review checks every entry.
+#
+# [[waiver]]
+# test = "tests/test_database.py::test_translates_insert_or_ignore"
+# reason = "The Rust DB layer writes native PostgreSQL; there is no SQLite-dialect translation to test."
