@@ -1,0 +1,28 @@
+[package]
+name = "api-coverage"
+description = "Compile-time and offline check that the pinned key crates expose the APIs fav needs (WP0)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+grammers-client.workspace = true
+chromiumoxide.workspace = true
+rmcp = { workspace = true, features = ["server", "macros", "transport-streamable-http-server"] }
+webp-animation = { workspace = true, features = ["static"] }
+axum.workspace = true
+futures = "0.3"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+tokio = { workspace = true, features = ["fs", "io-util", "net", "process", "time"] }
+
+[dev-dependencies]
+http = "1"
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

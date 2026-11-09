@@ -1,0 +1,129 @@
+# Which work package ports which Python tests. Read by rust/tools/parity/parity.py.
+#
+# Every Python test must match exactly one package. A pattern without `::` names a whole
+# file; `file::test_*` (fnmatch) or `file::test_name` claims tests out of a file another
+# package owns, because a more specific pattern wins. A package splitting a file adds
+# the specific patterns here in its own PR.
+#
+# status: pending | in-progress | done. Set `done` in the PR that finishes the package;
+# from then on CI requires every test in scope to be ported or waived.
+
+[WP0]
+title = "Foundation"
+status = "done"
+tests = []
+
+[WP1]
+title = "Env, settings, DB layer, logging, filenames, JSON"
+status = "pending"
+tests = [
+    "tests/test_config_env.py",
+    "tests/test_settings_store.py",
+    "tests/test_schedule_config.py",
+    "tests/test_database.py",
+]
+
+[WP2]
+title = "Notifications, control queue, site sessions, scheduler, worker"
+status = "pending"
+tests = [
+    "tests/test_notifications.py",
+    "tests/test_telegram_bot.py",
+    "tests/test_control_queue.py",
+    "tests/test_run_control_requests.py",
+]
+
+[WP3]
+title = "API skeleton, auth, settings, jobs, archive, credentials, front end"
+status = "pending"
+tests = [
+    "tests/test_api_server.py",
+    "tests/test_settings_masking.py",
+    "tests/test_credentials_api.py",
+]
+
+[WP4]
+title = "MCP tools and ops queries"
+status = "pending"
+tests = ["tests/test_mcp.py"]
+
+[WP5]
+title = "Jandan, Kemono"
+status = "pending"
+tests = ["tests/test_jandan.py", "tests/test_kemono.py", "tests/test_kemono_creator.py"]
+
+[WP6]
+title = "Stella Sora, Pixiv"
+status = "pending"
+tests = ["tests/test_stellasora.py", "tests/test_stellasora_notifications.py", "tests/test_pixiv.py"]
+
+[WP7]
+title = "Bilibili, X, yt-dlp and gallery-dl wrappers"
+status = "pending"
+tests = ["tests/test_bilibili.py", "tests/test_bilibili_session.py", "tests/test_twitter.py"]
+
+[WP8]
+title = "Hanime1"
+status = "pending"
+tests = ["tests/test_hanime1.py", "tests/test_hanime1_author.py"]
+
+[WP9]
+title = "Nikke crawl, layer metadata, manifests, API reader"
+status = "pending"
+tests = [
+    "tests/test_nikke.py",
+    "tests/test_nikke_api.py",
+    "tests/test_nikke_layer_metadata.py",
+    "tests/test_nikke_layer_metadata_script.py",
+    "tests/test_game_content_notifications.py",
+]
+
+[WP10]
+title = "BD2 crawl, manifests, API reader, Live2D view overrides"
+status = "pending"
+tests = ["tests/test_bd2.py", "tests/test_bd2_api.py", "tests/test_bd2_l2d_viewer.py"]
+
+[WP11]
+title = "Azur Lane source parsing, AZP2, connect_to"
+status = "pending"
+tests = [
+    "tests/test_azurlane_l2d_sources.py",
+    "tests/test_azurlane_protected.py",
+    "tests/test_azurlane_hashed_build.py",
+    "tests/test_connect_to.py",
+]
+
+[WP12]
+title = "Azur Lane crawl, manifests, API reader"
+status = "pending"
+tests = ["tests/test_azurlane.py", "tests/test_azurlane_api.py"]
+
+[WP13]
+title = "Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub"
+status = "pending"
+tests = ["tests/test_post_links.py", "tests/test_zhihu_post.py"]
+
+[WP14]
+title = "WeChat, Channels videos, stickers"
+status = "pending"
+tests = ["tests/test_wechat.py"]
+
+[WP15]
+title = "Telegram: grammers client, durable queue, realtime listener"
+status = "pending"
+tests = ["tests/test_telegram.py", "tests/test_telegram_queue.py"]
+
+[WP16]
+title = "CDP driver layer, login window"
+status = "pending"
+tests = ["tests/test_browser_login.py"]
+
+[WP17]
+title = "RedNote, Nikke runtime capture"
+status = "pending"
+tests = ["tests/test_rednote.py", "tests/test_rednote_missing_db.py", "tests/test_nikke_runtime.py"]
+
+[WP18]
+title = "Dockerfile, memory benchmark, parity audit, final report"
+status = "pending"
+tests = ["tests/test_dependencies.py"]

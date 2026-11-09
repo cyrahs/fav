@@ -1,0 +1,99 @@
+# Cargo workspace for the Rust rewrite of fav. See docs/PLAN.md.
+#
+# Versions of the four crates whose API coverage was checked in WP0
+# (grammers, chromiumoxide, rmcp, webp-animation) are pinned exactly; see
+# docs/API-COVERAGE.md before changing them. Everything else uses a caret
+# requirement and is fixed by Cargo.lock.
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/fav-core",
+    "crates/fav-db",
+    "crates/fav-net",
+    "crates/fav-runtime",
+    "crates/fav-sources",
+    "crates/fav-browser",
+    "crates/fav-api",
+    "crates/fav",
+    "probes/api-coverage",
+]
+# Plain `cargo build` / `cargo test` skip the probe crate; `--workspace` (what CI
+# runs) includes it.
+default-members = [
+    "crates/fav-core",
+    "crates/fav-db",
+    "crates/fav-net",
+    "crates/fav-runtime",
+    "crates/fav-sources",
+    "crates/fav-browser",
+    "crates/fav-api",
+    "crates/fav",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+# Internal crates.
+fav-core = { path = "crates/fav-core" }
+fav-db = { path = "crates/fav-db" }
+fav-net = { path = "crates/fav-net" }
+fav-runtime = { path = "crates/fav-runtime" }
+fav-sources = { path = "crates/fav-sources" }
+fav-browser = { path = "crates/fav-browser" }
+fav-api = { path = "crates/fav-api" }
+
+# Key crates, pinned after the WP0 API-coverage check (docs/API-COVERAGE.md).
+grammers-client = "=0.12.0"
+grammers-session = "=0.12.0"
+grammers-mtsender = "=0.12.0"
+grammers-tl-types = "=0.12.0"
+chromiumoxide = { version = "=0.9.1", default-features = false }
+rmcp = { version = "=3.9.0", default-features = false }
+webp-animation = "=0.10.0"
+
+# Foundation crates chosen in the plan's technology mapping.
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4.6", features = ["derive"] }
+reqwest = { version = "0.13", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false }
+thiserror = "2"
+tokio = { version = "1.54", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+utoipa = "6"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+# CI runs clippy with `-D warnings`, so every warning below is an error there.
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Placeholders never reach the `rust` branch (docs/CONVENTIONS.md).
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+print_stderr = "warn"
+# Pedantic lints that fight the code style more than they help.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+# Small, single binary; idle RSS is a goal (docs/PLAN.md).
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

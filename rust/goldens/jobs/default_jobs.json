@@ -1,0 +1,139 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "jobs",
+  "cases": [
+    {
+      "key": "bilibili",
+      "name": "Bilibili",
+      "cron": "*/30 * * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.bilibili",
+      "missing_fields": [
+        "accounts"
+      ]
+    },
+    {
+      "key": "hanime1",
+      "name": "Hanime1",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.hanime1",
+      "missing_fields": []
+    },
+    {
+      "key": "jandan",
+      "name": "Jandan",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.jandan",
+      "missing_fields": [
+        "user_id"
+      ]
+    },
+    {
+      "key": "kemono",
+      "name": "Kemono",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.kemono",
+      "missing_fields": [
+        "creators"
+      ]
+    },
+    {
+      "key": "nikke",
+      "name": "Nikke",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.nikke",
+      "missing_fields": []
+    },
+    {
+      "key": "bd2",
+      "name": "BD2",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.bd2",
+      "missing_fields": []
+    },
+    {
+      "key": "azurlane",
+      "name": "Azur Lane",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.azurlane",
+      "missing_fields": []
+    },
+    {
+      "key": "telegram",
+      "name": "Telegram",
+      "cron": "*/30 * * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.telegram",
+      "missing_fields": [
+        "accounts"
+      ]
+    },
+    {
+      "key": "stellasora",
+      "name": "Stella Sora",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.stellasora",
+      "missing_fields": []
+    },
+    {
+      "key": "twitter",
+      "name": "X",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.twitter",
+      "missing_fields": [
+        "username"
+      ]
+    },
+    {
+      "key": "pixiv",
+      "name": "Pixiv",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.pixiv",
+      "missing_fields": []
+    },
+    {
+      "key": "rednote",
+      "name": "RedNote",
+      "cron": "0 */6 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.rednote",
+      "missing_fields": [
+        "proxy"
+      ]
+    },
+    {
+      "key": "wechat",
+      "name": "WeChat",
+      "cron": "*/15 * * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.wechat",
+      "missing_fields": [
+        "token"
+      ]
+    }
+  ]
+}

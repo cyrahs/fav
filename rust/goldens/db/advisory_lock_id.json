@@ -1,0 +1,44 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "advisory_lock",
+  "cases": [
+    {
+      "name": "bd2",
+      "id": 3521405679737159975
+    },
+    {
+      "name": "nikke",
+      "id": 893043789096867832
+    },
+    {
+      "name": "azurlane",
+      "id": 706471473900685948
+    },
+    {
+      "name": "telegram-session:/app/data/telegram/main.session",
+      "id": 3622310068750036271
+    },
+    {
+      "name": "rednote-profile:/app/data/rednote/profile",
+      "id": -3774669845789481022
+    },
+    {
+      "name": "arbitrary name",
+      "id": -6235564811594950080
+    },
+    {
+      "name": "",
+      "id": -1970711489451281740
+    },
+    {
+      "name": "é中😀",
+      "id": -4060932220817448494
+    },
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "id": 1348047167962039829
+    }
+  ]
+}
