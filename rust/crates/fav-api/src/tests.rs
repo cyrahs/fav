@@ -107,6 +107,7 @@ impl Harness {
             readiness: crate::hanime1::Readiness::default(),
             nikke: crate::nikke::NikkeLibraries::default(),
             bd2: crate::bd2::Bd2Libraries::default(),
+            azurlane: crate::azurlane::AzurLaneLibraries::default(),
             live2d_overrides: crate::live2d_overrides::postgres_store(database.db().clone()),
             azurlane_origin: Arc::new(FakeOriginProbe::default()),
         };
@@ -869,6 +870,78 @@ async fn get_job_request_returns_status_payload() {
         assert_eq!(golden::int(golden::get(&body, "id")), i128::from(id));
         assert_eq!(golden::get(&body, "status"), &Value::from(status));
     }
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_docs_and_openapi_are_public_and_v2_only
+#[tokio::test]
+async fn docs_and_openapi_are_public_and_v2_only() {
+    let harness = Harness::new().await;
+    let docs = harness.request("GET", "/docs", &[], None).await;
+    let openapi = harness.request("GET", "/openapi.json", &[], None).await;
+    let v1 = harness.request("GET", "/api/v1/health", &[], None).await;
+
+    assert_eq!(docs.status, 200);
+    assert_eq!(openapi.status, 200);
+    let payload: serde_json::Value = serde_json::from_slice(&openapi.body).expect("JSON");
+    let paths = payload["paths"].as_object().expect("paths");
+    let methods = |path: &str| -> Vec<String> {
+        let mut methods: Vec<String> = paths[path].as_object().expect("operations").keys().cloned().collect();
+        methods.sort();
+        methods
+    };
+    let responses = |path: &str| payload["paths"][path]["get"]["responses"].as_object().expect("responses").clone();
+    for path in [
+        "/api/v2/azurlane/characters",
+        "/api/v2/azurlane/sidebar/characters",
+        "/api/v2/azurlane/characters/{character_key}",
+        "/api/v2/bd2/characters",
+        "/api/v2/bd2/characters/{content_id}",
+        "/api/v2/jobs",
+        "/api/v2/hanime1/videos",
+        "/api/v2/hanime1/seeds",
+        "/api/v2/settings",
+        "/api/v2/archive/sources",
+        "/api/v2/archive/items",
+        "/readyz",
+    ] {
+        assert!(paths.contains_key(path), "{path}");
+    }
+    for path in [
+        "/api/v2/azurlane/assets/{character_key}/{asset_path}",
+        "/api/v2/azurlane/characters/{character_key}/live2d-models/{model_id}/view-overrides/{profile}",
+        "/api/v2/bd2/assets/{content_id}/{asset_path}",
+        "/api/v2/nikke/assets/{content_id}/{asset_path}",
+        "/api/v2/hanime1/seeds/{video_id}",
+        "/api/v2/notifications",
+        "/api/v2/notifications/ack",
+        "/api/v1/health",
+    ] {
+        assert!(!paths.contains_key(path), "{path}");
+    }
+    for sidebar in [
+        "/api/v2/azurlane/sidebar/characters",
+        "/api/v2/bd2/sidebar/characters",
+        "/api/v2/nikke/sidebar/characters",
+    ] {
+        assert!(responses(sidebar).contains_key("304"), "{sidebar}");
+    }
+    for source in ["bd2", "nikke"] {
+        let path = format!("/api/v2/{source}/characters/{{content_id}}/live2d-models/{{model_id}}/view-overrides/{{profile}}");
+        assert_eq!(methods(&path), ["delete", "get", "put"]);
+    }
+    assert_eq!(methods("/api/v2/hanime1/seeds"), ["get", "post"]);
+    assert_eq!(methods("/api/v2/hanime1/seeds/{canonical_video_id}"), ["delete"]);
+    assert_eq!(methods("/api/v2/hanime1/authors"), ["get", "post"]);
+    assert_eq!(methods("/api/v2/hanime1/authors/{author_id}"), ["delete"]);
+    assert_eq!(methods("/api/v2/settings/{section}"), ["get", "put"]);
+    assert_eq!(methods("/api/v2/notifications/telegram/test"), ["post"]);
+    assert_eq!(payload["paths"]["/api/v2/jobs"]["get"]["operationId"], "listJobs");
+    assert_eq!(v1.status, 404);
+    assert_eq!(
+        v1.json(),
+        pyjson::loads(r#"{"error": {"code": "not_found", "message": "Not Found", "details": null}}"#).expect("JSON")
+    );
     harness.finish().await;
 }
 

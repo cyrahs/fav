@@ -32,11 +32,6 @@ pub const APP_VERSION: &str = "2.0.0";
 /// Every path of Python's document that is missing here must be listed.
 pub const PENDING: &[(&str, &str)] = &[
     ("/api/v2/rednote/proxy/test", "WP17"),
-    ("/api/v2/azurlane/characters", "WP12"),
-    ("/api/v2/azurlane/sidebar/characters", "WP12"),
-    ("/api/v2/azurlane/skin-updates", "WP12"),
-    ("/api/v2/azurlane/characters/{character_key}", "WP12"),
-    ("/api/v2/azurlane/characters/{character_key}/ship-detail", "WP12"),
     ("/api/v2/site-sessions/{site}/login", "WP16"),
     ("/api/v2/site-sessions/login", "WP16"),
 ];
@@ -163,6 +158,7 @@ fn schemas() -> Vec<(&'static str, RefOr<Schema>)> {
         schemas_d(),
         schemas_azurlane(),
         crate::schema::components(&crate::nikke::schema::MODELS),
+        crate::schema::components(&crate::azurlane::models::MODELS),
     ]
     .concat();
     schemas.sort_by_key(|(name, _)| *name);
@@ -753,6 +749,9 @@ struct Op {
     bare_responses: Vec<(&'static str, &'static str)>,
     parameters: Vec<utoipa::openapi::path::Parameter>,
     body: Option<RefOr<Schema>>,
+    /// A success schema written inline instead of `response` (a route without a
+    /// `response_model` whose return annotation FastAPI turns into a schema).
+    inline_response: Option<RefOr<Schema>>,
 }
 
 impl Op {
@@ -768,6 +767,7 @@ impl Op {
             bare_responses: Vec::new(),
             parameters: Vec::new(),
             body: None,
+            inline_response: None,
         }
     }
 
@@ -775,7 +775,9 @@ impl Op {
         let json_content = |schema: RefOr<Schema>| ContentBuilder::new().schema(Some(schema)).build();
         let validates = !self.parameters.is_empty() || self.body.is_some();
         let success = ResponseBuilder::new().description("Successful Response");
-        let success = if self.response.is_empty() {
+        let success = if let Some(schema) = self.inline_response {
+            success.content("application/json", json_content(schema))
+        } else if self.response.is_empty() {
             success
         } else {
             success.content("application/json", json_content(reference(self.response)))
@@ -856,6 +858,7 @@ fn paths() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     paths.extend(paths_b());
     paths.extend(paths_hanime1());
     paths.extend(paths_kemono());
+    paths.extend(paths_azurlane());
     paths.extend(paths_bd2());
     paths.extend(paths_nikke());
     paths.extend(paths_c());
@@ -906,6 +909,101 @@ fn override_parameters() -> Vec<utoipa::openapi::path::Parameter> {
                 .max_length(Some(64))
                 .pattern(Some(PROFILE_PATTERN))
                 .into(),
+        ),
+    ]
+}
+
+/// `AzurLaneCharacterKeyPath`.
+fn character_key_parameter() -> utoipa::openapi::path::Parameter {
+    parameter(
+        "character_key",
+        ParameterIn::Path,
+        true,
+        typed(Type::String, "Character Key")
+            .min_length(Some(1))
+            .max_length(Some(200))
+            .into(),
+    )
+}
+
+/// The Azur Lane collection paths.
+fn paths_azurlane() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
+    vec![
+        (
+            "/api/v2/azurlane/characters",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![
+                        search_parameter(),
+                        parameter("limit", ParameterIn::Query, false, bounded_int("Limit", Some(1), Some(500), 200)),
+                        parameter("offset", ParameterIn::Query, false, bounded_int("Offset", Some(0), None, 0)),
+                    ],
+                    ..Op::new(
+                        "azurlane",
+                        "List Azurlane Characters",
+                        "listAzurLaneCharacters",
+                        "AzurLaneCharacterListResponse",
+                    )
+                },
+            )],
+        ),
+        (
+            "/api/v2/azurlane/sidebar/characters",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![search_parameter()],
+                    bare_responses: vec![("304", "Not modified")],
+                    ..Op::new(
+                        "azurlane",
+                        "List Azurlane Sidebar Characters",
+                        "listAzurLaneSidebarCharacters",
+                        "AzurLaneSidebarCharacterListResponse",
+                    )
+                },
+            )],
+        ),
+        (
+            "/api/v2/azurlane/skin-updates",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    bare_responses: vec![("304", "Not modified")],
+                    ..Op::new(
+                        "azurlane",
+                        "Get Azurlane Skin Updates",
+                        "getAzurLaneSkinUpdates",
+                        "AzurLaneSkinUpdatesResponse",
+                    )
+                },
+            )],
+        ),
+        (
+            "/api/v2/azurlane/characters/{character_key}",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![character_key_parameter()],
+                    ..Op::new(
+                        "azurlane",
+                        "Get Azurlane Character",
+                        "getAzurLaneCharacter",
+                        "AzurLaneCharacterDetail",
+                    )
+                },
+            )],
+        ),
+        (
+            "/api/v2/azurlane/characters/{character_key}/ship-detail",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![character_key_parameter()],
+                    inline_response: Some(free_object("Response Getazurlaneshipdetail")),
+                    ..Op::new("azurlane", "Get Azurlane Ship Detail", "getAzurLaneShipDetail", "")
+                },
+            )],
         ),
     ]
 }

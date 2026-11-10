@@ -33,6 +33,7 @@ use fav_sources::hanime1_series::{Hanime1SeriesService, SeriesSubscriptions};
 use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
 
 pub mod archive;
+pub mod azurlane;
 pub mod bd2;
 pub mod config;
 pub mod cors;
@@ -92,6 +93,8 @@ pub struct ApiState {
     pub nikke: nikke::NikkeLibraries,
     /// The BD2 collection under `web.bd2.path`, with its summary cache.
     pub bd2: bd2::Bd2Libraries,
+    /// The Azur Lane collection under `web.azurlane.path`, with its summary cache.
+    pub azurlane: azurlane::AzurLaneLibraries,
     /// The saved Live2D view overrides.
     pub live2d_overrides: Arc<dyn live2d_overrides::Live2DViewOverrideStore>,
     /// Checks the l2d.su origin through a draft proxy (`POST /api/v2/azurlane/proxy/test`).
@@ -139,6 +142,7 @@ impl ApiState {
             readiness: hanime1::Readiness::default(),
             nikke: nikke::NikkeLibraries::default(),
             bd2: bd2::Bd2Libraries::default(),
+            azurlane: azurlane::AzurLaneLibraries::default(),
             live2d_overrides: live2d_overrides::postgres_store(db_for_overrides),
             azurlane_origin: Arc::new(OriginProbe),
             settings,

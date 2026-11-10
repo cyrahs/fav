@@ -8,7 +8,7 @@
 //! settings held when the API started; here the path is read at each request and the
 //! library (with its cache) is rebuilt when it changes, as for NIKKE (DIVERGENCES.md D95).
 
-mod library;
+pub(crate) mod library;
 pub(crate) mod models;
 #[cfg(test)]
 pub(crate) mod tests;
