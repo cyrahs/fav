@@ -188,3 +188,144 @@ async fn trust_env_false_ignores_the_environment_proxy() {
     assert!(child.status.success(), "{output}");
     assert!(output.contains("1 passed"), "{output}");
 }
+
+/// A server that keeps each request's head (up to the blank line) as it arrived on the wire and answers with
+/// `answer(index)`, one connection per request.
+async fn capture(answer: impl Fn(usize) -> String + Send + Sync + 'static) -> (SocketAddr, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = std::sync::Arc::clone(&seen);
+    tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut head = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.expect("read");
+                if read == 0 {
+                    break;
+                }
+                head.extend_from_slice(&buffer[..read]);
+            }
+            let index = {
+                let mut seen = kept.lock().expect("lock");
+                let end = head
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
+                    .map_or(head.len(), |at| at + 4);
+                seen.push(String::from_utf8_lossy(&head[..end]).into_owned());
+                seen.len() - 1
+            };
+            socket.write_all(answer(index).as_bytes()).await.expect("write");
+            socket.shutdown().await.ok();
+        }
+    });
+    (address, seen)
+}
+
+const EMPTY_200: &str = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+/// D182: Cloudflare refused Hanime1's requests while the names were lowercase and `Host`
+/// came last. The heads below are what httpx 0.28.1 wrote for the same calls, captured
+/// from `httpx.Client` against a socket.
+#[tokio::test]
+async fn requests_go_out_in_httpx_header_order_and_case() {
+    let (address, seen) = capture(|_| EMPTY_200.to_owned()).await;
+    let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+    // `Hanime1.__init__` and `_build_page_headers`.
+    let client = HttpClient::new(&ClientOptions {
+        headers: vec![
+            ("User-Agent".to_owned(), ua.to_owned()),
+            ("Accept-Language".to_owned(), "en-US,en;q=0.9".to_owned()),
+        ],
+        follow_redirects: true,
+        ..ClientOptions::default()
+    })
+    .expect("client");
+    let request = Request::get(format!("http://{address}/"))
+        .header("Referer", "https://hanime1.me/")
+        .header("User-Agent", ua)
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        )
+        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+        .header("Cookie", "user_lang=zh-CHS");
+    client.send(request).await.expect("response");
+    // A client with no headers of its own, posting a body.
+    HttpClient::new(&ClientOptions::default())
+        .expect("client")
+        .send(Request::post(format!("http://{address}/p"), b"data=1".to_vec()))
+        .await
+        .expect("response");
+    let seen = seen.lock().expect("lock").clone();
+    assert_eq!(
+        seen[0],
+        format!(
+            "GET / HTTP/1.1\r\nHost: {address}\r\nAccept-Encoding: gzip, deflate, br\r\nConnection: keep-alive\r\n\
+             Referer: https://hanime1.me/\r\nUser-Agent: {ua}\r\n\
+             Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n\
+             Accept-Language: zh-CN,zh;q=0.9,en;q=0.8\r\nCookie: user_lang=zh-CHS\r\n\r\n"
+        )
+    );
+    assert_eq!(
+        seen[1],
+        format!(
+            "POST /p HTTP/1.1\r\nHost: {address}\r\nAccept: */*\r\nAccept-Encoding: gzip, deflate, br\r\n\
+             Connection: keep-alive\r\nUser-Agent: python-httpx/0.28.1\r\nContent-Length: 6\r\n\r\n"
+        )
+    );
+}
+
+/// A redirect to another origin keeps `Host` first with the new authority and drops
+/// `Authorization`, as `_redirect_headers` does.
+#[tokio::test]
+async fn a_redirect_to_another_origin_rewrites_host_in_place() {
+    let (target, target_seen) = capture(|_| EMPTY_200.to_owned()).await;
+    let (start, start_seen) =
+        capture(move |_| format!("HTTP/1.1 302 Found\r\nLocation: http://{target}/b\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+            .await;
+    HttpClient::new(&ClientOptions {
+        follow_redirects: true,
+        ..ClientOptions::default()
+    })
+    .expect("client")
+    .send(
+        Request::get(format!("http://{start}/a"))
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Authorization", "Bearer t"),
+    )
+    .await
+    .expect("response");
+    let defaults = "Accept: */*\r\nAccept-Encoding: gzip, deflate, br\r\nConnection: keep-alive\r\nUser-Agent: python-httpx/0.28.1\r\n";
+    assert_eq!(
+        start_seen.lock().expect("lock")[0],
+        format!("GET /a HTTP/1.1\r\nHost: {start}\r\n{defaults}X-Requested-With: XMLHttpRequest\r\nAuthorization: Bearer t\r\n\r\n")
+    );
+    assert_eq!(
+        target_seen.lock().expect("lock")[0],
+        format!("GET /b HTTP/1.1\r\nHost: {target}\r\n{defaults}X-Requested-With: XMLHttpRequest\r\n\r\n")
+    );
+}
+
+/// A `Host` the caller sets still goes out first, as h11 writes it.
+#[tokio::test]
+async fn a_host_the_caller_sets_goes_first() {
+    let (address, seen) = capture(|_| EMPTY_200.to_owned()).await;
+    HttpClient::new(&ClientOptions::default())
+        .expect("client")
+        .send(
+            Request::get(format!("http://{address}/"))
+                .header("X-A", "1")
+                .header("Host", "example.test"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(
+        seen.lock().expect("lock")[0],
+        "GET / HTTP/1.1\r\nHost: example.test\r\nAccept: */*\r\nAccept-Encoding: gzip, deflate, br\r\nConnection: keep-alive\r\n\
+         User-Agent: python-httpx/0.28.1\r\nX-A: 1\r\n\r\n"
+    );
+}
