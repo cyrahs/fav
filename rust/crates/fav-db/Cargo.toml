@@ -11,4 +11,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+blake2.workspace = true
+chrono.workspace = true
 fav-core.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true

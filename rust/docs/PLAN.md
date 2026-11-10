@@ -113,7 +113,8 @@ Level 1, offline, all in CI:
    ensure_ascii=False, default=str)` bytes). Goldens come from Python, never hand-written by the porting session.
 3. API contract. Structural diff of `/openapi.json` and the MCP tool list against Python's. The unmodified React
    front end passes a page smoke test against the Rust API with a seeded database.
-4. Schema. Both sides create their schema on an empty database; `pg_dump --schema-only` diff is empty.
+4. Schema. Both sides create their schema on an empty database; the descriptions are identical (since WP1 a
+   catalog query, `rust/tools/schema/describe.sql`, instead of a `pg_dump --schema-only` diff; `CONVENTIONS.md`).
 
 Level 2, read-only replay: scrubbed production dump (no `site_sessions` data, `app_settings` secrets masked) in a
 temporary database; Python API and Rust API both point at it and every GET endpoint is diffed; game manifests are
@@ -127,7 +128,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP | Phase | Content | Python lines (approx.) | Status |
 | --- | --- | --- | --- | --- |
 | WP0 | 0 foundation | Workspace skeleton, CI, in-repo plan and conventions docs, golden generator, test-parity script, API-coverage check of the four key crates | new | done |
-| WP1 | 1 core runtime | Env, settings models and store, DB layer and consolidated schema, logging, filenames, Python-compatible JSON | 1,900 | pending |
+| WP1 | 1 core runtime | Env, settings models and store, DB layer and consolidated schema, logging, filenames, Python-compatible JSON | 1,900 | done |
 | WP2 | 1 core runtime | Notification outbox and Telegram Bot delivery, control-request queue, site-session store, scheduler and worker loop, `trigger` | 2,900 | pending |
 | WP3 | 2 API and MCP | axum skeleton, auth, settings, jobs, archive, credentials, health endpoints, serving the front end | 3,700 | pending |
 | WP4 | 2 API and MCP | 18 MCP tools and ops queries | 900 | pending |

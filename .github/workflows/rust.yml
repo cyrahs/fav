@@ -37,6 +37,22 @@ jobs:
 
   python-tools:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tests
+          POSTGRES_DB: fav-tests
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tests -d fav-tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
     - uses: actions/checkout@v5
 
@@ -51,6 +67,12 @@ jobs:
 
     - name: Goldens match the Python baseline
       run: uv run python rust/tools/goldens/generate.py --check
+
+    - name: Schema snapshot matches what the Python baseline creates
+      run: uv run python rust/tools/schema/dump_schema.py --check
+      env:
+        # A disposable server: the tool creates and drops its own temporary database.
+        FAV_TEST_DATABASE_URL: postgresql://tests@127.0.0.1:5432/fav-tests
 
     - name: Tool self-tests
       run: uv run pytest rust/tools/tests -q -p no:cacheprovider

@@ -1,0 +1,181 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "env",
+  "cases": [
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://file/fav\nAPI_TOKEN=from-file\n",
+      "value": {
+        "postgres_dsn": "postgresql://file/fav",
+        "api_token": "from-file",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "# comment\nexport POSTGRES_DSN=\"postgresql://quoted/fav\"\nAPI_TOKEN='single quoted'\n\nAPI_PORT=9001 # trailing comment\n",
+      "value": {
+        "postgres_dsn": "postgresql://quoted/fav",
+        "api_token": "single quoted",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 9001,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN = postgresql://spaced/fav \nAPI_TOKEN=\"a#b\"\nAPI_BIND=host#notcomment\nAPI_CORS_ORIGINS=\"https://a\\nhttps://b\"\n",
+      "value": {
+        "postgres_dsn": "postgresql://spaced/fav",
+        "api_token": "a#b",
+        "log_level": "INFO",
+        "api_bind": "host#notcomment",
+        "api_port": 8091,
+        "api_cors_origins": "https://a\nhttps://b",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": [
+        "https://a\nhttps://b"
+      ]
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN='lit\\nral'\nLOG_LEVEL=\"debug\" # c\nUNRELATED=1\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "lit\\nral",
+        "log_level": "DEBUG",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=first\nAPI_TOKEN=second\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "second",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=\n",
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "API_TOKEN"
+          ],
+          "msg": "Value error, API_TOKEN cannot be empty",
+          "input": ""
+        }
+      ]
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN\n",
+      "errors": [
+        {
+          "type": "missing",
+          "loc": [
+            "API_TOKEN"
+          ],
+          "msg": "Field required",
+          "input": {
+            "POSTGRES_DSN": "postgresql://x/fav"
+          }
+        }
+      ]
+    },
+    {
+      "dotenv": "postgres_dsn=postgresql://lower/fav\napi_token=lower\n",
+      "value": {
+        "postgres_dsn": "postgresql://lower/fav",
+        "api_token": "lower",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN=\"multi\nline\"\nAPI_TOKEN=t\n",
+      "value": {
+        "postgres_dsn": "multi\nline",
+        "api_token": "t",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://x/fav\r\nAPI_TOKEN=crlf\r\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "crlf",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "not a valid line\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "t",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://file/fav\nAPI_TOKEN=from-file\nAPI_PORT=1\n",
+      "environ": {
+        "API_TOKEN": "from-environ"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://file/fav",
+        "api_token": "from-environ",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 1,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    }
+  ]
+}

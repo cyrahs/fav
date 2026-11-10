@@ -15,7 +15,7 @@ tests = []
 
 [WP1]
 title = "Env, settings, DB layer, logging, filenames, JSON"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_config_env.py",
     "tests/test_settings_store.py",

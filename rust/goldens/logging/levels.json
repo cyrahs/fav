@@ -1,0 +1,32 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "logging_format",
+  "cases": [
+    {
+      "name": "DEBUG",
+      "number": 10
+    },
+    {
+      "name": "INFO",
+      "number": 20
+    },
+    {
+      "name": "NOTICE",
+      "number": 25
+    },
+    {
+      "name": "WARNING",
+      "number": 30
+    },
+    {
+      "name": "ERROR",
+      "number": 40
+    },
+    {
+      "name": "CRITICAL",
+      "number": 50
+    }
+  ]
+}
