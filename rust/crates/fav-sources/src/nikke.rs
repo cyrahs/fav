@@ -7,10 +7,8 @@
 //! (`fav-api`'s `nikke` module); the layer metadata of stacked Live2D models lives in
 //! [`crate::nikke_layer_metadata`].
 //!
-//! This file holds the page parsing and the pure helpers; [`crawl`] has the job itself.
-//! The runtime layer capture (`nikke_runtime.py`, a headless browser) is WP17's: until then
-//! [`runtime::RuntimeCapturer`]'s production implementation reports it unavailable, which the
-//! scheduled job never asks for (DIVERGENCES.md D85).
+//! This file holds the page parsing and the pure helpers; [`crawl`] has the job itself and
+//! [`runtime`] the runtime layer capture (`nikke_runtime.py`, a headless browser).
 
 use std::collections::HashMap;
 

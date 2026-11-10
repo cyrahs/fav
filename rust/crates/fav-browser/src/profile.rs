@@ -7,6 +7,8 @@
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use fav_net::download::PyOsError;
+
 /// Chromium writes these into the profile and stamps them with `hostname-pid`. Every pod
 /// gets a new hostname, so after a SIGKILL the next one reads them as a lock held by
 /// another machine and either refuses to start or hangs.
@@ -18,7 +20,7 @@ pub const PROFILE_SINGLETON_FILES: [&str; 3] = ["SingletonLock", "SingletonCooki
 /// Safe only because the caller holds the advisory lock on this profile: nothing else
 /// can be using it, so a lock file here is by definition stale. A broken symlink counts
 /// (`SingletonLock` is one, pointing at `hostname-pid`).
-pub fn clear_stale_profile_locks(user_data_dir: &Path) -> io::Result<Vec<String>> {
+pub fn clear_stale_profile_locks(user_data_dir: &Path) -> Result<Vec<String>, PyOsError> {
     let mut cleared = Vec::new();
     for name in PROFILE_SINGLETON_FILES {
         let path = user_data_dir.join(name);
@@ -26,7 +28,7 @@ pub fn clear_stale_profile_locks(user_data_dir: &Path) -> io::Result<Vec<String>
             match std::fs::remove_file(&path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
+                Err(error) => return Err(PyOsError::from_io(&error, Some(&path))),
             }
             cleared.push(name.to_owned());
         }
@@ -109,6 +111,16 @@ mod tests {
         // The profile itself is left alone.
         assert!(profile.path().join("Preferences").exists());
         assert_eq!(clear_stale_profile_locks(profile.path()).expect("cleared"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_lock_that_cannot_be_removed_is_raised_as_python_raises_it() {
+        let profile = tempfile::tempdir().expect("a directory");
+        std::fs::create_dir(profile.path().join("SingletonLock")).expect("a directory");
+        let error = clear_stale_profile_locks(profile.path()).expect_err("not a file");
+        assert_eq!(error.class, "IsADirectoryError");
+        let path = profile.path().join("SingletonLock");
+        assert_eq!(error.message, format!("[Errno 21] Is a directory: '{}'", path.display()));
     }
 
     #[test]

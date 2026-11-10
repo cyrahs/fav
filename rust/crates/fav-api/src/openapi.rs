@@ -30,7 +30,7 @@ pub const APP_VERSION: &str = "2.0.0";
 
 /// Routes Python has and this build does not yet, with the work package that ports each.
 /// Every path of Python's document that is missing here must be listed.
-pub const PENDING: &[(&str, &str)] = &[("/api/v2/rednote/proxy/test", "WP17")];
+pub const PENDING: &[(&str, &str)] = &[];
 
 // ---------- schema helpers ----------
 
@@ -602,7 +602,7 @@ fn schemas_c2() -> Vec<(&'static str, RefOr<Schema>)> {
     ]
 }
 
-/// The Azur Lane proxy test's request and result.
+/// The Azur Lane and RedNote proxy tests' requests and results.
 fn schemas_azurlane() -> Vec<(&'static str, RefOr<Schema>)> {
     vec![
         (
@@ -628,6 +628,30 @@ fn schemas_azurlane() -> Vec<(&'static str, RefOr<Schema>)> {
                     ("code", string("Code"), true),
                     ("message", string("Message"), true),
                     ("exit_ip", defaulted_string("Exit Ip"), false),
+                ],
+            ),
+        ),
+        (
+            "RedNoteProxyTestRequest",
+            model(
+                "RedNoteProxyTestRequest",
+                None,
+                true,
+                vec![("proxy", defaulted_string("Proxy"), false)],
+            ),
+        ),
+        (
+            "RedNoteProxyTestResult",
+            model(
+                "RedNoteProxyTestResult",
+                None,
+                true,
+                vec![
+                    ("ok", boolean("Ok"), true),
+                    ("code", string("Code"), true),
+                    ("message", string("Message"), true),
+                    ("exit_ip", defaulted_string("Exit Ip"), false),
+                    ("direct", with_default(typed(Type::Boolean, "Direct"), json!(false)), false),
                 ],
             ),
         ),
@@ -1215,6 +1239,17 @@ fn paths_b() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
                     description: Some("Check that the l2d.su origin is reachable through a proxy, without saving it."),
                     body: Some(reference("AzurLaneProxyTestRequest")),
                     ..Op::new("settings", "Test Azurlane Proxy", "testAzurLaneProxy", "AzurLaneProxyTestResult")
+                },
+            )],
+        ),
+        (
+            "/api/v2/rednote/proxy/test",
+            vec![(
+                HttpMethod::Post,
+                Op {
+                    description: Some("Check that xiaohongshu.com is reachable through a proxy, without saving it."),
+                    body: Some(reference("RedNoteProxyTestRequest")),
+                    ..Op::new("settings", "Test Rednote Proxy", "testRedNoteProxy", "RedNoteProxyTestResult")
                 },
             )],
         ),

@@ -1,0 +1,1423 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "rednote",
+  "cases": [
+    {
+      "function": "to_int",
+      "value": null,
+      "result": null
+    },
+    {
+      "function": "to_int",
+      "value": true,
+      "result": null
+    },
+    {
+      "function": "to_int",
+      "value": 0,
+      "result": 0
+    },
+    {
+      "function": "to_int",
+      "value": 12,
+      "result": 12
+    },
+    {
+      "function": "to_int",
+      "value": -3,
+      "result": -3
+    },
+    {
+      "function": "to_int",
+      "value": 2.9,
+      "result": 2
+    },
+    {
+      "function": "to_int",
+      "value": -2.9,
+      "result": -2
+    },
+    {
+      "function": "to_int",
+      "value": "12",
+      "result": 12
+    },
+    {
+      "function": "to_int",
+      "value": " 7 ",
+      "result": 7
+    },
+    {
+      "function": "to_int",
+      "value": "-4",
+      "result": -4
+    },
+    {
+      "function": "to_int",
+      "value": "+4",
+      "result": null
+    },
+    {
+      "function": "to_int",
+      "value": "1.5",
+      "result": null
+    },
+    {
+      "function": "to_int",
+      "value": "",
+      "result": null
+    },
+    {
+      "function": "to_int",
+      "value": "٣",
+      "result": 3
+    },
+    {
+      "function": "to_int",
+      "value": [],
+      "result": null
+    },
+    {
+      "function": "to_int",
+      "value": 1e+18,
+      "result": 1000000000000000000
+    },
+    {
+      "function": "format_published_at",
+      "value": 1754969696000,
+      "result": "2025-08-12 11:34:56"
+    },
+    {
+      "function": "format_published_at",
+      "value": "1754969696000",
+      "result": "2025-08-12 11:34:56"
+    },
+    {
+      "function": "format_published_at",
+      "value": 0,
+      "result": ""
+    },
+    {
+      "function": "format_published_at",
+      "value": -1,
+      "result": ""
+    },
+    {
+      "function": "format_published_at",
+      "value": null,
+      "result": ""
+    },
+    {
+      "function": "format_published_at",
+      "value": "x",
+      "result": ""
+    },
+    {
+      "function": "format_published_at",
+      "value": 1500000000000.0,
+      "result": "2017-07-14 10:40:00"
+    },
+    {
+      "function": "format_published_at",
+      "value": 1,
+      "result": "1970-01-01 08:00:00"
+    },
+    {
+      "function": "format_published_at",
+      "value": 253402300799000,
+      "error": {
+        "class": "OverflowError",
+        "message": "date value out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 253402272000000,
+      "error": {
+        "class": "OverflowError",
+        "message": "date value out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 253402300800000,
+      "error": {
+        "class": "ValueError",
+        "message": "year 10000 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 1000000000000000000,
+      "error": {
+        "class": "ValueError",
+        "message": "year 31690708 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67767976233532799000,
+      "error": {
+        "class": "ValueError",
+        "message": "year -2147483648 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67767976233532800000,
+      "error": {
+        "class": "ValueError",
+        "message": "year -2147483648 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67768036191676780000,
+      "error": {
+        "class": "ValueError",
+        "message": "year -2147481749 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67768036191676800000,
+      "error": {
+        "class": "OSError",
+        "message": "[Errno 75] Value too large for defined data type"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 100000000000000000000,
+      "error": {
+        "class": "OSError",
+        "message": "[Errno 75] Value too large for defined data type"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 1000000000000000000000000000000,
+      "error": {
+        "class": "OverflowError",
+        "message": "timestamp out of range for platform time_t"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 9223372036854775807000,
+      "error": {
+        "class": "OverflowError",
+        "message": "timestamp out of range for platform time_t"
+      }
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+      "result": "webp"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_avif_3",
+      "result": "avif"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/photo.jpeg",
+      "result": "jpg"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/photo.PNG?x=1",
+      "result": "png"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/opaque",
+      "result": "jpg"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/opaque?format=heic",
+      "result": "heic"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/a.b/c",
+      "result": "jpg"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/x.tiff",
+      "result": "jpg"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "https://sns-webpic.xhscdn.com/gif",
+      "result": "gif"
+    },
+    {
+      "function": "infer_image_extension",
+      "url": "",
+      "result": "jpg"
+    },
+    {
+      "function": "normalize_media_url",
+      "url": "http://cdn/x",
+      "result": "https://cdn/x"
+    },
+    {
+      "function": "normalize_media_url",
+      "url": " https://cdn/x ",
+      "result": "https://cdn/x"
+    },
+    {
+      "function": "normalize_media_url",
+      "url": "",
+      "result": ""
+    },
+    {
+      "function": "normalize_media_url",
+      "url": "   ",
+      "result": ""
+    },
+    {
+      "function": "normalize_media_url",
+      "url": "HTTP://cdn/x",
+      "result": "https://cdn/x"
+    },
+    {
+      "function": "normalize_media_url",
+      "url": "http://cdn/x?q=1#f",
+      "result": "https://cdn/x?q=1#f"
+    },
+    {
+      "function": "normalize_media_url",
+      "url": "//cdn/x",
+      "result": "//cdn/x"
+    },
+    {
+      "function": "pick_image_url",
+      "entry": null,
+      "result": ""
+    },
+    {
+      "function": "pick_image_url",
+      "entry": {},
+      "result": ""
+    },
+    {
+      "function": "pick_image_url",
+      "entry": {
+        "info_list": [
+          {
+            "image_scene": "WB_PRV",
+            "url": "http://a"
+          },
+          {
+            "image_scene": "WB_DFT",
+            "url": "http://b"
+          }
+        ]
+      },
+      "result": "https://b"
+    },
+    {
+      "function": "pick_image_url",
+      "entry": {
+        "infoList": [
+          {
+            "imageScene": "WB_DFT",
+            "url": ""
+          },
+          {
+            "imageScene": "X",
+            "url": "http://c"
+          }
+        ],
+        "urlDefault": "http://d"
+      },
+      "result": "https://c"
+    },
+    {
+      "function": "pick_image_url",
+      "entry": {
+        "infoList": [],
+        "urlDefault": "",
+        "urlPre": "http://e"
+      },
+      "result": "https://e"
+    },
+    {
+      "function": "pick_image_url",
+      "entry": {
+        "infoList": [
+          null,
+          "x",
+          {
+            "url": null
+          }
+        ],
+        "urlDefault": null
+      },
+      "result": ""
+    },
+    {
+      "function": "pick_image_url",
+      "entry": {
+        "info_list": [
+          {
+            "image_scene": null,
+            "url": "http://f"
+          }
+        ]
+      },
+      "result": "https://f"
+    },
+    {
+      "function": "best_video_stream",
+      "stream": null,
+      "result": [
+        "",
+        0
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {},
+      "result": [
+        "",
+        0
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": [],
+      "result": [
+        "",
+        0
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {
+        "EF4": null,
+        "EF5": "x",
+        "EF6": [
+          null,
+          3,
+          {}
+        ]
+      },
+      "result": [
+        "",
+        0
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {
+        "EF4": [
+          {
+            "width": 720,
+            "height": 1280,
+            "videoBitrate": 3000000,
+            "masterUrl": "https://cdn/720.mp4"
+          }
+        ],
+        "EF5": [
+          {
+            "width": 2160,
+            "height": 3840,
+            "videoBitrate": 9000000,
+            "masterUrl": "https://cdn/2160.mp4"
+          },
+          {
+            "width": 1080,
+            "height": 1920,
+            "videoBitrate": 1700000,
+            "masterUrl": "https://cdn/1080.mp4"
+          }
+        ]
+      },
+      "result": [
+        "https://cdn/2160.mp4",
+        3840
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {
+        "EF5": [
+          {
+            "width": 1080,
+            "height": 1920,
+            "videoBitrate": 2,
+            "masterUrl": "https://cdn/low"
+          },
+          {
+            "width": 1080,
+            "height": 1920,
+            "videoBitrate": 6,
+            "masterUrl": "https://cdn/high"
+          }
+        ]
+      },
+      "result": [
+        "https://cdn/high",
+        1920
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {
+        "EF5": [
+          {
+            "width": 1080,
+            "height": 1920,
+            "videoBitrate": 6,
+            "masterUrl": "https://cdn/first"
+          },
+          {
+            "width": 1080,
+            "height": 1920,
+            "videoBitrate": 6,
+            "masterUrl": "https://cdn/tie"
+          }
+        ]
+      },
+      "result": [
+        "https://cdn/first",
+        1920
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {
+        "EF7": [
+          {
+            "masterUrl": "https://cdn/only.mp4"
+          },
+          {
+            "masterUrl": ""
+          }
+        ]
+      },
+      "result": [
+        "https://cdn/only.mp4",
+        0
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {
+        "h264": [
+          {
+            "width": 720.9,
+            "height": "1280",
+            "video_bitrate": "5",
+            "master_url": "http://cdn/legacy.mp4"
+          }
+        ]
+      },
+      "result": [
+        "https://cdn/legacy.mp4",
+        1280
+      ]
+    },
+    {
+      "function": "best_video_stream",
+      "stream": {
+        "a": [
+          {
+            "width": true,
+            "height": 5,
+            "masterUrl": "https://cdn/bool"
+          },
+          {
+            "width": -1,
+            "height": -1,
+            "masterUrl": "https://cdn/neg"
+          }
+        ]
+      },
+      "result": [
+        "https://cdn/neg",
+        -1
+      ]
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": null,
+      "result": 0
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": {},
+      "result": 0
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": {
+        "mediaV2": "{\"video\": {\"width\": 2160, \"height\": 3840}}"
+      },
+      "result": 3840
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": {
+        "media_v2": {
+          "video": {
+            "width": 1080,
+            "height": 1920
+          }
+        }
+      },
+      "result": 1920
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": {
+        "mediaV2": "not json"
+      },
+      "result": 0
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": {
+        "mediaV2": "[1, 2]"
+      },
+      "result": 0
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": {
+        "mediaV2": {
+          "video": {
+            "width": "4096"
+          }
+        }
+      },
+      "result": 4096
+    },
+    {
+      "function": "note_source_long_edge",
+      "block": {
+        "mediaV2": null,
+        "media_v2": {
+          "video": {
+            "height": 720.5
+          }
+        }
+      },
+      "result": 720
+    },
+    {
+      "function": "build_note_url",
+      "note_id": "64f1",
+      "token": "TOKEN",
+      "result": "https://www.xiaohongshu.com/explore/64f1?xsec_token=TOKEN&xsec_source=pc_user"
+    },
+    {
+      "function": "build_note_url",
+      "note_id": "64f1",
+      "token": "",
+      "result": "https://www.xiaohongshu.com/explore/64f1"
+    },
+    {
+      "function": "build_note_url",
+      "note_id": "a b",
+      "token": "t&u",
+      "result": "https://www.xiaohongshu.com/explore/a b?xsec_token=t&u&xsec_source=pc_user"
+    },
+    {
+      "function": "build_media_filename",
+      "media": {
+        "note_id": "64f1a2b3000000001e02c0de",
+        "media_index": 1,
+        "media_type": "image",
+        "media_url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+        "title": "a caption",
+        "author": "artist",
+        "author_id": "5ff",
+        "note_type": "normal",
+        "published_at": "2025-08-12 11:34:56",
+        "xsec_token": "TOKEN"
+      },
+      "ext": "",
+      "result": "[artist]2025-08-12 [64f1a2b3000000001e02c0de_1].webp"
+    },
+    {
+      "function": "build_media_filename",
+      "media": {
+        "note_id": "64f1a2b3000000001e02c0de",
+        "media_index": 1,
+        "media_type": "video",
+        "media_url": "",
+        "title": "a caption",
+        "author": "artist",
+        "author_id": "5ff",
+        "note_type": "normal",
+        "published_at": "2025-08-12 11:34:56",
+        "xsec_token": "TOKEN"
+      },
+      "ext": "",
+      "result": "[artist]2025-08-12 [64f1a2b3000000001e02c0de_1].mp4"
+    },
+    {
+      "function": "build_media_filename",
+      "media": {
+        "note_id": "64f1a2b3000000001e02c0de",
+        "media_index": 3,
+        "media_type": "live",
+        "media_url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+        "title": "a caption",
+        "author": "artist",
+        "author_id": "5ff",
+        "note_type": "normal",
+        "published_at": "2025-08-12 11:34:56",
+        "xsec_token": "TOKEN"
+      },
+      "ext": "",
+      "result": "[artist]2025-08-12 [64f1a2b3000000001e02c0de_3].mp4"
+    },
+    {
+      "function": "build_media_filename",
+      "media": {
+        "note_id": "64f1a2b3000000001e02c0de",
+        "media_index": 1,
+        "media_type": "image",
+        "media_url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+        "title": "a caption",
+        "author": "a/b:c*?",
+        "author_id": "5ff",
+        "note_type": "normal",
+        "published_at": "",
+        "xsec_token": "TOKEN"
+      },
+      "ext": "",
+      "result": "[a_b_c__] [64f1a2b3000000001e02c0de_1].webp"
+    },
+    {
+      "function": "build_media_filename",
+      "media": {
+        "note_id": "64f1a2b3000000001e02c0de",
+        "media_index": 1,
+        "media_type": "image",
+        "media_url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+        "title": "a caption",
+        "author": "",
+        "author_id": "5ff",
+        "note_type": "normal",
+        "published_at": "2025-08-12 11:34:56",
+        "xsec_token": "TOKEN"
+      },
+      "ext": "png",
+      "result": "2025-08-12 [64f1a2b3000000001e02c0de_1].png"
+    },
+    {
+      "function": "build_media_filename",
+      "media": {
+        "note_id": "64f1a2b3000000001e02c0de",
+        "media_index": 1,
+        "media_type": "image",
+        "media_url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+        "title": "a caption",
+        "author": "很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字",
+        "author_id": "5ff",
+        "note_type": "normal",
+        "published_at": "2025-08-12 11:34:56",
+        "xsec_token": "TOKEN"
+      },
+      "ext": "",
+      "result": "[很长的名字很长的名字很长的名字很长的名字很长的名字很长的名字很长的]2025-08-12 [64f1a2b3000000001e02c0de_1].webp"
+    },
+    {
+      "function": "build_media_filename",
+      "media": {
+        "note_id": "64f1a2b3000000001e02c0de",
+        "media_index": 1,
+        "media_type": "image",
+        "media_url": "https://cdn/x.jpeg",
+        "title": "a caption",
+        "author": "artist",
+        "author_id": "5ff",
+        "note_type": "normal",
+        "published_at": "2025-08-12 11:34:56",
+        "xsec_token": "TOKEN"
+      },
+      "ext": "",
+      "result": "[artist]2025-08-12 [64f1a2b3000000001e02c0de_1].jpg"
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": 0,
+        "data": {
+          "notes": []
+        }
+      },
+      "result": {
+        "notes": []
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": 0,
+        "data": null
+      },
+      "result": {}
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "data": {
+          "x": 1
+        }
+      },
+      "result": {
+        "x": 1
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": "0",
+        "data": {}
+      },
+      "result": {}
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": -101,
+        "msg": "no login"
+      },
+      "error": {
+        "class": "RedNoteError",
+        "message": "The RedNote session is signed out (-101 no login). Sign in to RedNote again on fav's 登录态 page.",
+        "dedupe_key": "rednote:login"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": -100,
+        "message": " expired "
+      },
+      "error": {
+        "class": "RedNoteError",
+        "message": "The RedNote session is signed out (-100 expired). Sign in to RedNote again on fav's 登录态 page.",
+        "dedupe_key": "rednote:login"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": "-100"
+      },
+      "error": {
+        "class": "RedNoteError",
+        "message": "The RedNote session is signed out (-100 ). Sign in to RedNote again on fav's 登录态 page.",
+        "dedupe_key": "rednote:login"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": -510001,
+        "msg": ""
+      },
+      "error": {
+        "class": "ValueError",
+        "message": "RedNote returned error code: -510001"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": 300013,
+        "msg": "访问频次异常"
+      },
+      "error": {
+        "class": "ValueError",
+        "message": "RedNote returned error code: 300013 (访问频次异常)"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": true,
+        "data": {}
+      },
+      "result": {}
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": {
+        "code": 1.0
+      },
+      "error": {
+        "class": "ValueError",
+        "message": "RedNote returned error code: 1"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": "not an object",
+      "error": {
+        "class": "TypeError",
+        "message": "RedNote returned a body that is not an object"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": null,
+      "error": {
+        "class": "TypeError",
+        "message": "RedNote returned a body that is not an object"
+      }
+    },
+    {
+      "function": "parse_api_envelope",
+      "payload": [],
+      "error": {
+        "class": "TypeError",
+        "message": "RedNote returned a body that is not an object"
+      }
+    },
+    {
+      "function": "extract_like_page",
+      "data": {},
+      "result": [
+        [],
+        "",
+        false
+      ]
+    },
+    {
+      "function": "extract_like_page",
+      "data": {
+        "notes": [
+          {
+            "note_id": "a",
+            "xsec_token": " T "
+          },
+          {
+            "id": "b"
+          },
+          {
+            "xsec_token": "x"
+          },
+          "x",
+          {
+            "note_id": " ",
+            "id": "c"
+          }
+        ],
+        "cursor": " c2 ",
+        "has_more": 1
+      },
+      "result": [
+        [
+          {
+            "note_id": "a",
+            "xsec_token": "T"
+          },
+          {
+            "note_id": "b",
+            "xsec_token": ""
+          }
+        ],
+        "c2",
+        true
+      ]
+    },
+    {
+      "function": "extract_like_page",
+      "data": {
+        "notes": "x",
+        "cursor": null,
+        "has_more": "false"
+      },
+      "result": [
+        [],
+        "",
+        true
+      ]
+    },
+    {
+      "function": "extract_like_page",
+      "data": {
+        "notes": [
+          {
+            "note_id": 5,
+            "xsec_token": null
+          }
+        ],
+        "cursor": 7,
+        "has_more": []
+      },
+      "result": [
+        [
+          {
+            "note_id": "5",
+            "xsec_token": ""
+          }
+        ],
+        "7",
+        false
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": "normal",
+        "title": " a caption ",
+        "time": 1754969696000,
+        "user": {
+          "nickname": "artist",
+          "user_id": "5ff0000000000000000fffff"
+        },
+        "image_list": [
+          {
+            "info_list": [
+              {
+                "image_scene": "WB_PRV",
+                "url": "https://sns-webpic.xhscdn.com/1!nd_prv_wlteh_webp_3"
+              },
+              {
+                "image_scene": "wb_dft ",
+                "url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3"
+              }
+            ]
+          }
+        ]
+      },
+      "result": [
+        {
+          "note_id": "n1",
+          "media_index": 1,
+          "media_type": "image",
+          "media_url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+          "title": "a caption",
+          "author": "artist",
+          "author_id": "5ff0000000000000000fffff",
+          "note_type": "normal",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        }
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": "normal",
+        "title": null,
+        "time": null,
+        "user": null,
+        "image_list": [
+          {
+            "info_list": [
+              {
+                "image_scene": "WB_PRV",
+                "url": "https://sns-webpic.xhscdn.com/1!nd_prv_wlteh_webp_3"
+              },
+              {
+                "image_scene": "wb_dft ",
+                "url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3"
+              }
+            ]
+          }
+        ]
+      },
+      "result": [
+        {
+          "note_id": "n1",
+          "media_index": 1,
+          "media_type": "image",
+          "media_url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
+          "title": "",
+          "author": "unknown",
+          "author_id": "",
+          "note_type": "normal",
+          "published_at": "",
+          "xsec_token": "T",
+          "last_error": ""
+        }
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": "normal",
+        "title": " a caption ",
+        "time": 1754969696000,
+        "user": {
+          "nickname": "artist",
+          "user_id": "5ff0000000000000000fffff"
+        },
+        "image_list": "x"
+      },
+      "result": []
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": "normal",
+        "title": "a caption",
+        "time": "1754969696000",
+        "user": {
+          "nickname": "",
+          "userId": "u"
+        },
+        "imageList": [
+          {
+            "infoList": [
+              {
+                "imageScene": "WB_PRV",
+                "url": "http://sns-webpic.xhscdn.com/p"
+              },
+              {
+                "imageScene": "WB_DFT",
+                "url": " "
+              }
+            ],
+            "urlDefault": "http://sns-webpic.xhscdn.com/default",
+            "stream": {
+              "EF4": [
+                {
+                  "masterUrl": "http://cdn/live.mp4"
+                }
+              ]
+            }
+          },
+          "not-a-dict",
+          {
+            "urlPre": "http://cdn/pre-only",
+            "infoList": "not-a-list"
+          },
+          {
+            "stream": {
+              "h264": [
+                {
+                  "master_url": "https://cdn/clip-only.mp4",
+                  "width": "720",
+                  "height": 1280
+                }
+              ]
+            }
+          },
+          {}
+        ]
+      },
+      "result": [
+        {
+          "note_id": "n1",
+          "media_index": 1,
+          "media_type": "image",
+          "media_url": "https://sns-webpic.xhscdn.com/p",
+          "title": "a caption",
+          "author": "unknown",
+          "author_id": "u",
+          "note_type": "normal",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        },
+        {
+          "note_id": "n1",
+          "media_index": 2,
+          "media_type": "live",
+          "media_url": "https://cdn/live.mp4",
+          "title": "a caption",
+          "author": "unknown",
+          "author_id": "u",
+          "note_type": "normal",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        },
+        {
+          "note_id": "n1",
+          "media_index": 3,
+          "media_type": "image",
+          "media_url": "https://cdn/pre-only",
+          "title": "a caption",
+          "author": "unknown",
+          "author_id": "u",
+          "note_type": "normal",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        },
+        {
+          "note_id": "n1",
+          "media_index": 4,
+          "media_type": "live",
+          "media_url": "https://cdn/clip-only.mp4",
+          "title": "a caption",
+          "author": "unknown",
+          "author_id": "u",
+          "note_type": "normal",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        }
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": "video",
+        "title": "a clip",
+        "time": 1754969696000,
+        "user": {
+          "nickname": " artist ",
+          "user_id": "u"
+        },
+        "image_list": [
+          {
+            "info_list": [
+              {
+                "image_scene": "WB_DFT",
+                "url": "https://cover"
+              }
+            ]
+          }
+        ],
+        "video": {
+          "media": {
+            "stream": {
+              "EF4": [
+                {
+                  "width": 720,
+                  "height": 1280,
+                  "videoBitrate": 3000000,
+                  "masterUrl": "https://cdn/720.mp4"
+                }
+              ],
+              "EF5": [
+                {
+                  "width": 2160,
+                  "height": 3840,
+                  "videoBitrate": 9000000,
+                  "masterUrl": "https://cdn/2160.mp4"
+                },
+                {
+                  "width": 1080,
+                  "height": 1920,
+                  "videoBitrate": 1700000,
+                  "masterUrl": "https://cdn/1080.mp4"
+                }
+              ]
+            }
+          },
+          "mediaV2": "{\"video\": {\"width\": 2160, \"height\": 3840}}"
+        }
+      },
+      "result": [
+        {
+          "note_id": "n1",
+          "media_index": 1,
+          "media_type": "video",
+          "media_url": "https://cdn/2160.mp4",
+          "title": "a clip",
+          "author": "artist",
+          "author_id": "u",
+          "note_type": "video",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        }
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": "video",
+        "title": "a clip",
+        "time": 1754969696000,
+        "user": {
+          "nickname": " artist ",
+          "user_id": "u"
+        },
+        "image_list": [
+          {
+            "info_list": [
+              {
+                "image_scene": "WB_DFT",
+                "url": "https://cover"
+              }
+            ]
+          }
+        ],
+        "video": {}
+      },
+      "result": [
+        {
+          "note_id": "n1",
+          "media_index": 1,
+          "media_type": "video",
+          "media_url": "",
+          "title": "a clip",
+          "author": "artist",
+          "author_id": "u",
+          "note_type": "video",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        }
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": "video",
+        "title": "a clip",
+        "time": 1754969696000,
+        "user": {
+          "nickname": " artist ",
+          "user_id": "u"
+        },
+        "image_list": [
+          {
+            "info_list": [
+              {
+                "image_scene": "WB_DFT",
+                "url": "https://cover"
+              }
+            ]
+          }
+        ],
+        "video": null
+      },
+      "result": [
+        {
+          "note_id": "n1",
+          "media_index": 1,
+          "media_type": "video",
+          "media_url": "",
+          "title": "a clip",
+          "author": "artist",
+          "author_id": "u",
+          "note_type": "video",
+          "published_at": "2025-08-12 11:34:56",
+          "xsec_token": "T",
+          "last_error": ""
+        }
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {
+        "type": " normal ",
+        "imageList": [
+          {
+            "urlDefault": "http://cdn/only-default"
+          }
+        ],
+        "user": {
+          "nickname": null,
+          "userId": 7
+        }
+      },
+      "result": [
+        {
+          "note_id": "n1",
+          "media_index": 1,
+          "media_type": "image",
+          "media_url": "https://cdn/only-default",
+          "title": "",
+          "author": "unknown",
+          "author_id": "7",
+          "note_type": "normal",
+          "published_at": "",
+          "xsec_token": "T",
+          "last_error": ""
+        }
+      ]
+    },
+    {
+      "function": "extract_note_media",
+      "card": {},
+      "result": []
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {
+        "has_login_modal": true
+      },
+      "cookies": {
+        "web_session": "still-here"
+      },
+      "result": "logged_out"
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {
+        "logged_in": true
+      },
+      "cookies": {},
+      "result": "logged_in"
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {
+        "logged_in": false
+      },
+      "cookies": {},
+      "result": "logged_out"
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {},
+      "cookies": {
+        "web_session": "v"
+      },
+      "result": "unknown"
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {},
+      "cookies": {
+        "web_session": "  "
+      },
+      "result": "logged_out"
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {
+        "qr_src": "x"
+      },
+      "cookies": {
+        "web_session": "v"
+      },
+      "result": "logged_out"
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {
+        "has_verify_modal": 1
+      },
+      "cookies": {
+        "web_session": "v"
+      },
+      "result": "logged_out"
+    },
+    {
+      "function": "decide_login_state",
+      "probe": {
+        "logged_in": 0,
+        "qr_src": ""
+      },
+      "cookies": {
+        "web_session": "v"
+      },
+      "result": "unknown"
+    }
+  ]
+}

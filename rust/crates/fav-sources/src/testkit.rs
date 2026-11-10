@@ -266,3 +266,15 @@ impl Notifier for RecordingNotifier {
         })
     }
 }
+
+/// Chromium to drive: `FAV_TEST_CHROMIUM`, else the cloud sessions' Playwright build.
+/// CI sets the variable, so there a test that needs it always runs.
+pub(crate) fn chromium() -> Option<std::path::PathBuf> {
+    let found = std::env::var_os("FAV_TEST_CHROMIUM")
+        .map(std::path::PathBuf::from)
+        .or_else(|| Some(std::path::PathBuf::from("/opt/pw-browsers/chromium")).filter(|path| path.exists()));
+    if found.is_none() {
+        assert!(std::env::var_os("CI").is_none(), "CI must set FAV_TEST_CHROMIUM");
+    }
+    found
+}

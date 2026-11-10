@@ -36,6 +36,9 @@ pub(crate) struct Reply {
     pub content_type: &'static str,
     pub headers: String,
     pub body: String,
+    /// How long to wait before answering; a delay past the client's timeout is a stalled
+    /// response.
+    pub delay: std::time::Duration,
 }
 
 impl Reply {
@@ -45,7 +48,14 @@ impl Reply {
             content_type: "text/html; charset=utf-8",
             headers: String::new(),
             body: body.to_owned(),
+            delay: std::time::Duration::ZERO,
         }
+    }
+
+    /// Wait `delay` before answering.
+    pub(crate) fn after(mut self, delay: std::time::Duration) -> Self {
+        self.delay = delay;
+        self
     }
 
     pub(crate) fn with_header(mut self, header: &str) -> Self {
@@ -84,6 +94,9 @@ pub(crate) async fn serve(answer: impl Fn(&str) -> Reply + Send + Sync + 'static
                 let request = String::from_utf8_lossy(&head).to_ascii_lowercase();
                 recorded.lock().unwrap().push(request.clone());
                 let reply = answer(&request);
+                if !reply.delay.is_zero() {
+                    tokio::time::sleep(reply.delay).await;
+                }
                 let response = format!(
                     "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
                     reply.status,

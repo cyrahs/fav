@@ -81,6 +81,7 @@ pub(crate) enum Endpoint {
     TestTelegramNotification,
     TestTikHub,
     TestAzurLaneProxy,
+    TestRedNoteProxy,
     ListArchiveSources,
     ListArchiveItems,
     ListHanime1Videos,
@@ -211,6 +212,11 @@ const ROUTES: &[Route] = &[
         path: "/api/v2/azurlane/proxy/test",
         methods: POST,
         endpoint: Endpoint::TestAzurLaneProxy,
+    },
+    Route {
+        path: "/api/v2/rednote/proxy/test",
+        methods: POST,
+        endpoint: Endpoint::TestRedNoteProxy,
     },
     Route {
         path: "/api/v2/archive/sources",
@@ -399,6 +405,7 @@ impl Endpoint {
                 | Self::TestTelegramNotification
                 | Self::TestTikHub
                 | Self::TestAzurLaneProxy
+                | Self::TestRedNoteProxy
                 | Self::ListArchiveSources
                 | Self::ListArchiveItems
                 | Self::ListHanime1Videos

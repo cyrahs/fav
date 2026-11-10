@@ -14,7 +14,8 @@
 //! WeChat and Telegram share (WP13), which are not sources of their own: [`post_links`] over
 //! [`wechat_article`], [`tieba_post`], [`nga_post`] and [`zhihu_post`], and the TikHub account
 //! check [`tikhub`] the API's settings page uses. [`wechat`] with its sticker and 视频号
-//! parsers [`wechat_emoji`] and [`wechat_channels`], WP14.
+//! parsers [`wechat_emoji`] and [`wechat_channels`], WP14. [`rednote`] with its proxy test, and the
+//! Nikke runtime capture behind [`nikke`]'s `RuntimeCapturer`, WP17.
 
 use std::sync::Arc;
 
@@ -50,6 +51,7 @@ mod pydecode;
 mod pyerr;
 mod pyre;
 mod pyval;
+pub mod rednote;
 pub mod runtime_config;
 pub mod stellasora;
 #[cfg(test)]
@@ -95,6 +97,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     bd2::register(&mut registry, ctx);
     azurlane::crawl::register(&mut registry, ctx);
     wechat::register(&mut registry, ctx);
+    rednote::register(&mut registry, ctx);
     registry
 }
 

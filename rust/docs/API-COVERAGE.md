@@ -60,10 +60,10 @@ Notes for WP15:
 Probe: `probes/api-coverage/src/cdp.rs` until WP16, which deleted it (it is still in the history: `git show
 6165a61:rust/probes/api-coverage/src/cdp.rs`). Two tests drove a real headless Chromium against loopback servers
 (`FAV_TEST_CHROMIUM`; CI points it at the runner's Chrome, and a missing binary fails in CI rather than skipping).
-The "Checked" column is what the probe checked. Since WP16, `fav-browser/src/driver/tests.rs` covers every row
-except the network listeners and `Network.getResponseBody`, which `fav-browser` does not have yet: WP17 adds them
-for the RedNote crawl's response capture (the probe's `drives_a_local_page_like_the_rednote_browser` shows the
-calls). URL-filtered cookies are `Storage.getCookies` plus Playwright's own filter (`driver::filter_cookies`),
+The "Checked" column is what the probe checked. Since WP16, `fav-browser/src/driver/tests.rs` covers every row;
+WP17 added the network listeners and `Network.getResponseBody` (`Page::network_events`, `Page::response_body`,
+tested there and end to end by `rednote/note_browser/tests.rs`, which walks a local likes list in real Chromium),
+and `chromium.launch` without a profile for the Nikke capture (`BrowserContext::launch_browser`). URL-filtered cookies are `Storage.getCookies` plus Playwright's own filter (`driver::filter_cookies`),
 not `Network.getCookies`.
 
 | Python (`rednote_browser.py`, `nikke_runtime.py`, `browser_login.py`) | chromiumoxide | Checked |

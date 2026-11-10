@@ -1,0 +1,945 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "rednote",
+  "cases": [
+    {
+      "function": "describe_shape",
+      "value": null,
+      "depth": 5,
+      "result": "null"
+    },
+    {
+      "function": "describe_shape",
+      "value": null,
+      "depth": 1,
+      "result": "null"
+    },
+    {
+      "function": "describe_shape",
+      "value": null,
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": true,
+      "depth": 5,
+      "result": "bool"
+    },
+    {
+      "function": "describe_shape",
+      "value": true,
+      "depth": 1,
+      "result": "bool"
+    },
+    {
+      "function": "describe_shape",
+      "value": true,
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": 0,
+      "depth": 5,
+      "result": "int"
+    },
+    {
+      "function": "describe_shape",
+      "value": 0,
+      "depth": 1,
+      "result": "int"
+    },
+    {
+      "function": "describe_shape",
+      "value": 0,
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": 1.5,
+      "depth": 5,
+      "result": "float"
+    },
+    {
+      "function": "describe_shape",
+      "value": 1.5,
+      "depth": 1,
+      "result": "float"
+    },
+    {
+      "function": "describe_shape",
+      "value": 1.5,
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": "",
+      "depth": 5,
+      "result": "str[0]"
+    },
+    {
+      "function": "describe_shape",
+      "value": "",
+      "depth": 1,
+      "result": "str[0]"
+    },
+    {
+      "function": "describe_shape",
+      "value": "",
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": "我的私人笔记",
+      "depth": 5,
+      "result": "str[6]"
+    },
+    {
+      "function": "describe_shape",
+      "value": "我的私人笔记",
+      "depth": 1,
+      "result": "str[6]"
+    },
+    {
+      "function": "describe_shape",
+      "value": "我的私人笔记",
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": [],
+      "depth": 5,
+      "result": "list[0]"
+    },
+    {
+      "function": "describe_shape",
+      "value": [],
+      "depth": 1,
+      "result": "list[0]"
+    },
+    {
+      "function": "describe_shape",
+      "value": [],
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": [
+        1,
+        "a"
+      ],
+      "depth": 5,
+      "result": [
+        "list[2]",
+        "int"
+      ]
+    },
+    {
+      "function": "describe_shape",
+      "value": [
+        1,
+        "a"
+      ],
+      "depth": 1,
+      "result": [
+        "list[2]",
+        "..."
+      ]
+    },
+    {
+      "function": "describe_shape",
+      "value": [
+        1,
+        "a"
+      ],
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": {},
+      "depth": 5,
+      "result": {}
+    },
+    {
+      "function": "describe_shape",
+      "value": {},
+      "depth": 1,
+      "result": {}
+    },
+    {
+      "function": "describe_shape",
+      "value": {},
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "a": {
+          "b": {
+            "c": {
+              "d": {
+                "e": {
+                  "f": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "depth": 5,
+      "result": {
+        "a": {
+          "b": {
+            "c": {
+              "d": {
+                "e": "..."
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "a": {
+          "b": {
+            "c": {
+              "d": {
+                "e": {
+                  "f": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "depth": 1,
+      "result": {
+        "a": "..."
+      }
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "a": {
+          "b": {
+            "c": {
+              "d": {
+                "e": {
+                  "f": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11,
+        "12": 12,
+        "13": 13,
+        "14": 14,
+        "15": 15,
+        "16": 16,
+        "17": 17,
+        "18": 18,
+        "19": 19,
+        "20": 20,
+        "21": 21,
+        "22": 22,
+        "23": 23,
+        "24": 24,
+        "25": 25,
+        "26": 26,
+        "27": 27,
+        "28": 28,
+        "29": 29,
+        "30": 30,
+        "31": 31,
+        "32": 32,
+        "33": 33,
+        "34": 34,
+        "35": 35,
+        "36": 36,
+        "37": 37,
+        "38": 38,
+        "39": 39,
+        "40": 40,
+        "41": 41,
+        "42": 42,
+        "43": 43,
+        "44": 44
+      },
+      "depth": 5,
+      "result": {
+        "0": "int",
+        "1": "int",
+        "2": "int",
+        "3": "int",
+        "4": "int",
+        "5": "int",
+        "6": "int",
+        "7": "int",
+        "8": "int",
+        "9": "int",
+        "10": "int",
+        "11": "int",
+        "12": "int",
+        "13": "int",
+        "14": "int",
+        "15": "int",
+        "16": "int",
+        "17": "int",
+        "18": "int",
+        "19": "int",
+        "20": "int",
+        "21": "int",
+        "22": "int",
+        "23": "int",
+        "24": "int",
+        "25": "int",
+        "26": "int",
+        "27": "int",
+        "28": "int",
+        "29": "int",
+        "30": "int",
+        "31": "int",
+        "32": "int",
+        "33": "int",
+        "34": "int",
+        "35": "int",
+        "36": "int",
+        "37": "int",
+        "38": "int",
+        "39": "int"
+      }
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11,
+        "12": 12,
+        "13": 13,
+        "14": 14,
+        "15": 15,
+        "16": 16,
+        "17": 17,
+        "18": 18,
+        "19": 19,
+        "20": 20,
+        "21": 21,
+        "22": 22,
+        "23": 23,
+        "24": 24,
+        "25": 25,
+        "26": 26,
+        "27": 27,
+        "28": 28,
+        "29": 29,
+        "30": 30,
+        "31": 31,
+        "32": 32,
+        "33": 33,
+        "34": 34,
+        "35": 35,
+        "36": 36,
+        "37": 37,
+        "38": 38,
+        "39": 39,
+        "40": 40,
+        "41": 41,
+        "42": 42,
+        "43": 43,
+        "44": 44
+      },
+      "depth": 1,
+      "result": {
+        "0": "...",
+        "1": "...",
+        "2": "...",
+        "3": "...",
+        "4": "...",
+        "5": "...",
+        "6": "...",
+        "7": "...",
+        "8": "...",
+        "9": "...",
+        "10": "...",
+        "11": "...",
+        "12": "...",
+        "13": "...",
+        "14": "...",
+        "15": "...",
+        "16": "...",
+        "17": "...",
+        "18": "...",
+        "19": "...",
+        "20": "...",
+        "21": "...",
+        "22": "...",
+        "23": "...",
+        "24": "...",
+        "25": "...",
+        "26": "...",
+        "27": "...",
+        "28": "...",
+        "29": "...",
+        "30": "...",
+        "31": "...",
+        "32": "...",
+        "33": "...",
+        "34": "...",
+        "35": "...",
+        "36": "...",
+        "37": "...",
+        "38": "...",
+        "39": "..."
+      }
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11,
+        "12": 12,
+        "13": 13,
+        "14": 14,
+        "15": 15,
+        "16": 16,
+        "17": 17,
+        "18": 18,
+        "19": 19,
+        "20": 20,
+        "21": 21,
+        "22": 22,
+        "23": 23,
+        "24": 24,
+        "25": 25,
+        "26": 26,
+        "27": 27,
+        "28": 28,
+        "29": 29,
+        "30": 30,
+        "31": 31,
+        "32": 32,
+        "33": 33,
+        "34": 34,
+        "35": 35,
+        "36": 36,
+        "37": 37,
+        "38": 38,
+        "39": 39,
+        "40": 40,
+        "41": 41,
+        "42": 42,
+        "43": 43,
+        "44": 44
+      },
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "notes": [
+          {
+            "note_id": "64f1a2b3000000001e02c0de",
+            "tags": [],
+            "cover": {
+              "url": "x",
+              "w": 3
+            }
+          }
+        ],
+        "has_more": false
+      },
+      "depth": 5,
+      "result": {
+        "notes": [
+          "list[1]",
+          {
+            "note_id": "str[24]",
+            "tags": "list[0]",
+            "cover": {
+              "url": "str[1]",
+              "w": "int"
+            }
+          }
+        ],
+        "has_more": "bool"
+      }
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "notes": [
+          {
+            "note_id": "64f1a2b3000000001e02c0de",
+            "tags": [],
+            "cover": {
+              "url": "x",
+              "w": 3
+            }
+          }
+        ],
+        "has_more": false
+      },
+      "depth": 1,
+      "result": {
+        "notes": "...",
+        "has_more": "..."
+      }
+    },
+    {
+      "function": "describe_shape",
+      "value": {
+        "notes": [
+          {
+            "note_id": "64f1a2b3000000001e02c0de",
+            "tags": [],
+            "cover": {
+              "url": "x",
+              "w": 3
+            }
+          }
+        ],
+        "has_more": false
+      },
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "describe_shape",
+      "value": [
+        [
+          [
+            [
+              [
+                [
+                  1
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "depth": 5,
+      "result": [
+        "list[1]",
+        [
+          "list[1]",
+          [
+            "list[1]",
+            [
+              "list[1]",
+              [
+                "list[1]",
+                "..."
+              ]
+            ]
+          ]
+        ]
+      ]
+    },
+    {
+      "function": "describe_shape",
+      "value": [
+        [
+          [
+            [
+              [
+                [
+                  1
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "depth": 1,
+      "result": [
+        "list[1]",
+        "..."
+      ]
+    },
+    {
+      "function": "describe_shape",
+      "value": [
+        [
+          [
+            [
+              [
+                [
+                  1
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "depth": 0,
+      "result": "..."
+    },
+    {
+      "function": "redact_probe",
+      "probe": {},
+      "result": {}
+    },
+    {
+      "function": "redact_probe",
+      "probe": {
+        "logged_in": true,
+        "user_id": "5ff",
+        "profile_href": "/user/profile/5ff",
+        "qr_src": ""
+      },
+      "result": {
+        "logged_in": true,
+        "user_id": "str[3]",
+        "profile_href": "str[17]",
+        "qr_src": "str[0]"
+      }
+    },
+    {
+      "function": "redact_probe",
+      "probe": {
+        "logged_in": false,
+        "qr_src": "data:image/png;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "modal_html": "<div>x</div>",
+        "qr_stage": "login"
+      },
+      "result": {
+        "logged_in": false,
+        "qr_src": "str[92]",
+        "qr_stage": "login"
+      }
+    },
+    {
+      "function": "redact_probe",
+      "probe": {
+        "user_id": null,
+        "qr_src": 0,
+        "profile_href": true,
+        "guest": true
+      },
+      "result": {
+        "user_id": "str[0]",
+        "qr_src": "str[0]",
+        "profile_href": "str[4]",
+        "guest": true
+      }
+    },
+    {
+      "function": "redact_probe",
+      "probe": {
+        "has_login_modal": true,
+        "has_verify_modal": false,
+        "user_id": "小红书"
+      },
+      "result": {
+        "has_login_modal": true,
+        "has_verify_modal": false,
+        "user_id": "str[3]"
+      }
+    },
+    {
+      "function": "summarize_pending",
+      "entries": [],
+      "now": 0.0,
+      "limit": 8,
+      "result": "nothing"
+    },
+    {
+      "function": "summarize_pending",
+      "entries": [
+        [
+          "document",
+          "https://www.xiaohongshu.com/explore?x=1",
+          1.0
+        ]
+      ],
+      "now": 31.0,
+      "limit": 8,
+      "result": "document www.xiaohongshu.com/explore 30.0s"
+    },
+    {
+      "function": "summarize_pending",
+      "entries": [
+        [
+          "xhr",
+          "https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?cursor=abc",
+          7.0
+        ],
+        [
+          "script",
+          "https://a/b/c",
+          2.0
+        ]
+      ],
+      "now": 9.25,
+      "limit": 1,
+      "result": "script a/b 7.2s, and 1 more"
+    },
+    {
+      "function": "summarize_pending",
+      "entries": [
+        [
+          "other",
+          "about:blank",
+          0.0
+        ],
+        [
+          "fetch",
+          "data:text/plain,hello-there-this-is-long-enough-to-be-cut-off",
+          0.5
+        ]
+      ],
+      "now": 0.75,
+      "limit": 8,
+      "result": "other about:blank 0.8s, fetch data:text/plain,hello-there-this-is-long 0.2s"
+    },
+    {
+      "function": "summarize_pending",
+      "entries": [
+        [
+          "image0",
+          "https://cdn0.example/x/y",
+          0.0
+        ],
+        [
+          "image1",
+          "https://cdn1.example/x/y",
+          1.0
+        ],
+        [
+          "image2",
+          "https://cdn2.example/x/y",
+          2.0
+        ],
+        [
+          "image3",
+          "https://cdn3.example/x/y",
+          3.0
+        ],
+        [
+          "image4",
+          "https://cdn4.example/x/y",
+          4.0
+        ],
+        [
+          "image5",
+          "https://cdn5.example/x/y",
+          5.0
+        ],
+        [
+          "image6",
+          "https://cdn6.example/x/y",
+          6.0
+        ],
+        [
+          "image7",
+          "https://cdn7.example/x/y",
+          7.0
+        ],
+        [
+          "image8",
+          "https://cdn8.example/x/y",
+          8.0
+        ],
+        [
+          "image9",
+          "https://cdn9.example/x/y",
+          9.0
+        ]
+      ],
+      "now": 20.0,
+      "limit": 8,
+      "result": "image0 cdn0.example/x 20.0s, image1 cdn1.example/x 19.0s, image2 cdn2.example/x 18.0s, image3 cdn3.example/x 17.0s, image4 cdn4.example/x 16.0s, image5 cdn5.example/x 15.0s, image6 cdn6.example/x 14.0s, image7 cdn7.example/x 13.0s, and 2 more"
+    },
+    {
+      "function": "summarize_pending",
+      "entries": [
+        [
+          "xhr",
+          "https://h/a",
+          1.0
+        ],
+        [
+          "xhr",
+          "https://h/b",
+          1.0
+        ]
+      ],
+      "now": 1.05,
+      "limit": 8,
+      "result": "xhr h/a 0.1s, xhr h/b 0.1s"
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30&cursor=C1",
+      "result": "C1"
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30",
+      "result": ""
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?cursor=&num=30",
+      "result": ""
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://e/x?cursor=a%2Bb&cursor=second",
+      "result": "a+b"
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://e/x?cursor=a+b",
+      "result": "a b"
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://e/x?cursor",
+      "result": ""
+    },
+    {
+      "function": "cursor_of",
+      "url": "/relative/path?cursor=r",
+      "result": "r"
+    },
+    {
+      "function": "cursor_of",
+      "url": "about:blank",
+      "result": ""
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://www.xiaohongshu.com",
+      "result": ""
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://www.xiaohongshu.com/",
+      "result": ""
+    },
+    {
+      "function": "cursor_of",
+      "url": "https://www.xiaohongshu.com//explore/abc",
+      "result": ""
+    },
+    {
+      "function": "cursor_of",
+      "url": "not a url at all, just text that runs past forty characters",
+      "result": ""
+    },
+    {
+      "function": "url_head",
+      "url": "https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30&cursor=C1",
+      "result": "edith.xiaohongshu.com/api"
+    },
+    {
+      "function": "url_head",
+      "url": "https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?num=30",
+      "result": "edith.xiaohongshu.com/api"
+    },
+    {
+      "function": "url_head",
+      "url": "https://edith.xiaohongshu.com/api/sns/web/v1/note/like/page?cursor=&num=30",
+      "result": "edith.xiaohongshu.com/api"
+    },
+    {
+      "function": "url_head",
+      "url": "https://e/x?cursor=a%2Bb&cursor=second",
+      "result": "e/x"
+    },
+    {
+      "function": "url_head",
+      "url": "https://e/x?cursor=a+b",
+      "result": "e/x"
+    },
+    {
+      "function": "url_head",
+      "url": "https://e/x?cursor",
+      "result": "e/x"
+    },
+    {
+      "function": "url_head",
+      "url": "/relative/path?cursor=r",
+      "result": "/relative/path?cursor=r"
+    },
+    {
+      "function": "url_head",
+      "url": "about:blank",
+      "result": "about:blank"
+    },
+    {
+      "function": "url_head",
+      "url": "https://www.xiaohongshu.com",
+      "result": "www.xiaohongshu.com/"
+    },
+    {
+      "function": "url_head",
+      "url": "https://www.xiaohongshu.com/",
+      "result": "www.xiaohongshu.com/"
+    },
+    {
+      "function": "url_head",
+      "url": "https://www.xiaohongshu.com//explore/abc",
+      "result": "www.xiaohongshu.com/explore"
+    },
+    {
+      "function": "url_head",
+      "url": "not a url at all, just text that runs past forty characters",
+      "result": "not a url at all, just text that runs pa"
+    }
+  ]
+}

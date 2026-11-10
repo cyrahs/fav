@@ -292,7 +292,7 @@ async fn prepare_profile_and_display(profile_dir: &Path, display: u32) -> Result
     tokio::fs::create_dir_all(profile_dir)
         .await
         .map_err(|error| LoginError::new("OSError", error.to_string()))?;
-    let cleared = clear_stale_profile_locks(profile_dir).map_err(|error| LoginError::new("OSError", error.to_string()))?;
+    let cleared = clear_stale_profile_locks(profile_dir).map_err(|error| LoginError::new(error.class, error.message))?;
     if !cleared.is_empty() {
         log().info(format_args!("Cleared stale profile locks {}", cleared.join(", ")));
     }

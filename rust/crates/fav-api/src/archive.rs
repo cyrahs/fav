@@ -218,15 +218,8 @@ fn py_str(value: Option<&Value>) -> String {
     fav_runtime::pystr::str_value(value.unwrap_or(&Value::Null))
 }
 
-/// `build_note_url` (`src/web/rednote.py`).
-pub fn build_note_url(note_id: &str, xsec_token: &str) -> String {
-    let url = format!("https://www.xiaohongshu.com/explore/{note_id}");
-    if xsec_token.is_empty() {
-        url
-    } else {
-        format!("{url}?xsec_token={xsec_token}&xsec_source=pc_user")
-    }
-}
+/// `build_note_url` (`src/web/rednote.py`): the source's own.
+pub use fav_sources::rednote::build_note_url;
 
 /// `_EXTERNAL_URL_BUILDERS`: the item's page on its site, where there is one.
 fn external_url(source: &ArchiveSource, row: &Row, settings: &Settings) -> Option<String> {
@@ -516,6 +509,30 @@ mod tests {
     #[test]
     fn api_job_enum_includes_pixiv() {
         assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"pixiv"));
+    }
+
+    // py: tests/test_rednote.py::test_the_archive_links_a_row_to_a_note_that_actually_opens
+    #[test]
+    fn the_archive_links_a_rednote_row_to_a_note_that_actually_opens() {
+        let source = source("rednote").expect("rednote is archived");
+        let row: Row = vec![
+            ("note_id".to_owned(), Value::from("64f1a2b3000000001e02c0de")),
+            ("media_index".to_owned(), Value::from(1_i64)),
+            ("xsec_token".to_owned(), Value::from("TOKEN")),
+        ];
+        let settings = fav_db::settings_store::default_settings();
+        // Without the token the note is only readable by its author.
+        assert_eq!(
+            external_url(source, &row, &settings).as_deref(),
+            Some("https://www.xiaohongshu.com/explore/64f1a2b3000000001e02c0de?xsec_token=TOKEN&xsec_source=pc_user")
+        );
+        assert!(source.columns.contains(&"xsec_token"));
+    }
+
+    // py: tests/test_rednote.py::test_api_job_enum_includes_rednote
+    #[test]
+    fn api_job_enum_includes_rednote() {
+        assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"rednote"));
     }
 
     // py: tests/test_twitter.py::test_the_archive_links_a_row_to_the_tweet_without_needing_the_handle
