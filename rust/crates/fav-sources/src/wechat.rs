@@ -105,6 +105,7 @@ const BRIDGE_KEY: &str = "wechat:bridge";
 const LIST_KEY: &str = "wechat:list";
 const DOWNLOAD_KEY: &str = "wechat:download";
 const WORK_KEY: &str = "wechat:work";
+const LOGIN_KEY: &str = "wechat:login";
 pub const TIKHUB_VIDEO_DETAIL: &str = "/api/v1/wechat_channels/v2/fetch_video_detail";
 /// TikHub's answers to a missing or spent key: settings to fix, not failed tries.
 pub const TIKHUB_ACCOUNT_STATUSES: [u16; 3] = [401, 402, 403];
@@ -987,6 +988,43 @@ impl Wechat {
             .cloned()
             .collect();
         Ok((last_seq, events))
+    }
+
+    /// Fail when WeChat itself is gone from behind the bridge. Not in the Python baseline
+    /// (closed Python PR #92, D183): the event log is a file the plugin keeps serving after
+    /// WeChat logs out, so an empty page alone looks like nobody forwarded anything.
+    /// `/wx/status` asks WeChat for the logged-in account, which the plugin cannot answer
+    /// without a session.
+    async fn check_login(&self) -> Result<(), Failure> {
+        let fetched = match Fetched::send(&self.clients.inbox, Request::get(self.url("/wx/status"))).await {
+            Ok(fetched) => fetched,
+            Err(error) if is_http_error(&error) => {
+                return Err(Failure::keyed(
+                    format!("FavInbox at {} is unreachable: {}", self.cfg.api_url, error.message),
+                    UNREACHABLE_KEY,
+                ));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if fetched.status == 401 {
+            return Err(Self::unauthorized());
+        }
+        let detail = if fetched.status == 200 {
+            match json_from_bytes(&fetched.body) {
+                Ok(Value::Dict(payload)) if payload.get("login_wxid").is_some_and(Value::is_truthy) => return Ok(()),
+                Ok(Value::Dict(_)) => "no logged-in account".to_owned(),
+                _ => "HTTP 200 with something other than a status".to_owned(),
+            }
+        } else {
+            format!("HTTP {}{}", fetched.status, error_detail(&fetched.body))
+        };
+        Err(Failure::keyed(
+            format!(
+                "WeChat behind FavInbox is not logged in or not answering (/wx/status: {detail}); \
+                 new messages are not reaching fav until WeChat is logged in again"
+            ),
+            LOGIN_KEY,
+        ))
     }
 
     /// `_queue`: queue one message; `false` when it was queued before.
@@ -2318,8 +2356,9 @@ impl Wechat {
 
     // ---------- run ----------
 
-    /// `update()`: read the bridge's events, work the queue, then drain the inbox. Each step
-    /// runs even when the one before it failed; the failures are reported together.
+    /// `update()`: read the bridge's events and check WeChat is logged in (D183), work the
+    /// queue, then drain the inbox. Each step runs even when the one before it failed; the
+    /// failures are reported together.
     pub async fn update(&mut self) -> Result<(), JobError> {
         let missing = self.cfg.validate_runnable();
         if !missing.is_empty() {
@@ -2336,7 +2375,18 @@ impl Wechat {
 
         let mut problems: Vec<(String, &'static str)> = Vec::new();
         match self.read_events().await {
-            Ok(queued) => log().info(format_args!("WeChat bridge: queued {queued} new item(s)")),
+            Ok(queued) => {
+                log().info(format_args!("WeChat bridge: queued {queued} new item(s)"));
+                // Only once the bridge answered: a bridge that is down is reported already.
+                match self.check_login().await {
+                    Ok(()) => {}
+                    Err(failure @ Failure::Inbox { .. }) => {
+                        log().warning(format_args!("WeChat is not usable behind the bridge: {}", failure.text()));
+                        problems.push((failure.text(), failure.dedupe_key()));
+                    }
+                    Err(failure) => return Err(failure.into_job_error()),
+                }
+            }
             Err(failure @ Failure::Inbox { .. }) => {
                 log().warning(format_args!("Could not read WeChat bridge events: {}", failure.text()));
                 problems.push((failure.text(), failure.dedupe_key()));

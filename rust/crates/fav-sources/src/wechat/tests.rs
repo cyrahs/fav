@@ -205,6 +205,8 @@ struct Inbox {
     events: Vec<Json>,
     last_seq: Option<i64>,
     events_status: Option<u16>,
+    /// Replaces the logged-in `/wx/status` answer (D183).
+    status: Option<Reply>,
     images: HashMap<i64, Vec<u8>>,
     post_page: Option<Reply>,
     link_open: Option<Reply>,
@@ -302,6 +304,10 @@ impl Inbox {
                     .collect();
                 Reply::json(200, &json!({"ok": true, "last_seq": last_seq, "events": page}))
             }
+            "status" => self
+                .status
+                .clone()
+                .unwrap_or_else(|| Reply::json(200, &json!({"ok": true, "version": "0.4.12", "login_wxid": "wxid_fav"}))),
             "image" => {
                 let msg_id: i64 = Self::param(request, "msg_id").parse().expect("msg_id");
                 self.images.get(&msg_id).map_or_else(
@@ -1175,6 +1181,130 @@ async fn a_bridge_that_is_down_still_lets_the_inbox_drain() {
     assert_eq!(env.image_ids().await, [1]);
     assert_eq!(env.inbox().acked, [1]);
     assert!(!env.state().await.contains_key("events_after"));
+    env.finish().await;
+}
+
+// D183: not in the Python baseline (closed Python PR #92).
+#[tokio::test]
+async fn a_logged_out_wechat_fails_the_run_after_reading_events() {
+    // WeChat sat on its login screen: the plugin still served its event log, but could not
+    // answer /wx/status, and the runs kept succeeding silently.
+    let inbox = Inbox {
+        images: HashMap::from([(45, JPEG.to_vec())]),
+        status: Some(Reply::json(
+            502,
+            &json!({"error": "bridge unreachable: Remote end closed connection without response"}),
+        )),
+        events: vec![event(1, message(45, json!({})))],
+        ..Inbox::listing(vec![inbox_item(1, json!({}))])
+    };
+    let env = Env::new(inbox, Sites::default()).await;
+
+    let error = env.run_err().await;
+
+    assert_eq!(error.notification_dedupe_key(), Some("wechat:login"));
+    assert!(error.message().contains("not logged in"), "{}", error.message());
+    assert!(
+        error.message().contains("HTTP 502: bridge unreachable: Remote end closed"),
+        "{}",
+        error.message()
+    );
+    // What the log already held is still saved, and the inbox still drains.
+    assert_eq!(env.image_ids().await, [45, 1]);
+    assert_eq!(env.inbox().acked, [1]);
+    assert_eq!(env.state().await["events_after"], "1");
+    env.finish().await;
+}
+
+// D183.
+#[tokio::test]
+async fn a_status_without_a_logged_in_account_fails_the_run() {
+    // The plugin's `j.put("login_wxid", null)` drops the key, so a missing key is the
+    // likeliest logged-out answer.
+    for status in [
+        json!({"ok": true, "login_wxid": ""}),
+        json!({"ok": true}),
+        json!({"ok": true, "login_wxid": null}),
+    ] {
+        let inbox = Inbox {
+            status: Some(Reply::json(200, &status)),
+            ..Inbox::default()
+        };
+        let env = Env::new(inbox, Sites::default()).await;
+
+        let error = env.run_err().await;
+
+        assert_eq!(error.notification_dedupe_key(), Some("wechat:login"), "{status}");
+        assert!(error.message().contains("no logged-in account"), "{status}: {}", error.message());
+        env.finish().await;
+    }
+}
+
+// D183.
+#[tokio::test]
+async fn a_status_call_that_hangs_up_fails_the_run_as_unreachable() {
+    let inbox = Inbox {
+        status: Some(Reply::Close),
+        ..Inbox::default()
+    };
+    let env = Env::new(inbox, Sites::default()).await;
+
+    let error = env.run_err().await;
+
+    assert_eq!(error.notification_dedupe_key(), Some("wechat:unreachable"));
+    assert!(error.message().contains("is unreachable"), "{}", error.message());
+    env.finish().await;
+}
+
+// D183.
+#[tokio::test]
+async fn a_status_that_is_not_json_fails_the_run() {
+    let inbox = Inbox {
+        status: Some(Reply::status(200)),
+        ..Inbox::default()
+    };
+    let env = Env::new(inbox, Sites::default()).await;
+
+    let error = env.run_err().await;
+
+    assert_eq!(error.notification_dedupe_key(), Some("wechat:login"));
+    assert!(error.message().contains("something other than a status"), "{}", error.message());
+    env.finish().await;
+}
+
+// D183.
+#[tokio::test]
+async fn a_rejected_token_on_status_asks_for_the_token_again() {
+    let inbox = Inbox {
+        status: Some(Reply::json(401, &json!({"error": "unauthorized"}))),
+        ..Inbox::default()
+    };
+    let env = Env::new(inbox, Sites::default()).await;
+
+    let error = env.run_err().await;
+
+    assert_eq!(error.notification_dedupe_key(), Some("wechat:auth"));
+    env.finish().await;
+}
+
+// D183.
+#[tokio::test]
+async fn a_logged_in_wechat_runs_clean_and_a_down_bridge_skips_the_status_check() {
+    let env = Env::new(Inbox::default(), Sites::default()).await;
+    env.run_ok().await;
+    assert_eq!(env.inbox_requests().iter().filter(|seen| seen.path() == "/wx/status").count(), 1);
+    env.finish().await;
+
+    let inbox = Inbox {
+        events_status: Some(502),
+        status: Some(Reply::json(502, &json!({"error": "should not be asked"}))),
+        ..Inbox::default()
+    };
+    let env = Env::new(inbox, Sites::default()).await;
+    let error = env.run_err().await;
+    assert_eq!(error.notification_dedupe_key(), Some("wechat:bridge"));
+    assert!(!error.message().contains("not logged in"), "{}", error.message());
+    assert!(!env.inbox_requests().iter().any(|seen| seen.path() == "/wx/status"));
     env.finish().await;
 }
 

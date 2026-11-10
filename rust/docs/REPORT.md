@@ -262,8 +262,9 @@ below follows the plan or fixes a Python bug.
 `git log 67609f6..origin/main` is empty on 2026-11-10: `main` has not moved since the baseline, so there is
 nothing to port. If `main` moves before a switch, each new commit has to be ported into the crate that owns its
 Python file (sources into `fav-sources`, `src/api` into `fav-api`, `src/core` into `fav-core`, `src/service`
-into `fav-runtime`), with its tests ported and the goldens regenerated at the new baseline. Known follow-up after
-WP18 (Max, 2026-11-10): the WeChat logout check from closed PR #92, to be added to the Rust build.
+into `fav-runtime`), with its tests ported and the goldens regenerated at the new baseline. Follow-up after WP18
+(Max, 2026-11-10): the WeChat logout check from closed PR #92 is now in the Rust build (D183); it is a Rust-only
+behaviour, so a catch-up with `main` does not bring it.
 
 ## Experiment log summary
 
