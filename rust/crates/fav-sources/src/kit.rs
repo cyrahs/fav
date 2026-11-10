@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use fav_net::reqwest::{self, Response};
 use fav_runtime::BoxFuture;
-use fav_runtime::notifications::{NewNotification, Outbox};
+use fav_runtime::notifications::{NewNotification, Outbox, Resolution};
 use fav_runtime::source::JobError;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
@@ -233,6 +233,9 @@ pub(crate) fn reason_phrase(status: u16) -> &'static str {
 pub trait Notifier: Send + Sync {
     /// Queue one notification; the error text is what the caller logs.
     fn enqueue(&self, notification: NewNotification) -> BoxFuture<'_, Result<(), String>>;
+
+    /// `resolve_notification(dedupe_key, ...)`: mark an earlier failure resolved.
+    fn resolve(&self, dedupe_key: String, resolution: Resolution) -> BoxFuture<'_, Result<(), String>>;
 }
 
 /// The real outbox.
@@ -242,6 +245,16 @@ pub struct OutboxNotifier(pub Outbox);
 impl Notifier for OutboxNotifier {
     fn enqueue(&self, notification: NewNotification) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move { self.0.enqueue(&notification).await.map(|_| ()).map_err(|error| error.to_string()) })
+    }
+
+    fn resolve(&self, dedupe_key: String, resolution: Resolution) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            self.0
+                .resolve(&dedupe_key, &resolution)
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
     }
 }
 

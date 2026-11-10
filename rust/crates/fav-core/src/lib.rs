@@ -16,6 +16,7 @@ pub mod logging;
 pub mod mimetypes;
 pub mod pycasefold;
 pub mod pyhtml;
+pub mod pyint;
 pub mod pyjson;
 pub mod pypath;
 pub mod pytext;

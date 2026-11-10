@@ -5,16 +5,20 @@ use std::sync::{Arc, Mutex};
 
 use axum::response::IntoResponse;
 use fav_runtime::BoxFuture;
-use fav_runtime::notifications::NewNotification;
+use fav_runtime::notifications::{NewNotification, Resolution};
 
 use crate::kit::Notifier;
 
 /// One request the fake server received.
 #[derive(Debug, Clone)]
 pub(crate) struct Received {
+    pub(crate) method: String,
     pub(crate) path: String,
+    /// The query string as sent, without the `?`.
+    pub(crate) raw_query: Option<String>,
     pub(crate) query: Vec<(String, String)>,
     pub(crate) headers: axum::http::HeaderMap,
+    pub(crate) body: Vec<u8>,
 }
 
 impl Received {
@@ -26,6 +30,23 @@ impl Received {
     pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers.get(name).and_then(|value| value.to_str().ok())
     }
+
+    /// The path and query string, as a URL ends.
+    pub(crate) fn path_and_query(&self) -> String {
+        match &self.raw_query {
+            Some(query) => format!("{}?{query}", self.path),
+            None => self.path.clone(),
+        }
+    }
+
+    pub(crate) fn body_text(&self) -> String {
+        String::from_utf8_lossy(&self.body).into_owned()
+    }
+
+    /// The body read as a form, like `parse_qsl(body, keep_blank_values=True)`.
+    pub(crate) fn form(&self) -> Vec<(String, String)> {
+        url::form_urlencoded::parse(&self.body).into_owned().collect()
+    }
 }
 
 /// What the fake server answers.
@@ -34,14 +55,31 @@ pub(crate) struct Answer {
     status: u16,
     content_type: &'static str,
     body: Vec<u8>,
+    headers: Vec<(String, String)>,
 }
 
 impl Answer {
+    /// An extra response header, such as `Set-Cookie` (repeatable).
+    pub(crate) fn with_header(mut self, name: &str, value: &str) -> Self {
+        self.headers.push((name.to_owned(), value.to_owned()));
+        self
+    }
+
+    pub(crate) fn text(status: u16, body: &str) -> Self {
+        Self {
+            status,
+            content_type: "text/plain; charset=utf-8",
+            body: body.as_bytes().to_vec(),
+            headers: Vec::new(),
+        }
+    }
+
     pub(crate) fn json(status: u16, body: &str) -> Self {
         Self {
             status,
             content_type: "application/json",
             body: body.as_bytes().to_vec(),
+            headers: Vec::new(),
         }
     }
 
@@ -50,6 +88,7 @@ impl Answer {
             status,
             content_type: "application/octet-stream",
             body: body.to_vec(),
+            headers: Vec::new(),
         }
     }
 
@@ -58,6 +97,7 @@ impl Answer {
             status: 200,
             content_type: "text/html; charset=utf-8",
             body: body.as_bytes().to_vec(),
+            headers: Vec::new(),
         }
     }
 }
@@ -88,15 +128,32 @@ impl FakeServer {
                 .query()
                 .map(|query| url::form_urlencoded::parse(query.as_bytes()).into_owned().collect())
                 .unwrap_or_default();
+            let method = request.method().as_str().to_owned();
+            let path = request.uri().path().to_owned();
+            let raw_query = request.uri().query().map(str::to_owned);
+            let headers = request.headers().clone();
+            let body = axum::body::to_bytes(request.into_body(), usize::MAX)
+                .await
+                .map(|bytes| bytes.to_vec())
+                .unwrap_or_default();
             let received = Received {
-                path: request.uri().path().to_owned(),
+                method,
+                path,
+                raw_query,
                 query,
-                headers: request.headers().clone(),
+                headers,
+                body,
             };
             let answer = (state.handler)(&received);
             state.received.lock().expect("fake server state").push(received);
             let status = axum::http::StatusCode::from_u16(answer.status).expect("status");
-            (status, [(axum::http::header::CONTENT_TYPE, answer.content_type)], answer.body).into_response()
+            let mut response = (status, [(axum::http::header::CONTENT_TYPE, answer.content_type)], answer.body).into_response();
+            for (name, value) in &answer.headers {
+                let name = axum::http::HeaderName::from_bytes(name.as_bytes()).expect("header name");
+                let value = axum::http::HeaderValue::from_str(value).expect("header value");
+                response.headers_mut().append(name, value);
+            }
+            response
         }
 
         let received: Arc<Mutex<Vec<Received>>> = Arc::default();
@@ -125,23 +182,38 @@ impl FakeServer {
     }
 }
 
-/// A notifier that keeps what it was given, or refuses everything.
+/// A notifier that keeps what it was given, or refuses enqueues or resolves.
 #[derive(Debug, Default)]
 pub(crate) struct RecordingNotifier {
     sent: Mutex<Vec<NewNotification>>,
+    resolved: Mutex<Vec<(String, Resolution)>>,
     fail: bool,
+    fail_resolve: bool,
 }
 
 impl RecordingNotifier {
+    /// Every enqueue fails.
     pub(crate) fn failing() -> Self {
         Self {
-            sent: Mutex::default(),
             fail: true,
+            ..Self::default()
+        }
+    }
+
+    /// Every resolve fails.
+    pub(crate) fn failing_resolve() -> Self {
+        Self {
+            fail_resolve: true,
+            ..Self::default()
         }
     }
 
     pub(crate) fn sent(&self) -> Vec<NewNotification> {
         self.sent.lock().expect("notifier state").clone()
+    }
+
+    pub(crate) fn resolved(&self) -> Vec<(String, Resolution)> {
+        self.resolved.lock().expect("notifier state").clone()
     }
 }
 
@@ -152,6 +224,16 @@ impl Notifier for RecordingNotifier {
                 return Err("notify failed".to_owned());
             }
             self.sent.lock().expect("notifier state").push(notification);
+            Ok(())
+        })
+    }
+
+    fn resolve(&self, dedupe_key: String, resolution: Resolution) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            if self.fail_resolve {
+                return Err("resolve failed".to_owned());
+            }
+            self.resolved.lock().expect("notifier state").push((dedupe_key, resolution));
             Ok(())
         })
     }

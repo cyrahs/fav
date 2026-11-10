@@ -60,12 +60,12 @@ pub trait Runner: Send + Sync + fmt::Debug {
 pub struct SystemRunner;
 
 fn command(argv: &[String]) -> io::Result<Command> {
-    let (program, args) = argv
+    let (program, arguments) = argv
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty command"))?;
     let mut command = Command::new(program);
     command
-        .args(args)
+        .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -199,8 +199,16 @@ mod tests {
             .await
             .expect("sh runs");
         assert_eq!(code, 4);
-        let mut stdout: Vec<_> = lines.iter().filter(|(s, _)| *s == Stream::Stdout).map(|(_, l)| l.as_str()).collect();
-        let stderr: Vec<_> = lines.iter().filter(|(s, _)| *s == Stream::Stderr).map(|(_, l)| l.as_str()).collect();
+        let mut stdout: Vec<_> = lines
+            .iter()
+            .filter(|(s, _)| *s == Stream::Stdout)
+            .map(|(_, l)| l.as_str())
+            .collect();
+        let stderr: Vec<_> = lines
+            .iter()
+            .filter(|(s, _)| *s == Stream::Stderr)
+            .map(|(_, l)| l.as_str())
+            .collect();
         stdout.sort_unstable();
         assert_eq!(stdout, ["one", "three"]);
         assert_eq!(stderr, ["two"]);

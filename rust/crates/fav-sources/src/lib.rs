@@ -12,11 +12,13 @@ use std::sync::Arc;
 use fav_db::{Db, SettingsStore};
 use fav_runtime::source::{JobError, Registry};
 
+pub mod bilibili;
 pub mod jandan;
 pub mod kemono;
 pub mod kemono_creator;
 mod kit;
 pub mod pixiv;
+mod pydecode;
 mod pyerr;
 pub mod stellasora;
 #[cfg(test)]
@@ -25,6 +27,7 @@ mod testkit;
 mod testutil;
 
 pub use kit::{HttpError, Notifier, OutboxNotifier};
+pub use pydecode::PyError;
 
 /// What every source's factory may use: the database and the settings store. Each run
 /// reads its own section of the settings when it starts, as Python's constructors do.
@@ -40,6 +43,7 @@ pub struct SourceContext {
 /// the worker does not schedule it and refuses to trigger it (DIVERGENCES.md D17).
 pub fn registry(ctx: &SourceContext) -> Registry {
     let mut registry = Registry::new();
+    bilibili::register(&mut registry, ctx);
     stellasora::register(&mut registry, ctx);
     pixiv::register(&mut registry, ctx);
     jandan::register(&mut registry, ctx);
