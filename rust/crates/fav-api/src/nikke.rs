@@ -1900,7 +1900,7 @@ pub(crate) async fn get_character(state: &ApiState, raw_content_id: Option<&str>
     );
     errors.finish()?;
     let not_found = || ApiError::new(404, "nikke_character_not_found", "Nikke character not found.");
-    // An id past 64 bits names no character.
+    // An id past `i64::MAX` is answered 404 without reading the collection (D87).
     let Some(BigInt::Fits(content_id)) = content_id else {
         return Err(not_found());
     };

@@ -1082,7 +1082,9 @@ async fn process_assets_limits_db_backed_asset_processing() {
         Reply::bytes(200, seen.url.clone())
     })
     .await;
-    let harness = Harness::new(web, |_| {}).await;
+    let mut harness = Harness::new(web, |_| {}).await;
+    // Lift the CDN's own limit of 3, so the peak measures the asset-group limit alone.
+    harness.nikke.cdn_semaphore = tokio::sync::Semaphore::new(12);
     let urls: Vec<String> = (0..12).map(|index| format!("{CDN}/{index}.png")).collect();
     let items: Vec<(&str, &str)> = urls.iter().map(|url| (url.as_str(), "image")).collect();
     let mut assets = assets_of(&items);
