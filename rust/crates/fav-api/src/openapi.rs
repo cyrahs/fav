@@ -31,7 +31,6 @@ pub const APP_VERSION: &str = "2.0.0";
 /// Routes Python has and this build does not yet, with the work package that ports each.
 /// Every path of Python's document that is missing here must be listed.
 pub const PENDING: &[(&str, &str)] = &[
-    ("/api/v2/services/tikhub/test", "WP13"),
     ("/api/v2/rednote/proxy/test", "WP17"),
     ("/api/v2/azurlane/characters", "WP12"),
     ("/api/v2/azurlane/sidebar/characters", "WP12"),
@@ -976,6 +975,19 @@ fn schemas_d() -> Vec<(&'static str, RefOr<Schema>)> {
             ),
         ),
         (
+            "TikHubTestResponse",
+            model(
+                "TikHubTestResponse",
+                None,
+                true,
+                vec![
+                    ("key_name", with_default(typed(Type::String, "Key Name"), json!("")), false),
+                    ("balance", typed(Type::Number, "Balance").into(), true),
+                    ("free_credit", typed(Type::Number, "Free Credit").into(), true),
+                ],
+            ),
+        ),
+        (
             "ValidationError",
             model(
                 "ValidationError",
@@ -1365,6 +1377,16 @@ fn paths_b() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
                         "testTelegramNotification",
                         "TelegramNotificationTestResponse",
                     )
+                },
+            )],
+        ),
+        (
+            "/api/v2/services/tikhub/test",
+            vec![(
+                HttpMethod::Post,
+                Op {
+                    description: Some("Check the stored TikHub key and read the balance left on its account (not billed)."),
+                    ..Op::new("settings", "Test Tikhub", "testTikHub", "TikHubTestResponse")
                 },
             )],
         ),

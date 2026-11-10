@@ -131,3 +131,60 @@ async fn a_post_redirected_by_302_becomes_a_get() {
     assert_eq!(response.status(), 200);
     assert_eq!(response.bytes().await.expect("body"), "got");
 }
+
+/// Set in the child process of [`trust_env_false_ignores_the_environment_proxy`].
+const TRUST_ENV_CHILD: &str = "FAV_NET_TRUST_ENV_CHILD";
+const PROXY_VARIABLES: [&str; 8] = [
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
+];
+
+/// The half of the test that runs with `HTTP_PROXY` pointing at the parent's proxy: a
+/// client that trusts the environment reaches a host through it, one with
+/// `trust_env: false` goes direct (and finds no such host). Outside the child it does
+/// nothing.
+#[tokio::test]
+async fn trust_env_child() {
+    if std::env::var_os(TRUST_ENV_CHILD).is_none() {
+        return;
+    }
+    let client = |trust_env: bool| {
+        HttpClient::new(&ClientOptions {
+            trust_env,
+            ..ClientOptions::default()
+        })
+        .expect("client")
+    };
+    let proxied = client(true).get("http://fav-proxy-test.invalid/").await.expect("through the proxy");
+    assert_eq!(proxied.bytes().await.expect("body").as_ref(), b"proxied");
+    let direct = client(false).get("http://fav-proxy-test.invalid/").await;
+    assert!(direct.is_err(), "a client that ignores the environment went through the proxy");
+}
+
+#[tokio::test]
+async fn trust_env_false_ignores_the_environment_proxy() {
+    if std::env::var_os(TRUST_ENV_CHILD).is_some() {
+        return;
+    }
+    let proxy = serve(Router::new().fallback(|| async { "proxied" })).await;
+    let child = tokio::task::spawn_blocking(move || {
+        let mut command = std::process::Command::new(std::env::current_exe().expect("test binary"));
+        command.args(["--exact", "client::tests::trust_env_child", "--quiet"]);
+        for name in PROXY_VARIABLES {
+            command.env_remove(name);
+        }
+        command.env("HTTP_PROXY", format!("http://{proxy}")).env(TRUST_ENV_CHILD, "1");
+        command.output().expect("child runs")
+    })
+    .await
+    .expect("joined");
+    let output = String::from_utf8_lossy(&child.stdout).into_owned() + &String::from_utf8_lossy(&child.stderr);
+    assert!(child.status.success(), "{output}");
+    assert!(output.contains("1 passed"), "{output}");
+}

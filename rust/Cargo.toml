@@ -77,6 +77,8 @@ http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", default-features = false }
 hyper-util = { version = "0.1", default-features = false }
+# Tieba's form signature (WP13).
+md-5 = "0.11"
 regex = "1"
 # Look-ahead and back-references in patterns ported from Python `re` (Hanime1, WP8).
 fancy-regex = "0.20"

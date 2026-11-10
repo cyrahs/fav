@@ -1,0 +1,5000 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "post_links",
+  "cases": [
+    {
+      "name": "tieba first floor",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "title": "其实HDR比dlss5重要",
+              "create_time": "1791654000",
+              "author": {
+                "id": "7"
+              }
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": "1",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/C.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  }
+                ]
+              },
+              {
+                "floor": "2",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 2"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/LATER.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/LATER.jpg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "title": "其实HDR比dlss5重要",
+        "account": "显卡吧",
+        "published_at": "2026-10-10T17:40:00+00:00",
+        "images": [
+          "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+          "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+          "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant"
+        ],
+        "picture_count": 0,
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba video in floor",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "title": "这个数值够不够还原",
+              "create_time": "1791984959",
+              "video_info": {
+                "video_url": "http://tb-video.bdstatic.com/tieba-smallvideo-transcode/v.mp4?tbau=grant",
+                "thumbnail_url": "http://tiebapic.baidu.com/forum/w%3D960/sign=x/cover.jpg?tbpicau=grant"
+              }
+            },
+            "forum": {
+              "name": "绝区零内鬼"
+            },
+            "post_list": [
+              {
+                "floor": 1,
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": 5,
+                    "link": "http://tb-video.bdstatic.com/tieba-smallvideo-transcode/v.mp4?tbau=grant",
+                    "src": "http://tiebapic.baidu.com/forum/w%3D960/sign=x/cover.jpg?tbpicau=grant",
+                    "during_time": 13
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "title": "这个数值够不够还原",
+        "account": "绝区零内鬼吧",
+        "published_at": "2026-10-14T13:35:59+00:00",
+        "images": [],
+        "picture_count": 0,
+        "videos": [
+          {
+            "url": "http://tb-video.bdstatic.com/tieba-smallvideo-transcode/v.mp4?tbau=grant",
+            "cover_url": "http://tiebapic.baidu.com/forum/w%3D960/sign=x/cover.jpg?tbpicau=grant"
+          }
+        ]
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba video in thread only",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "title": "这个数值够不够还原",
+              "create_time": "1791984959",
+              "video_info": {
+                "video_url": "http://tb-video.bdstatic.com/tieba-smallvideo-transcode/v.mp4?tbau=grant",
+                "thumbnail_url": "http://tiebapic.baidu.com/forum/w%3D960/sign=x/cover.jpg?tbpicau=grant"
+              }
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": 1,
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "title": "这个数值够不够还原",
+        "account": "显卡吧",
+        "published_at": "2026-10-14T13:35:59+00:00",
+        "images": [],
+        "picture_count": 0,
+        "videos": [
+          {
+            "url": "http://tb-video.bdstatic.com/tieba-smallvideo-transcode/v.mp4?tbau=grant",
+            "cover_url": "http://tiebapic.baidu.com/forum/w%3D960/sign=x/cover.jpg?tbpicau=grant"
+          }
+        ]
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba refused",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "4",
+            "error_msg": "贴子可能已被删除"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "TiebaError: Tieba refused thread 9876543210: 贴子可能已被删除; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba refused without message",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": 0.0
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "TiebaError: Tieba refused thread 9876543210: unknown error; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba integer zero",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": 0,
+            "thread": {
+              "title": "其实HDR比dlss5重要",
+              "create_time": "1791654000",
+              "author": {
+                "id": "7"
+              }
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": "1",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/C.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  }
+                ]
+              },
+              {
+                "floor": "2",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 2"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/LATER.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/LATER.jpg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "title": "其实HDR比dlss5重要",
+        "account": "显卡吧",
+        "published_at": "2026-10-10T17:40:00+00:00",
+        "images": [
+          "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+          "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+          "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant"
+        ],
+        "picture_count": 0,
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba list",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": [
+            "x"
+          ]
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "TiebaError: Tieba refused thread 9876543210: unknown error; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba not json",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "text": "<html>安全验证</html>"
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "TiebaError: Tieba answered thread 9876543210 with something other than JSON"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba server error",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 500,
+          "headers": {},
+          "text": "busy"
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "HTTPStatusError: Server error '500 Internal Server Error' for url 'http://c.tieba.baidu.com/c/f/pb/page'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba no first floor",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "title": "其实HDR比dlss5重要",
+              "create_time": "1791654000",
+              "author": {
+                "id": "7"
+              }
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": "2",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 2"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  }
+                ]
+              },
+              "x"
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "TiebaError: Tieba returned no first floor for thread 9876543210"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba sparse thread",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": "x",
+            "forum": {
+              "name": ""
+            },
+            "post_list": [
+              {
+                "floor": 1.0,
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1.0"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  }
+                ]
+              },
+              {
+                "floor": 1,
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "title": "link title",
+        "account": "",
+        "published_at": null,
+        "images": [
+          "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant"
+        ],
+        "picture_count": 0,
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba odd create times",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "title": "",
+              "create_time": 1791654000
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": "1",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/C.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  }
+                ]
+              },
+              {
+                "floor": "2",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 2"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/LATER.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/LATER.jpg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "title": "link title",
+        "account": "显卡吧",
+        "published_at": "2026-10-10T17:40:00+00:00",
+        "images": [
+          "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+          "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+          "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant"
+        ],
+        "picture_count": 0,
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba superscript create time",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "create_time": "²"
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": "1",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/C.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  }
+                ]
+              },
+              {
+                "floor": "2",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 2"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/LATER.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/LATER.jpg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "ValueError: invalid literal for int() with base 10: '²'"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba create time out of range",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "create_time": "1000000000000"
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": "1",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/C.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  }
+                ]
+              },
+              {
+                "floor": "2",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 2"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/LATER.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/LATER.jpg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "ValueError: year 33658 is out of range"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba not a tieba link",
+      "call": "tieba_post.fetch_tieba_post",
+      "args": {
+        "link": {
+          "url": "https://example.com/p/1",
+          "title": ""
+        }
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "error": "TiebaError: https://example.com/p/1 is not a Tieba post"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga first floor",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__R": {
+                "0": {
+                  "lou": 0,
+                  "subject": "",
+                  "postdatetimestamp": 1791654000,
+                  "content": "text<br/>[img]./mon_202510/11/A.jpg.medium.jpg[/img][img]https://img.nga.178.com/attachments/mon_202510/11/B.jpg[/img][img]./mon_202510/11/A.jpg[/img]",
+                  "attachs": {
+                    "0": {
+                      "attachurl": "mon_202510/11/C.jpg",
+                      "type": "img"
+                    },
+                    "1": {
+                      "attachurl": "mon_202510/11/x.zip",
+                      "type": "zip"
+                    }
+                  }
+                },
+                "1": {
+                  "lou": 1,
+                  "content": "[img]./mon_202510/11/LATER.jpg[/img]"
+                }
+              },
+              "__T": {
+                "subject": "[同人搬运]贪吃蛇 &amp; 更多",
+                "postdate": 1791654000
+              },
+              "__F": {
+                "name": "二次元国家地理"
+              }
+            },
+            "time": 1791654100
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "title": "[同人搬运]贪吃蛇 & 更多",
+        "account": "二次元国家地理",
+        "published_at": "2026-10-10T17:40:00+00:00",
+        "images": [
+          "https://img.nga.cn/attachments/mon_202510/11/A.jpg",
+          "https://img.nga.cn/attachments/mon_202510/11/B.jpg",
+          "https://img.nga.cn/attachments/mon_202510/11/C.jpg"
+        ],
+        "picture_count": 0,
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga cookies in order and only set ones",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportCid": "cid",
+          "ngaPassportUid": "",
+          "other": "x"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__R": {
+                "0": {
+                  "lou": 0,
+                  "subject": "",
+                  "postdatetimestamp": 1791654000,
+                  "content": "text<br/>[img]./mon_202510/11/A.jpg.medium.jpg[/img][img]https://img.nga.178.com/attachments/mon_202510/11/B.jpg[/img][img]./mon_202510/11/A.jpg[/img]",
+                  "attachs": {
+                    "0": {
+                      "attachurl": "mon_202510/11/C.jpg",
+                      "type": "img"
+                    },
+                    "1": {
+                      "attachurl": "mon_202510/11/x.zip",
+                      "type": "zip"
+                    }
+                  }
+                },
+                "1": {
+                  "lou": 1,
+                  "content": "[img]./mon_202510/11/LATER.jpg[/img]"
+                }
+              },
+              "__T": {
+                "subject": "[同人搬运]贪吃蛇 &amp; 更多",
+                "postdate": 1791654000
+              },
+              "__F": {
+                "name": "二次元国家地理"
+              }
+            },
+            "time": 1791654100
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportCid=cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "title": "[同人搬运]贪吃蛇 & 更多",
+        "account": "二次元国家地理",
+        "published_at": "2026-10-10T17:40:00+00:00",
+        "images": [
+          "https://img.nga.cn/attachments/mon_202510/11/A.jpg",
+          "https://img.nga.cn/attachments/mon_202510/11/B.jpg",
+          "https://img.nga.cn/attachments/mon_202510/11/C.jpg"
+        ],
+        "picture_count": 0,
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga not signed in",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 403,
+          "headers": {},
+          "json": {
+            "error": [
+              "1:未登录",
+              "<br/><a href=/nuke.php>[登录]</a>"
+            ],
+            "data": {
+              "__MESSAGE": {}
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaLoginError: NGA wants a signed-in session for thread 47695975 (未登录). Sign in to NGA again on fav's 登录态 page."
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga 403 page",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 403,
+          "headers": {},
+          "text": "<html>403</html>"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaLoginError: NGA wants a signed-in session for thread 47695975 (HTTP 403). Sign in to NGA again on fav's 登录态 page."
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga 401 empty",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 401,
+          "headers": {}
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaLoginError: NGA wants a signed-in session for thread 47695975 (HTTP 401). Sign in to NGA again on fav's 登录态 page."
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga 500 page",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 500,
+          "headers": {},
+          "text": "oops"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaError: NGA refused thread 47695975: HTTP 500; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga 403 json list",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 403,
+          "headers": {},
+          "json": [
+            1
+          ]
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaLoginError: NGA wants a signed-in session for thread 47695975 (HTTP 403). Sign in to NGA again on fav's 登录态 page."
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga deleted",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__MESSAGE": {
+                "1": "帖子被锁定"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaError: NGA refused thread 47695975: 帖子被锁定; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga error beside data",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error": [
+              "12:x"
+            ],
+            "data": {}
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaError: NGA refused thread 47695975: x; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga no data",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "time": 1
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaError: NGA refused thread 47695975: HTTP 200; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga no first floor",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__R": [
+                {
+                  "lou": 1
+                },
+                "x",
+                {
+                  "lou": "2"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaError: NGA returned no first floor for thread 47695975"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga first floor in a list",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__R": [
+                {
+                  "lou": "0",
+                  "subject": " Own &amp; subject ",
+                  "postdatetimestamp": "x"
+                }
+              ],
+              "__T": [],
+              "__F": "x"
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "title": "Own & subject",
+        "account": "",
+        "published_at": null,
+        "images": [],
+        "picture_count": 0,
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga title from link",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__R": {
+                "0": {
+                  "lou": 0.0,
+                  "content": null
+                }
+              },
+              "__T": {
+                "subject": "  ",
+                "postdate": "1791654000"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "NgaError: NGA returned no first floor for thread 47695975"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga postdate out of range",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__R": {
+                "0": {
+                  "lou": 0
+                }
+              },
+              "__T": {
+                "postdate": 1000000000000000000
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "OSError: [Errno 75] Value too large for defined data type"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga not a thread",
+      "call": "nga_post.fetch_nga_post",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/thread.php?fid=1",
+          "title": ""
+        },
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "error": "NgaError: https://bbs.nga.cn/thread.php?fid=1 is not an NGA thread"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga verified",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "0": []
+            },
+            "time": 1
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": true,
+        "account": "42",
+        "message": ""
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga turned away",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error": [
+              "你必须先登录论坛"
+            ],
+            "time": 1
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": false,
+        "account": "",
+        "message": "NGA rejected the session (你必须先登录论坛)"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga half a login",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42"
+        }
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "ok": false,
+        "account": "",
+        "message": "no ngaPassportUid/ngaPassportCid cookies yet; not signed in"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga empty cid",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": ""
+        }
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "ok": false,
+        "account": "",
+        "message": "no ngaPassportUid/ngaPassportCid cookies yet; not signed in"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga bad gateway",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11": {
+          "status": 502,
+          "headers": {},
+          "text": "<html>bad gateway</html>"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": true,
+        "account": "42",
+        "message": ""
+      },
+      "logs": [
+        [
+          "embyx.wechat",
+          "WARNING",
+          "NGA notifications answered HTTP 502 without a verdict; accepting the login"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "nga json list",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": []
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": true,
+        "account": "42",
+        "message": ""
+      },
+      "logs": [
+        [
+          "embyx.wechat",
+          "WARNING",
+          "NGA notifications answered HTTP 200 without a verdict; accepting the login"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "nga other error",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error": [
+              "服务器忙"
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": true,
+        "account": "42",
+        "message": ""
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga login message in data",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__MESSAGE": {
+                "1": "29:请先登录"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": false,
+        "account": "",
+        "message": "NGA rejected the session (请先登录)"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga redirect not followed",
+      "call": "nga_post.verify_session",
+      "args": {
+        "cookies": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11": {
+          "status": 302,
+          "headers": {
+            "location": "/login"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/nuke.php?__lib=noti&__act=get_all&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": true,
+        "account": "42",
+        "message": ""
+      },
+      "logs": [
+        [
+          "embyx.wechat",
+          "WARNING",
+          "NGA notifications answered HTTP 302 without a verdict; accepting the login"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "zhihu answer",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "content": "<p data-pid=\"a\">黑丝或者肉丝叭</p><figure data-size=\"normal\"><noscript><img src=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\"/></noscript><img src=\"data:image/svg+xml;utf8,&lt;svg&gt;\" class=\"origin_image lazy\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\" data-actualsrc=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\"/></figure><figure><img src=\"https://picx.zhimg.com/v2-bbb_720w.jpg\"/></figure><img src=\"https://www.zhihu.com/equation?tex=x\"/><a class=\"video-box\" href=\"https://link.zhihu.com/?target=https%3A//www.zhihu.com/video/2091194612627121396\" target=\"_blank\" data-poster=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\" data-lens-id=\"2091194612627121396\"><img class=\"thumbnail\" src=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\"/></a>",
+              "author": {
+                "name": "a"
+              },
+              "question": {
+                "title": "Q"
+              },
+              "created_time": 1793533212
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "link": {
+          "kind": "answer",
+          "id": "9"
+        },
+        "title": "Q",
+        "author": "a",
+        "published_at": "2026-11-01T11:40:12+00:00",
+        "images": [
+          "https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567",
+          "https://picx.zhimg.com/v2-bbb_720w.jpg"
+        ],
+        "videos": [
+          {
+            "id": "2091194612627121396",
+            "fallback_url": "",
+            "cover_url": "https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a"
+          }
+        ]
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu article with a trailing slash",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "article",
+        "id": "42",
+        "api_url": "http://api.tikhub.dev//",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_column_article_detail?article_id=42": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "code": 200,
+            "data": {
+              "title": "Article",
+              "content": "<p data-pid=\"a\">黑丝或者肉丝叭</p><figure data-size=\"normal\"><noscript><img src=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\"/></noscript><img src=\"data:image/svg+xml;utf8,&lt;svg&gt;\" class=\"origin_image lazy\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\" data-actualsrc=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\"/></figure><figure><img src=\"https://picx.zhimg.com/v2-bbb_720w.jpg\"/></figure><img src=\"https://www.zhihu.com/equation?tex=x\"/><a class=\"video-box\" href=\"https://link.zhihu.com/?target=https%3A//www.zhihu.com/video/2091194612627121396\" target=\"_blank\" data-poster=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\" data-lens-id=\"2091194612627121396\"><img class=\"thumbnail\" src=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\"/></a>",
+              "author": {
+                "name": "a"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_column_article_detail?article_id=42",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "link": {
+          "kind": "article",
+          "id": "42"
+        },
+        "title": "Article",
+        "author": "a",
+        "published_at": null,
+        "images": [
+          "https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567",
+          "https://picx.zhimg.com/v2-bbb_720w.jpg"
+        ],
+        "videos": [
+          {
+            "id": "2091194612627121396",
+            "fallback_url": "",
+            "cover_url": "https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a"
+          }
+        ]
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu pin",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "pin",
+        "id": "7",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "content": [
+                {
+                  "type": "text",
+                  "own_text": "穿搭小技巧 | <a class=\"hash_tag\" href=\"https://www.zhihu.com/topic/1\">#大衣穿搭</a>"
+                },
+                {
+                  "type": "image",
+                  "url": "https://pic1.zhimg.com/100/v2-wm_720w.jpg",
+                  "original_url": "https://picx.zhimg.com/v2-orig.png?source=e3d01f54"
+                },
+                {
+                  "type": "video",
+                  "video_id": "2100665385288836251",
+                  "thumbnail": "https://pic1.zhimg.com/80/v2-thumb",
+                  "video_info": {
+                    "playlist": [
+                      {
+                        "quality": "ld",
+                        "width": 476,
+                        "height": 848,
+                        "url": "https://vdn3.vzuu.com/SD/x.mp4"
+                      },
+                      {
+                        "quality": "hd",
+                        "width": 720,
+                        "height": 1280,
+                        "url": "https://vdn3.vzuu.com/HD/x.mp4"
+                      }
+                    ]
+                  }
+                }
+              ],
+              "excerpt_title": "pin",
+              "created": 1
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "link": {
+          "kind": "pin",
+          "id": "7"
+        },
+        "title": "pin",
+        "author": "",
+        "published_at": "1970-01-01T00:00:01+00:00",
+        "images": [
+          "https://picx.zhimg.com/v2-orig.png?source=e3d01f54"
+        ],
+        "videos": [
+          {
+            "id": "2100665385288836251",
+            "fallback_url": "https://vdn3.vzuu.com/HD/x.mp4",
+            "cover_url": "https://pic1.zhimg.com/80/v2-thumb"
+          }
+        ]
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu without a key",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": ""
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "error": "ZhihuAccountError: Zhihu links need a TikHub API key (services.tikhub)"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu refused key 401",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 401,
+          "headers": {},
+          "json": {
+            "detail": "balance"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuAccountError: TikHub refused the API key (HTTP 401); check the key in services.tikhub and the account balance"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu refused key 402",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 402,
+          "headers": {},
+          "json": {
+            "detail": "balance"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuAccountError: TikHub refused the API key (HTTP 402); check the key in services.tikhub and the account balance"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu refused key 403",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 403,
+          "headers": {},
+          "json": {
+            "detail": "balance"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuAccountError: TikHub refused the API key (HTTP 403); check the key in services.tikhub and the account balance"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu bad request",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 400,
+          "headers": {},
+          "json": {
+            "detail": {
+              "message": "not found"
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuError: TikHub could not read https://www.zhihu.com/answer/9 (HTTP 400): {'message': 'not found'}; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu empty data",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "code": 200,
+            "data": {}
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuError: TikHub could not read https://www.zhihu.com/answer/9 (HTTP 200): no data; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu data list",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": [
+              1
+            ],
+            "detail": ""
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuError: TikHub could not read https://www.zhihu.com/answer/9 (HTTP 200): no data; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu payload list",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": []
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuError: TikHub could not read https://www.zhihu.com/answer/9 (HTTP 200): no data; it may have been deleted"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu not json",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 502,
+          "headers": {},
+          "text": "<html>gateway</html>"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuError: TikHub answered https://www.zhihu.com/answer/9 with HTTP 502 and no JSON"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu error in data",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "error": {
+                "code": 4041,
+                "message": "内容不存在"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuError: Zhihu refused https://www.zhihu.com/answer/9: 内容不存在"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu error without message",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "error": {
+                "code": 1,
+                "name": "x"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ZhihuError: Zhihu refused https://www.zhihu.com/answer/9: {'code': 1, 'name': 'x'}"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu error not a dict",
+      "call": "zhihu_post.fetch_post",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "error": "x",
+              "question": {
+                "title": "still read"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "link": {
+          "kind": "answer",
+          "id": "9"
+        },
+        "title": "still read",
+        "author": "",
+        "published_at": null,
+        "images": [],
+        "videos": []
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "lens widest entry",
+      "call": "zhihu_post.resolve_video",
+      "args": {
+        "video": {
+          "id": "1"
+        }
+      },
+      "routes": {
+        "https://lens.zhihu.com/api/v4/videos/1": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "playlist": {
+              "LD": {
+                "width": 476,
+                "height": 848,
+                "bitrate": 379.5,
+                "play_url": "https://vdn3.vzuu.com/SD/v.mp4"
+              },
+              "HD": {
+                "width": 720,
+                "height": 1280,
+                "bitrate": 559.1,
+                "play_url": "https://vdn3.vzuu.com/HD/v.mp4"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/1",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": "https://vdn3.vzuu.com/HD/v.mp4",
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "lens refused uses the fallback",
+      "call": "zhihu_post.resolve_video",
+      "args": {
+        "video": {
+          "id": "2",
+          "fallback_url": "https://vdn3.vzuu.com/HD/p.mp4"
+        }
+      },
+      "routes": {
+        "https://lens.zhihu.com/api/v4/videos/2": {
+          "status": 403,
+          "headers": {},
+          "json": {
+            "error": {
+              "code": 40362
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/2",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": "https://vdn3.vzuu.com/HD/p.mp4",
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "lens refused without fallback",
+      "call": "zhihu_post.resolve_video",
+      "args": {
+        "video": {
+          "id": "2"
+        }
+      },
+      "routes": {
+        "https://lens.zhihu.com/api/v4/videos/2": {
+          "status": 403,
+          "headers": {},
+          "json": {
+            "error": {
+              "code": 40362
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/2",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": "",
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "lens not json",
+      "call": "zhihu_post.resolve_video",
+      "args": {
+        "video": {
+          "id": "3",
+          "fallback_url": "f"
+        }
+      },
+      "routes": {
+        "https://lens.zhihu.com/api/v4/videos/3": {
+          "status": 200,
+          "headers": {},
+          "text": "x"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/3",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": "f",
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "lens list",
+      "call": "zhihu_post.resolve_video",
+      "args": {
+        "video": {
+          "id": "3"
+        }
+      },
+      "routes": {
+        "https://lens.zhihu.com/api/v4/videos/3": {
+          "status": 200,
+          "headers": {},
+          "json": [
+            1
+          ]
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/3",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": "",
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "lens empty playlist",
+      "call": "zhihu_post.resolve_video",
+      "args": {
+        "video": {
+          "id": "3",
+          "fallback_url": "f"
+        }
+      },
+      "routes": {
+        "https://lens.zhihu.com/api/v4/videos/3": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "playlist": {}
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/3",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": "f",
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "lens bad width",
+      "call": "zhihu_post.resolve_video",
+      "args": {
+        "video": {
+          "id": "3"
+        }
+      },
+      "routes": {
+        "https://lens.zhihu.com/api/v4/videos/3": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "playlist": [
+              {
+                "width": "x",
+                "url": "https://a"
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/3",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ValueError: invalid literal for int() with base 10: 'x'"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu page drops a video without a play url",
+      "call": "zhihu_post.fetch_page",
+      "args": {
+        "kind": "answer",
+        "id": "9",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "content": "<p data-pid=\"a\">黑丝或者肉丝叭</p><figure data-size=\"normal\"><noscript><img src=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\"/></noscript><img src=\"data:image/svg+xml;utf8,&lt;svg&gt;\" class=\"origin_image lazy\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\" data-actualsrc=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\"/></figure><figure><img src=\"https://picx.zhimg.com/v2-bbb_720w.jpg\"/></figure><img src=\"https://www.zhihu.com/equation?tex=x\"/><a class=\"video-box\" href=\"https://link.zhihu.com/?target=https%3A//www.zhihu.com/video/2091194612627121396\" target=\"_blank\" data-poster=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\" data-lens-id=\"2091194612627121396\"><img class=\"thumbnail\" src=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\"/></a><p data-pid=\"a\">黑丝或者肉丝叭</p><figure data-size=\"normal\"><noscript><img src=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\"/></noscript><img src=\"data:image/svg+xml;utf8,&lt;svg&gt;\" class=\"origin_image lazy\" data-original=\"https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567\" data-actualsrc=\"https://pic1.zhimg.com/50/v2-aaa_720w.jpg?source=2c26e567\"/></figure><figure><img src=\"https://picx.zhimg.com/v2-bbb_720w.jpg\"/></figure><img src=\"https://www.zhihu.com/equation?tex=x\"/><a class=\"video-box\" href=\"https://link.zhihu.com/?target=https%3A//www.zhihu.com/video/1\" target=\"_blank\" data-poster=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\" data-lens-id=\"1\"><img class=\"thumbnail\" src=\"https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a\"/></a>",
+              "author": {
+                "name": "a"
+              },
+              "question": {
+                "title": "Q"
+              }
+            }
+          }
+        },
+        "https://lens.zhihu.com/api/v4/videos/2091194612627121396": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "playlist": {
+              "HD": {
+                "width": 720,
+                "height": 1280,
+                "play_url": "https://vdn3.vzuu.com/HD/v.mp4"
+              }
+            }
+          }
+        },
+        "https://lens.zhihu.com/api/v4/videos/1": {
+          "status": 403,
+          "headers": {},
+          "json": {
+            "error": {
+              "code": 40362
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_answer_detail?answer_id=9",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/2091194612627121396",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/1",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "title": "Q",
+        "account": "a",
+        "published_at": null,
+        "images": [
+          "https://pica.zhimg.com/v2-aaa_r.jpg?source=2c26e567",
+          "https://picx.zhimg.com/v2-bbb_720w.jpg"
+        ],
+        "picture_count": 0,
+        "videos": [
+          {
+            "url": "https://vdn3.vzuu.com/HD/v.mp4",
+            "cover_url": "https://pica.zhimg.com/v2-poster.jpg?source=ccfced1a"
+          }
+        ]
+      },
+      "logs": [
+        [
+          "embyx.links",
+          "INFO",
+          "Zhihu video 1 of https://www.zhihu.com/answer/9 has no play URL"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "zhihu pin page uses its own playlist",
+      "call": "zhihu_post.fetch_page",
+      "args": {
+        "kind": "pin",
+        "id": "7",
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "content": [
+                {
+                  "type": "text",
+                  "own_text": "穿搭小技巧 | <a class=\"hash_tag\" href=\"https://www.zhihu.com/topic/1\">#大衣穿搭</a>"
+                },
+                {
+                  "type": "image",
+                  "url": "https://pic1.zhimg.com/100/v2-wm_720w.jpg",
+                  "original_url": "https://picx.zhimg.com/v2-orig.png?source=e3d01f54"
+                },
+                {
+                  "type": "video",
+                  "video_id": "2100665385288836251",
+                  "thumbnail": "https://pic1.zhimg.com/80/v2-thumb",
+                  "video_info": {
+                    "playlist": [
+                      {
+                        "quality": "ld",
+                        "width": 476,
+                        "height": 848,
+                        "url": "https://vdn3.vzuu.com/SD/x.mp4"
+                      },
+                      {
+                        "quality": "hd",
+                        "width": 720,
+                        "height": 1280,
+                        "url": "https://vdn3.vzuu.com/HD/x.mp4"
+                      }
+                    ]
+                  }
+                }
+              ],
+              "author": {
+                "name": "p"
+              },
+              "created": 1793533212
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "https://lens.zhihu.com/api/v4/videos/2100665385288836251",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+            "referer": "https://www.zhihu.com/"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "title": "穿搭小技巧 | #大衣穿搭",
+        "account": "p",
+        "published_at": "2026-11-01T11:40:12+00:00",
+        "images": [
+          "https://picx.zhimg.com/v2-orig.png?source=e3d01f54"
+        ],
+        "picture_count": 0,
+        "videos": [
+          {
+            "url": "https://vdn3.vzuu.com/HD/x.mp4",
+            "cover_url": "https://pic1.zhimg.com/80/v2-thumb"
+          }
+        ]
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article page",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "title": "card title"
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed": {
+          "status": 200,
+          "headers": {
+            "content-type": "text/html; charset=utf-8"
+          },
+          "text": "<html><head><meta property=\"og:title\" content=\"og title\" /></head>\n<script>var msg_title = '每日Coser分享'.html(false); var nickname = htmlDecode(\"小叶菌ovo\"); var ct = \"1759600000\";</script>\n<img class=\"avatar\" data-src=\"http://mmbiz.qpic.cn/mmbiz_png/AVATAR/0?wx_fmt=png\" />\n<div class=\"rich_media_content\" id=\"js_content\">\n<p><img class=\"rich_pages\" data-src=\"http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg&amp;from=appmsg\" /></p>\n<p><img data-ratio=\"1\" data-src=\"http://mmbiz.qpic.cn/sz_mmbiz_png/BBB/640?wx_fmt=png\" /></p>\n<p><img data-src=\"http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg&amp;from=appmsg\" /></p>\n</div></html>"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "title": "每日Coser分享",
+          "account": "小叶菌ovo",
+          "published_at": "2025-10-04T17:46:40+00:00",
+          "images": [
+            "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg&from=appmsg",
+            "http://mmbiz.qpic.cn/sz_mmbiz_png/BBB/640?wx_fmt=png"
+          ],
+          "picture_count": 0,
+          "videos": []
+        },
+        "<html><head><meta property=\"og:title\" content=\"og title\" /></head>\n<script>var msg_title = '每日Coser分享'.html(false); var nickname = htmlDecode(\"小叶菌ovo\"); var ct = \"1759600000\";</script>\n<img class=\"avatar\" data-src=\"http://mmbiz.qpic.cn/mmbiz_png/AVATAR/0?wx_fmt=png\" />\n<div class=\"rich_media_content\" id=\"js_content\">\n<p><img class=\"rich_pages\" data-src=\"http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg&amp;from=appmsg\" /></p>\n<p><img data-ratio=\"1\" data-src=\"http://mmbiz.qpic.cn/sz_mmbiz_png/BBB/640?wx_fmt=png\" /></p>\n<p><img data-src=\"http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg&amp;from=appmsg\" /></p>\n</div></html>"
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article behind the captcha",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "title": "card title"
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed": {
+          "status": 302,
+          "headers": {
+            "location": "http://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=x"
+          }
+        },
+        "http://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=x": {
+          "status": 200,
+          "headers": {},
+          "text": "captcha"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=x",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostCaptchaError: mp.weixin.qq.com answered https://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123 with a captcha page",
+        "needs": "",
+        "captcha": true
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article captcha answered with an error",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "title": "card title"
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed": {
+          "status": 302,
+          "headers": {
+            "location": "http://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=x"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=x",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostCaptchaError: mp.weixin.qq.com answered https://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123 with a captcha page",
+        "needs": "",
+        "captcha": true
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article gone",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "title": "card title"
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed": {
+          "status": 404,
+          "headers": {},
+          "text": "gone"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostLinkError: Could not read https://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123: HTTP 404",
+        "needs": ""
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article redirect to the page",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "title": "card title"
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed": {
+          "status": 301,
+          "headers": {
+            "location": "/s/abc"
+          }
+        },
+        "http://mp.weixin.qq.com/s/abc": {
+          "status": 200,
+          "headers": {},
+          "text": "var ct = \"x\";"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s/abc",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "title": "",
+          "account": "",
+          "published_at": null,
+          "images": [],
+          "picture_count": 0,
+          "videos": []
+        },
+        "var ct = \"x\";"
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article short link fails",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s/abc?scene=1",
+          "title": ""
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s/abc?scene=1": {
+          "status": 500,
+          "headers": {}
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s/abc?scene=1",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostLinkError: Could not read https://mp.weixin.qq.com/s/abc: HTTP 500",
+        "needs": ""
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article out-of-range time",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "title": "card title"
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed": {
+          "status": 200,
+          "headers": {},
+          "text": "var ct = \"1000000000000\";"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "ValueError: year 33658 is out of range"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "article not utf-8",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "title": "card title"
+        }
+      },
+      "routes": {
+        "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed": {
+          "status": 200,
+          "headers": {},
+          "body_b64": "dmFyIG1zZ190aXRsZSA9ICf//ic7"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123&chksm=feed",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "title": "��",
+          "account": "",
+          "published_at": null,
+          "images": [],
+          "picture_count": 0,
+          "videos": []
+        },
+        "var msg_title = '��';"
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "0",
+            "thread": {
+              "title": "其实HDR比dlss5重要",
+              "create_time": "1791654000",
+              "author": {
+                "id": "7"
+              }
+            },
+            "forum": {
+              "name": "显卡"
+            },
+            "post_list": [
+              {
+                "floor": "1",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 1"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/A.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/C.jpg"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/B.jpg"
+                  }
+                ]
+              },
+              {
+                "floor": "2",
+                "author": {
+                  "id": "7"
+                },
+                "content": [
+                  {
+                    "type": "0",
+                    "text": "floor 2"
+                  },
+                  {
+                    "type": "3",
+                    "origin_src": "http://tiebapic.baidu.com/forum/pic/item/LATER.jpg?tbpicau=grant",
+                    "big_cdn_src": "http://tiebapic.baidu.com/big/LATER.jpg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": [
+        {
+          "title": "其实HDR比dlss5重要",
+          "account": "显卡吧",
+          "published_at": "2026-10-10T17:40:00+00:00",
+          "images": [
+            "http://tiebapic.baidu.com/forum/pic/item/A.jpg?tbpicau=grant",
+            "http://tiebapic.baidu.com/forum/pic/item/B.jpg?tbpicau=grant",
+            "http://tiebapic.baidu.com/forum/pic/item/C.jpg?tbpicau=grant"
+          ],
+          "picture_count": 0,
+          "videos": []
+        },
+        ""
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba refused through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error_code": "4"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "PostLinkError: Tieba refused thread 9876543210: unknown error; it may have been deleted",
+        "needs": ""
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tieba server error through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://tieba.baidu.com/p/9876543210",
+          "title": "link title"
+        }
+      },
+      "routes": {
+        "http://c.tieba.baidu.com/c/f/pb/page": {
+          "status": 503,
+          "headers": {}
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "http://c.tieba.baidu.com/c/f/pb/page",
+          "headers": {
+            "user-agent": "bdtb for Android 12.57.4.2",
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          "body": "_client_type=2&_client_version=12.57.4.2&kz=9876543210&pn=1&rn=2&sign=5A05504DFC25FAF0F4CBDECB87342D7E"
+        }
+      ],
+      "result": {
+        "error": "HTTPStatusError: Server error '503 Service Unavailable' for url 'http://c.tieba.baidu.com/c/f/pb/page'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "login": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "__R": {
+                "0": {
+                  "lou": 0,
+                  "subject": "",
+                  "postdatetimestamp": 1791654000,
+                  "content": "text<br/>[img]./mon_202510/11/A.jpg.medium.jpg[/img][img]https://img.nga.178.com/attachments/mon_202510/11/B.jpg[/img][img]./mon_202510/11/A.jpg[/img]",
+                  "attachs": {
+                    "0": {
+                      "attachurl": "mon_202510/11/C.jpg",
+                      "type": "img"
+                    },
+                    "1": {
+                      "attachurl": "mon_202510/11/x.zip",
+                      "type": "zip"
+                    }
+                  }
+                },
+                "1": {
+                  "lou": 1,
+                  "content": "[img]./mon_202510/11/LATER.jpg[/img]"
+                }
+              },
+              "__T": {
+                "subject": "[同人搬运]贪吃蛇 &amp; 更多",
+                "postdate": 1791654000
+              },
+              "__F": {
+                "name": "二次元国家地理"
+              }
+            },
+            "time": 1791654100
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "title": "[同人搬运]贪吃蛇 & 更多",
+          "account": "二次元国家地理",
+          "published_at": "2026-10-10T17:40:00+00:00",
+          "images": [
+            "https://img.nga.cn/attachments/mon_202510/11/A.jpg",
+            "https://img.nga.cn/attachments/mon_202510/11/B.jpg",
+            "https://img.nga.cn/attachments/mon_202510/11/C.jpg"
+          ],
+          "picture_count": 0,
+          "videos": []
+        },
+        ""
+      ],
+      "logs": [],
+      "checks": [
+        [
+          "nga",
+          true,
+          ""
+        ]
+      ]
+    },
+    {
+      "name": "nga without a login",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "login": null
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "error": "PostLinkError: An NGA thread needs an NGA login, and NGA is not signed in. Sign in to NGA again on fav's 登录态 page.",
+        "needs": "nga-login"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga with half a login",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "login": {
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "error": "PostLinkError: An NGA thread needs an NGA login, and NGA is not signed in. Sign in to NGA again on fav's 登录态 page.",
+        "needs": "nga-login"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "nga login expired",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "login": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 403,
+          "headers": {},
+          "json": {
+            "error": [
+              "1:未登录"
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostLinkError: NGA wants a signed-in session for thread 47695975 (未登录). Sign in to NGA again on fav's 登录态 page.",
+        "needs": "nga-login"
+      },
+      "logs": [],
+      "checks": [
+        [
+          "nga",
+          false,
+          "NGA wants a signed-in session for thread 47695975 (未登录). Sign in to NGA again on fav's 登录态 page."
+        ]
+      ]
+    },
+    {
+      "name": "nga deleted through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://bbs.nga.cn/read.php?tid=47695975",
+          "title": "[同人搬运]贪吃蛇"
+        },
+        "login": {
+          "ngaPassportUid": "42",
+          "ngaPassportCid": "session-cid"
+        }
+      },
+      "routes": {
+        "https://bbs.nga.cn/read.php?tid=47695975&__output=11": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "error": [
+              "帖子不存在"
+            ]
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://bbs.nga.cn/read.php?tid=47695975&__output=11",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "cookie": "ngaPassportUid=42; ngaPassportCid=session-cid"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostLinkError: NGA refused thread 47695975: 帖子不存在; it may have been deleted",
+        "needs": ""
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://zhuanlan.zhihu.com/p/42",
+          "title": ""
+        },
+        "tikhub": {
+          "api_url": "http://api.tikhub.dev",
+          "token": "service-key"
+        }
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_column_article_detail?article_id=42": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "data": {
+              "title": "T",
+              "content": "<img data-original=\"https://pic1.zhimg.com/v2-a_r.jpg\"/>"
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_column_article_detail?article_id=42",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer service-key"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "title": "T",
+          "account": "",
+          "published_at": null,
+          "images": [
+            "https://pic1.zhimg.com/v2-a_r.jpg"
+          ],
+          "picture_count": 0,
+          "videos": []
+        },
+        ""
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu without a key through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://www.zhihu.com/pin/7",
+          "title": ""
+        },
+        "tikhub": {
+          "api_url": "http://api.tikhub.dev",
+          "token": ""
+        }
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "error": "PostLinkError: Zhihu links need a TikHub API key (services.tikhub)",
+        "needs": "tikhub"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu refused through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://www.zhihu.com/pin/7",
+          "title": ""
+        },
+        "tikhub": {
+          "api_url": "http://api.tikhub.dev",
+          "token": "key"
+        }
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7": {
+          "status": 402,
+          "headers": {},
+          "json": {}
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostLinkError: TikHub refused the API key (HTTP 402); check the key in services.tikhub and the account balance",
+        "needs": "tikhub"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "zhihu deleted through post links",
+      "call": "post_links.fetch_page",
+      "args": {
+        "link": {
+          "url": "https://www.zhihu.com/pin/7",
+          "title": ""
+        },
+        "tikhub": {
+          "api_url": "http://api.tikhub.dev",
+          "token": "key"
+        }
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7": {
+          "status": 404,
+          "headers": {},
+          "json": {
+            "detail": "gone"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/zhihu/web/fetch_pin_detail?pin_id=7",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "PostLinkError: TikHub could not read https://www.zhihu.com/pin/7 (HTTP 404): gone; it may have been deleted",
+        "needs": ""
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "image at full size",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg"
+      },
+      "routes": {
+        "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg": {
+          "status": 200,
+          "headers": {
+            "content-type": "image/jpeg"
+          },
+          "body_b64": "/9j/4G9yaWdpbmFsLWJ5dGVz"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "hex": "ffd8ffe06f726967696e616c2d6279746573"
+        },
+        "jpg"
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "image falls back to the page size",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg"
+      },
+      "routes": {
+        "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg": {
+          "status": 404,
+          "headers": {}
+        },
+        "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg": {
+          "status": 200,
+          "headers": {
+            "content-type": "image/jpeg"
+          },
+          "body_b64": "iVBORw0KGgpmdWxsLXNpemU="
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "hex": "89504e470d0a1a0a66756c6c2d73697a65"
+        },
+        "png"
+      ],
+      "logs": [
+        [
+          "embyx.links",
+          "INFO",
+          "Post image http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg failed: Client error '404 Not Found' for url 'http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "image at neither size",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg"
+      },
+      "routes": {
+        "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg": {
+          "status": 500,
+          "headers": {}
+        },
+        "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg": {
+          "status": 403,
+          "headers": {}
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": null,
+      "logs": [
+        [
+          "embyx.links",
+          "INFO",
+          "Post image http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg failed: Server error '500 Internal Server Error' for url 'http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/0?wx_fmt=jpeg'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500"
+        ],
+        [
+          "embyx.links",
+          "INFO",
+          "Post image http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg failed: Client error '403 Forbidden' for url 'http://mmbiz.qpic.cn/sz_mmbiz_jpg/AAA/640?wx_fmt=jpeg'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "image refused with error-message",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://tiebapic.baidu.com/expired.jpg"
+      },
+      "routes": {
+        "http://tiebapic.baidu.com/expired.jpg": {
+          "status": 200,
+          "headers": {
+            "content-type": "image/png",
+            "error-message": "expired"
+          },
+          "body_b64": "iVBOR2xvZ28="
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://tiebapic.baidu.com/expired.jpg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": null,
+      "logs": [
+        [
+          "embyx.links",
+          "INFO",
+          "Post image http://tiebapic.baidu.com/expired.jpg refused: expired"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "image that is html",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://pic1.zhimg.com/a.jpg"
+      },
+      "routes": {
+        "http://pic1.zhimg.com/a.jpg": {
+          "status": 200,
+          "headers": {
+            "content-type": "text/html"
+          },
+          "text": "<html>"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://pic1.zhimg.com/a.jpg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": null,
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "image without content type",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://pic1.zhimg.com/a.jpg"
+      },
+      "routes": {
+        "http://pic1.zhimg.com/a.jpg": {
+          "status": 200,
+          "headers": {},
+          "body_b64": "/9j/4G9yaWdpbmFsLWJ5dGVz"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://pic1.zhimg.com/a.jpg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": null,
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "image empty",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://pic1.zhimg.com/a.jpg"
+      },
+      "routes": {
+        "http://pic1.zhimg.com/a.jpg": {
+          "status": 200,
+          "headers": {
+            "content-type": "image/jpeg"
+          },
+          "body_b64": ""
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://pic1.zhimg.com/a.jpg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": null,
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "image named by its content type",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://mmbiz.qpic.cn/a/0?wx_fmt=png"
+      },
+      "routes": {
+        "http://mmbiz.qpic.cn/a/0?wx_fmt=png": {
+          "status": 200,
+          "headers": {
+            "content-type": "Image/WebP"
+          },
+          "body_b64": "Qk14eHh4"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mmbiz.qpic.cn/a/0?wx_fmt=png",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "hex": "424d78787878"
+        },
+        "webp"
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "image named by its wx_fmt",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://mmbiz.qpic.cn/a/0?wx_fmt=gif"
+      },
+      "routes": {
+        "http://mmbiz.qpic.cn/a/0?wx_fmt=gif": {
+          "status": 200,
+          "headers": {
+            "content-type": "image/x-icon"
+          },
+          "body_b64": "Pz8/Pw=="
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://mmbiz.qpic.cn/a/0?wx_fmt=gif",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "hex": "3f3f3f3f"
+        },
+        "gif"
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "image redirected",
+      "call": "post_links.fetch_image",
+      "args": {
+        "url": "http://pic1.zhimg.com/r.jpg"
+      },
+      "routes": {
+        "http://pic1.zhimg.com/r.jpg": {
+          "status": 302,
+          "headers": {
+            "location": "http://pic2.zhimg.com/r.jpg"
+          }
+        },
+        "http://pic2.zhimg.com/r.jpg": {
+          "status": 200,
+          "headers": {
+            "content-type": "image/jpeg"
+          },
+          "body_b64": "/9j/4G9yaWdpbmFsLWJ5dGVz"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://pic1.zhimg.com/r.jpg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        },
+        {
+          "method": "GET",
+          "url": "http://pic2.zhimg.com/r.jpg",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": [
+        {
+          "hex": "ffd8ffe06f726967696e616c2d6279746573"
+        },
+        "jpg"
+      ],
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "video saved",
+      "call": "post_links.fetch_video",
+      "args": {
+        "video": {
+          "url": "http://vdn3.vzuu.com/HD/v.mp4"
+        }
+      },
+      "routes": {
+        "http://vdn3.vzuu.com/HD/v.mp4": {
+          "status": 200,
+          "headers": {
+            "content-type": "video/mp4"
+          },
+          "body_b64": "AAAAGGZ0eXBtcDQydmlkZW8tYnl0ZXM="
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://vdn3.vzuu.com/HD/v.mp4",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": true,
+        "file": {
+          "hex": "00000018667479706d703432766964656f2d6279746573"
+        }
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "video not an mp4",
+      "call": "post_links.fetch_video",
+      "args": {
+        "video": {
+          "url": "http://vdn3.vzuu.com/HD/v.mp4"
+        }
+      },
+      "routes": {
+        "http://vdn3.vzuu.com/HD/v.mp4": {
+          "status": 200,
+          "headers": {},
+          "body_b64": "PGh0bWw+bm9wZTwvaHRtbD4="
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://vdn3.vzuu.com/HD/v.mp4",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": false,
+        "file": null
+      },
+      "logs": [
+        [
+          "embyx.links",
+          "INFO",
+          "Post video http://vdn3.vzuu.com/HD/v.mp4 is not an MP4"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "video refused",
+      "call": "post_links.fetch_video",
+      "args": {
+        "video": {
+          "url": "http://vdn3.vzuu.com/HD/v.mp4",
+          "cover_url": "c"
+        }
+      },
+      "routes": {
+        "http://vdn3.vzuu.com/HD/v.mp4": {
+          "status": 401,
+          "headers": {}
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://vdn3.vzuu.com/HD/v.mp4",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": false,
+        "file": null
+      },
+      "logs": [
+        [
+          "embyx.links",
+          "INFO",
+          "Post video http://vdn3.vzuu.com/HD/v.mp4 failed: Client error '401 Unauthorized' for url 'http://vdn3.vzuu.com/HD/v.mp4'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "video empty",
+      "call": "post_links.fetch_video",
+      "args": {
+        "video": {
+          "url": "http://vdn3.vzuu.com/HD/v.mp4"
+        }
+      },
+      "routes": {
+        "http://vdn3.vzuu.com/HD/v.mp4": {
+          "status": 200,
+          "headers": {},
+          "body_b64": ""
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://vdn3.vzuu.com/HD/v.mp4",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "ok": false,
+        "file": null
+      },
+      "logs": [
+        [
+          "embyx.links",
+          "INFO",
+          "Post video http://vdn3.vzuu.com/HD/v.mp4 is not an MP4"
+        ]
+      ],
+      "checks": []
+    },
+    {
+      "name": "tikhub not configured",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": ""
+      },
+      "routes": {},
+      "requests": [],
+      "result": {
+        "error": "TikHubError: Save a TikHub API key first.",
+        "code": "tikhub_not_configured"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub account",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "user_data": {
+              "balance": 12.5,
+              "free_credit": 0
+            },
+            "api_key_data": {
+              "api_key_name": "fav"
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "key_name": "fav",
+        "balance": 12.5,
+        "free_credit": 0.0
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub odd numbers",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "user_data": {
+              "balance": " 1_000.5 ",
+              "free_credit": "abc"
+            },
+            "api_key_data": {
+              "api_key_name": null
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "key_name": "",
+        "balance": 1000.5,
+        "free_credit": 0.0
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub more numbers",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "user_data": {
+              "balance": true,
+              "free_credit": []
+            },
+            "api_key_data": []
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "key_name": "",
+        "balance": 1.0,
+        "free_credit": 0.0
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub string numbers",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "user_data": {
+              "balance": "١٢.5",
+              "free_credit": "-1e3"
+            },
+            "api_key_data": {
+              "api_key_name": 7
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "key_name": "7",
+        "balance": 12.5,
+        "free_credit": -1000.0
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub missing numbers",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "user_data": {}
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "key_name": "",
+        "balance": 0.0,
+        "free_credit": 0.0
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub float edge",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "user_data": {
+              "balance": "1__0",
+              "free_credit": "_1"
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "key_name": "",
+        "balance": 0.0,
+        "free_credit": 0.0
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub refused 401",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 401,
+          "headers": {},
+          "json": {
+            "detail": "x"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub refused the key (HTTP 401).",
+        "code": "tikhub_key_refused"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub refused 402",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 402,
+          "headers": {},
+          "json": {
+            "detail": "x"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub refused the key (HTTP 402).",
+        "code": "tikhub_key_refused"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub refused 403",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 403,
+          "headers": {},
+          "json": {
+            "detail": "x"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub refused the key (HTTP 403).",
+        "code": "tikhub_key_refused"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub server error",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 500,
+          "headers": {},
+          "json": {
+            "user_data": {
+              "balance": 1
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub answered HTTP 500 without account details.",
+        "code": "tikhub_unreachable"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub not json",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "text": "<html>"
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub answered HTTP 200 without account details.",
+        "code": "tikhub_unreachable"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub no user data",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": {
+            "user_data": null
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub answered HTTP 200 without account details.",
+        "code": "tikhub_unreachable"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub list",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 200,
+          "headers": {},
+          "json": [
+            1
+          ]
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub answered HTTP 200 without account details.",
+        "code": "tikhub_unreachable"
+      },
+      "logs": [],
+      "checks": []
+    },
+    {
+      "name": "tikhub redirect not followed",
+      "call": "tikhub.check_account",
+      "args": {
+        "api_url": "http://api.tikhub.dev",
+        "token": "key"
+      },
+      "routes": {
+        "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info": {
+          "status": 307,
+          "headers": {
+            "location": "/x"
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://api.tikhub.dev/api/v1/tikhub/user/get_user_info",
+          "headers": {
+            "user-agent": "python-httpx/0.28.1",
+            "authorization": "Bearer key"
+          },
+          "body": ""
+        }
+      ],
+      "result": {
+        "error": "TikHubError: TikHub answered HTTP 307 without account details.",
+        "code": "tikhub_unreachable"
+      },
+      "logs": [],
+      "checks": []
+    }
+  ]
+}

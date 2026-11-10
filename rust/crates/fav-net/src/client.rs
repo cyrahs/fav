@@ -42,6 +42,9 @@ pub struct ClientOptions {
     pub proxy: Option<String>,
     /// `limits=httpx.Limits(max_keepalive_connections=...)`.
     pub max_keepalive_connections: usize,
+    /// `trust_env=`: `false` ignores the environment's proxy variables, as httpx then does.
+    /// A `proxy` set here is used either way.
+    pub trust_env: bool,
     /// `transport=ConnectToTransport(...)`: requests for one host go to another while the
     /// host does not resolve ([`crate::connect_to`]).
     pub connect_to: Option<ConnectTo>,
@@ -57,6 +60,7 @@ impl Default for ClientOptions {
             follow_redirects: false,
             proxy: None,
             max_keepalive_connections: 20,
+            trust_env: true,
             connect_to: None,
         }
     }
@@ -72,6 +76,7 @@ impl fmt::Debug for ClientOptions {
             .field("follow_redirects", &self.follow_redirects)
             .field("proxy", &self.proxy.as_ref().map(|_| "<redacted>"))
             .field("max_keepalive_connections", &self.max_keepalive_connections)
+            .field("trust_env", &self.trust_env)
             .field("connect_to", &self.connect_to)
             .finish()
     }
@@ -403,6 +408,8 @@ impl HttpClient {
             .pool_max_idle_per_host(options.max_keepalive_connections);
         if let Some(proxy) = options.proxy.as_deref().filter(|proxy| !proxy.is_empty()) {
             builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(BuildError::Proxy)?);
+        } else if !options.trust_env {
+            builder = builder.no_proxy();
         }
         let connect_to = options
             .connect_to

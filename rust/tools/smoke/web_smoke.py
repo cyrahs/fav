@@ -4,7 +4,7 @@ Starts `fav api` on a fresh temporary database with `web/dist` beside it, seeds 
 rows, signs in through the login screen and opens every page of the front end by its
 deep link. It fails when a page throws, logs a console error, or an API call answers
 an error, except the calls to routes later work packages own (`PENDING`), which must
-answer 404.
+answer 404, and the calls whose error the page expects on the smoke database (`EXPECTED`).
 
     (cd web && npm ci && npm run build)
     (cd rust && cargo build -p fav)
@@ -47,8 +47,13 @@ REPO_ROOT = RUST_DIR.parent
 TOKEN = 'token-for-smoke'  # noqa: S105
 
 # Routes the pages call that later work packages port (rust/crates/fav-api/src/openapi.rs).
-PENDING = {
-    '/api/v2/services/tikhub/test': 'WP13',
+PENDING: dict[str, str] = {}
+
+# Routes the pages call that answer an error on the smoke database, as Python's do, with
+# the status and the error code the page shows. The settings page checks the TikHub key
+# as it opens; the smoke database has none, and no key may reach the real TikHub.
+EXPECTED = {
+    '/api/v2/services/tikhub/test': (422, 'tikhub_not_configured'),
 }
 
 # Each page by its deep link, and text it shows only once its data arrived.
@@ -166,6 +171,7 @@ class _Watcher:
         self.base = base
         self.problems: list[str] = []
         self.seen_pending: set[str] = set()
+        self.seen_expected: set[str] = set()
 
     def response(self, response: Response) -> None:
         path = urlsplit(response.url).path
@@ -175,6 +181,13 @@ class _Watcher:
             self.seen_pending.add(path)
             if response.status != 404:  # noqa: PLR2004
                 self.problems.append(f'{response.request.method} {path}: pending route answered {response.status}')
+            return
+        if path in EXPECTED:
+            self.seen_expected.add(path)
+            status, code = EXPECTED[path]
+            answered = (response.json().get('error') or {}).get('code') if response.status == status else None
+            if answered != code:
+                self.problems.append(f'{response.request.method} {path}: answered {response.status} {answered!r}, expected {status} {code}')
             return
         self.problems.append(f'{response.request.method} {response.url}: {response.status}')
 
@@ -221,6 +234,8 @@ def _check_pages(base: str, chromium: str | None) -> list[str]:
         browser.close()
     for path in sorted(watcher.seen_pending):
         print(f'ok  {path} is pending ({PENDING[path]}) and answered 404')
+    for path in sorted(watcher.seen_expected):
+        print(f'ok  {path} answered {EXPECTED[path][0]} {EXPECTED[path][1]}, as expected')
     return watcher.problems
 
 

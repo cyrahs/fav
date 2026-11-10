@@ -553,6 +553,74 @@ async fn telegram_notification_test_endpoint_returns_sanitized_delivery_error() 
     harness.finish().await;
 }
 
+/// A fake TikHub answering the account lookup, refusing any other key than `key`.
+async fn fake_tikhub(status: u16, body: &'static str) -> String {
+    let app = axum::Router::new().route(
+        "/api/v1/tikhub/user/get_user_info",
+        axum::routing::get(move |headers: axum::http::HeaderMap| async move {
+            let authorized = headers.get("authorization").is_some_and(|value| value == "Bearer key");
+            let mut response = axum::response::Response::new(axum::body::Body::from(if authorized { body } else { "{}" }));
+            *response.status_mut() = axum::http::StatusCode::from_u16(if authorized { status } else { 401 }).expect("a status");
+            response
+                .headers_mut()
+                .insert("content-type", HeaderValue::from_static("application/json"));
+            response
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a port");
+    let address = listener.local_addr().expect("an address");
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    format!("http://{address}")
+}
+
+async fn tikhub_answer(token: &str, status: u16, body: &'static str) -> Answer {
+    let harness = Harness::new().await;
+    let api_url = fake_tikhub(status, body).await;
+    let section = pyjson::loads(&format!(r#"{{"api_url": "{api_url}", "token": "{token}"}}"#)).unwrap();
+    harness.store_settings("services.tikhub", &section).await;
+    let answer = harness.send_json("POST", "/api/v2/services/tikhub/test", "{}").await;
+    harness.finish().await;
+    answer
+}
+
+/// `POST /api/v2/services/tikhub/test` (Python has no test of it): the stored key's
+/// account, 422 without a key, 502 when TikHub refuses it or answers oddly.
+#[tokio::test]
+async fn the_tikhub_test_reads_the_stored_keys_account() {
+    let body = r#"{"api_key_data": {"api_key_name": "fav"}, "user_data": {"balance": 1.25, "free_credit": "0.5"}}"#;
+    let answer = tikhub_answer("key", 200, body).await;
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(r#"{"key_name": "fav", "balance": 1.25, "free_credit": 0.5}"#).unwrap()
+    );
+
+    let error = |answer: &Answer| golden::get(&answer.json(), "error").clone();
+    let answer = tikhub_answer("", 200, body).await;
+    assert_eq!(answer.status, 422);
+    assert_eq!(
+        error(&answer),
+        pyjson::loads(r#"{"code": "tikhub_not_configured", "message": "Save a TikHub API key first.", "details": null}"#).unwrap()
+    );
+
+    let answer = tikhub_answer("other", 200, body).await;
+    assert_eq!(answer.status, 502);
+    assert_eq!(
+        error(&answer),
+        pyjson::loads(r#"{"code": "tikhub_key_refused", "message": "TikHub refused the key (HTTP 401).", "details": null}"#).unwrap()
+    );
+
+    let answer = tikhub_answer("key", 500, "{}").await;
+    assert_eq!(answer.status, 502);
+    assert_eq!(
+        error(&answer),
+        pyjson::loads(r#"{"code": "tikhub_unreachable", "message": "TikHub answered HTTP 500 without account details.", "details": null}"#)
+            .unwrap()
+    );
+    // The key never reaches an answer.
+    assert!(!answer.text().contains("Bearer"));
+}
+
 // py: tests/test_api_server.py::test_configured_cors_allows_frontend_origin_preflight
 #[tokio::test]
 async fn configured_cors_allows_frontend_origin_preflight() {

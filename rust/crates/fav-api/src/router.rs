@@ -79,6 +79,7 @@ pub(crate) enum Endpoint {
     GetSettingsSection,
     UpdateSettingsSection,
     TestTelegramNotification,
+    TestTikHub,
     TestAzurLaneProxy,
     ListArchiveSources,
     ListArchiveItems,
@@ -193,6 +194,11 @@ const ROUTES: &[Route] = &[
         path: "/api/v2/notifications/telegram/test",
         methods: POST,
         endpoint: Endpoint::TestTelegramNotification,
+    },
+    Route {
+        path: "/api/v2/services/tikhub/test",
+        methods: POST,
+        endpoint: Endpoint::TestTikHub,
     },
     Route {
         path: "/api/v2/azurlane/proxy/test",
@@ -349,6 +355,7 @@ impl Endpoint {
                 | Self::GetSettingsSection
                 | Self::UpdateSettingsSection
                 | Self::TestTelegramNotification
+                | Self::TestTikHub
                 | Self::TestAzurLaneProxy
                 | Self::ListArchiveSources
                 | Self::ListArchiveItems
