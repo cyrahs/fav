@@ -140,7 +140,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | done |
 | WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | pending |
 | WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | pending |
-| WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | pending |
+| WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | done |
 | WP14 | 5 message sources | WeChat with Channels videos and stickers | 1,700 | pending |
 | WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | pending |
 | WP16 | 6 browser | CDP driver layer, login window (Xvnc, VNC relay, cookie polling) | 1,100 | pending |
@@ -234,6 +234,13 @@ Shared pieces that parallel work packages built twice, to fold together once bot
   `HttpClient` (as Python builds its own `httpx.Client`), against the CONVENTIONS rule that a source never
   builds its client. Inject a second client (or a factory) through `SourceContext` when a later package adds
   the same need.
+- WP13 (`fav-sources/src/pyval.rs`): `str()`, `float()`, `int()` before `datetime.fromtimestamp`, `for x in
+  value` and `urlsplit`'s `ValueError` on JSON values, with Python's exception texts, for parsers that read
+  other sites' JSON. Move to `fav-core` beside `pyjson` if a crate outside `fav-sources` needs them.
+- WP13 (`fav-net` `ClientOptions::trust_env`): added for `post_links`' clients (`trust_env=False`); other
+  sources keep `true`, as their Python clients do. `post_links::Fetched` reads a whole response as
+  `await client.get()` does and keeps its `raise_for_status()` error; WP14 and WP15 read posts through
+  `post_links::PostLinks` and `PostClient` rather than building clients of their own.
 - WP9 (`fav-api/src/openapi.rs`): `Op` gained `bare_responses` (responses without a JSON body, the sidebar's
   304); `mcp::fromisoformat` is re-exported for the sidebar sort key. Move `fromisoformat` to `fav-core` if a
   third caller appears.

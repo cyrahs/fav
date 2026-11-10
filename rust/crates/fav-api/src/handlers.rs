@@ -136,6 +136,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         }
         Endpoint::UpdateSettingsSection => update_settings_section(state, path("section"), &body).await,
         Endpoint::TestTelegramNotification => test_telegram_notification(state).await,
+        Endpoint::TestTikHub => test_tikhub(state).await,
         Endpoint::ListArchiveSources => list_archive_sources(state).await,
         Endpoint::ListArchiveItems => list_archive_items(state, request).await,
         Endpoint::ListHanime1Videos => hanime1::list_videos(state).await,
@@ -497,6 +498,35 @@ pub(crate) async fn send_test_notification(state: &ApiState) -> Result<Value, Ap
             "Save bot_token and chat_id before sending a test notification.",
         )),
         Err(error) => Err(ApiError::new(502, "telegram_delivery_failed", error.message)),
+    }
+}
+
+/// `test_tikhub`: check the stored TikHub key and read the balance left on its account
+/// (not billed).
+async fn test_tikhub(state: &ApiState) -> Result<Response, ApiError> {
+    Ok(json_response(200, &check_tikhub(state).await?))
+}
+
+/// `FavApiService.test_tikhub`.
+pub(crate) async fn check_tikhub(state: &ApiState) -> Result<Value, ApiError> {
+    let stored = state
+        .settings
+        .load_section("services.tikhub")
+        .await
+        .map_err(|error| unhandled(&error))?;
+    let SectionValue::TikHub(stored) = stored else {
+        return Err(unhandled(&"services.tikhub is not a TikHub section"));
+    };
+    match fav_sources::tikhub::check_account(&stored).await {
+        Ok(account) => Ok(json::dict([
+            ("key_name", Value::from(account.key_name.as_str())),
+            ("balance", Value::Float(account.balance)),
+            ("free_credit", Value::Float(account.free_credit)),
+        ])),
+        Err(error) => {
+            let status = if error.code == "tikhub_not_configured" { 422 } else { 502 };
+            Err(ApiError::new(status, error.code, error.message))
+        }
     }
 }
 

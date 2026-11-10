@@ -9,7 +9,10 @@
 //! [`hanime1_series`], [`hanime1_author`] and [`runtime_config`] (the API's seed, author and
 //! readiness routes use the first two) and the t2s conversion [`opencc`], WP8; [`nikke`] with
 //! [`nikke_layer_metadata`] and [`content_discovery`], WP9; [`bd2`] with the
-//! BD2-L2D-Viewer helpers [`bd2_l2d_viewer`], WP10.
+//! BD2-L2D-Viewer helpers [`bd2_l2d_viewer`], WP10. The post-link parsers WeChat and Telegram share
+//! (WP13), which are not sources of their own: [`post_links`] over [`wechat_article`],
+//! [`tieba_post`], [`nga_post`] and [`zhihu_post`], and the TikHub account check [`tikhub`] the
+//! API's settings page uses.
 
 use std::sync::Arc;
 
@@ -29,20 +32,31 @@ pub mod jandan;
 pub mod kemono;
 pub mod kemono_creator;
 mod kit;
+pub mod nga_post;
 pub mod nikke;
 pub mod nikke_layer_metadata;
 pub mod opencc;
 pub mod pixiv;
+pub mod post_links;
+#[cfg(test)]
+mod post_links_golden;
+#[cfg(test)]
+mod post_links_tests;
 mod pydecode;
 mod pyerr;
 mod pyre;
+mod pyval;
 pub mod runtime_config;
 pub mod stellasora;
 #[cfg(test)]
 mod testkit;
 #[cfg(test)]
 mod testutil;
+pub mod tieba_post;
+pub mod tikhub;
 pub mod twitter;
+pub mod wechat_article;
+pub mod zhihu_post;
 
 pub use kit::{HttpError, Notifier, OutboxNotifier};
 pub use pydecode::PyError;

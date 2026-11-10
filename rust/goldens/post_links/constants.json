@@ -1,0 +1,45 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "post_links",
+  "cases": [
+    {
+      "post_links.USER_AGENT": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+      "post_links.VIDEO_READ_SECONDS": 600.0,
+      "zhihu_post.USER_AGENT": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
+      "nga_post.NGA_HOSTS": [
+        "bbs.nga.cn",
+        "bbs.ngacn.cc",
+        "g.nga.cn",
+        "nga.178.com",
+        "nga.cn",
+        "ngabbs.com"
+      ],
+      "nga_post.READ_URL": "https://bbs.nga.cn/read.php",
+      "nga_post.LOGIN_COOKIES": [
+        "ngaPassportUid",
+        "ngaPassportCid"
+      ],
+      "nga_post.SESSION_SITE": "nga",
+      "nga_post.LOGIN_URL": "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login",
+      "nga_post.SESSION_COOKIE_URLS": [
+        "https://bbs.nga.cn/"
+      ],
+      "nga_post.SESSION_COOKIE": "ngaPassportCid",
+      "nga_post.RELOGIN_HINT": "Sign in to NGA again on fav's 登录态 page.",
+      "wechat_article.LINK_SHARE_TYPE": "5",
+      "wechat_article.VIDEO_SHARE_TYPE": "4",
+      "wechat_article.IMAGE_POST": "8",
+      "wechat_article.CAPTCHA_PATHS": [
+        "/mp/wappoc_appmsgcaptcha",
+        "/mp/verifycode"
+      ],
+      "tikhub.ACCOUNT_STATUSES": [
+        401,
+        402,
+        403
+      ]
+    }
+  ]
+}

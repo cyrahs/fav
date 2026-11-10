@@ -126,8 +126,24 @@ tests = [
 
 [WP13]
 title = "Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub"
-status = "pending"
-tests = ["tests/test_post_links.py", "tests/test_zhihu_post.py"]
+status = "done"
+tests = [
+    "tests/test_post_links.py",
+    "tests/test_zhihu_post.py",
+    # The article, Tieba and NGA parsing tests of the WeChat file, which need nothing of the
+    # WeChat source itself.
+    "tests/test_wechat.py::test_an_article_share_is_recognised_from_its_appmsg_xml",
+    "tests/test_wechat.py::test_an_article_page_yields_its_body_images_once_each",
+    "tests/test_wechat.py::test_an_image_post_takes_its_pictures_from_the_picture_list",
+    "tests/test_wechat.py::test_a_picture_list_yields_each_picture_and_not_its_nested_urls",
+    "tests/test_wechat.py::test_an_image_post_share_names_its_cover_and_picture_count",
+    "tests/test_wechat.py::test_a_tieba_share_names_its_post",
+    "tests/test_wechat.py::test_nga_pictures_are_the_uploads_behind_the_first_floor_s_renditions",
+    "tests/test_wechat.py::test_an_nga_login_is_verified_against_the_notification_list",
+    "tests/test_wechat.py::test_nga_turning_the_session_away_is_not_a_login",
+    "tests/test_wechat.py::test_an_nga_login_needs_both_passport_cookies",
+    "tests/test_wechat.py::test_nga_answering_oddly_does_not_hold_the_login_up",
+]
 
 [WP14]
 title = "WeChat, Channels videos, stickers"

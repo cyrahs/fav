@@ -24,6 +24,8 @@ futures-util = { workspace = true, features = ["alloc"] }
 hmac.workspace = true
 # Only to tell a body cut short from other read failures (`kit::HttpError::transport`).
 hyper = { version = "1", default-features = false }
+# Tieba's form signature.
+md-5.workspace = true
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 regex.workspace = true
 fancy-regex.workspace = true
@@ -33,6 +35,7 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tempfile = "3"
+thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "process", "sync", "time"] }
 url.workspace = true
 webp-animation = { workspace = true, features = ["static"] }
