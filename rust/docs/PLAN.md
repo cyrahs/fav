@@ -61,7 +61,7 @@ legacy baggage (SQLite-dialect translation layer, CookieCloud cleanup, old-field
 | Python | Rust | Notes |
 | --- | --- | --- |
 | FastAPI, uvicorn, pydantic | axum + serde, utoipa for OpenAPI | Same paths, fields, error codes; OpenAPI diff enforces it |
-| `mcp` | rmcp, stateless streamable HTTP, JSON responses | Tool names and input schemas golden-diffed |
+| `mcp` | stateless streamable HTTP with JSON responses, written in `fav-api` (rmcp checked, not used: D31) | Tool list, protocol answers and tool calls golden-diffed |
 | psycopg + SQLite-dialect translation | sqlx, native PostgreSQL SQL | Same schema; no translation layer |
 | APScheduler | own scheduler loop + cron parser | APScheduler `from_crontab` semantics (e.g. weekday numbering) locked by next-fire-time goldens; coalesce, max_instances=1, misfire grace 300 s |
 | httpx | reqwest | Per-source proxy; `connect_to` needs a custom connector (swap the TCP target, keep SNI/Host, also through a proxy tunnel); TLS fingerprint differs from Python |
@@ -131,7 +131,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP1 | 1 core runtime | Env, settings models and store, DB layer and consolidated schema, logging, filenames, Python-compatible JSON | 1,900 | done |
 | WP2 | 1 core runtime | Notification outbox and Telegram Bot delivery, control-request queue, site-session store, scheduler and worker loop, `trigger` | 2,900 | done |
 | WP3 | 2 API and MCP | axum skeleton, auth, settings, jobs, archive, credentials, health endpoints, serving the front end | 3,700 | done |
-| WP4 | 2 API and MCP | 18 MCP tools and ops queries | 900 | pending |
+| WP4 | 2 API and MCP | 18 MCP tools and ops queries | 900 | done |
 | WP5 | 3 HTTP sources | Jandan, Kemono | 1,700 | pending |
 | WP6 | 3 HTTP sources | Stella Sora, Pixiv | 1,700 | pending |
 | WP7 | 3 HTTP sources | Bilibili, X, with the yt-dlp and gallery-dl subprocess wrappers | 1,500 | pending |

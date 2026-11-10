@@ -57,7 +57,7 @@ pub fn str_key(key: &Key) -> String {
 }
 
 /// `repr(value)` for a value `json.loads` produced.
-fn repr_value(value: &Value) -> String {
+pub fn repr_value(value: &Value) -> String {
     match value {
         Value::Null => "None".to_owned(),
         Value::Bool(true) => "True".to_owned(),

@@ -75,7 +75,8 @@ impl fmt::Debug for ErrorItem {
 }
 
 impl ErrorItem {
-    fn new(kind: &'static str, msg: impl Into<String>, loc: &[LocItem], input: &Value) -> Self {
+    /// An entry of pydantic error type `kind` at `loc`.
+    pub fn new(kind: &'static str, msg: impl Into<String>, loc: &[LocItem], input: &Value) -> Self {
         Self {
             kind,
             loc: loc.to_vec(),
@@ -300,12 +301,28 @@ pub fn int(value: &Value, loc: &[LocItem]) -> Result<i64, Errors> {
             ),
             FloatInt::TooLarge => fail("int_parsing_size", INT_SIZE),
         },
-        Value::Str(text) => match parse_int_str(text) {
+        Value::Str(text) => match parse_int_str(text).map(|parsed| parsed.and_then(|int| i64::try_from(int).map_err(|_| ()))) {
             Some(Ok(int)) => Ok(int),
             Some(Err(())) => fail("int_parsing_size", INT_SIZE),
             None => fail("int_parsing", INT_PARSING),
         },
         _ => fail("int_type", "Input should be a valid integer"),
+    }
+}
+
+/// `int` in lax mode where the value is a Python `int` of any size (MCP tool arguments):
+/// like [`int`], but integers and integer strings up to 128 bits pass. Floats keep
+/// pydantic's 64-bit limit, which it applies to them whatever the field.
+pub fn int_unbounded(value: &Value, loc: &[LocItem]) -> Result<i128, Errors> {
+    let fail = |kind: &'static str, msg: &str| Err(vec![ErrorItem::new(kind, msg, loc, value)]);
+    match value {
+        Value::Int(int) => Ok(*int),
+        Value::Str(text) => match parse_int_str(text) {
+            Some(Ok(int)) => Ok(int),
+            Some(Err(())) => fail("int_parsing_size", INT_SIZE),
+            None => fail("int_parsing", INT_PARSING),
+        },
+        other => int(other, loc).map(i128::from),
     }
 }
 
@@ -351,8 +368,8 @@ fn underscored_digits(text: &str) -> Option<String> {
 }
 
 /// pydantic's string-to-int: trim, drop a `.000` tail, then Python `int()` digits.
-/// `None` is unparseable; `Some(Err(()))` parsed but does not fit 64 bits.
-fn parse_int_str(text: &str) -> Option<Result<i64, ()>> {
+/// `None` is unparseable; `Some(Err(()))` parsed but does not fit 128 bits.
+fn parse_int_str(text: &str) -> Option<Result<i128, ()>> {
     let mut text = text.trim();
     if let Some((whole, fraction)) = text.split_once('.') {
         if fraction.is_empty() || !fraction.bytes().all(|byte| byte == b'0') {
@@ -370,8 +387,7 @@ fn parse_int_str(text: &str) -> Option<Result<i64, ()>> {
         Ok(value) => value,
         Err(_) => return Some(Err(())),
     };
-    let signed = if negative { -magnitude } else { magnitude };
-    Some(i64::try_from(signed).map_err(|_| ()))
+    Some(Ok(if negative { -magnitude } else { magnitude }))
 }
 
 /// `float` in lax mode: numbers, bools and numeric strings (including `nan` and `inf`).
@@ -583,7 +599,7 @@ pub fn stripped(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{PyPath, parse_float_str, parse_int_str};
+    use super::{PyPath, Value, int, int_unbounded, parse_float_str, parse_int_str};
 
     #[test]
     fn paths_normalise_like_pure_posix_path() {
@@ -609,7 +625,11 @@ mod tests {
         assert_eq!(parse_int_str("-1.00"), Some(Ok(-1)));
         assert_eq!(parse_int_str("1."), None);
         assert_eq!(parse_int_str("1__0"), None);
-        assert_eq!(parse_int_str("9223372036854775808"), Some(Err(())));
+        assert_eq!(parse_int_str("9223372036854775808"), Some(Ok(9_223_372_036_854_775_808)));
+        assert_eq!(parse_int_str("170141183460469231731687303715884105728"), Some(Err(())));
+        let too_big = Value::Str("9223372036854775808".to_owned());
+        assert_eq!(int(&too_big, &[]).map_err(|errors| errors[0].kind), Err("int_parsing_size"));
+        assert_eq!(int_unbounded(&too_big, &[]), Ok(9_223_372_036_854_775_808));
     }
 
     #[test]

@@ -83,6 +83,8 @@ pub(crate) enum Endpoint {
     ListArchiveItems,
     ListSiteSessions,
     GetSiteCredential,
+    /// The MCP endpoint, a plain route for every method (`crate::mcp`).
+    Mcp,
     Health,
     Icon(&'static str),
 }
@@ -99,10 +101,12 @@ const GET: &[&str] = &["GET"];
 const GET_HEAD: &[&str] = &["GET", "HEAD"];
 const POST: &[&str] = &["POST"];
 const PUT: &[&str] = &["PUT"];
+/// A route without methods (an ASGI app as the endpoint) takes every method.
+const ANY: &[&str] = &[];
 
 /// The routes in Python's registration order: FastAPI's documents first, then the API
-/// router, the credentials router, the system routes, and the front end. Routes owned by
-/// later work packages are absent (`openapi::PENDING`).
+/// router, the credentials router, the MCP endpoint, the system routes, and the front
+/// end. Routes owned by later work packages are absent (`openapi::PENDING`).
 const ROUTES: &[Route] = &[
     Route {
         path: "/openapi.json",
@@ -185,6 +189,11 @@ const ROUTES: &[Route] = &[
         endpoint: Endpoint::GetSiteCredential,
     },
     Route {
+        path: crate::mcp::MCP_PATH,
+        methods: ANY,
+        endpoint: Endpoint::Mcp,
+    },
+    Route {
         path: "/healthz",
         methods: GET,
         endpoint: Endpoint::Health,
@@ -246,7 +255,7 @@ enum Matched {
 
 fn match_route(route: &Route, method: &str, path: &str) -> Matched {
     match match_path(route.path, path) {
-        Some(params) if route.methods.contains(&method) => Matched::Full(route.endpoint, params),
+        Some(params) if route.methods.is_empty() || route.methods.contains(&method) => Matched::Full(route.endpoint, params),
         Some(_) => Matched::Partial(route.methods),
         None => Matched::None,
     }
@@ -302,7 +311,13 @@ pub fn app(state: Arc<ApiState>) -> Router {
 
 async fn serve(State(state): State<Arc<ApiState>>, request: HttpRequest<Body>) -> Response {
     let (parts, body) = request.into_parts();
-    let Ok(body) = axum::body::to_bytes(body, MAX_BODY_BYTES).await else {
+    // The MCP endpoint refuses large bodies itself (`RequestBodyLimitMiddleware`).
+    let is_mcp = parts.uri.path() == crate::mcp::MCP_PATH;
+    let limit = if is_mcp { crate::mcp::MAX_BODY_BYTES + 1 } else { MAX_BODY_BYTES };
+    let Ok(body) = axum::body::to_bytes(body, limit).await else {
+        if is_mcp {
+            return crate::mcp::body_too_large();
+        }
         return ApiError::new(400, "http_error", "There was an error parsing the body").into_response_value();
     };
     let query_string = parts.uri.query().unwrap_or_default().to_owned();

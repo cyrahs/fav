@@ -24,10 +24,10 @@ use percent_encoding::percent_decode_str;
 use crate::router::{self, Request};
 use crate::{ApiState, Clock, cors, credentials, openapi};
 
-const TOKEN: &str = "token-for-tests";
+pub(crate) const TOKEN: &str = "token-for-tests";
 const CLIENT_TOKEN: &str = "rsshub-token";
 
-fn fixed_now() -> DateTime<Utc> {
+pub(crate) fn fixed_now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).single().expect("a valid time")
 }
 
@@ -39,42 +39,54 @@ fn digest(token: &str) -> String {
     credentials::sha256_hex(token)
 }
 
+/// The MCP state of a test API: no log files, UTC, the worker in this process.
+pub(crate) fn test_mcp_state() -> crate::mcp::McpState {
+    crate::mcp::McpState {
+        bootstrap_secrets: vec![TOKEN.to_owned()],
+        log_dir: PathBuf::from("/nonexistent/fav-test-logs"),
+        timezone: chrono_tz::Tz::UTC,
+        timezone_name: "UTC".to_owned(),
+        started_at: fixed_now(),
+        worker: crate::mcp::WorkerProcess::InProcess,
+    }
+}
+
 /// One answer, as a test sees it.
 #[derive(Debug)]
-struct Answer {
-    status: u16,
-    headers: HeaderMap,
-    body: Bytes,
+pub(crate) struct Answer {
+    pub(crate) status: u16,
+    pub(crate) headers: HeaderMap,
+    pub(crate) body: Bytes,
 }
 
 impl Answer {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers.get(name).and_then(|value| value.to_str().ok())
     }
 
-    fn json(&self) -> Value {
+    pub(crate) fn json(&self) -> Value {
         pyjson::loads(std::str::from_utf8(&self.body).expect("UTF-8")).unwrap_or_else(|error| {
             panic!("not JSON ({error:?}): {:?}", String::from_utf8_lossy(&self.body));
         })
     }
 
-    fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
     }
 
-    fn error_code(&self) -> String {
+    pub(crate) fn error_code(&self) -> String {
         golden::string(golden::get(golden::get(&self.json(), "error"), "code"))
     }
 }
 
 /// A fresh database and the API state over it.
-struct Harness {
-    database: TestDatabase,
-    state: ApiState,
+pub(crate) struct Harness {
+    pub(crate) database: TestDatabase,
+    pub(crate) state: ApiState,
 }
 
 impl Harness {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let database = TestDatabase::create().await;
         database.db().ensure_schema().await.expect("the schema");
         let db = database.db().clone();
@@ -88,15 +100,16 @@ impl Harness {
             cors: None,
             web_dist: None,
             clock: fixed_clock(),
+            mcp: test_mcp_state(),
         };
         Self { database, state }
     }
 
-    async fn finish(self) {
+    pub(crate) async fn finish(self) {
         self.database.drop_database().await;
     }
 
-    async fn execute(&self, sql: &str, binds: &[&str]) {
+    pub(crate) async fn execute(&self, sql: &str, binds: &[&str]) {
         let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()));
         for bind in binds {
             query = query.bind(*bind);
@@ -107,7 +120,7 @@ impl Harness {
             .unwrap_or_else(|error| panic!("{sql}: {error}"));
     }
 
-    async fn store_settings(&self, section: &str, value: &Value) {
+    pub(crate) async fn store_settings(&self, section: &str, value: &Value) {
         let text = pyjson::dumps(value, &DumpOptions::python_default()).expect("dumpable");
         self.execute(
             "INSERT INTO app_settings (section, value) VALUES ($1, $2::jsonb) ON CONFLICT (section) DO UPDATE SET value = EXCLUDED.value;",
@@ -117,7 +130,7 @@ impl Harness {
         self.state.settings.invalidate_cache();
     }
 
-    async fn store_control_request(&self, row: &Value) {
+    pub(crate) async fn store_control_request(&self, row: &Value) {
         let text = |key: &str| row.get(key).map(golden::string);
         let id = golden::int(golden::get(row, "id")).to_string();
         let sql = "INSERT INTO control_requests (id, kind, target, status, requested_at, started_at, finished_at, result, error)
@@ -141,7 +154,7 @@ impl Harness {
         .await;
     }
 
-    async fn store_site_session(&self, row: &Value) {
+    pub(crate) async fn store_site_session(&self, row: &Value) {
         let cookies: Vec<StoredCookie> = row
             .get("cookies")
             .map(golden::list)
@@ -184,7 +197,7 @@ impl Harness {
     }
 
     /// Seed a golden scenario's `setup`.
-    async fn seed(&mut self, setup: &Value) {
+    pub(crate) async fn seed(&mut self, setup: &Value) {
         if let Some(Value::Dict(sections)) = setup.get("settings") {
             for (section, value) in sections.iter() {
                 self.store_settings(&fav_runtime::pystr::str_key(section), value).await;
@@ -206,7 +219,7 @@ impl Harness {
         }
     }
 
-    async fn request(&self, method: &str, target: &str, headers: &[(&str, &str)], body: Option<&str>) -> Answer {
+    pub(crate) async fn request(&self, method: &str, target: &str, headers: &[(&str, &str)], body: Option<&str>) -> Answer {
         let (path, query_string) = target.split_once('?').unwrap_or((target, ""));
         let mut header_map = HeaderMap::new();
         header_map.insert("host", HeaderValue::from_static("testserver"));
@@ -1095,7 +1108,8 @@ async fn the_front_end_is_served_with_its_deep_links() {
     assert_eq!(harness.request("GET", "/records/bilibili", &[], None).await.text(), index.text());
     assert_eq!(harness.request("HEAD", "/logins", &[], None).await.status, 200);
     // The backend's paths stay JSON errors.
-    for path in ["/api/v2/nope", "/mcp", "/readyz", "/docs/nope", "/healthz/x"] {
+    // `/mcp` itself is the MCP endpoint (its own tests); below it is not.
+    for path in ["/api/v2/nope", "/mcp/x", "/readyz", "/docs/nope", "/healthz/x"] {
         let answer = harness.request("GET", path, &[], None).await;
         assert_eq!(answer.status, 404, "{path}");
         assert_eq!(answer.error_code(), "not_found", "{path}");

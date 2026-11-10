@@ -1,0 +1,884 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "mcp",
+  "cases": [
+    {
+      "kind": "parse_since",
+      "input": null,
+      "value": null
+    },
+    {
+      "kind": "parse_since",
+      "input": "",
+      "value": null
+    },
+    {
+      "kind": "parse_since",
+      "input": "  ",
+      "value": null
+    },
+    {
+      "kind": "parse_since",
+      "input": "30m",
+      "value": "2026-03-02T11:30:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": " 6h ",
+      "value": "2026-03-02T06:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2d",
+      "value": "2026-02-28T12:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "0m",
+      "value": "2026-03-02T12:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "10 m",
+      "value": "2026-03-02T11:50:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "1w",
+      "error": "Unrecognised time '1w': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2H",
+      "error": "Unrecognised time '2H': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "٣h",
+      "value": "2026-03-02T09:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00Z",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12",
+      "value": "2026-10-12T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12 17:00",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00.123456+05:30",
+      "value": "2026-10-12T17:00:00.123456+05:30"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00,5Z",
+      "value": "2026-10-12T17:00:00.500000+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "20261012T170000Z",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-W41-1",
+      "value": "2026-10-05T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "yesterday",
+      "error": "Unrecognised time 'yesterday': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "it's",
+      "error": "Unrecognised time \"it's\": use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-02-30",
+      "error": "Unrecognised time '2026-02-30': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "3 d",
+      "value": "2026-02-27T12:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "007m",
+      "value": "2026-03-02T11:53:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "999999999d",
+      "exception": "OverflowError",
+      "error": "date value out of range"
+    },
+    {
+      "kind": "parse_since",
+      "input": "1000000000d",
+      "exception": "OverflowError",
+      "error": "days=1000000000; must have magnitude <= 999999999"
+    },
+    {
+      "kind": "parse_since",
+      "input": "99999999999999999999m",
+      "exception": "OverflowError",
+      "error": "Python int too large to convert to C int"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T1700",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00.1234567",
+      "value": "2026-10-12T17:00:00.123456+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00+0530",
+      "value": "2026-10-12T17:00:00+05:30"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00-05",
+      "value": "2026-10-12T17:00:00-05:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00+05:30:15",
+      "value": "2026-10-12T17:00:00+05:30:15"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00+05:30:15.5",
+      "value": "2026-10-12T17:00:00+05:30:15.500000"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12 24:00",
+      "error": "Unrecognised time '2026-10-12 24:00': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12x17:00",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026W411",
+      "value": "2026-10-05T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026W41",
+      "value": "2026-10-05T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026W417",
+      "value": "2026-10-11T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-W53-1",
+      "value": "2026-12-28T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2025-W53",
+      "error": "Unrecognised time '2025-W53': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-W00",
+      "error": "Unrecognised time '2026-W00': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-W41-8",
+      "error": "Unrecognised time '2026-W41-8': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00.5+00:00",
+      "value": "2026-10-12T17:00:00.500000+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00Z ",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "٢٠٢٦-10-12",
+      "error": "Unrecognised time '٢٠٢٦-10-12': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00+24:00",
+      "error": "Unrecognised time '2026-10-12T17:00:00+24:00': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00-00:00",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00.123+01",
+      "value": "2026-10-12T17:00:00.123000+01:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-1217:00",
+      "error": "Unrecognised time '2026-10-1217:00': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T",
+      "error": "Unrecognised time '2026-10-12T': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "0001-01-01",
+      "value": "0001-01-01T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "0000-01-01",
+      "error": "Unrecognised time '0000-01-01': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "9999-12-31T23:59:59",
+      "value": "9999-12-31T23:59:59+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00,1234567890Z",
+      "value": "2026-10-12T17:00:00.123456+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00.12a",
+      "error": "Unrecognised time '2026-10-12T17:00:00.12a': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "+2026-10-12",
+      "error": "Unrecognised time '+2026-10-12': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-1-12",
+      "error": "Unrecognised time '2026-1-12': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T7:00",
+      "error": "Unrecognised time '2026-10-12T7:00': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:0",
+      "error": "Unrecognised time '2026-10-12T17:0': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:60",
+      "error": "Unrecognised time '2026-10-12T17:00:60': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00Z+01",
+      "error": "Unrecognised time '2026-10-12T17:00Z+01': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00+01Z",
+      "error": "Unrecognised time '2026-10-12T17:00+01Z': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00+1",
+      "error": "Unrecognised time '2026-10-12T17:00:00+1': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00+123",
+      "error": "Unrecognised time '2026-10-12T17:00:00+123': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17.5",
+      "value": "2026-10-12T17:00:00.500000+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00.5",
+      "value": "2026-10-12T17:00:00.500000+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T1700:00",
+      "error": "Unrecognised time '2026-10-12T1700:00': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "20261012",
+      "value": "2026-10-12T00:00:00+00:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-1012",
+      "error": "Unrecognised time '2026-1012': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "202610-12",
+      "error": "Unrecognised time '202610-12': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00.",
+      "error": "Unrecognised time '2026-10-12T17:00:00.': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00+05:30Z",
+      "error": "Unrecognised time '2026-10-12T17:00:00+05:30Z': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00−05:00",
+      "error": "Unrecognised time '2026-10-12T17:00:00−05:00': use ISO 8601 (2026-10-12T17:00:00Z) or a relative 30m/6h/2d."
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12T17:00:00 +05:00",
+      "value": "2026-10-12T17:00:00+05:00"
+    },
+    {
+      "kind": "parse_since",
+      "input": "2026-10-12　17:00",
+      "value": "2026-10-12T17:00:00+00:00"
+    },
+    {
+      "kind": "truncate",
+      "input": "abc",
+      "limit": 3,
+      "value": "abc"
+    },
+    {
+      "kind": "truncate",
+      "input": "abcd",
+      "limit": 3,
+      "value": "abc… [1 more chars]"
+    },
+    {
+      "kind": "truncate",
+      "input": "",
+      "limit": 0,
+      "value": ""
+    },
+    {
+      "kind": "truncate",
+      "input": "日本語テキスト",
+      "limit": 3,
+      "value": "日本語… [4 more chars]"
+    },
+    {
+      "kind": "truncate",
+      "input": "xxxxxxxxxx",
+      "limit": 4000,
+      "value": "xxxxxxxxxx"
+    },
+    {
+      "kind": "bounded",
+      "input": 0,
+      "maximum": 500,
+      "value": 1
+    },
+    {
+      "kind": "bounded",
+      "input": -5,
+      "maximum": 500,
+      "value": 1
+    },
+    {
+      "kind": "bounded",
+      "input": 1,
+      "maximum": 500,
+      "value": 1
+    },
+    {
+      "kind": "bounded",
+      "input": 500,
+      "maximum": 500,
+      "value": 500
+    },
+    {
+      "kind": "bounded",
+      "input": 501,
+      "maximum": 500,
+      "value": 500
+    },
+    {
+      "kind": "bounded",
+      "input": 2000,
+      "maximum": 1000,
+      "value": 1000
+    },
+    {
+      "kind": "redact",
+      "secrets": [
+        "short",
+        "abcdef",
+        "abcdefgh",
+        "密码密码密码",
+        "abcdefghij"
+      ],
+      "input": "abcdefghij and abcdefgh and abcdef",
+      "value": "abcd••••ghij and abcd••••gh and abcd••••"
+    },
+    {
+      "kind": "redact",
+      "secrets": [
+        "short",
+        "abcdef",
+        "abcdefgh",
+        "密码密码密码",
+        "abcdefghij"
+      ],
+      "input": "short",
+      "value": "short"
+    },
+    {
+      "kind": "redact",
+      "secrets": [
+        "short",
+        "abcdef",
+        "abcdefgh",
+        "密码密码密码",
+        "abcdefghij"
+      ],
+      "input": "密码密码密码!",
+      "value": "密码密码••••!"
+    },
+    {
+      "kind": "redact",
+      "secrets": [
+        "short",
+        "abcdef",
+        "abcdefgh",
+        "密码密码密码",
+        "abcdefghij"
+      ],
+      "input": "none here",
+      "value": "none here"
+    },
+    {
+      "kind": "merge",
+      "base": {
+        "a": {
+          "b": 1,
+          "c": 2
+        },
+        "l": [
+          1,
+          2
+        ]
+      },
+      "changes": {
+        "a": {
+          "c": 3
+        },
+        "l": [
+          9
+        ]
+      },
+      "value": {
+        "a": {
+          "b": 1,
+          "c": 3
+        },
+        "l": [
+          9
+        ]
+      }
+    },
+    {
+      "kind": "merge",
+      "base": {
+        "a": 1
+      },
+      "changes": {
+        "a": {
+          "b": 2
+        }
+      },
+      "value": {
+        "a": {
+          "b": 2
+        }
+      }
+    },
+    {
+      "kind": "merge",
+      "base": {
+        "a": {
+          "b": 2
+        }
+      },
+      "changes": {
+        "a": null
+      },
+      "value": {
+        "a": null
+      }
+    },
+    {
+      "kind": "merge",
+      "base": {
+        "a": {
+          "b": {
+            "c": 1,
+            "d": 2
+          }
+        }
+      },
+      "changes": {
+        "a": {
+          "b": {
+            "d": 3
+          },
+          "e": 4
+        }
+      },
+      "value": {
+        "a": {
+          "b": {
+            "c": 1,
+            "d": 3
+          },
+          "e": 4
+        }
+      }
+    },
+    {
+      "kind": "merge",
+      "base": {},
+      "changes": {
+        "x": 1
+      },
+      "value": {
+        "x": 1
+      }
+    },
+    {
+      "kind": "read_logs",
+      "arguments": {
+        "since": null
+      },
+      "value": {
+        "files": [
+          "20260201.log",
+          "20260301.log",
+          "20260302.log"
+        ],
+        "matched": 9,
+        "returned": 9,
+        "truncated": false,
+        "records": [
+          {
+            "time": "2026-02-01T00:00:00Z",
+            "logger": "embyx.wechat",
+            "level": "ERROR",
+            "message": "old"
+          },
+          {
+            "time": "2026-03-01T23:59:59Z",
+            "logger": "embyx.wechat",
+            "level": "INFO",
+            "message": "yesterday"
+          },
+          {
+            "time": "2026-03-02T10:00:00Z",
+            "logger": "embyx.wechat",
+            "level": "INFO",
+            "message": "same instant, other file"
+          },
+          {
+            "time": "2026-03-02T10:00:00Z",
+            "logger": "embyx.wechat",
+            "level": "INFO",
+            "message": "run started"
+          },
+          {
+            "time": "2026-03-02T10:00:01Z",
+            "logger": "embyx.wechat",
+            "level": "ERROR",
+            "message": "save failed token=supe••••\nTraceback (most recent call last):\n  File \"x.py\", line 1\n"
+          },
+          {
+            "time": "2026-03-02T10:00:02Z",
+            "logger": "embyx.pixiv",
+            "level": "WARNING",
+            "message": "slow"
+          },
+          {
+            "time": "2026-03-02T11:00:00Z",
+            "logger": "embyx.fav-api",
+            "level": "NOTICE",
+            "message": "煎蛋 ok"
+          },
+          {
+            "time": "2026-03-02T11:30:00Z",
+            "logger": "embyx.wechat",
+            "level": "DEBUG",
+            "message": "noisy"
+          },
+          {
+            "time": "2026-03-02T11:50:00Z",
+            "logger": "embyx.Wechat",
+            "level": "CRITICAL",
+            "message": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm… [100 more chars]"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "read_logs",
+      "arguments": {
+        "since": "2026-03-02T10:00:01+00:00",
+        "logger_name": "wechat",
+        "min_level": "INFO"
+      },
+      "value": {
+        "files": [
+          "20260302.log"
+        ],
+        "matched": 2,
+        "returned": 2,
+        "truncated": false,
+        "records": [
+          {
+            "time": "2026-03-02T10:00:01Z",
+            "logger": "embyx.wechat",
+            "level": "ERROR",
+            "message": "save failed token=supe••••\nTraceback (most recent call last):\n  File \"x.py\", line 1\n"
+          },
+          {
+            "time": "2026-03-02T11:50:00Z",
+            "logger": "embyx.Wechat",
+            "level": "CRITICAL",
+            "message": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm… [100 more chars]"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "read_logs",
+      "arguments": {
+        "since": null,
+        "min_level": "ERROR",
+        "limit": 1
+      },
+      "value": {
+        "files": [
+          "20260201.log",
+          "20260301.log",
+          "20260302.log"
+        ],
+        "matched": 3,
+        "returned": 1,
+        "truncated": true,
+        "records": [
+          {
+            "time": "2026-03-02T11:50:00Z",
+            "logger": "embyx.Wechat",
+            "level": "CRITICAL",
+            "message": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm… [100 more chars]"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "read_logs",
+      "arguments": {
+        "since": null,
+        "until": "2026-03-02T10:00:01.200000+00:00"
+      },
+      "value": {
+        "files": [
+          "20260201.log",
+          "20260301.log",
+          "20260302.log"
+        ],
+        "matched": 5,
+        "returned": 5,
+        "truncated": false,
+        "records": [
+          {
+            "time": "2026-02-01T00:00:00Z",
+            "logger": "embyx.wechat",
+            "level": "ERROR",
+            "message": "old"
+          },
+          {
+            "time": "2026-03-01T23:59:59Z",
+            "logger": "embyx.wechat",
+            "level": "INFO",
+            "message": "yesterday"
+          },
+          {
+            "time": "2026-03-02T10:00:00Z",
+            "logger": "embyx.wechat",
+            "level": "INFO",
+            "message": "same instant, other file"
+          },
+          {
+            "time": "2026-03-02T10:00:00Z",
+            "logger": "embyx.wechat",
+            "level": "INFO",
+            "message": "run started"
+          },
+          {
+            "time": "2026-03-02T10:00:01Z",
+            "logger": "embyx.wechat",
+            "level": "ERROR",
+            "message": "save failed token=supe••••\nTraceback (most recent call last):\n  File \"x.py\", line 1\n"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "read_logs",
+      "arguments": {
+        "since": null,
+        "min_level": "notice"
+      },
+      "value": {
+        "files": [
+          "20260201.log",
+          "20260301.log",
+          "20260302.log"
+        ],
+        "matched": 5,
+        "returned": 5,
+        "truncated": false,
+        "records": [
+          {
+            "time": "2026-02-01T00:00:00Z",
+            "logger": "embyx.wechat",
+            "level": "ERROR",
+            "message": "old"
+          },
+          {
+            "time": "2026-03-02T10:00:01Z",
+            "logger": "embyx.wechat",
+            "level": "ERROR",
+            "message": "save failed token=supe••••\nTraceback (most recent call last):\n  File \"x.py\", line 1\n"
+          },
+          {
+            "time": "2026-03-02T10:00:02Z",
+            "logger": "embyx.pixiv",
+            "level": "WARNING",
+            "message": "slow"
+          },
+          {
+            "time": "2026-03-02T11:00:00Z",
+            "logger": "embyx.fav-api",
+            "level": "NOTICE",
+            "message": "煎蛋 ok"
+          },
+          {
+            "time": "2026-03-02T11:50:00Z",
+            "logger": "embyx.Wechat",
+            "level": "CRITICAL",
+            "message": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm… [100 more chars]"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "read_logs",
+      "arguments": {
+        "since": null,
+        "min_level": "nope"
+      },
+      "value": {
+        "error": "Unknown level 'nope'; use one of DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL."
+      }
+    },
+    {
+      "kind": "read_logs_missing_dir",
+      "value": {
+        "files": [],
+        "matched": 0,
+        "returned": 0,
+        "truncated": false,
+        "records": []
+      }
+    },
+    {
+      "kind": "next_fire_time",
+      "cases": [
+        {
+          "cron": "*/15 * * * *",
+          "now": "2026-03-02T12:00:00+00:00",
+          "value": "2026-03-02T12:00:00Z"
+        },
+        {
+          "cron": "0 1 * * *",
+          "now": "2026-03-02T12:00:00+00:00",
+          "value": "2026-03-03T01:00:00Z"
+        },
+        {
+          "cron": "5 4 * * 1",
+          "now": "2026-03-02T12:00:00+00:00",
+          "value": "2026-03-03T04:05:00Z"
+        },
+        {
+          "cron": "bad cron",
+          "now": "2026-03-02T12:00:00+00:00",
+          "value": null
+        },
+        {
+          "cron": "61 * * * *",
+          "now": "2026-03-02T12:00:00+00:00",
+          "value": null
+        },
+        {
+          "cron": "0 0 31 2 *",
+          "now": "2026-03-02T12:00:00+00:00",
+          "value": null
+        }
+      ]
+    }
+  ]
+}

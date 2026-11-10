@@ -15,8 +15,8 @@
 //!
 //! Work-package scope (`rust/docs/PLAN.md`): WP3 ports the system, jobs, settings, archive,
 //! site-session, credential and notification-test routes, the documents and the bundled
-//! front end. The source-specific routes arrive with their sources and the MCP endpoint
-//! with WP4; [`openapi::PENDING`] lists every route still missing and which package owns it.
+//! front end; WP4 the MCP endpoint ([`mcp`]). The source-specific routes arrive with their
+//! sources; [`openapi::PENDING`] lists every route still missing and which package owns it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,6 +31,7 @@ pub mod cors;
 pub mod credentials;
 pub mod error;
 pub mod masking;
+pub mod mcp;
 pub mod openapi;
 pub mod params;
 pub mod router;
@@ -63,6 +64,8 @@ pub struct ApiState {
     /// The built front end (`web/dist`), when it has an `index.html`.
     pub web_dist: Option<PathBuf>,
     pub clock: Clock,
+    /// What the MCP tools read beyond the rest: bootstrap secrets, logs, zone, worker.
+    pub mcp: mcp::McpState,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -72,6 +75,7 @@ impl std::fmt::Debug for ApiState {
             .field("credential_clients", &self.credential_clients)
             .field("cors", &self.cors)
             .field("web_dist", &self.web_dist)
+            .field("mcp", &self.mcp)
             .finish_non_exhaustive()
     }
 }
@@ -85,6 +89,7 @@ impl ApiState {
         settings: Arc<SettingsStore>,
         bot: BotClient,
         web_dist: Option<PathBuf>,
+        mcp: mcp::McpState,
     ) -> Result<Self, String> {
         Ok(Self {
             token: config.token.clone(),
@@ -95,6 +100,7 @@ impl ApiState {
             cors: cors::Cors::new(config.cors_origins.clone(), config.cors_allow_credentials),
             web_dist,
             clock: system_clock(),
+            mcp,
         })
     }
 }

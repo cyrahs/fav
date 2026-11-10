@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, LazyLock};
 
 use clap::{Parser, Subcommand};
+use fav_api::mcp::{McpState, WorkerProcess};
 use fav_api::{ApiConfig, ApiState};
 use fav_core::env::Env;
 use fav_core::logging::{self, Level};
@@ -19,6 +20,9 @@ use fav_runtime::worker::{self, WorkerError, WorkerOptions};
 use fav_runtime::{StopHandle, StopSignal};
 
 static VERSION: LazyLock<String> = LazyLock::new(version);
+
+/// Where the log files go (`./log`), which the MCP `read_logs` tool reads back.
+const LOG_DIR: &str = "log";
 
 #[derive(Debug, Parser)]
 #[command(name = "fav", version = VERSION.as_str(), about = "Crawls content sources on a schedule and archives their media")]
@@ -76,7 +80,7 @@ struct Base {
 async fn base() -> Result<Base, String> {
     let env = Env::from_process().map_err(|error| error.to_string())?;
     let level = Level::from_name(&env.log_level).unwrap_or(Level::Info);
-    logging::init(level, Path::new("log")).map_err(|error| format!("cannot open the log file: {error}"))?;
+    logging::init(level, Path::new(LOG_DIR)).map_err(|error| format!("cannot open the log file: {error}"))?;
     let db = Db::connect_lazy(&env.postgres_dsn).map_err(|error| error.to_string())?;
     db.ensure_schema().await.map_err(|error| error.to_string())?;
     let bot = BotClient::new().map_err(|error| format!("cannot build the Telegram client: {error}"))?;
@@ -101,11 +105,28 @@ impl Base {
 
     /// `load_config_from_env()` and `create_app(config=...)`. The front end is
     /// `web/dist` under the working directory, as in the image (`/app/web/dist`).
-    fn api(&self) -> Result<(ApiConfig, Arc<ApiState>), WorkerError> {
+    fn api(&self, worker: WorkerProcess) -> Result<(ApiConfig, Arc<ApiState>), WorkerError> {
         let config = fav_api::config::load_config_from_env(&self.env).map_err(|message| WorkerError::Exit(Some(message)))?;
         let web_dist = fav_api::find_dist(Path::new("web/dist"));
-        let state = ApiState::new(&config, self.db.clone(), Arc::clone(&self.settings), self.bot.clone(), web_dist)
-            .map_err(|message| WorkerError::Exit(Some(message)))?;
+        let log_dir = std::fs::canonicalize(LOG_DIR)
+            .or_else(|_| std::path::absolute(LOG_DIR))
+            .unwrap_or_else(|_| LOG_DIR.into());
+        let mcp = McpState::new(
+            &config.token,
+            &self.env.postgres_dsn,
+            log_dir,
+            std::env::var("TZ").ok().as_deref(),
+            worker,
+        );
+        let state = ApiState::new(
+            &config,
+            self.db.clone(),
+            Arc::clone(&self.settings),
+            self.bot.clone(),
+            web_dist,
+            mcp,
+        )
+        .map_err(|message| WorkerError::Exit(Some(message)))?;
         Ok((config, Arc::new(state)))
     }
 }
@@ -122,7 +143,7 @@ async fn run_api(config: &ApiConfig, state: Arc<ApiState>, signal: StopSignal) -
 async fn run_serve(base: &Base, stop: StopHandle) -> Result<(), WorkerError> {
     let log = logging::get("service");
     log.info("Starting services (worker + api)");
-    let (config, state) = base.api()?;
+    let (config, state) = base.api(WorkerProcess::InProcess)?;
     let api = async {
         let result = run_api(&config, state, stop.signal()).await;
         ended(&stop, "api", &result);
@@ -165,7 +186,7 @@ async fn run(command: Command) -> ExitCode {
     }
     let result = match command {
         Command::Serve => run_serve(&base, stop).await,
-        Command::Api => match base.api() {
+        Command::Api => match base.api(WorkerProcess::Separate) {
             Ok((config, state)) => run_api(&config, state, signal).await,
             Err(error) => Err(error),
         },

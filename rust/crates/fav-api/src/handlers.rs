@@ -132,6 +132,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::ListArchiveItems => list_archive_items(state, request).await,
         Endpoint::ListSiteSessions => list_site_sessions(state).await,
         Endpoint::GetSiteCredential => get_site_credential(state, path("site"), request).await,
+        Endpoint::Mcp => Ok(crate::mcp::handle(state, request).await),
         Endpoint::Icon(name) => match &state.web_dist {
             Some(dist) => web::file_response(&dist.join(name)).await,
             None => Err(ApiError::http(404)),
@@ -164,7 +165,8 @@ fn job_summary(job: &ScheduledJob) -> Value {
     ])
 }
 
-async fn scheduled_jobs(state: &ApiState) -> Result<Vec<ScheduledJob>, ApiError> {
+/// `FavApiService.scheduled_jobs`.
+pub(crate) async fn scheduled_jobs(state: &ApiState) -> Result<Vec<ScheduledJob>, ApiError> {
     let settings = state.settings.load().await.map_err(|error| unhandled(&error))?;
     Ok(jobs::build_jobs(&settings))
 }
@@ -188,7 +190,12 @@ fn job_request(request: &ControlRequest) -> Result<Value, ApiError> {
             request.request_id, request.target, request.status
         )));
     }
-    Ok(json::dict([
+    Ok(serialize_control_request(request))
+}
+
+/// `serialize_control_request`.
+fn serialize_control_request(request: &ControlRequest) -> Value {
+    json::dict([
         ("id", Value::from(request.request_id)),
         ("target", Value::Str(request.target.clone())),
         ("kind", Value::Str(request.kind.clone())),
@@ -198,7 +205,7 @@ fn job_request(request: &ControlRequest) -> Result<Value, ApiError> {
         ("finished_at", json::utc_z_opt(request.finished_at.as_ref())),
         ("result", Value::Str(request.result.clone())),
         ("error", Value::Str(request.error.clone())),
-    ]))
+    ])
 }
 
 async fn create_job_request(state: &ApiState, body: &Body) -> Result<Response, ApiError> {
@@ -210,9 +217,13 @@ async fn create_job_request(state: &ApiState, body: &Body) -> Result<Response, A
         target
     });
     errors.finish()?;
-    let target = target.unwrap_or_default();
+    let request = queue_job_request(state, &target.unwrap_or_default()).await?;
+    Ok(json_response(202, &job_request(&request)?))
+}
 
-    let normalized = fav_core::pytext::py_strip(&target).to_lowercase();
+/// `FavApiService.create_job_request`: a manual run of a job or of every job (`all`).
+async fn queue_job_request(state: &ApiState, target: &str) -> Result<ControlRequest, ApiError> {
+    let normalized = fav_core::pytext::py_strip(target).to_lowercase();
     let mut valid: Vec<String> = scheduled_jobs(state).await?.into_iter().map(|job| job.key).collect();
     valid.push("all".to_owned());
     if !valid.contains(&normalized) {
@@ -221,10 +232,15 @@ async fn create_job_request(state: &ApiState, body: &Body) -> Result<Response, A
         return Err(ApiError::new(400, "invalid_target", "Unsupported job target.")
             .with_details(json::dict([("allowed_values", json::str_list(&valid))])));
     }
-    let request = control::create(&state.db, control::KIND_TRIGGER_JOB, &normalized, None)
+    control::create(&state.db, control::KIND_TRIGGER_JOB, &normalized, None)
         .await
-        .map_err(|error| internal(&format!("Failed to create control request target={normalized}"), &error))?;
-    Ok(json_response(202, &job_request(&request)?))
+        .map_err(|error| internal(&format!("Failed to create control request target={normalized}"), &error))
+}
+
+/// `FavApiService.create_job_request` as the MCP `run_job` tool calls it: the queued
+/// request, serialized without the route's response model.
+pub(crate) async fn create_job_request_value(state: &ApiState, target: &str) -> Result<Value, ApiError> {
+    Ok(serialize_control_request(&queue_job_request(state, target).await?))
 }
 
 async fn get_job_request(state: &ApiState, raw: Option<&str>) -> Result<Response, ApiError> {
@@ -325,7 +341,7 @@ fn settings_section_value(section: &str, model: &SectionValue) -> Value {
 }
 
 /// `FavApiService.get_settings_section`.
-async fn get_settings_section(state: &ApiState, section: &str) -> Result<Value, ApiError> {
+pub(crate) async fn get_settings_section(state: &ApiState, section: &str) -> Result<Value, ApiError> {
     match state.settings.load_section(section).await {
         Ok(model) => Ok(settings_section_value(section, &model)),
         Err(SettingsStoreError::Section(SectionError::Unknown(_))) => Err(unknown_section(section)),
@@ -334,11 +350,16 @@ async fn get_settings_section(state: &ApiState, section: &str) -> Result<Value, 
 }
 
 async fn list_settings(state: &ApiState) -> Result<Response, ApiError> {
+    Ok(json_response(200, &list_response(list_settings_sections(state).await?)))
+}
+
+/// `FavApiService.list_settings`: every section.
+pub(crate) async fn list_settings_sections(state: &ApiState) -> Result<Vec<Value>, ApiError> {
     let mut items = Vec::new();
     for section in SECTIONS {
         items.push(get_settings_section(state, section).await?);
     }
-    Ok(json_response(200, &list_response(items)))
+    Ok(items)
 }
 
 /// `FavApiService.update_settings_section`: secrets sent back masked keep their stored
@@ -361,7 +382,12 @@ async fn update_settings_section(state: &ApiState, raw: Option<&str>, body: &Bod
     let payload = params::dict_body(&mut errors, body);
     errors.finish()?;
     let (section, payload) = (section.unwrap_or_default(), payload.unwrap_or_default());
+    Ok(json_response(200, &save_settings_section(state, &section, &payload).await?))
+}
 
+/// `FavApiService.update_settings_section`.
+pub(crate) async fn save_settings_section(state: &ApiState, section: &str, payload: &Dict) -> Result<Value, ApiError> {
+    let section = section.to_owned();
     if !SECTIONS.contains(&section.as_str()) {
         return Err(unknown_section(&section));
     }
@@ -370,7 +396,7 @@ async fn update_settings_section(state: &ApiState, raw: Option<&str>, body: &Bod
         .load_section(&section)
         .await
         .map_err(|error| internal(&format!("Failed to load settings section={section}"), &error))?;
-    let merged = Value::Dict(masking::unmask_section(&section, &payload, &as_dict(stored.dump())));
+    let merged = Value::Dict(masking::unmask_section(&section, payload, &as_dict(stored.dump())));
 
     let candidate = match SectionValue::validate(&section, &merged) {
         Ok(candidate) => candidate,
@@ -393,21 +419,23 @@ async fn update_settings_section(state: &ApiState, raw: Option<&str>, body: &Bod
         .save_section(&section, &merged)
         .await
         .map_err(|error| internal(&format!("Failed to save settings section={section}"), &error))?;
-    Ok(json_response(200, &settings_section_value(&section, &saved)))
+    Ok(settings_section_value(&section, &saved))
 }
 
 /// `test_telegram_notification`: a test message with the stored bot credentials.
 async fn test_telegram_notification(state: &ApiState) -> Result<Response, ApiError> {
+    Ok(json_response(200, &send_test_notification(state).await?))
+}
+
+/// `FavApiService.test_telegram_notification`.
+pub(crate) async fn send_test_notification(state: &ApiState) -> Result<Value, ApiError> {
     let settings = state.settings.load().await.map_err(|error| unhandled(&error))?;
     match state.bot.send_test_notification(&settings).await {
-        Ok(result) => Ok(json_response(
-            200,
-            &json::dict([
-                ("status", Value::from("delivered")),
-                ("message_id", Value::from(result.message_id)),
-                ("warnings", json::str_list(&result.warnings)),
-            ]),
-        )),
+        Ok(result) => Ok(json::dict([
+            ("status", Value::from("delivered")),
+            ("message_id", Value::from(result.message_id)),
+            ("warnings", json::str_list(&result.warnings)),
+        ])),
         Err(error) if error == TelegramDeliveryError::not_configured() => Err(ApiError::new(
             422,
             "telegram_not_configured",
@@ -420,10 +448,14 @@ async fn test_telegram_notification(state: &ApiState) -> Result<Response, ApiErr
 // ---------- archive ----------
 
 async fn list_archive_sources(state: &ApiState) -> Result<Response, ApiError> {
-    let items = archive::list_sources(&state.db)
+    Ok(json_response(200, &list_response(archive_sources(state).await?)))
+}
+
+/// `FavApiService.list_archive_sources`.
+pub(crate) async fn archive_sources(state: &ApiState) -> Result<Vec<Value>, ApiError> {
+    archive::list_sources(&state.db)
         .await
-        .map_err(|error| internal("Failed to list archive sources", &error))?;
-    Ok(json_response(200, &list_response(items)))
+        .map_err(|error| internal("Failed to list archive sources", &error))
 }
 
 async fn list_archive_items(state: &ApiState, request: &Request) -> Result<Response, ApiError> {
@@ -476,13 +508,6 @@ async fn list_archive_items(state: &ApiState, request: &Request) -> Result<Respo
         },
     );
     errors.finish()?;
-    let source_key = source.unwrap_or_default();
-    let Some(source) = archive::source(&source_key) else {
-        return Err(
-            ApiError::new(404, "unknown_archive_source", format!("Unknown archive source: {source_key}"))
-                .with_details(json::dict([("allowed_values", json::str_list(&archive::sorted_keys()))])),
-        );
-    };
     let limit = match limit {
         Some(BigInt::Fits(limit)) => limit,
         _ => archive::DEFAULT_LIMIT,
@@ -492,12 +517,30 @@ async fn list_archive_items(state: &ApiState, request: &Request) -> Result<Respo
         Some(BigInt::AbovePositive) => i64::MAX,
         _ => 0,
     };
+    let page = archive_items(
+        state,
+        &source.unwrap_or_default(),
+        query.as_deref().unwrap_or_default(),
+        limit,
+        offset,
+    )
+    .await?;
+    Ok(json_response(200, &page))
+}
+
+/// `FavApiService.list_archive_items`.
+pub(crate) async fn archive_items(state: &ApiState, source_key: &str, query: &str, limit: i64, offset: i64) -> Result<Value, ApiError> {
+    let Some(source) = archive::source(source_key) else {
+        return Err(
+            ApiError::new(404, "unknown_archive_source", format!("Unknown archive source: {source_key}"))
+                .with_details(json::dict([("allowed_values", json::str_list(&archive::sorted_keys()))])),
+        );
+    };
     let failed = |error: &dyn std::fmt::Display| internal(&format!("Failed to list archive items source={source_key}"), error);
     let settings = state.settings.load().await.map_err(|error| failed(&error))?;
-    let page = archive::list_items(&state.db, &settings, source, query.as_deref().unwrap_or_default(), limit, offset)
+    archive::list_items(&state.db, &settings, source, query, limit, offset)
         .await
-        .map_err(|error| failed(&error))?;
-    Ok(json_response(200, &page))
+        .map_err(|error| failed(&error))
 }
 
 // ---------- site sessions and credentials ----------

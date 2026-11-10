@@ -62,8 +62,8 @@ pub const PENDING: &[(&str, &str)] = &[
     ("/readyz", "WP8"),
 ];
 
-/// Routes outside the document that are pending too: the MCP endpoint and the VNC relay.
-pub const PENDING_UNDOCUMENTED: &[(&str, &str)] = &[("/mcp", "WP4"), ("/api/v2/site-sessions/vnc", "WP16")];
+/// Routes outside the document that are pending too: the VNC relay.
+pub const PENDING_UNDOCUMENTED: &[(&str, &str)] = &[("/api/v2/site-sessions/vnc", "WP16")];
 
 // ---------- schema helpers ----------
 
