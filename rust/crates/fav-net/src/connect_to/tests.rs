@@ -45,7 +45,12 @@ async fn answer<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, seen: Seen) {
 
 /// A plain HTTP server that records the target and `Host` of each request.
 async fn http_server() -> (u16, Seen) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    http_server_on("127.0.0.1").await
+}
+
+/// [`http_server`] on another loopback address.
+async fn http_server_on(address: &str) -> (u16, Seen) {
+    let listener = TcpListener::bind((address, 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let seen = Seen::default();
     let record = Arc::clone(&seen);
@@ -70,7 +75,8 @@ fn options(connect_to: ConnectTo, proxy: Option<String>) -> ClientOptions {
 #[tokio::test]
 async fn requests_move_to_the_connect_host_while_the_host_does_not_resolve() {
     let (port, seen) = http_server().await;
-    let (other_port, other_seen) = http_server().await;
+    // Elsewhere than the substitute, so a request wrongly moved to it finds no server.
+    let (other_port, other_seen) = http_server_on("127.0.0.2").await;
     let lookups = Arc::new(Mutex::new(Vec::new()));
     let record = Arc::clone(&lookups);
     let config = ConnectTo::new(HOST, "127.0.0.1").with_resolves(move |host| {
@@ -80,7 +86,7 @@ async fn requests_move_to_the_connect_host_while_the_host_does_not_resolve() {
     let client = HttpClient::new(&options(config, None)).unwrap();
     client.get(&format!("http://{HOST}:{port}/data/ships-CN.json")).await.unwrap();
     client.get(&format!("http://{HOST}:{port}/data/ships/CN/10000.json")).await.unwrap();
-    client.get(&format!("http://127.0.0.1:{other_port}/")).await.unwrap();
+    client.get(&format!("http://127.0.0.2:{other_port}/")).await.unwrap();
 
     let seen = seen.lock().unwrap().clone();
     assert_eq!(
@@ -273,6 +279,28 @@ async fn the_async_transport_verifies_tls_against_the_original_host_through_a_pr
     assert_eq!(response.status(), 200);
     assert_eq!(*sni.lock().unwrap(), [HOST]);
     assert_eq!(*targets.lock().unwrap(), [format!("127.0.0.1:{port}")]);
+}
+
+#[tokio::test]
+async fn https_requests_for_the_substitute_itself_present_the_host_name() {
+    // `_ServerNameContext` swaps the server name on every handshake made to the substitute,
+    // so the origin's own URLs on it (static.l2d.su) are verified as l2d.su too, even while
+    // l2d.su resolves. `Host` stays the substitute's.
+    let tls = tls();
+    let (port, sni, seen) = https_server(Arc::clone(&tls.server)).await;
+    let config = ConnectTo::new(HOST, "127.0.0.1").with_resolves(|_| true).with_roots(tls.roots);
+    let client = HttpClient::new(&options(config, None)).unwrap();
+    let response = client
+        .get(&format!("https://127.0.0.1:{port}/al/data/ships-CN.json"))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(*sni.lock().unwrap(), [HOST]);
+    assert_eq!(
+        seen.lock().unwrap()[0],
+        ("/al/data/ships-CN.json".to_owned(), format!("127.0.0.1:{port}"))
+    );
 }
 
 // py: tests/test_connect_to.py::test_a_certificate_for_another_name_is_still_rejected

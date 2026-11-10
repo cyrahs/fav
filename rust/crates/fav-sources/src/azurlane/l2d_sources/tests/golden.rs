@@ -353,8 +353,8 @@ fn the_url_helpers_match_the_python_baseline() {
 #[test]
 fn catalog_round_trips_match_the_python_baseline() {
     let document = golden::load("azurlane/catalog_round_trips.json");
-    let [entries_case, pinned_case] = golden::cases(&document) else {
-        panic!("two cases")
+    let [entries_case, pinned_case, rivals_case] = golden::cases(&document) else {
+        panic!("three cases")
     };
 
     let catalog = enumeration_catalog(
@@ -394,4 +394,24 @@ fn catalog_round_trips_match_the_python_baseline() {
         golden::get(pinned, "catalog"),
         "pinned catalog",
     );
+
+    // Rival archived entries for one costume and type: which one each skin is pinned to.
+    let hashed = enumeration_catalog(
+        &text(golden::get(rivals_case, "hashed_index")),
+        &text(golden::get(rivals_case, "nagami")),
+    );
+    let rivals: Vec<ArchivedModel> = golden::list(golden::get(rivals_case, "archived"))
+        .iter()
+        .map(|item| ArchivedModel {
+            entry: model_entry_from_dict(golden::get(item, "entry")).expect("an archived entry"),
+            completed: *golden::get(item, "completed") == Value::Bool(true),
+        })
+        .collect();
+    let pinned_ids: Vec<String> = pin_archived_entries(&hashed, &rivals)
+        .entries
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect();
+    let expected: Vec<String> = golden::list(golden::get(rivals_case, "pinned_ids")).iter().map(text).collect();
+    assert_eq!(pinned_ids, expected);
 }

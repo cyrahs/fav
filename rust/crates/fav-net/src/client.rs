@@ -86,9 +86,9 @@ pub enum BuildError {
     Proxy(#[source] reqwest::Error),
     #[error("Could not build the HTTP client")]
     Client(#[source] reqwest::Error),
-    /// A proxy URL the connect-to route cannot use.
+    /// A proxy URL the connect-to route cannot use (not kept: it can carry credentials).
     #[error("Invalid proxy URL")]
-    ProxyUrl(String),
+    ProxyUrl,
     /// The connect-to route's trust roots or server name.
     #[error("TLS setup failed: {0}")]
     Tls(String),

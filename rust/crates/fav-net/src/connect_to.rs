@@ -183,14 +183,14 @@ struct Proxy {
 
 impl Proxy {
     fn parse(raw: &str) -> Result<Self, BuildError> {
-        let url = Url::parse(raw).map_err(|_| BuildError::ProxyUrl(raw.to_owned()))?;
+        let url = Url::parse(raw).map_err(|_| BuildError::ProxyUrl)?;
         let scheme = match url.scheme() {
             "http" => ProxyScheme::Http,
             "https" => ProxyScheme::Https,
             "socks5" | "socks5h" => ProxyScheme::Socks5,
-            _ => return Err(BuildError::ProxyUrl(raw.to_owned())),
+            _ => return Err(BuildError::ProxyUrl),
         };
-        let host = url.host_str().ok_or_else(|| BuildError::ProxyUrl(raw.to_owned()))?.to_owned();
+        let host = url.host_str().ok_or_else(|| BuildError::ProxyUrl)?.to_owned();
         let port = url.port_or_known_default().unwrap_or(match scheme {
             ProxyScheme::Http => 80,
             ProxyScheme::Https => 443,
@@ -535,9 +535,14 @@ impl Route {
         })
     }
 
-    /// `handle_request`'s check: a request for the host, while the host does not resolve
-    /// (asked once, on the first request for it).
+    /// Whether a request takes the route: a request for the host while the host does not
+    /// resolve (`handle_request`'s check, asked once, on the first request for it), and any
+    /// HTTPS request for the substitute itself, because `_ServerNameContext` presents the
+    /// host's name on every TLS connection made to the substitute, whatever the URL asked for.
     pub(crate) async fn applies(&self, url: &Url) -> bool {
+        if url.scheme() == "https" && url.host_str() == Some(self.connect_host.as_str()) {
+            return true;
+        }
         if url.host_str() != Some(self.host.as_str()) {
             return false;
         }

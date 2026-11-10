@@ -6,8 +6,9 @@ use fav_runtime::BoxFuture;
 
 use super::super::fetch::origin_probe_client_options;
 use super::super::{
-    HealthValidation, L2D_SU_ENGLISH_REGION, L2D_SU_PRIMARY_REGION, NAGAMI_MAPPING_URL, SourceErrorKind, fetch_azurlane_l2d_health_report,
-    fetch_l2d_su_snapshot, fetch_nagami_snapshot, l2d_su_primary_ship_index_url, probe_l2d_su_origin, run_origin_probe,
+    HealthValidation, L2D_SU_ENGLISH_REGION, L2D_SU_PRIMARY_REGION, NAGAMI_MAPPING_URL, SourceErrorKind, check_origin_proxy,
+    fetch_azurlane_l2d_health_report, fetch_l2d_su_snapshot, fetch_nagami_snapshot, l2d_su_primary_ship_index_url, probe_l2d_su_origin,
+    run_origin_probe,
 };
 use super::{
     FETCHED_AT, FakeFetch, clock, connect_error, english_index_url, index_payload, json, primary_index_url, respond, response_with, ship,
@@ -204,6 +205,26 @@ fn the_origin_probe_takes_the_crawlers_connect_host_route() {
 
     let direct = origin_probe_client_options("http://user:pass@proxy.example:8080", "");
     assert!(direct.connect_to.is_none());
+}
+
+#[tokio::test]
+async fn a_proxy_url_httpx_refuses_is_refused_before_anything_is_sent() {
+    // httpx's `Proxy` raises `Unknown scheme for proxy URL` while the transport is built,
+    // and reqwest alone would take a bare `host:port` as an HTTP proxy.
+    for proxy in ["proxy.example:8080", "ftp://proxy.example", " user:secret@proxy.example:8080 "] {
+        let error = probe_l2d_su_origin(proxy, "").await.unwrap_err();
+        assert_eq!(error.to_string(), "Invalid proxy URL", "{proxy}");
+        assert!(!format!("{error:?}").contains("secret"), "{proxy}");
+    }
+    for proxy in [
+        "",
+        "http://proxy.example:8080",
+        "https://proxy.example",
+        "socks5://proxy.example:1080",
+        "socks5h://proxy.example",
+    ] {
+        assert!(check_origin_proxy(proxy).is_ok(), "{proxy}");
+    }
 }
 
 // py: tests/test_azurlane_l2d_sources.py::test_fetch_health_report_records_source_errors_without_raising

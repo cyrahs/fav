@@ -360,6 +360,22 @@ pub fn l2d_su_origin_client_options(proxy: &str, connect_host: &str, timeout: Du
     }
 }
 
+/// httpx's `Proxy` check, which `l2d_su_origin_transport` runs while it builds the transport:
+/// a proxy URL whose scheme is not `http`, `https`, `socks5` or `socks5h` (a bare
+/// `host:port` included) raises `ValueError: Unknown scheme for proxy URL`. reqwest alone
+/// would take `host:port` as an HTTP proxy. The origin client's callers run it first.
+pub fn check_origin_proxy(proxy: &str) -> Result<(), BuildError> {
+    if proxy.is_empty() {
+        return Ok(());
+    }
+    let scheme = fav_core::pyurl::urlsplit(proxy, "").map(|split| split.scheme).unwrap_or_default();
+    if ["http", "https", "socks5", "socks5h"].contains(&scheme.as_str()) {
+        Ok(())
+    } else {
+        Err(BuildError::ProxyUrl)
+    }
+}
+
 // ---------- the origin probe ----------
 
 fn probe(ok: bool, code: &str, message: String, exit_ip: String) -> L2DSuOriginProbe {
@@ -379,6 +395,7 @@ pub async fn probe_l2d_su_origin(proxy: &str, connect_host: &str) -> Result<L2DS
     if py_strip(proxy).is_empty() {
         return Ok(probe(false, "incomplete", "No proxy configured.".to_owned(), String::new()));
     }
+    check_origin_proxy(py_strip(proxy))?;
     let client = HttpClient::new(&origin_probe_client_options(proxy, connect_host))?;
     Ok(run_origin_probe(&client, &l2d_su_primary_ship_index_url()).await)
 }

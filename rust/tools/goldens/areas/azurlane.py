@@ -17,7 +17,7 @@ import hashlib
 import json
 import struct
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -990,6 +990,19 @@ def _round_trips() -> list[dict[str, Any]]:
     ]
     hashed_catalog = _enumeration_catalog(hashed_index, nagami)
     pinned = pin_archived_entries(hashed_catalog, archived)
+    # Several archived entries for one costume and type: a completed one beats an unfinished
+    # one, then one without `:asset-` in its id, then the smaller id; listed so that taking the
+    # first, or ignoring any part of that order, pins another id.
+    by_costume = {entry.costume.id: entry for entry in hashed_catalog.entries if entry.type == 'live2d'}
+    rivals = [
+        (by_costume[201011], 'live2d:biaoqiang_a:unfinished', False),
+        (by_costume[201011], 'live2d:biaoqiang_z:completed', True),
+        (by_costume[201099], 'live2d:biaoqiang_b:asset-1', True),
+        (by_costume[201099], 'live2d:biaoqiang_y:completed', True),
+        (by_costume[201099], 'live2d:biaoqiang_x:completed', True),
+    ]
+    rival_models = [ArchivedModel(entry=replace(entry, id=entry_id), completed=completed) for entry, entry_id, completed in rivals]
+    rival_pinned = pin_archived_entries(hashed_catalog, rival_models)
     return [
         {'index': index, 'nagami': nagami, 'entries': entries},
         {
@@ -997,6 +1010,12 @@ def _round_trips() -> list[dict[str, Any]]:
             'hashed_index': hashed_index,
             'nagami': nagami,
             'pinned': {'archived': [{'entry_id': a.entry.id, 'completed': a.completed} for a in archived], 'catalog': pinned.to_dict()},
+        },
+        {
+            'hashed_index': hashed_index,
+            'nagami': nagami,
+            'archived': [{'entry': a.entry.to_dict(), 'completed': a.completed} for a in rival_models],
+            'pinned_ids': [entry.id for entry in rival_pinned.entries],
         },
     ]
 
