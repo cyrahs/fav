@@ -490,7 +490,7 @@ impl Harness {
 
     /// `_seed_downloaded_blob(...)`: a blob in the store and a downloaded asset row for it.
     async fn seed_downloaded_blob(&self, url: &str, kind: &str, content: &[u8], content_type: &str) {
-        let sha256 = crate::bd2::gamekee::sha256_hex(content);
+        let sha256 = crate::gamekee::sha256_hex(content);
         let relative = format!("_blobs/sha256/{}/{sha256}", &sha256[..2]);
         let path = self.path(&relative);
         std::fs::create_dir_all(path.parent().expect("parent")).expect("blob dir");

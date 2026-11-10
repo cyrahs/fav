@@ -1,26 +1,13 @@
 # Cargo workspace for the Rust rewrite of fav. See docs/PLAN.md.
 #
 # Versions of the four crates whose API coverage was checked in WP0
-# (grammers, chromiumoxide, rmcp, webp-animation) are pinned exactly; see
+# (grammers, chromiumoxide, webp-animation; rmcp was checked and dropped) are pinned exactly; see
 # docs/API-COVERAGE.md before changing them. Everything else uses a caret
 # requirement and is fixed by Cargo.lock.
 
 [workspace]
 resolver = "3"
 members = [
-    "crates/fav-core",
-    "crates/fav-db",
-    "crates/fav-net",
-    "crates/fav-runtime",
-    "crates/fav-sources",
-    "crates/fav-browser",
-    "crates/fav-api",
-    "crates/fav",
-    "probes/api-coverage",
-]
-# Plain `cargo build` / `cargo test` skip the probe crate; `--workspace` (what CI
-# runs) includes it.
-default-members = [
     "crates/fav-core",
     "crates/fav-db",
     "crates/fav-net",
@@ -54,7 +41,6 @@ grammers-session = "=0.12.0"
 grammers-mtsender = "=0.12.0"
 grammers-tl-types = "=0.12.0"
 chromiumoxide = { version = "=0.9.1", default-features = false }
-rmcp = { version = "=3.9.0", default-features = false }
 webp-animation = "=0.10.0"
 
 # Foundation crates chosen in the plan's technology mapping.
@@ -108,6 +94,10 @@ unicode-normalization = "0.1"
 url = "2"
 utoipa = "6"
 webpki-roots = "1"
+# The global allocator of the `fav` binary, chosen by the WP18 memory benchmark
+# (docs/REPORT.md): after a load it returns freed memory to the system, which glibc's
+# allocator (Python's `malloc_trim` call has no safe counterpart, D19) does not.
+tikv-jemallocator = "0.6"
 # Test certificates for the connect-to TLS tests (fav-net).
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 

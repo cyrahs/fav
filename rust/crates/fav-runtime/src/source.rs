@@ -174,6 +174,13 @@ impl Registry {
     pub fn contains(&self, key: &str) -> bool {
         self.sources.contains_key(key)
     }
+
+    /// Every registered job key, sorted.
+    pub fn keys(&self) -> Vec<&str> {
+        let mut keys: Vec<&str> = self.sources.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        keys
+    }
 }
 
 #[cfg(test)]

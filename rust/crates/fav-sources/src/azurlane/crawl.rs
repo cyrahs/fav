@@ -30,6 +30,7 @@ use fav_core::pytext::py_strip;
 use fav_db::{Db, Param, Statement};
 use fav_net::client::BuildError;
 use fav_net::download::{self, DownloadError, Downloaded, TempOptions};
+use fav_net::httpx::status_error_message;
 use fav_net::reqwest::Method;
 use fav_net::retry::{Sleeper, tokio_sleeper};
 use fav_net::{ClientOptions, HttpClient, Request, TransportError};
@@ -61,8 +62,8 @@ use super::l2d_sources::{
 };
 use super::protected;
 use crate::bd2::extract::{retry_after_delay_seconds, retry_delay_seconds};
-use crate::bd2::gamekee::{decode_utf8_ignore, materialize_blob, os_error, sha256_hex, verify_file, write_json};
-use crate::kit::{blocking, status_error_message};
+use crate::gamekee::{decode_utf8_ignore, hard_link, materialize_blob, os_error, sha256_hex, verify_file, write_json};
+use crate::notifier::blocking;
 use crate::{PyError, SourceContext, db_job_error, pyerr, settings_job_error};
 
 const API_REQUEST_INTERVAL_SECONDS: f64 = 0.5;
@@ -1337,7 +1338,7 @@ impl AzurLaneCrawler {
         {
             let destination = PathBuf::from(pypath::join(root, &asset.local_path));
             let (blob_path, sha256, size) = (blob.path.clone(), blob.sha256.clone(), blob.size);
-            blocking(move || materialize_blob(&blob_path, &destination, &sha256, size)).await?;
+            blocking(move || materialize_blob(&blob_path, &destination, &sha256, size, hard_link)).await?;
         }
         self.record_blob(asset, &blob).await
     }

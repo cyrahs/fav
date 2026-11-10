@@ -19,7 +19,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::Response;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use fav_core::pyjson::{self, Dict, LoadError, Value};
+use fav_core::pyjson::{self, Dict, JsonEncoding, LoadError, Value, detect_json_encoding};
 use fav_core::validate::{self, ErrorItem, Errors, Fields, LocItem};
 
 use crate::router::Request;
@@ -334,73 +334,10 @@ async fn post(state: &ApiState, request: &Request) -> Response {
 
 /// `json.detect_encoding` and the decode `json.loads` does for bytes.
 fn decode_body(body: &[u8]) -> Option<String> {
-    const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
-    if body.starts_with(b"\x00\x00\xfe\xff") {
-        return decode_utf32(&body[4..], true);
+    match detect_json_encoding(body) {
+        JsonEncoding::Utf8(bytes) => String::from_utf8(bytes.to_vec()).ok(),
+        JsonEncoding::Decoded(text) => text,
     }
-    if body.starts_with(b"\xff\xfe\x00\x00") {
-        return decode_utf32(&body[4..], false);
-    }
-    if body.starts_with(b"\xfe\xff") {
-        return decode_utf16(&body[2..], true);
-    }
-    if body.starts_with(b"\xff\xfe") {
-        return decode_utf16(&body[2..], false);
-    }
-    if let Some(rest) = body.strip_prefix(UTF8_BOM) {
-        return String::from_utf8(rest.to_vec()).ok();
-    }
-    match body {
-        [0, second, ..] if body.len() >= 4 => {
-            if *second == 0 {
-                decode_utf32(body, true)
-            } else {
-                decode_utf16(body, true)
-            }
-        }
-        [_, 0, third, fourth, ..] => {
-            if *third != 0 || *fourth != 0 {
-                decode_utf16(body, false)
-            } else {
-                decode_utf32(body, false)
-            }
-        }
-        [0, _] => decode_utf16(body, true),
-        [_, 0] => decode_utf16(body, false),
-        _ => String::from_utf8(body.to_vec()).ok(),
-    }
-}
-
-fn decode_utf16(bytes: &[u8], big_endian: bool) -> Option<String> {
-    if !bytes.len().is_multiple_of(2) {
-        return None;
-    }
-    let units = bytes.chunks_exact(2).map(|pair| {
-        let pair = [pair[0], pair[1]];
-        if big_endian {
-            u16::from_be_bytes(pair)
-        } else {
-            u16::from_le_bytes(pair)
-        }
-    });
-    char::decode_utf16(units).collect::<Result<String, _>>().ok()
-}
-
-fn decode_utf32(bytes: &[u8], big_endian: bool) -> Option<String> {
-    if !bytes.len().is_multiple_of(4) {
-        return None;
-    }
-    bytes
-        .chunks_exact(4)
-        .map(|quad| {
-            let quad = [quad[0], quad[1], quad[2], quad[3]];
-            char::from_u32(if big_endian {
-                u32::from_be_bytes(quad)
-            } else {
-                u32::from_le_bytes(quad)
-            })
-        })
-        .collect()
 }
 
 /// `str(JSONDecodeError)`: the message, then the line, column and character offset.

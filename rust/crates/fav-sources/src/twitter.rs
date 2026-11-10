@@ -31,7 +31,9 @@ use fav_core::pytext::py_isdigit;
 use fav_core::settings::Twitter as TwitterConfig;
 use fav_core::validate::PyPath;
 use fav_db::Db;
+use fav_net::httpx::HttpError;
 use fav_net::reqwest::{self, header};
+use fav_net::retry::{Sleeper, tokio_sleeper};
 use fav_net::subprocess::{Runner, Stream, SystemRunner};
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{NewNotification, Outbox};
@@ -41,7 +43,7 @@ use fav_runtime::source::{JobError, Registry, Source};
 use sqlx::Row as _;
 
 use crate::SourceContext;
-use crate::kit::{self, HttpError, OutboxNotifier, SharedNotifier};
+use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::pydecode::{self, PyError};
 
 pub const JOB_KEY: &str = "twitter";
@@ -117,11 +119,11 @@ fn session_store_error(error: fav_runtime::Error) -> JobError {
 
 /// `str(OSError)` with the file name, as Python's message carries it.
 fn os_error_text(error: &std::io::Error, path: &str) -> String {
-    format!("{}: {}", kit::py_os_error_text(error), repr_str(path))
+    format!("{}: {}", fav_net::download::py_os_error_text(error), repr_str(path))
 }
 
 fn os_error(error: &std::io::Error, path: &str) -> JobError {
-    JobError::new(kit::io_class_name(error), os_error_text(error, path))
+    JobError::new(fav_net::download::io_class_name(error), os_error_text(error, path))
 }
 
 // ---------- the session ----------
@@ -248,8 +250,7 @@ fn settings_client(proxy: &str) -> Result<reqwest::Client, HttpError> {
             host: String::new(),
         };
         // httpx's `Proxy` check; reqwest itself would take `host:port` as an HTTP proxy.
-        let scheme = fav_core::pyurl::urlsplit(proxy, "").map(|split| split.scheme).unwrap_or_default();
-        if !["http", "https", "socks5", "socks5h"].contains(&scheme.as_str()) {
+        if !fav_net::proxy::is_httpx_proxy(proxy) {
             return Err(unknown_scheme());
         }
         builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|_| unknown_scheme())?);
@@ -449,7 +450,8 @@ pub struct Twitter {
     notifier: SharedNotifier,
     runner: Arc<dyn Runner>,
     config: TwitterConfig,
-    retry_delay: Duration,
+    /// `asyncio.sleep`: the user-lookup retry wait goes through it.
+    sleeper: Sleeper,
 }
 
 impl std::fmt::Debug for Twitter {
@@ -467,14 +469,14 @@ impl Twitter {
             notifier,
             runner,
             config,
-            retry_delay: USER_LOOKUP_RETRY_DELAY,
+            sleeper: tokio_sleeper(),
         }
     }
 
-    /// Wait this long before the user-lookup retry (tests).
+    /// Sleep through `sleeper` (tests record the waits instead of taking them).
     #[must_use]
-    pub fn with_retry_delay(mut self, delay: Duration) -> Self {
-        self.retry_delay = delay;
+    pub fn with_sleeper(mut self, sleeper: Sleeper) -> Self {
+        self.sleeper = sleeper;
         self
     }
 
@@ -533,7 +535,7 @@ impl Twitter {
             .runner
             .run_lines(command.to_vec(), &mut sink)
             .await
-            .map_err(|error| JobError::new(kit::io_class_name(&error), os_error_text(&error, &command[0])))?;
+            .map_err(|error| JobError::new(fav_net::download::io_class_name(&error), os_error_text(&error, &command[0])))?;
         Ok((returncode, errors.into_inner().expect("errors")))
     }
 
@@ -549,7 +551,7 @@ impl Twitter {
                 self.config.username,
                 USER_LOOKUP_RETRY_DELAY.as_secs_f64()
             ));
-            tokio::time::sleep(self.retry_delay).await;
+            (self.sleeper)(USER_LOOKUP_RETRY_DELAY.as_secs_f64()).await;
             (returncode, errors) = self.run_gallery_dl(command).await?;
         }
         Ok((returncode, errors))
@@ -609,7 +611,7 @@ impl Twitter {
             };
             {
                 let (media_path, destination) = (media_path.clone(), destination.clone());
-                kit::blocking(move || relocate(&media_path, &destination)).await?;
+                crate::notifier::blocking(move || relocate(&media_path, &destination)).await?;
             }
             insert_row(&self.db, &row).await?;
             if let Err(error) = std::fs::remove_file(&sidecar)
@@ -660,7 +662,12 @@ impl Twitter {
         let cookies = self.resolve_session().await?;
         let backfill_complete = self.backfill_complete().await?;
         let (returncode, errors) = {
-            let tmp_dir = tempfile::tempdir().map_err(|error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error)))?;
+            let tmp_dir = tempfile::tempdir().map_err(|error| {
+                JobError::new(
+                    fav_net::download::io_class_name(&error),
+                    fav_net::download::py_os_error_text(&error),
+                )
+            })?;
             let cookie_path = tmp_dir.path().join(COOKIE_FILENAME);
             let cookie_text = cookie_path.to_string_lossy().into_owned();
             std::fs::write(&cookie_path, site_sessions::to_netscape(&cookies)).map_err(|error| os_error(&error, &cookie_text))?;
@@ -729,7 +736,7 @@ fn relocate(media_path: &str, destination: &str) -> Result<(), JobError> {
         std::fs::create_dir_all(parent).map_err(|error| os_error(&error, &parent.to_string_lossy()))?;
     }
     // A move, not a rename: the video directory is usually another mount.
-    kit::move_file(Path::new(media_path), &PathBuf::from(destination)).map_err(|error| os_error(&error, media_path))
+    fav_net::download::move_file(Path::new(media_path), &PathBuf::from(destination)).map_err(|error| os_error(&error, media_path))
 }
 
 async fn insert_row(db: &Db, row: &SidecarRow) -> Result<(), JobError> {

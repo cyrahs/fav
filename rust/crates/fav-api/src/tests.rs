@@ -375,6 +375,36 @@ async fn requests_replay_python() {
 
 // ---------- documents ----------
 
+/// Registry completeness (WP18): Python's 44 operations on 36 paths, every one in the OpenAPI
+/// document and in the router's dispatch table, none pending, none extra in the document.
+#[test]
+fn the_contract_has_python_routes() {
+    fn operations(document: &serde_json::Value) -> Vec<(String, String)> {
+        let mut found = Vec::new();
+        for (path, item) in document["paths"].as_object().expect("paths") {
+            for method in item.as_object().expect("a path item").keys() {
+                if ["get", "put", "post", "delete", "patch", "head", "options"].contains(&method.as_str()) {
+                    found.push((method.to_uppercase(), path.clone()));
+                }
+            }
+        }
+        found
+    }
+    let document = golden::load("api/openapi.json");
+    let python: serde_json::Value =
+        serde_json::from_str(&pyjson::dumps(&golden::cases(&document)[0], &DumpOptions::compact()).expect("dumpable")).expect("JSON");
+    let python = operations(&python);
+    assert_eq!(python.len(), 44);
+    assert!(openapi::PENDING.is_empty(), "{:?}", openapi::PENDING);
+
+    assert_eq!(operations(&openapi::document_json()), python);
+
+    // The dispatch table serves each of them, not only the hand-built document.
+    let served = router::served_operations();
+    let missing: Vec<_> = python.iter().filter(|operation| !served.contains(operation)).collect();
+    assert!(missing.is_empty(), "operations the router does not serve: {missing:?}");
+}
+
 #[tokio::test]
 async fn openapi_matches_python_for_every_ported_path() {
     let document = golden::load("api/openapi.json");

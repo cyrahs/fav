@@ -24,8 +24,6 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_IP_TIMEOUT: Duration = Duration::from_secs(15);
 const EXIT_IP_URL: &str = "https://checkip.amazonaws.com";
 const HTTP_ERROR_MIN: u16 = 400;
-/// The schemes httpx's `Proxy` takes.
-const HTTPX_PROXY_SCHEMES: [&str; 4] = ["http", "https", "socks5", "socks5h"];
 /// httpx drops a port that is its scheme's default when it normalises a URL.
 const HTTPX_DEFAULT_PORTS: [(&str, &str); 5] = [("ftp", "21"), ("http", "80"), ("https", "443"), ("ws", "80"), ("wss", "443")];
 
@@ -110,8 +108,7 @@ pub fn httpx_url_repr(url: &str) -> String {
 
 /// httpx's `Proxy(url)` check: `Err` is its `ValueError` text for a scheme it cannot dial.
 pub fn check_httpx_proxy(proxy: &str) -> Result<(), String> {
-    let scheme = fav_core::pyurl::urlsplit(proxy, "").map(|parts| parts.scheme).unwrap_or_default();
-    if HTTPX_PROXY_SCHEMES.contains(&scheme.as_str()) {
+    if fav_net::proxy::is_httpx_proxy(proxy) {
         Ok(())
     } else {
         Err(format!("Unknown scheme for proxy URL {}", httpx_url_repr(proxy)))

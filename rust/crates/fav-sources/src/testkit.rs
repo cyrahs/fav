@@ -7,7 +7,7 @@ use axum::response::IntoResponse;
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{NewNotification, Resolution};
 
-use crate::kit::Notifier;
+use crate::notifier::Notifier;
 
 /// One request the fake server received.
 #[derive(Debug, Clone)]

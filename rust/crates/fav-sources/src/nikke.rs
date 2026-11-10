@@ -14,11 +14,14 @@ use std::collections::HashMap;
 
 use fav_core::filename::sanitize;
 use fav_core::pyjson::{Dict, Value};
+use fav_core::pypath;
 use fav_core::pytext::{py_int_decimal, py_isdigit, py_strip};
-use fav_core::{pycasefold, pypath, pyurl};
 use fav_runtime::pystr::{repr_value, str_key, str_value};
 use regex::Regex;
 
+pub(crate) use crate::gamekee::{
+    asset_headers, nikke_extension_for_kind, original_filename_from_url, parse_spine_atlas_textures, validate_asset_response,
+};
 pub use crate::nikke_layer_metadata::{
     LAYER_CAPTURE_MATCH_METHOD, LAYER_MATCH_CONFIDENCE_VALUES, LIVE2D_LAYER_CAPTURE_FIELD, LIVE2D_LAYER_METADATA_FIELDS,
     copy_live2d_layer_metadata, layer_capture_manifest_summary, merge_layer_capture_files, merge_live2d_layer_captures,
@@ -236,16 +239,6 @@ pub fn cdn_request_headers() -> Vec<(String, String)> {
         ("Sec-Fetch-Mode", "cors"),
         ("Sec-Fetch-Site", "same-site"),
         ("User-Agent", CDN_USER_AGENT),
-    ])
-}
-
-/// `asset_headers()`.
-pub fn asset_headers() -> Vec<(String, String)> {
-    pairs(&[
-        ("Accept", "*/*"),
-        ("Origin", GAMEKEE_BASE_URL),
-        ("Referer", &format!("{GAMEKEE_BASE_URL}/")),
-        ("User-Agent", DEFAULT_USER_AGENT),
     ])
 }
 
@@ -772,93 +765,10 @@ pub fn extract_resources(content_json: &Dict, tj_list_row: Option<&Dict>, revers
     (assets, live2d_models)
 }
 
-/// Python's `str.splitlines()` boundaries.
-fn py_splitlines(text: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let mut chars = text.char_indices().peekable();
-    while let Some((index, ch)) = chars.next() {
-        let is_break = matches!(
-            ch,
-            '\n' | '\r' | '\u{0b}' | '\u{0c}' | '\u{1c}' | '\u{1d}' | '\u{1e}' | '\u{85}' | '\u{2028}' | '\u{2029}'
-        );
-        if !is_break {
-            continue;
-        }
-        lines.push(&text[start..index]);
-        let mut end = index + ch.len_utf8();
-        if ch == '\r'
-            && let Some((next, '\n')) = chars.peek().copied()
-        {
-            chars.next();
-            end = next + 1;
-        }
-        start = end;
-    }
-    if start < text.len() {
-        lines.push(&text[start..]);
-    }
-    lines
-}
-
-/// `parse_spine_atlas_textures`: the page (texture) lines of a Spine atlas, without repeats.
-pub fn parse_spine_atlas_textures(text: &str) -> Vec<String> {
-    let mut textures = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for line in py_splitlines(text) {
-        let value = py_strip(line).trim_start_matches('\u{feff}');
-        if value.is_empty() || value.contains(':') || !is_texture_name(value) {
-            continue;
-        }
-        if seen.insert(pycasefold::casefold(value)) {
-            textures.push(value.to_owned());
-        }
-    }
-    textures
-}
-
-/// `re.match(r'^[^\s:]+\.(?:png|webp|jpe?g)$', value, re.IGNORECASE)`.
-fn is_texture_name(value: &str) -> bool {
-    if value.chars().any(|ch| ch == ':' || fav_core::pytext::is_py_space(ch)) {
-        return false;
-    }
-    let lower = value.to_ascii_lowercase();
-    [".png", ".webp", ".jpg", ".jpeg"].iter().any(|extension| {
-        lower.len() > extension.len() && lower.ends_with(extension) && value.is_char_boundary(value.len() - extension.len())
-    })
-}
-
-/// `extension_for_kind`.
-pub fn extension_for_kind(kind: &str) -> &'static str {
-    match kind {
-        "video" => ".mp4",
-        "live2d_atlas" => ".atlas",
-        "live2d_skel" => ".skel",
-        "live2d_json" => ".json",
-        _ => ".bin",
-    }
-}
-
-fn url_error(error: &pyurl::UrlError) -> PyError {
-    PyError::new("ValueError", error.to_string())
-}
-
-/// `original_filename_from_url`: the URL's file name, unquoted and sanitized.
-pub fn original_filename_from_url(url: &str, kind: &str) -> Result<String, PyError> {
-    let split = pyurl::urlsplit(url, "").map_err(|error| url_error(&error))?;
-    let raw_name = pyurl::unquote(pypath::name(&split.path));
-    let fallback = format!("{kind}{}", extension_for_kind(kind));
-    if raw_name.is_empty() {
-        return Ok(fallback);
-    }
-    let sanitized = sanitize(&raw_name, 180);
-    Ok(if sanitized.is_empty() { fallback } else { sanitized })
-}
-
 fn safe_suffix(filename: &str, kind: &str) -> String {
     let suffix = pypath::suffix(filename);
     let mut suffix = if suffix.is_empty() {
-        extension_for_kind(kind).to_owned()
+        nikke_extension_for_kind(kind).to_owned()
     } else {
         suffix.to_owned()
     };
@@ -1041,56 +951,6 @@ pub fn max_attempts_for_status(status: u16) -> u32 {
 /// The statuses that count towards the throttling pause.
 pub(crate) fn is_limited_status(status: u16) -> bool {
     matches!(status, 403 | 406 | 429 | 503)
-}
-
-fn bytes_lstrip(bytes: &[u8]) -> &[u8] {
-    let start = bytes
-        .iter()
-        .position(|byte| !matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c))
-        .unwrap_or(bytes.len());
-    &bytes[start..]
-}
-
-fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|window| window == needle)
-}
-
-/// `is_cdn_rejection_body`: an HTML page or an access-denied text instead of the file.
-pub fn is_cdn_rejection_body(content_type: &str, body_prefix: &[u8]) -> bool {
-    if content_type.to_lowercase().contains("text/html") {
-        return true;
-    }
-    let stripped = bytes_lstrip(body_prefix).to_ascii_lowercase();
-    if stripped.starts_with(b"<!doctype html") || stripped.starts_with(b"<html") {
-        return true;
-    }
-    [&b"accessdenied"[..], b"access denied", b"forbidden", b"<error>", b"error code"]
-        .iter()
-        .any(|signature| contains_bytes(&stripped, signature))
-}
-
-/// `bytes.decode('utf-8', errors='ignore')`.
-fn decode_ignore(bytes: &[u8]) -> String {
-    bytes.utf8_chunks().map(|chunk| chunk.valid()).collect()
-}
-
-/// `validate_asset_response`: why a 2xx answer is not the file, or `""`.
-pub fn validate_asset_response(kind: &str, content_type: &str, body_prefix: &[u8], size: u64) -> &'static str {
-    if size == 0 {
-        return "empty response body";
-    }
-    if is_cdn_rejection_body(content_type, body_prefix) {
-        return "cdn rejection response";
-    }
-    let stripped = bytes_lstrip(body_prefix);
-    if stripped.starts_with(b"{")
-        && kind != "live2d_json"
-        && let Ok(Value::Dict(parsed)) = fav_core::pyjson::loads(&decode_ignore(stripped))
-        && ["code", "msg", "message", "error"].iter().any(|key| parsed.contains_key(key))
-    {
-        return "json error response";
-    }
-    ""
 }
 
 #[cfg(test)]

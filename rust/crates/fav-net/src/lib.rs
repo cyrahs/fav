@@ -19,6 +19,8 @@ pub use reqwest;
 pub mod client;
 pub mod connect_to;
 pub mod download;
+pub mod httpx;
+pub mod proxy;
 pub mod retry;
 pub mod subprocess;
 

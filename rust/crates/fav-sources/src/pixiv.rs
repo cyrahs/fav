@@ -25,7 +25,9 @@ use fav_core::pypath;
 use fav_core::pytext::{py_isdigit, py_strip};
 use fav_core::pyurl::urlsplit;
 use fav_db::{Db, Param};
+use fav_net::httpx::HttpError;
 use fav_net::reqwest::{self, header};
+use fav_net::retry::{Sleeper, tokio_sleeper};
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{NewNotification, Outbox};
 use fav_runtime::pystr::str_value;
@@ -34,7 +36,7 @@ use fav_runtime::source::{JobError, Registry, Source};
 use sqlx::Row;
 
 use crate::SourceContext;
-use crate::kit::{self, HttpError, OutboxNotifier, SharedNotifier};
+use crate::notifier::{HttpJobError as _, OutboxNotifier, SharedNotifier};
 
 pub const JOB_KEY: &str = "pixiv";
 /// The key the captured login is stored under in `site_sessions`.
@@ -130,7 +132,7 @@ impl Failure {
     }
 
     fn io(error: &std::io::Error) -> Self {
-        Self::other(kit::io_class_name(error), kit::py_os_error_text(error))
+        Self::other(fav_net::download::io_class_name(error), fav_net::download::py_os_error_text(error))
     }
 
     fn db(error: &impl std::fmt::Display) -> Self {
@@ -402,7 +404,7 @@ pub fn synthesize_from_zip(work_dir: &Path, zip_path: &Path, frames: &[(String, 
     }
     let encoded = work_dir.join("ugoira.webp");
     synthesize_ugoira_webp(&frame_paths, &delays, &encoded)?;
-    kit::move_file(&encoded, dst_path).map_err(|error| Failure::io(&error))
+    fav_net::download::move_file(&encoded, dst_path).map_err(|error| Failure::io(&error))
 }
 
 // ---------- session verification ----------
@@ -506,34 +508,19 @@ fn build_client(proxy: &str, timeout: Duration, accept_json: bool) -> Result<req
         .redirect(reqwest::redirect::Policy::limited(20))
         .pool_max_idle_per_host(10);
     if !proxy.is_empty() {
-        // An explicit proxy replaces the environment's, as in httpx.
-        let proxy = reqwest::Proxy::all(proxy).map_err(|_| HttpError::Transport {
+        let unknown_scheme = || HttpError::Transport {
             class: "UnsupportedProtocol",
             message: "Unknown scheme for proxy URL".to_owned(),
             host: String::new(),
-        })?;
-        builder = builder.proxy(proxy);
+        };
+        // httpx's `Proxy` check (D50); reqwest itself would take `host:port` as an HTTP
+        // proxy. An explicit proxy replaces the environment's, as in httpx.
+        if !fav_net::proxy::is_httpx_proxy(proxy) {
+            return Err(unknown_scheme());
+        }
+        builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|_| unknown_scheme())?);
     }
     builder.build().map_err(|error| HttpError::transport(&error))
-}
-
-/// How long the crawl waits: before each API request, and between API retries.
-#[derive(Debug, Clone)]
-pub struct Pacing {
-    pub sleep_request: Duration,
-    pub retry_delays: Vec<Duration>,
-}
-
-impl Pacing {
-    fn from_settings(sleep_request_seconds: f64) -> Self {
-        Self {
-            sleep_request: Duration::try_from_secs_f64(sleep_request_seconds.max(0.0)).unwrap_or(Duration::ZERO),
-            retry_delays: API_RETRY_DELAYS_SECONDS
-                .iter()
-                .map(|seconds| Duration::from_secs_f64(*seconds))
-                .collect(),
-        }
-    }
 }
 
 /// `Pixiv`: one run's clients, settings, database and notification seam.
@@ -546,7 +533,10 @@ pub struct Pixiv {
     /// `cfg.path` as `str(Path)`.
     path: String,
     user_id: String,
-    pacing: Pacing,
+    /// `cfg.sleep_request_seconds`: the wait before each API request.
+    sleep_request_seconds: f64,
+    /// `asyncio.sleep`: the request pacing and the retry waits go through it.
+    sleeper: Sleeper,
     /// The `Cookie` header the ajax client sends once the session is resolved.
     cookie: Option<String>,
 }
@@ -587,8 +577,8 @@ fn truncate_reason(reason: &str) -> String {
 }
 
 /// `delay` seconds as `%.1f`.
-fn seconds_1(delay: Duration) -> String {
-    format!("{:.1}", delay.as_secs_f64())
+fn seconds_1(delay: f64) -> String {
+    format!("{delay:.1}")
 }
 
 impl Pixiv {
@@ -603,22 +593,24 @@ impl Pixiv {
             ajax_base: AJAX_BASE.to_owned(),
             path: config.path.clone(),
             user_id: config.user_id.clone(),
-            pacing: Pacing::from_settings(config.sleep_request_seconds),
+            sleep_request_seconds: config.sleep_request_seconds,
+            sleeper: tokio_sleeper(),
             cookie: None,
         })
     }
 
-    /// Talk to another ajax origin and wait differently (tests).
+    /// Talk to another ajax origin and sleep through `sleeper` (tests record the waits).
     #[must_use]
-    pub fn with_ajax_base(mut self, ajax_base: &str, pacing: Pacing) -> Self {
+    pub fn with_ajax_base(mut self, ajax_base: &str, sleeper: Sleeper) -> Self {
         ajax_base.trim_end_matches('/').clone_into(&mut self.ajax_base);
-        self.pacing = pacing;
+        self.sleeper = sleeper;
         self
     }
 
+    /// `_pace`.
     async fn pace(&self) {
-        if !self.pacing.sleep_request.is_zero() {
-            tokio::time::sleep(self.pacing.sleep_request).await;
+        if self.sleep_request_seconds > 0.0 {
+            (self.sleeper)(self.sleep_request_seconds).await;
         }
     }
 
@@ -643,7 +635,7 @@ impl Pixiv {
     /// retried after 2, 5, 15 and 30 s. `error: true` is a [`Failure::Api`]; any other
     /// non-2xx is an `HTTPStatusError`.
     pub async fn get_body(&self, url: &str, params: &[(&str, String)]) -> Result<Value, Failure> {
-        let attempts = self.pacing.retry_delays.len() + 1;
+        let attempts = API_RETRY_DELAYS_SECONDS.len() + 1;
         for attempt in 1..=attempts {
             self.pace().await;
             let mut request = self.client.get(url);
@@ -658,7 +650,7 @@ impl Pixiv {
             let fetched = async {
                 let response = request.send().await.map_err(|error| HttpError::transport(&error))?;
                 let status = response.status().as_u16();
-                let status_check = kit::raise_for_status(&response);
+                let status_check = fav_net::httpx::raise_for_status(&response);
                 let text = response.text().await.map_err(|error| HttpError::transport(&error))?;
                 Ok::<_, HttpError>((status, status_check, text))
             }
@@ -669,24 +661,24 @@ impl Pixiv {
                     if !error.is_connect_timeout_or_protocol() || attempt >= attempts {
                         return Err(Failure::Http(error));
                     }
-                    let delay = self.pacing.retry_delays[attempt - 1];
+                    let delay = API_RETRY_DELAYS_SECONDS[attempt - 1];
                     log().warning(format_args!(
                         "Pixiv API request failed url={url} attempt={attempt}/{attempts}, retry in {}s: {}: {}",
                         seconds_1(delay),
                         error.class_name(),
                         error.message()
                     ));
-                    tokio::time::sleep(delay).await;
+                    (self.sleeper)(delay).await;
                     continue;
                 }
             };
             if API_RETRYABLE_STATUS_CODES.contains(&status) && attempt < attempts {
-                let delay = self.pacing.retry_delays[attempt - 1];
+                let delay = API_RETRY_DELAYS_SECONDS[attempt - 1];
                 log().warning(format_args!(
                     "Pixiv API returned HTTP {status} url={url} attempt={attempt}/{attempts}, retry in {}s",
                     seconds_1(delay)
                 ));
-                tokio::time::sleep(delay).await;
+                (self.sleeper)(delay).await;
                 continue;
             }
             let payload = json_value(&text);
@@ -980,14 +972,14 @@ impl Pixiv {
             .send()
             .await
             .map_err(|error| Failure::Http(HttpError::transport(&error)))?;
-        kit::raise_for_status(&response).map_err(Failure::Http)?;
+        fav_net::httpx::raise_for_status(&response).map_err(Failure::Http)?;
         let part = format!("{dst_path}.part");
-        let streamed = kit::stream_body_to(response, Path::new(&part)).await;
+        let streamed = fav_net::httpx::stream_body_to(response, Path::new(&part)).await;
         if let Err(error) = streamed {
             let _ = tokio::fs::remove_file(&part).await;
             return Err(match error {
-                kit::DownloadError::Http(error) => Failure::Http(error),
-                kit::DownloadError::Io(error) => Failure::io(&error),
+                fav_net::httpx::StreamError::Http(error) => Failure::Http(error),
+                fav_net::httpx::StreamError::Io(error) => Failure::io(&error),
             });
         }
         tokio::fs::rename(&part, dst).await.map_err(|error| Failure::io(&error))?;
@@ -1020,13 +1012,15 @@ impl Pixiv {
                 .send()
                 .await
                 .map_err(|error| Failure::Http(HttpError::transport(&error)))?;
-            kit::raise_for_status(&response).map_err(Failure::Http)?;
+            fav_net::httpx::raise_for_status(&response).map_err(Failure::Http)?;
             let work_dir = tempfile::tempdir().map_err(|error| Failure::io(&error))?;
             let zip_path = work_dir.path().join("ugoira.zip");
-            kit::stream_body_to(response, &zip_path).await.map_err(|error| match error {
-                kit::DownloadError::Http(error) => Failure::Http(error),
-                kit::DownloadError::Io(error) => Failure::io(&error),
-            })?;
+            fav_net::httpx::stream_body_to(response, &zip_path)
+                .await
+                .map_err(|error| match error {
+                    fav_net::httpx::StreamError::Http(error) => Failure::Http(error),
+                    fav_net::httpx::StreamError::Io(error) => Failure::io(&error),
+                })?;
             let encoded = tokio::task::spawn_blocking(move || {
                 let outcome = synthesize_from_zip(work_dir.path(), &zip_path, &frames, &dst);
                 drop(work_dir);
@@ -1181,9 +1175,12 @@ impl Pixiv {
         }
         self.cookie = Some(format!("{SESSION_COOKIE}={phpsessid}"));
 
-        tokio::fs::create_dir_all(&self.path)
-            .await
-            .map_err(|error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error)))?;
+        tokio::fs::create_dir_all(&self.path).await.map_err(|error| {
+            JobError::new(
+                fav_net::download::io_class_name(&error),
+                fav_net::download::py_os_error_text(&error),
+            )
+        })?;
 
         let (works, page_count, total_reported) = match self.crawl_bookmarks(&user_id).await {
             Ok(result) => result,

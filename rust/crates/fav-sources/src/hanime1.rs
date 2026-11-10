@@ -16,9 +16,8 @@
 //!    a failure here never fails the run.
 //!
 //! The pure parsers are in [`parse`]; the API's seed and author services in
-//! [`crate::hanime1_series`] and [`crate::hanime1_author`]. `yt-dlp` runs through
-//! [`CommandRunner`], a private seam until WP7's shared subprocess runner lands (cleanup
-//! note in `rust/docs/PLAN.md`).
+//! [`crate::hanime1_series`] and [`crate::hanime1_author`]. `yt-dlp` runs through the
+//! shared [`fav_net::subprocess::Runner`], which tests script.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -34,7 +33,9 @@ use fav_core::pytext::py_strip;
 use fav_core::settings;
 use fav_core::validate::LiteralStr;
 use fav_db::{Db, Param};
+use fav_net::download::move_file;
 use fav_net::retry::{Sleeper, tokio_sleeper};
+use fav_net::subprocess::{Runner, SystemRunner};
 use fav_net::{ClientOptions, HttpClient, Request};
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{NewNotification, Outbox, Resolution, format_job_failure_dedupe_key};
@@ -44,7 +45,7 @@ use sqlx::Row as _;
 
 use crate::hanime1_author::{Hanime1AuthorVideoEntry, author_page_url, extract_author_video_entries};
 use crate::hanime1_series::{is_cf_blocked, page_text, value_error, watch_url};
-use crate::kit::{OutboxNotifier, SharedNotifier, move_file};
+use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::opencc::to_simplified_chinese;
 use crate::runtime_config::{
     PARSER_INCOMPATIBLE_DEDUPE_KEY, RuntimeSeriesSeed, is_parser_incompatible, parser_incompatible, select_hanime1_canonical_id,
@@ -72,49 +73,6 @@ pub fn parser_failure_dedupe_key() -> String {
 }
 
 // ---------- yt-dlp ----------
-
-/// What a finished command left: its exit code (`None` when a signal ended it) and output.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CommandOutput {
-    pub code: Option<i32>,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
-}
-
-/// `subprocess.run(command, capture_output=True)`; tests put a fake behind it.
-pub trait CommandRunner: Send + Sync {
-    fn run(&self, argv: Vec<String>) -> BoxFuture<'_, std::io::Result<CommandOutput>>;
-}
-
-/// The real runner. The child is killed if the run is cancelled.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ProcessRunner;
-
-impl CommandRunner for ProcessRunner {
-    fn run(&self, argv: Vec<String>) -> BoxFuture<'_, std::io::Result<CommandOutput>> {
-        Box::pin(async move {
-            let (program, rest) = argv.split_first().ok_or_else(|| std::io::Error::other("empty command"))?;
-            let output = tokio::process::Command::new(program)
-                .args(rest)
-                .stdin(std::process::Stdio::null())
-                .kill_on_drop(true)
-                .output()
-                .await?;
-            Ok(CommandOutput {
-                code: output.status.code(),
-                stdout: output.stdout,
-                stderr: output.stderr,
-            })
-        })
-    }
-}
-
-/// `subprocess.run(command, text=True)` output: decoded with universal newlines (`\r\n`
-/// and `\r` read as `\n`, which matters for yt-dlp's progress lines); bad bytes are
-/// replaced where Python would raise (DIVERGENCES.md D76).
-fn output_text(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).replace("\r\n", "\n").replace('\r', "\n")
-}
 
 fn os_error(error: &std::io::Error, path: Option<&Path>) -> JobError {
     let os = fav_net::download::PyOsError::from_io(error, path);
@@ -176,7 +134,7 @@ impl Source for Hanime1 {
                 self.ctx.db.clone(),
                 outbox.clone(),
                 Arc::new(OutboxNotifier(outbox)),
-                Arc::new(ProcessRunner),
+                Arc::new(SystemRunner),
                 tokio_sleeper(),
                 cache.path().to_path_buf(),
             );
@@ -257,7 +215,7 @@ pub(crate) struct Run {
     db: Db,
     outbox: Outbox,
     notifier: SharedNotifier,
-    runner: Arc<dyn CommandRunner>,
+    runner: Arc<dyn Runner>,
     sleeper: Sleeper,
     cache_dir: PathBuf,
 }
@@ -270,7 +228,7 @@ impl Run {
         db: Db,
         outbox: Outbox,
         notifier: SharedNotifier,
-        runner: Arc<dyn CommandRunner>,
+        runner: Arc<dyn Runner>,
         sleeper: Sleeper,
         cache_dir: PathBuf,
     ) -> Self {
@@ -448,20 +406,20 @@ impl Run {
             .run(command.to_vec())
             .await
             .map_err(|error| DownloadAttempt::Fatal(os_error(&error, Some(Path::new(&command[0])))))?;
-        let stderr = output_text(&output.stderr);
-        if output.code == Some(0) {
+        // `text=True`: both pipes are read with universal newlines (D76).
+        let stderr = &output.stderr;
+        if output.returncode == 0 {
             if !stderr.is_empty() {
-                log().debug(format!("yt-dlp stderr: {}", py_strip(&stderr)));
+                log().debug(format!("yt-dlp stderr: {}", py_strip(stderr)));
             }
             return Ok(());
         }
-        let stdout = output_text(&output.stdout);
-        let message = [py_strip(&stderr), py_strip(&stdout)]
+        let message = [py_strip(stderr), py_strip(&output.stdout)]
             .into_iter()
             .find(|text| !text.is_empty())
             .map_or_else(
-                // `returncode` is negative for a signal in Python.
-                || format!("yt-dlp exited with code {}", output.code.unwrap_or(-1)),
+                // `returncode` is minus the signal for a process a signal ended, as in Python.
+                || format!("yt-dlp exited with code {}", output.returncode),
                 str::to_owned,
             );
         Err(DownloadAttempt::Retryable(message))
@@ -1332,7 +1290,7 @@ impl Run {
                     log().debug(format!(
                         "Failed to read file size for {}: {}",
                         result.final_path.display(),
-                        crate::kit::py_os_error_text(&error)
+                        fav_net::download::py_os_error_text(&error)
                     ));
                     None
                 }

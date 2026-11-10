@@ -94,7 +94,7 @@ what each later work package must do differently because of them, are in `API-CO
 - Settings: identical `app_settings` JSON shape, defaults, validation, secret masking round trip; edits apply
   without restart.
 - Memory rules: stream downloads to `.part`; stream large result sets with cursors; write manifests in batches;
-  never hold a full table in memory. Allocator chosen by measurement in WP18.
+  never hold a full table in memory. Allocator chosen by measurement in WP18: jemalloc (`tikv-jemallocator`), see docs/REPORT.md.
 - Code rules: no `unsafe`; clippy warnings are errors; no `todo!()`, `unimplemented!()` or ignored tests in merged code.
 - Repo rule from AGENTS.md still applies: code, comments and docs in English.
 
@@ -145,7 +145,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | done |
 | WP16 | 6 browser | CDP driver layer, login window (Xvnc, VNC relay, cookie polling) | 1,100 | done |
 | WP17 | 6 browser | RedNote, Nikke runtime capture | 3,100 | done |
-| WP18 | 7 wrap-up | Dockerfile (build only, never published), memory benchmark, parity audit, final report | new | pending |
+| WP18 | 7 wrap-up | Dockerfile (build only, never published), memory benchmark, parity audit, final report | new | done |
 
 Status values: pending, in progress (PR open), done (merged into `rust`).
 
@@ -191,88 +191,40 @@ split into "crawl" and "manifests + API" if one thread cannot finish them.
 
 ## Cleanup notes
 
-Shared pieces that parallel work packages built twice, to fold together once both have merged:
+Shared pieces that parallel work packages built twice. WP18 closed them; what it left on purpose is listed
+with the reason (also in docs/REPORT.md).
 
-- WP6 (`fav-sources/src/kit.rs`): private copies of what WP5 adds to `fav-net` (httpx-shaped HTTP errors and
-  `raise_for_status` text, streamed download to `.part`, `shutil.move`). Move callers to `fav-net`'s versions,
-  keeping `kit::status_error_message`'s golden test (`pyweb/httpx_status_errors.json`) on whichever survives.
-- WP5 (`fav_net::ErrorClass::of`) now reads hyper's and the socket's errors from the source chain, so a body
-  cut short is `RemoteProtocolError` and a reset `ReadError` for every caller; `kit`'s own hyper check can go
-  when its callers move. WP5 merged `fav_core::pyurl` with WP6's (WP6's `urlsplit`/`urljoin`, plus WP5's
-  `quote` and `SplitResult::hostname`) and uses `fav_core::pypath` for `name`/`suffix`/`stem`.
-- WP6 moved the `str.casefold` table from `fav-api/src/mcp/casefold.rs` to `fav_core::pycasefold`; nothing to
-  fold, noted so a later search for the old path finds it.
-- WP7 folded its own Python decoding helpers into `fav-sources/src/pydecode.rs` (`PyError`, `decode_utf8`,
-  `json_loads` with the BOM check, `json_from_bytes` with `json.detect_encoding`); WP5's `pyerr` now delegates
-  to it, and `fav_core::pyint` reads its Unicode digits through `pytext` instead of a table of its own.
-  `fav-api`'s MCP still keeps a private copy of the byte-encoding detection; move it to one shared place when
-  a later package touches either.
-- WP8 (`fav-sources/src/hanime1.rs`): `CommandRunner` / `ProcessRunner` / `CommandOutput` are a private
-  subprocess seam for `yt-dlp` (tokio process, `kill_on_drop`, output read as `text=True` does), built while
-  WP7 added the shared one. Move Hanime1 onto `fav_net::subprocess::Runner` (WP7, now on `rust`) and keep the
-  universal-newline test (`command_output_is_read_with_universal_newlines`) on whichever survives.
-- WP8 (`fav-sources/src/pyre.rs`): Python `re` translation (`\s`, `fancy-regex` for back-references) and
-  small `int()`/`parse_qs` helpers, local to `fav-sources`; move to `fav-core` if a later source needs them.
-- WP9 (`fav-api/src/summary_cache.rs`, `fav-api/src/spine.rs`): the summary cache (version 1 only) and the
-  Spine version probe are crate-level in `fav-api`, and WP10 folded BD2 onto them (and onto `fav-sources`'
-  `content_discovery`). WP12 added version 2 (`read_summary_records`, the Azur Lane library's) beside it.
-- WP10 (`fav-api/src/live2d_overrides.rs`): the view-override store, model ids, overlay and routes serve both
-  games (`Live2DSource::{Bd2, Nikke}`); `Live2DVector2`, `Live2DViewOverrideValue` and the request and
-  response models are declared once there (`nikke::schema` refers to `Live2DViewOverrideValue` through
-  `Ty::External`).
-- WP10 (`fav-api/src/response_models.rs`): BD2's response models are validated by small closures and their
-  OpenAPI components written by hand in `openapi.rs`, while NIKKE's come from one field table
-  (`nikke::schema`) that drives both. WP12 moved that table to crate level (`fav-api/src/schema.rs`) and put
-  BD2's, the Live2D view-override models and Azur Lane's on it.
-- WP10 (`fav-sources/src/bd2/gamekee.rs`): BD2's copy of the GameKee helpers Python imports from
-  `src/web/nikke.py` (`Asset`, `add_asset`, `normalize_url`, `asset_headers`, `parse_spine_atlas_textures`,
-  `original_filename_from_url`, `context_hash`, `materialize_blob`, `write_json`, ...), built while WP9 ported
-  the same functions in `fav-sources/src/nikke.rs`. Fold both onto one GameKee module, keeping each side's
-  golden tests (their signatures differ slightly: NIKKE's `context_hash` cannot fail, BD2's returns the JSON
-  error Python would raise). WP12's Azur Lane crawl reuses BD2's blob and retry helpers
-  (`bd2::gamekee::{materialize_blob, verify_file, write_json, sha256_hex, ...}`,
-  `bd2::extract::{retry_after_delay_seconds, retry_delay_seconds}`, now `pub(crate)`), as Python's
-  `src/web/azurlane.py` has copies of the same functions; the shared module should take them too.
-- WP10 (`fav-sources/src/bd2.rs`, `Bd2Crawler::viewer_resources`): the BD2-L2D-Viewer fetch builds its own
-  `HttpClient` (as Python builds its own `httpx.Client`), against the CONVENTIONS rule that a source never
-  builds its client. Inject a second client (or a factory) through `SourceContext` when a later package adds
-  the same need.
-- WP13 (`fav-sources/src/pyval.rs`): `str()`, `float()`, `int()` before `datetime.fromtimestamp`, `for x in
-  value` and `urlsplit`'s `ValueError` on JSON values, with Python's exception texts, for parsers that read
-  other sites' JSON. Move to `fav-core` beside `pyjson` if a crate outside `fav-sources` needs them.
-- WP13 (`fav-net` `ClientOptions::trust_env`): added for `post_links`' clients (`trust_env=False`); other
-  sources keep `true`, as their Python clients do. `post_links::Fetched` reads a whole response as
-  `await client.get()` does and keeps its `raise_for_status()` error; WP14 and WP15 read posts through
-  `post_links::PostLinks` and `PostClient` rather than building clients of their own.
-- WP14 (`fav-sources/src/pybase64.rs`): `base64.b64decode` with `validate=` both ways, for the WeChat
-  sticker and 视频号 parsers. Jandan's `crypto.rs` keeps an earlier non-strict copy; move it onto `pybase64`
-  (keeping Jandan's golden) when a package touches either.
-- WP14 (`fav-sources/src/testutil.rs`, `fav-net` `ClientOptions::roots`): `FakeWeb` answers `CONNECT` and
-  serves the tunnel over TLS with a certificate for the requested host from a test CA, and a client built
-  with `roots` trusts only those roots, so tests can use the fixed `https://` addresses a source names
-  (`Endpoints::default()`) instead of rewriting them to plain HTTP. WP13's `Endpoints` overrides could move
-  onto it.
-- WP9 (`fav-api/src/openapi.rs`): `Op` gained `bare_responses` (responses without a JSON body, the sidebar's
-  304); `mcp::fromisoformat` is re-exported for the sidebar sort key. Move `fromisoformat` to `fav-core` if a
-  third caller appears.
-- WP16 (`fav-browser/src/testutil.rs`): `serve(answer)` is a small loopback HTTP server for the real-Chromium
-  tests (pages, a Basic-auth proxy), beside WP14's `FakeWeb` in `fav-sources` (which `fav-browser` cannot
-  depend on). Fold them into one test-support crate if a third copy appears.
-- WP16 for WP17: `fav_browser::driver` is the Playwright stand-in (`launch_persistent_context`, `Page::goto`,
-  `evaluate`, `wait_for_function`, `click_text`, mouse, `cookies(urls)`, CDP sessions), `chromium` the
-  launcher with Playwright's argv, `profile` the RedNote profile path and lock helpers, `rednote` the profile
-  id and client-hints reads, `proxy` the proxy split. RedNote's own crawl builds on these; the login window's
-  RedNote check is `fav_browser::site_checks::verify_rednote`.
-- WP17 (`fav-sources/src/rednote/proxy_probe.rs`): `httpx_url_repr` / `check_httpx_proxy` reproduce httpx's
-  `Unknown scheme for proxy URL` check with its message, beside `azurlane::l2d_sources::check_origin_proxy` (same
-  check, `BuildError` instead of the text) and `twitter`'s own. Fold them into `fav-net` when a package touches
-  any of them. `fav-api`'s archive link now reuses `fav_sources::rednote::build_note_url`.
-- WP17 (`fav-browser/src/testutil.rs`): `Reply` gained a `delay` (`Reply::after`) for the stalled-navigation
-  tests; the real-Chromium tests put the neutral client-hints page on `localhost` and the site on `127.0.0.1`,
-  because both are secure contexts and only a different origin keeps the hints page "off site".
-- WP16 for WP18: Chromium is looked up where Playwright 1.61 installs it
-  (`$PLAYWRIGHT_BROWSERS_PATH` or `~/.cache/ms-playwright`, then `chromium-1228/chrome-linux64/chrome`), and
-  the login window needs `Xvnc` (TigerVNC) on `PATH`, as the Python image has. The image must provide both.
+Closed in WP18:
+
+- WP6's `fav-sources/src/kit.rs` is gone: its callers use `fav-net`'s httpx-shaped errors, streamed `.part`
+  downloads and `move_file`; `kit::status_error_message`'s golden test (`pyweb/httpx_status_errors.json`)
+  runs against `fav-net`. The notification helpers it carried moved to `fav-sources/src/notifier.rs`.
+- One httpx proxy-scheme rule in `fav-net`: Pixiv now applies it, and RedNote's `proxy_probe` and Azur Lane's
+  `check_origin_proxy` call it instead of their own copies.
+- The JSON byte-encoding detection (`json.detect_encoding`) lives once in `fav-core`; `fav-api`'s MCP and
+  `fav-sources`' `pydecode` both use it.
+- Pixiv, Stella Sora, Bilibili and X sleep through `fav_net::retry::Sleeper`, and their tests assert the waits.
+- Hanime1 runs yt-dlp through `fav_net::subprocess::Runner`; its private `CommandRunner` is gone and the
+  universal-newline test runs on the shared runner.
+- NIKKE and BD2 share one GameKee module (`fav-sources/src/gamekee.rs`), each side's golden tests kept; Azur
+  Lane's crawl takes its blob and hashing helpers from there.
+- Jandan's base64 decoding uses `pybase64` (Jandan's golden kept).
+- The BD2-L2D-Viewer client is injected instead of built inside the crawler.
+- The `probes/api-coverage` crate and its `rmcp` pin are removed.
+
+Left on purpose:
+
+- Azur Lane's crawl still takes `retry_after_delay_seconds` / `retry_delay_seconds` from `bd2::extract`: they
+  are BD2's copies of the same ladder, and moving two small functions is not worth a third golden run.
+- `pyre`, `pyval`, `mcp::fromisoformat` and the two loopback test servers (`fav-sources` `FakeWeb`,
+  `fav-browser` `serve`) stay where they are: each note said "move when a third caller appears", and none did.
+- RedNote's `sleep_request_seconds` pause, the Telegram protocol waits (flood waits, reconnect backoff, the
+  queue's idle poll) and the browser's millisecond polls call `tokio::time::sleep` directly: they are protocol
+  timing, not retry ladders, which is what the Sleeper note was about.
+- `ClientOptions::trust_env` (WP13), `ClientOptions::roots` and `FakeWeb`'s TLS tunnel (WP14), `Reply::after`
+  (WP17), the summary cache, the Live2D overrides and the shared schema table (WP9 to WP12) were notes of
+  where a shared piece lives, not duplicates; nothing to fold.
+- WP16's note for WP18 is met: the image puts Chromium at Playwright's registry path and Xvnc on `PATH`.
 
 ## Experiment log
 
@@ -299,3 +251,4 @@ the independent review found; review findings are summarised with a link to the 
 | WP15 | #149 | 2 pushes (1 after review, 1 after merging WP16/WP17) | 0 blockers, 2 should-fix, 4 nits: a document whose file reference expired mid-download failed and started over from zero on every retry, where Telethon fetches the message again and resumes (now ported, `_DirectDownloadIter._request`); the update pump raced `next_raw` against the state-save timer, and grammers' `next_raw` is not cancel-safe, so a batch of new messages could be lost (now the state is saved after an update once a minute, D154). Nits fixed: D152 misstated Telethon's partial files (it writes ` (1)` beside them), `MessageIdsEmptyError` from `channels.getMessages` is `None` for every id as in `_IDsIter`, D149 now records the `takeout_id` bytes, and two 5 s test deadlines were raised to 30 s for loaded runners. One nit (the `get_entity` `KeyError` text) was checked and already matches Telethon's bare id. The reviewer ran two mutations, both caught. After merging WP16/WP17, a full run exposed a panic: when the queue worker ended first (as on a stop), the account runtime awaited its finished `JoinHandle` again (now taken out of an `Option`, with a test); the persistent-client test no longer races the worker | Telethon's whole RPC error table and its flood-wait memory are copied (golden `telegram/rpc_errors.json`). Telegram is verified under mocks and goldens only: no real account, no Bot API |
 | WP16 | #148 | 1 push after review | 0 blockers, 2 should-fix, 7 nits ([review](https://github.com/cyrahs/fav/pull/148#issuecomment-6769523425)): Chromium got 30 s to start and about 5-10 s to exit where Playwright 1.61 allows 180 s (launch timeout) and 30 s (`closeOrKill`), so a slow headed start on Xvnc failed the login and a slow exit could lose a RedNote session that lives only in the profile (now 180 s and 30 s); `API-COVERAGE.md` claimed the driver tests cover everything the deleted CDP probe did, but the network listeners and `Network.getResponseBody` are not in `fav-browser` yet (now said, left for WP17). Nits fixed: the VNC path check and the verify-modal branch had no test that a mutation could fail (both added, mutations now caught); `LoginAttempt`'s `Debug` printed the VNC ticket (redacted, with a test); a relative profile path is resolved as Playwright's `_user_data_dir` does; a non-ASCII ticket is D165; a wrong comment about chromiumoxide's handler ending; this status line. The reviewer checked the argv against Playwright 1.61's `coreBundle.js` and ran four mutations | Ran beside WP15. Chromium spawned by fav with Playwright's exact argv (golden captured from Python's Playwright through a recorder executable); the CDP probe crate module is gone |
 | WP17 | #150 | 1 push after review | 0 blockers, 3 should-fix, 5 nits ([review](https://github.com/cyrahs/fav/pull/150#issuecomment-6772378996)): a SOCKS proxy is an `ImportError` (no `socksio`) in Python, a 500 from the proxy test and a failed start, but was dialled here with no divergence entry (now D181, as D67/D113); D175 said Python decodes a like page with the response's charset, while Playwright's `json()` is strict UTF-8 and refuses a BOM, which the Rust stripped (now refused as Python does, D175 rewritten); the out-of-order `loadingFinished`/`responseReceived` pairing D172 claims had no test (pulled out as `LikePageMatcher`, with a test). Nits fixed: `format_published_at` answered every out-of-range time with one `OverflowError` where `fromtimestamp` raises four different errors by size (all reproduced, CPython's `int` wrap of the year included, golden cases added); a profile lock that cannot be removed is now Python's `PermissionError`/`IsADirectoryError` text with the path (login window too); three mutations the ported tests missed (`proxy_media` choosing the CDN proxy and the start's `ValueError`, 410 as a stale status, the refresh leaving an unchanged URL marked stale) now fail tests; two stale comments. The reviewer ran twelve mutations and compared both Python modules line by line | Ran alone. RedNote and the Nikke runtime capture run on `fav_browser::driver` against loopback pages only; the CDP network events (`Page::network_events`, `response_body`) are in `fav-browser` now |
+| WP18 | #151 | 1 push after review | 0 blockers, 5 should-fix, 9 nits: `fav-net` no longer built on its own (reqwest's `stream` feature came only from `fav-sources`; now its own); folding `kit` made an I/O error without an errno (what `tempfile` returns) `OSError` where kit and Python said `PermissionError` (now classed by kind, with a test); the route completeness test compared only the hand-built OpenAPI document, not the router's dispatch table (now both, checked by mutation); D50 was stale for Pixiv's proxy rule and its SOCKS case (rewritten); the image's Chromium check took any revision while `fav` launches 1228 (now that path, with a test tying `uv.lock`'s Playwright, `fav_browser::chromium` and the Dockerfile together). Nits fixed: `tokio_sleeper` panicked on an absurd delay, REPORT's behaviour sentence, route count and code-size rule, a stale `hyper` dependency, API-COVERAGE's probe sentence, the Dockerfile cache comment, this row. Left: the commit trailer names the model as every package's did (the session's required attribution line) | Level 2 replay, level 3 smoke, memory benchmark and image size in docs/REPORT.md; level 2 export deleted after the comparison |

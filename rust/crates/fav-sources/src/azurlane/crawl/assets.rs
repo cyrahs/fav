@@ -13,7 +13,8 @@ use crate::azurlane::l2d_sources::{
     ArchivedModel, AzurLaneModelCatalog, AzurLaneModelResourceEnumeration, AzurLaneSourceSnapshots, ModelCharacter, ModelEntry,
     case_variant_urls, entry_painting_index_url, is_hashed_asset_url, spine_parts_manifest_url,
 };
-use crate::bd2::gamekee::decode_utf8_ignore;
+pub(crate) use crate::gamekee::is_cdn_rejection_body;
+use crate::gamekee::{decode_utf8_ignore, lstrip_bytes};
 use crate::pydecode::json_loads;
 
 pub(crate) const MAX_RETRIES: u32 = 3;
@@ -134,39 +135,6 @@ pub(crate) fn max_attempts_for_status(status: u16) -> u32 {
         status if status >= 500 => MAX_RETRIES,
         _ => 1,
     }
-}
-
-/// `bytes.lstrip()`: ASCII whitespace.
-pub(crate) fn lstrip_bytes(bytes: &[u8]) -> &[u8] {
-    let start = bytes
-        .iter()
-        .position(|byte| !matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c))
-        .unwrap_or(bytes.len());
-    &bytes[start..]
-}
-
-fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|window| window == needle)
-}
-
-/// `_is_cdn_rejection_body(content_type, body_prefix)`.
-pub(crate) fn is_cdn_rejection_body(content_type: &str, body_prefix: &[u8]) -> bool {
-    if content_type.to_lowercase().contains("text/html") {
-        return true;
-    }
-    let stripped = lstrip_bytes(body_prefix).to_ascii_lowercase();
-    if stripped.starts_with(b"<!doctype html") || stripped.starts_with(b"<html") {
-        return true;
-    }
-    [
-        b"accessdenied".as_slice(),
-        b"access denied",
-        b"forbidden",
-        b"<error>",
-        b"error code",
-    ]
-    .iter()
-    .any(|signature| contains_bytes(&stripped, signature))
 }
 
 /// `_validate_asset_response(kind=..., content_type=..., body_prefix=..., size=...)`: why the

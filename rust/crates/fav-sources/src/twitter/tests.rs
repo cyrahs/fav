@@ -192,8 +192,18 @@ impl Runner for FakeGalleryDl {
 }
 
 fn crawler(db: Db, config: TwitterConfig, runner: &Arc<FakeGalleryDl>, notifier: &Arc<RecordingNotifier>) -> Twitter {
+    crawler_sleeping(db, config, runner, notifier, &fav_net::retry::RecordingSleeper::new())
+}
+
+fn crawler_sleeping(
+    db: Db,
+    config: TwitterConfig,
+    runner: &Arc<FakeGalleryDl>,
+    notifier: &Arc<RecordingNotifier>,
+    sleeps: &fav_net::retry::RecordingSleeper,
+) -> Twitter {
     let shared: SharedNotifier = notifier.clone();
-    Twitter::new(db, shared, runner.clone(), config).with_retry_delay(Duration::ZERO)
+    Twitter::new(db, shared, runner.clone(), config).with_sleeper(sleeps.sleeper())
 }
 
 fn offline(config: TwitterConfig) -> Twitter {
@@ -822,12 +832,15 @@ fn anything_that_got_past_the_lookup_is_not_retried() {
 #[tokio::test]
 async fn a_flaky_lookup_is_run_again_and_the_second_outcome_wins() {
     let runner = Arc::new(FakeGalleryDl::new(vec![exits(4, &[USER_NOT_FOUND]), exits(0, &[])]));
-    let source = crawler(unused_db(), runnable("{}"), &runner, &Arc::default());
+    let sleeps = fav_net::retry::RecordingSleeper::new();
+    let source = crawler_sleeping(unused_db(), runnable("{}"), &runner, &Arc::default(), &sleeps);
 
     let outcome = source.run_gallery_dl_with_retry(&lines(&["gallery-dl"])).await.expect("ran");
 
     assert_eq!(outcome, (0, Vec::new()));
     assert_eq!(runner.calls(), 2);
+    // `USER_LOOKUP_RETRY_DELAY_SECONDS` before the second run.
+    assert_eq!(sleeps.delays(), [30.0]);
 }
 
 // py: tests/test_twitter.py::test_a_lookup_that_keeps_failing_is_not_retried_forever
@@ -849,11 +862,13 @@ async fn a_run_that_fails_elsewhere_is_reported_straight_away() {
         16,
         &["[twitter][error] AuthorizationError: Login required"],
     )]));
-    let source = crawler(unused_db(), runnable("{}"), &runner, &Arc::default());
+    let sleeps = fav_net::retry::RecordingSleeper::new();
+    let source = crawler_sleeping(unused_db(), runnable("{}"), &runner, &Arc::default(), &sleeps);
 
     source.run_gallery_dl_with_retry(&lines(&["gallery-dl"])).await.expect("ran");
 
     assert_eq!(runner.calls(), 1);
+    assert!(sleeps.delays().is_empty());
 }
 
 #[test]

@@ -918,6 +918,90 @@ pub fn py_str_date(value: &chrono::NaiveDate) -> String {
     value.format("%Y-%m-%d").to_string()
 }
 
+// ---------- `json.loads` on bytes ----------
+
+/// What `json.detect_encoding` makes of a body, for `json.loads(bytes)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JsonEncoding<'a> {
+    /// UTF-8 (a byte-order mark already stripped): the caller decodes it, so a failure can
+    /// carry Python's `UnicodeDecodeError` text where it needs one.
+    Utf8(&'a [u8]),
+    /// UTF-16 or UTF-32 (by mark or by the position of the zero bytes), decoded; `None`
+    /// when the bytes are not valid in that encoding.
+    Decoded(Option<String>),
+}
+
+/// `json.detect_encoding(body)` and, for UTF-16 and UTF-32, the decode `json.loads` does.
+/// Shared by the MCP endpoint (`fav-api`) and the sources' `response.json()` (`fav-sources`).
+pub fn detect_json_encoding(body: &[u8]) -> JsonEncoding<'_> {
+    if body.starts_with(b"\x00\x00\xfe\xff") {
+        return JsonEncoding::Decoded(decode_utf32(&body[4..], true));
+    }
+    if body.starts_with(b"\xff\xfe\x00\x00") {
+        return JsonEncoding::Decoded(decode_utf32(&body[4..], false));
+    }
+    if body.starts_with(b"\xfe\xff") {
+        return JsonEncoding::Decoded(decode_utf16(&body[2..], true));
+    }
+    if body.starts_with(b"\xff\xfe") {
+        return JsonEncoding::Decoded(decode_utf16(&body[2..], false));
+    }
+    if let Some(rest) = body.strip_prefix(b"\xef\xbb\xbf") {
+        return JsonEncoding::Utf8(rest);
+    }
+    JsonEncoding::Decoded(match body {
+        [0, second, ..] if body.len() >= 4 => {
+            if *second == 0 {
+                decode_utf32(body, true)
+            } else {
+                decode_utf16(body, true)
+            }
+        }
+        [_, 0, third, fourth, ..] => {
+            if *third != 0 || *fourth != 0 {
+                decode_utf16(body, false)
+            } else {
+                decode_utf32(body, false)
+            }
+        }
+        [0, _] => decode_utf16(body, true),
+        [_, 0] => decode_utf16(body, false),
+        _ => return JsonEncoding::Utf8(body),
+    })
+}
+
+fn decode_utf16(bytes: &[u8], big_endian: bool) -> Option<String> {
+    if !bytes.len().is_multiple_of(2) {
+        return None;
+    }
+    let units = bytes.chunks_exact(2).map(|pair| {
+        let pair = [pair[0], pair[1]];
+        if big_endian {
+            u16::from_be_bytes(pair)
+        } else {
+            u16::from_le_bytes(pair)
+        }
+    });
+    char::decode_utf16(units).collect::<Result<String, _>>().ok()
+}
+
+fn decode_utf32(bytes: &[u8], big_endian: bool) -> Option<String> {
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    bytes
+        .chunks_exact(4)
+        .map(|quad| {
+            let quad = [quad[0], quad[1], quad[2], quad[3]];
+            char::from_u32(if big_endian {
+                u32::from_be_bytes(quad)
+            } else {
+                u32::from_le_bytes(quad)
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{DumpError, DumpOptions, Key, Value, dumps, float_repr, loads, py_str_date, py_str_datetime, py_str_naive_datetime};

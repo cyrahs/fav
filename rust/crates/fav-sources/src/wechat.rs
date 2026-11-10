@@ -42,6 +42,7 @@ use fav_core::pytext::{py_isdigit, py_strip};
 use fav_core::settings::Wechat as WechatConfig;
 use fav_db::{Db, SettingsStore};
 use fav_net::client::BuildError;
+use fav_net::download::{io_class_name, py_os_error_text};
 use fav_net::{ClientOptions, HttpClient, Request};
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{KIND_UNSUPPORTED_MESSAGE, KIND_UNSUPPORTED_RESOLVED, NewNotification, Outbox, Resolution};
@@ -51,7 +52,7 @@ use sqlx::Row as _;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
 
 use crate::SourceContext;
-use crate::kit::{OutboxNotifier, SharedNotifier, io_class_name, py_os_error_text};
+use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::post_links::{self, Fetched, Needs, PostClient, PostError, PostLinks, SessionStore, is_mp4, shared_link, transport_error};
 use crate::pydecode::{PyError, json_from_bytes, py_int, urlencode};
 use crate::pyerr::type_name;

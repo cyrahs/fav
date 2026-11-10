@@ -20,6 +20,13 @@ use fav_runtime::telegram_bot::BotClient;
 use fav_runtime::worker::{self, WorkerError, WorkerOptions};
 use fav_runtime::{StopHandle, StopSignal};
 
+// jemalloc, not glibc's malloc: chosen by the WP18 memory benchmark (docs/REPORT.md,
+// D19). It hands freed pages back after a burst of API reads or a worker run.
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(test)]
+mod image_tests;
 mod nikke_layers;
 
 static VERSION: LazyLock<String> = LazyLock::new(version);

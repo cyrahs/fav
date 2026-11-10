@@ -76,7 +76,7 @@ async fn azurlane_backend_manifests_are_deterministically_ordered() {
             &b"model3"[..],
         ),
     ] {
-        let sha256 = crate::bd2::gamekee::sha256_hex(content);
+        let sha256 = crate::gamekee::sha256_hex(content);
         let size = i64::try_from(content.len()).expect("size");
         harness
             .seed_asset(&url, kind, "downloaded", &sha256, size, "application/octet-stream")

@@ -244,10 +244,7 @@ async fn azurlane_update_writes_backend_manifests_and_source_artifacts() {
 
     let assets = model["assets"].as_array().expect("assets");
     let by_kind = |kind: &str| assets.iter().find(|asset| asset["kind"] == kind).expect(kind);
-    assert_eq!(
-        by_kind("live2d.model3")["sha256"],
-        crate::bd2::gamekee::sha256_hex(model3.as_bytes())
-    );
+    assert_eq!(by_kind("live2d.model3")["sha256"], crate::gamekee::sha256_hex(model3.as_bytes()));
     assert_eq!(by_kind("live2d.model3")["fallback_url"], nagami_model3);
     assert_eq!(
         by_kind("live2d.moc3")["fallback_url"],

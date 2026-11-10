@@ -11,6 +11,8 @@ use aes::cipher::{Array, BlockCipherDecrypt as _, BlockCipherEncrypt as _, KeyIn
 use fav_core::pyurl::{quote, unquote};
 use fav_runtime::source::JobError;
 
+use crate::pybase64::{self, b64encode};
+use crate::pydecode::PyError;
 use crate::pyerr;
 
 const BLOCK_SIZE: usize = 16;
@@ -43,88 +45,7 @@ fn pkcs7_unpad(data: &[u8]) -> Result<&[u8], JobError> {
 
 /// `base64.b64decode(text)`: `binascii.a2b_base64` in its default, non-strict mode.
 fn b64decode(text: &str) -> Result<Vec<u8>, JobError> {
-    if !text.is_ascii() {
-        return Err(value_error("string argument should contain only ASCII characters"));
-    }
-    let mut out = Vec::with_capacity(text.len() / 4 * 3);
-    let mut quad_pos = 0;
-    let mut pads = 0;
-    let mut left = 0_u8;
-    for byte in text.bytes() {
-        if byte == b'=' {
-            // C's `quad_pos >= 2 && quad_pos + ++pads >= 4`: the count only moves from
-            // the third character of a quad on.
-            if quad_pos >= 2 {
-                pads += 1;
-                if quad_pos + pads >= 4 {
-                    return Ok(out);
-                }
-            }
-            continue;
-        }
-        let value = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => continue,
-        };
-        pads = 0;
-        match quad_pos {
-            0 => {
-                quad_pos = 1;
-                left = value;
-            }
-            1 => {
-                quad_pos = 2;
-                out.push((left << 2) | (value >> 4));
-                left = value & 0x0f;
-            }
-            2 => {
-                quad_pos = 3;
-                out.push((left << 4) | (value >> 2));
-                left = value & 0x03;
-            }
-            _ => {
-                quad_pos = 0;
-                out.push((left << 6) | value);
-            }
-        }
-    }
-    match quad_pos {
-        0 => Ok(out),
-        1 => Err(JobError::new(
-            "Error",
-            format!(
-                "Invalid base64-encoded string: number of data characters ({}) cannot be 1 more than a multiple of 4",
-                out.len() / 3 * 4 + 1
-            ),
-        )),
-        _ => Err(JobError::new("Error", "Incorrect padding")),
-    }
-}
-
-fn b64encode(data: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let bytes = [chunk[0], chunk.get(1).copied().unwrap_or(0), chunk.get(2).copied().unwrap_or(0)];
-        let indices = [
-            bytes[0] >> 2,
-            ((bytes[0] & 0x03) << 4) | (bytes[1] >> 4),
-            ((bytes[1] & 0x0f) << 2) | (bytes[2] >> 6),
-            bytes[2] & 0x3f,
-        ];
-        for (position, index) in indices.into_iter().enumerate() {
-            if position <= chunk.len() {
-                out.push(char::from(ALPHABET[usize::from(index)]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
+    pybase64::b64decode(text, false).map_err(PyError::into_job_error)
 }
 
 /// `decrypt_data_field(data_value)`: the plaintext JSON of an API `data` field.

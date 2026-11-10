@@ -10,17 +10,17 @@ use fav_db::testdb::TestDatabase;
 use fav_db::{Db, SettingsStore};
 use fav_net::HttpClient;
 use fav_net::retry::RecordingSleeper;
-use fav_runtime::BoxFuture;
+use fav_net::subprocess::{BoxFuture as SubprocessFuture, Completed, LineSink, Runner};
 use fav_runtime::notifications::{NewNotification, Outbox};
 use sqlx::Row as _;
 
 use super::{
-    CommandOutput, CommandRunner, HanimeRecord, ItemError, Run, WatchSeriesVideo, build_download_command, build_ranking_page_url,
-    client_options, extract_download_urls, extract_genre_from_watch_html, extract_search_video_ids, extract_stream_urls,
-    extract_watch_metadata, extract_watch_series, format_file_size, format_playlist_archive_title, ignored_title_marker, parse_title,
-    parser_failure_dedupe_key, playlist_item_titles_are_distinct, stream_resolution_label, strip_uploader_prefix,
+    HanimeRecord, ItemError, Run, WatchSeriesVideo, build_download_command, build_ranking_page_url, client_options, extract_download_urls,
+    extract_genre_from_watch_html, extract_search_video_ids, extract_stream_urls, extract_watch_metadata, extract_watch_series,
+    format_file_size, format_playlist_archive_title, ignored_title_marker, parse_title, parser_failure_dedupe_key,
+    playlist_item_titles_are_distinct, stream_resolution_label, strip_uploader_prefix,
 };
-use crate::kit::Notifier;
+use crate::notifier::Notifier;
 use crate::runtime_config::{RuntimeSeriesSeed, parse_hanime1_playlist, parse_runtime_series_seed};
 use crate::testkit::{Answer, FakeServer, Received, RecordingNotifier};
 use crate::testutil;
@@ -152,10 +152,10 @@ fn watch_page(title: &str, uploader: Option<&str>, genre: Option<&str>, release_
 
 /// `yt-dlp` stand-in: records each argv and writes `<id>.mp4` where `-o` points, unless
 /// a scripted failure is next.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct FakeRunner {
     calls: Mutex<Vec<Vec<String>>>,
-    failures: Mutex<Vec<CommandOutput>>,
+    failures: Mutex<Vec<Completed>>,
 }
 
 impl FakeRunner {
@@ -163,13 +163,13 @@ impl FakeRunner {
         self.calls.lock().unwrap().clone()
     }
 
-    fn fail_next(&self, output: CommandOutput) {
+    fn fail_next(&self, output: Completed) {
         self.failures.lock().unwrap().push(output);
     }
 }
 
-impl CommandRunner for FakeRunner {
-    fn run(&self, argv: Vec<String>) -> BoxFuture<'_, std::io::Result<CommandOutput>> {
+impl Runner for FakeRunner {
+    fn run(&self, argv: Vec<String>) -> SubprocessFuture<'_, std::io::Result<Completed>> {
         Box::pin(async move {
             self.calls.lock().unwrap().push(argv.clone());
             let failure = {
@@ -181,11 +181,12 @@ impl CommandRunner for FakeRunner {
             }
             let template = &argv[argv.iter().position(|arg| arg == "-o").unwrap() + 1];
             std::fs::write(template.replace("%(ext)s", "mp4"), b"video")?;
-            Ok(CommandOutput {
-                code: Some(0),
-                ..CommandOutput::default()
-            })
+            Ok(Completed::default())
         })
+    }
+
+    fn run_lines<'a>(&'a self, argv: Vec<String>, _sink: LineSink<'a>) -> SubprocessFuture<'a, std::io::Result<i32>> {
+        panic!("Hanime1 never streams yt-dlp's lines: {argv:?}")
     }
 }
 
@@ -235,7 +236,7 @@ async fn harness(db: Db, configure: impl FnOnce(&mut fav_core::settings::Hanime1
         db.clone(),
         Outbox::new(db, Arc::new(SettingsStore::pinned(settings))),
         Arc::clone(&notifier) as Arc<dyn Notifier>,
-        Arc::clone(&runner) as Arc<dyn CommandRunner>,
+        Arc::clone(&runner) as Arc<dyn Runner>,
         sleeps.sleeper(),
         cache,
     );
@@ -1739,10 +1740,10 @@ async fn download_item_falls_back_to_the_watch_page_stream() {
 async fn download_stream_retries_yt_dlp_twice() {
     let harness = harness(unreachable_db(), |_| {}).await;
     let item = record("1", "Title", "Series", None, None, Some("https://video.example.com/1-720p.mp4"));
-    let failure = |stderr: &str| CommandOutput {
-        code: Some(1),
-        stdout: Vec::new(),
-        stderr: stderr.as_bytes().to_vec(),
+    let failure = |stderr: &str| Completed {
+        returncode: 1,
+        stdout: String::new(),
+        stderr: stderr.to_owned(),
     };
     harness.runner.fail_next(failure("ERROR: first"));
     harness.runner.fail_next(failure(""));
@@ -2060,11 +2061,6 @@ async fn update_survives_author_enumeration_failure() {
     harness.run.update().await.unwrap();
 
     database.drop_database().await;
-}
-
-#[test]
-fn command_output_is_read_with_universal_newlines() {
-    assert_eq!(super::output_text(b"a\r\nb\rc\n\xff"), "a\nb\nc\n\u{fffd}");
 }
 
 #[test]

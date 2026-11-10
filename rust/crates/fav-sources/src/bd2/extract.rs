@@ -16,10 +16,10 @@ use fav_core::pytext::{py_int_decimal, py_isdecimal, py_isdigit, py_strip};
 use fav_runtime::pystr::{repr_str, str_key, str_value};
 use fav_runtime::source::JobError;
 
-use super::gamekee::{self, Asset, Assets, add_asset, add_url_list, normalize_url, sha256_hex};
 use crate::bd2_l2d_viewer::{
     self, Category, VIEWER_PAGE_URL, ViewerResource, category_from_stem, resource_stem_from_url, viewer_asset_url,
 };
+use crate::gamekee::{self, Asset, Assets, add_asset, add_url_list, normalize_url, sha256_hex};
 use crate::pydecode::{PyError, json_loads};
 use crate::pyre;
 

@@ -17,11 +17,12 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use fav_core::pyjson::{Dict, Value};
+use fav_net::httpx::HttpError;
 use fav_net::reqwest::{self, Method, header};
 use fav_runtime::pystr::{repr_value, str_value};
 use fav_runtime::source::JobError;
 
-use crate::kit::HttpError;
+use crate::notifier::HttpJobError as _;
 use crate::pydecode::{self, PyError, py_eq_int, urlencode};
 
 pub(crate) const API_BASE: &str = "https://api.bilibili.com";

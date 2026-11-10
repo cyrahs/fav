@@ -1150,8 +1150,12 @@ pub fn validate_live2d_layer_metadata(models: &[Dict]) -> Vec<Value> {
 /// `OSError` raised for `path`, with Python's text (`[Errno 2] ...: 'path'`).
 pub(crate) fn os_error(error: &std::io::Error, path: &Path) -> PyError {
     PyError::new(
-        crate::kit::io_class_name(error),
-        format!("{}: {}", crate::kit::py_os_error_text(error), repr_str(&path.to_string_lossy())),
+        fav_net::download::io_class_name(error),
+        format!(
+            "{}: {}",
+            fav_net::download::py_os_error_text(error),
+            repr_str(&path.to_string_lossy())
+        ),
     )
 }
 

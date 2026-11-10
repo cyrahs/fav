@@ -169,7 +169,7 @@ pub fn backup_files(root: &Path, backup_dir: &Path) -> Result<Dict, PyError> {
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|error| io_error(&error, parent))?;
         }
-        super::crawl::copy2(&source, &destination).map_err(|error| io_error(&error, &source))?;
+        crate::gamekee::copy2(&source, &destination).map_err(|error| io_error(&error, &source))?;
         copied.insert(filename, Value::Str(posix(&destination)));
     }
     Ok(copied)
@@ -197,7 +197,7 @@ fn restore_backup_files(root: &Path, backup: &Dict, existed: &[(&'static str, bo
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).map_err(|error| io_error(&error, parent))?;
             }
-            super::crawl::copy2(&backup_path, &target).map_err(|error| io_error(&error, &backup_path))?;
+            crate::gamekee::copy2(&backup_path, &target).map_err(|error| io_error(&error, &backup_path))?;
             restored.insert(*filename, Value::from("restored"));
         } else if !existed_before {
             match std::fs::remove_file(&target) {

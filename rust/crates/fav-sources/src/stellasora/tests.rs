@@ -11,7 +11,8 @@ fn titles(items: &[&str]) -> Vec<String> {
 }
 
 fn source(base_url: &str, path: &str, notifier: Arc<RecordingNotifier>) -> StellaSora {
-    StellaSora::new(build_client().expect("client"), base_url, path, notifier).with_backoff(Arc::new(|_| Duration::ZERO))
+    StellaSora::new(build_client().expect("client"), base_url, path, notifier)
+        .with_sleeper(fav_net::retry::RecordingSleeper::new().sleeper())
 }
 
 fn temp_root() -> (tempfile::TempDir, String) {
@@ -412,7 +413,14 @@ async fn a_whole_run_resolves_downloads_and_moves_disc_art_into_character_folder
 async fn a_download_that_keeps_failing_ends_the_run_after_three_attempts() {
     let (_dir, root) = temp_root();
     let server = FakeServer::start(|_| Answer::bytes(503, b"busy")).await;
-    let ss = source(&server.base_url, &root, Arc::default());
+    let sleeps = fav_net::retry::RecordingSleeper::new();
+    let ss = StellaSora::new(
+        build_client().expect("client"),
+        &server.base_url,
+        &root,
+        Arc::<RecordingNotifier>::default(),
+    )
+    .with_sleeper(sleeps.sleeper());
     let resolved = vec![(
         "File:Foo.png".to_owned(),
         WikiFile {
@@ -435,6 +443,8 @@ async fn a_download_that_keeps_failing_ends_the_run_after_three_attempts() {
     assert_eq!(error.class_name(), "RuntimeError");
     assert_eq!(error.message(), "Failed to download after 3 attempts: Foo.png");
     assert_eq!(server.received().len(), 3);
+    // `min(10, 2 ** attempt)` after every failed attempt, the last one included.
+    assert_eq!(sleeps.delays(), [2.0, 4.0, 8.0]);
     let disc = pypath::join(&root, "disc");
     assert!(!Path::new(&pypath::join(&disc, "Foo.png")).exists());
 }

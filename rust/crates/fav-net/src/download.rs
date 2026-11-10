@@ -150,12 +150,8 @@ pub struct PyOsError {
 
 impl PyOsError {
     pub fn from_io(error: &io::Error, path: Option<&Path>) -> Self {
-        let Some(code) = error.raw_os_error() else {
-            return Self {
-                class: "OSError",
-                message: error.to_string(),
-            };
-        };
+        // The class follows the kind even without an errno: `tempfile` wraps the OS error in
+        // its own (`io::Error::new(kind, PathError)`), where Python still raises the subclass.
         let class = match error.kind() {
             io::ErrorKind::NotFound => "FileNotFoundError",
             io::ErrorKind::AlreadyExists => "FileExistsError",
@@ -163,6 +159,12 @@ impl PyOsError {
             io::ErrorKind::IsADirectory => "IsADirectoryError",
             io::ErrorKind::NotADirectory => "NotADirectoryError",
             _ => "OSError",
+        };
+        let Some(code) = error.raw_os_error() else {
+            return Self {
+                class,
+                message: error.to_string(),
+            };
         };
         let text = io::Error::from_raw_os_error(code).to_string();
         let strerror = text.strip_suffix(&format!(" (os error {code})")).unwrap_or(&text).to_owned();
@@ -177,6 +179,39 @@ impl PyOsError {
 impl std::fmt::Display for PyOsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
+    }
+}
+
+/// The `OSError` subclass Python raises for an I/O error.
+pub fn io_class_name(error: &io::Error) -> &'static str {
+    PyOsError::from_io(error, None).class
+}
+
+/// `str(OSError)` without the file name: `[Errno 2] No such file or directory`.
+pub fn py_os_error_text(error: &io::Error) -> String {
+    PyOsError::from_io(error, None).message
+}
+
+/// `shutil.move(src, dst)`: a rename, or copy (with times) and delete across file systems.
+pub fn move_file(src: &Path, dst: &Path) -> io::Result<()> {
+    match std::fs::rename(src, dst) {
+        Ok(()) => Ok(()),
+        Err(error) if error.raw_os_error() == Some(18) => {
+            // EXDEV: another file system. `copy2` keeps the times; the copy goes to a
+            // `.part` first so a crash never leaves a truncated file at `dst` (D52).
+            let mut part = dst.as_os_str().to_owned();
+            part.push(".part");
+            let part = std::path::PathBuf::from(part);
+            std::fs::copy(src, &part)?;
+            let metadata = std::fs::metadata(src)?;
+            let times = std::fs::FileTimes::new()
+                .set_accessed(metadata.accessed()?)
+                .set_modified(metadata.modified()?);
+            std::fs::File::options().write(true).open(&part)?.set_times(times)?;
+            std::fs::rename(&part, dst)?;
+            std::fs::remove_file(src)
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -208,5 +243,19 @@ mod tests {
         let error = PyOsError::from_io(&io::Error::from_raw_os_error(28), Some(Path::new("it's")));
         assert_eq!(error.class, "OSError");
         assert_eq!(error.message, "[Errno 28] No space left on device: \"it's\"");
+    }
+
+    #[test]
+    fn a_wrapped_os_error_keeps_its_subclass() {
+        // What `tempfile::tempdir()` returns for an unwritable TMPDIR: the OS error wrapped
+        // in its own, so there is no raw errno.
+        let inner = io::Error::from_raw_os_error(13);
+        let wrapped = io::Error::new(inner.kind(), format!("{inner} at path \"/tmp/x\""));
+        assert_eq!(wrapped.raw_os_error(), None);
+        let error = PyOsError::from_io(&wrapped, None);
+        assert_eq!(error.class, "PermissionError");
+        assert_eq!(error.message, wrapped.to_string());
+        let error = PyOsError::from_io(&io::Error::other("boom"), None);
+        assert_eq!(error.class, "OSError");
     }
 }
