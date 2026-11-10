@@ -112,6 +112,14 @@ impl Dict {
         })
     }
 
+    /// The value under a string key, to change in place.
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut Value> {
+        self.entries.iter_mut().find_map(|(existing, value)| match existing {
+            Key::Str(name) if name == key => Some(value),
+            _ => None,
+        })
+    }
+
     pub fn contains_key(&self, key: &str) -> bool {
         self.get(key).is_some()
     }
