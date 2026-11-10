@@ -530,8 +530,7 @@ async fn capture_traffic(
     inflight: Inflight,
     logged_shape: Arc<std::sync::atomic::AtomicBool>,
 ) {
-    let mut waiting: HashMap<String, (String, i64)> = HashMap::new();
-    let mut finished: HashSet<String> = HashSet::new();
+    let mut matcher = LikePageMatcher::default();
     while let Some(event) = events.next().await {
         match event {
             NetworkEvent::Request { id, resource_type, url } => {
@@ -545,28 +544,21 @@ async fn capture_traffic(
                     log().debug(format!("RedNote XHR: {status} {}", url.chars().take(160).collect::<String>()));
                     continue;
                 }
-                if finished.remove(&id) {
+                if let Some((url, status)) = matcher.response(id.clone(), url, status) {
                     let body = read_json_body(&page, &id).await;
                     deliver(&pages, &logged_shape, url, status, body);
-                } else {
-                    waiting.insert(id, (url, status));
                 }
             }
             NetworkEvent::Finished { id } => {
                 inflight.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
-                if let Some((url, status)) = waiting.remove(&id) {
+                if let Some((url, status)) = matcher.finished(id.clone()) {
                     let body = read_json_body(&page, &id).await;
                     deliver(&pages, &logged_shape, url, status, body);
-                } else {
-                    if finished.len() > 10_000 {
-                        finished.clear();
-                    }
-                    finished.insert(id);
                 }
             }
             NetworkEvent::Failed { id, .. } => {
                 inflight.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
-                if let Some((url, status)) = waiting.remove(&id) {
+                if let Some((url, status)) = matcher.failed(&id) {
                     deliver(&pages, &logged_shape, url, status, None);
                 }
             }
@@ -574,11 +566,55 @@ async fn capture_traffic(
     }
 }
 
+/// Pairs a likes-list response with its `loadingFinished`, in either order (D172): each
+/// method answers the response's URL and status once its body can be read (or, for a
+/// failure, once it never will be).
+#[derive(Debug, Default)]
+struct LikePageMatcher {
+    /// Responses whose body is still loading.
+    waiting: HashMap<String, (String, i64)>,
+    /// Loads that finished before their response was reported.
+    finished: HashSet<String>,
+}
+
+impl LikePageMatcher {
+    /// Bounds `finished`, which also collects every request that is not a like page.
+    const FINISHED_LIMIT: usize = 10_000;
+
+    fn response(&mut self, id: String, url: String, status: i64) -> Option<(String, i64)> {
+        if self.finished.remove(&id) {
+            Some((url, status))
+        } else {
+            self.waiting.insert(id, (url, status));
+            None
+        }
+    }
+
+    fn finished(&mut self, id: String) -> Option<(String, i64)> {
+        let ready = self.waiting.remove(&id);
+        if ready.is_none() {
+            if self.finished.len() > Self::FINISHED_LIMIT {
+                self.finished.clear();
+            }
+            self.finished.insert(id);
+        }
+        ready
+    }
+
+    fn failed(&mut self, id: &str) -> Option<(String, i64)> {
+        self.waiting.remove(id)
+    }
+}
+
 /// `await response.json()`, `None` on any failure.
 async fn read_json_body(page: &Page, id: &str) -> Option<pyjson::Value> {
     let bytes = page.response_body(id).await.ok()?;
     let text = String::from_utf8(bytes).ok()?;
-    pyjson::loads(text.trim_start_matches('\u{feff}')).ok()
+    // `body.decode()` then `json.loads`: strict UTF-8, and a BOM is refused as Python refuses it.
+    if text.starts_with('\u{feff}') {
+        return None;
+    }
+    pyjson::loads(&text).ok()
 }
 
 fn deliver(
@@ -610,8 +646,8 @@ impl NoteBrowser for ChromiumNoteBrowser {
                     message: error.to_string(),
                 })?
                 .map_err(|error| NoteBrowserError::Io {
-                    class: "OSError",
-                    message: error.to_string(),
+                    class: error.class,
+                    message: error.message,
                 })?;
             if !cleared.is_empty() {
                 log().info(format!("Cleared stale Chromium profile locks: {}", cleared.join(", ")));

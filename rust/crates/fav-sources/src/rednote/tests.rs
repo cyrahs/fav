@@ -1480,6 +1480,22 @@ async fn an_expired_url_is_recorded_rather_than_guessed_at() {
     }
 }
 
+#[tokio::test]
+async fn every_status_a_rotated_url_answers_is_recorded_as_stale() {
+    for status in [403, 404, 410] {
+        let (harness, _web, _root) = downloading_job(&unused_db(), move |_| Reply::status(status), json!({})).await;
+        match harness.job.download_file(&media()).await {
+            Err(DownloadFailure::Stale(reason)) => assert_eq!(reason, format!("stale-url http {status}")),
+            other => panic!("{status} is not a stale URL: {other:?}"),
+        }
+    }
+    let (harness, _web, _root) = downloading_job(&unused_db(), |_| Reply::status(500), json!({})).await;
+    assert!(
+        !matches!(harness.job.download_file(&media()).await, Err(DownloadFailure::Stale(_))),
+        "a server error is not a rotated URL"
+    );
+}
+
 // py: tests/test_rednote.py::test_downloading_marks_each_row_and_keeps_going_past_a_dead_url
 #[tokio::test]
 async fn downloading_marks_each_row_and_keeps_going_past_a_dead_url() {
@@ -1575,6 +1591,26 @@ async fn an_expired_url_is_refreshed_on_the_next_run_with_the_browser_open() {
         [format!(
             "https://www.xiaohongshu.com/explore/{NOTE_ID}?xsec_token=TOKEN&xsec_source=pc_user"
         )]
+    );
+    database.drop_database().await;
+}
+
+#[tokio::test]
+async fn a_url_the_note_still_offers_unchanged_is_left_to_be_looked_at_again() {
+    let database = crate::testutil::database().await;
+    let db = database.db();
+    let same_url = "https://sns-webpic.xhscdn.com/same!nd_dft_wlteh_webp_3";
+    pending_row(db, NOTE_ID, 1, same_url, "stale-url http 403").await;
+    let card = page_note_card(json!({"imageList": [{"infoList": [{"imageScene": "WB_DFT", "url": same_url}]}]}));
+    let mut browser = FakeBrowser::new().note(NOTE_ID, card);
+    let (mut job, _web) = offline_job(db, config(json!({}))).await;
+
+    assert_eq!(job.refresh_stale_media(&mut browser).await.expect("refreshed"), 0);
+
+    let written = rows(db).await;
+    assert_eq!(
+        (written[0].media_url.as_str(), written[0].last_error.as_str()),
+        (same_url, "stale-url http 403")
     );
     database.drop_database().await;
 }
@@ -1738,6 +1774,24 @@ async fn the_browser_is_closed_even_when_the_walk_fails() {
     let lock = fav_browser::profile::rednote_profile_lock_name(&root.path().join("profile"));
     assert!(db.try_advisory_lock(&lock).await.expect("lock").is_some());
     database.drop_database().await;
+}
+
+#[tokio::test]
+async fn the_cdn_is_proxied_only_when_proxy_media_asks_for_it() {
+    let proxy = "http://home.example:3128";
+    let options = |overrides: serde_json::Value| client_options(&settings_of(overrides)).proxy;
+    assert_eq!(options(json!({"proxy": proxy, "proxy_media": false})), None);
+    assert_eq!(options(json!({"proxy": proxy, "proxy_media": true})).as_deref(), Some(proxy));
+    assert_eq!(options(json!({"proxy": "", "proxy_media": true})), None);
+
+    // httpx refuses a scheme it cannot dial when the client is built, so the run never starts.
+    let error = cdn_client(&settings_of(json!({"proxy": "ftp://home.example:21", "proxy_media": true}))).expect_err("refused");
+    assert_eq!(
+        (error.class_name(), error.message()),
+        ("ValueError", "Unknown scheme for proxy URL URL('ftp://home.example')")
+    );
+    // Unproxied, the same string is the browser's business, not the client's.
+    cdn_client(&settings_of(json!({"proxy": "ftp://home.example:21", "proxy_media": false}))).expect("a client");
 }
 
 // py: tests/test_rednote.py::test_an_unconfigured_source_does_nothing_rather_than_opening_a_browser

@@ -206,7 +206,10 @@ pub fn to_int(value: Option<&Value>) -> Option<i128> {
 }
 
 /// `format_published_at(value)`: epoch milliseconds as `YYYY-MM-DD HH:MM:SS` in UTC+8, or
-/// `''` for no positive time. A time past year 9999 is Python's `OverflowError`.
+/// `''` for no positive time. A time `datetime.fromtimestamp(seconds, tz)` cannot hold is its
+/// error: past `time_t` an `OverflowError`, past what `gmtime` can hold an `OSError`
+/// (`EOVERFLOW`), past year 9999 in UTC a `ValueError`, and past it only once moved to UTC+8
+/// an `OverflowError` again.
 pub fn format_published_at(value: Option<&Value>) -> Result<String, PyError> {
     let Some(milliseconds) = to_int(value).filter(|milliseconds| *milliseconds > 0) else {
         return Ok(String::new());
@@ -221,11 +224,26 @@ pub fn format_published_at(value: Option<&Value>) -> Result<String, PyError> {
         micros -= 1e6;
         whole += 1.0;
     }
-    if !whole.is_finite() || whole.abs() > 1e15 {
-        return Err(overflow());
+    // `_PyTime_ObjectToTimeval`: the seconds must fit a 64-bit `time_t`.
+    #[allow(clippy::cast_precision_loss)] // reason: 2**63 is exact as a double
+    if !whole.is_finite() || whole >= i64::MAX as f64 {
+        return Err(PyError::new("OverflowError", "timestamp out of range for platform time_t"));
     }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // reason: whole is integral and within 1e15; micros in 0..1e6
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // reason: whole is integral, positive and below 2**63; micros in 0..1e6
     let (whole, micros) = (whole as i64, micros as u32);
+    // glibc's `gmtime` fails with `EOVERFLOW` once `tm_year` (years since 1900) leaves an `int`.
+    let utc_year = civil_year(whole.div_euclid(86_400));
+    if utc_year - 1900 > i64::from(i32::MAX) {
+        return Err(PyError::new("OSError", "[Errno 75] Value too large for defined data type"));
+    }
+    if utc_year > 9999 {
+        // CPython adds 1900 back in a C `int`, which wraps for the last two thousand years
+        // `gmtime` still holds.
+        #[allow(clippy::cast_possible_truncation)] // reason: the `int` arithmetic of CPython's `tm_year + 1900`, wrap included
+        let year = ((utc_year - 1900) as i32).wrapping_add(1900);
+        return Err(PyError::new("ValueError", format!("year {year} is out of range")));
+    }
     let offset = chrono::FixedOffset::east_opt(DISPLAY_OFFSET_SECONDS).ok_or_else(overflow)?;
     let local = chrono::DateTime::from_timestamp(whole, micros * 1000)
         .ok_or_else(overflow)?
@@ -234,6 +252,19 @@ pub fn format_published_at(value: Option<&Value>) -> Result<String, PyError> {
         return Err(overflow());
     }
     Ok(local.format("%Y-%m-%d %H:%M:%S").to_string())
+}
+
+/// The proleptic Gregorian year of a day counted from 1970-01-01 (Howard Hinnant's
+/// `civil_from_days`), for days far past what `chrono` holds.
+fn civil_year(days: i64) -> i64 {
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted.rem_euclid(146_097);
+    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let year = year_of_era + era * 400;
+    if month_index >= 10 { year + 1 } else { year }
 }
 
 fn split(url: &str) -> Result<fav_core::pyurl::SplitResult, PyError> {
@@ -581,6 +612,16 @@ pub fn client_options(config: &RedNoteConfig) -> ClientOptions {
         max_keepalive_connections: 10,
         ..ClientOptions::default()
     }
+}
+
+/// The CDN client `RedNote.__init__` builds. httpx refuses a proxy it cannot dial when the
+/// client is built, so the run fails with its `ValueError` before anything starts.
+pub fn cdn_client(config: &RedNoteConfig) -> Result<HttpClient, JobError> {
+    let options = client_options(config);
+    if let Some(proxy) = &options.proxy {
+        proxy_probe::check_httpx_proxy(proxy).map_err(|message| JobError::new("ValueError", message))?;
+    }
+    HttpClient::new(&options).map_err(|error| JobError::new("ValueError", error.to_string()))
 }
 
 /// `_new_browser`: the real profile.
@@ -1499,12 +1540,7 @@ impl Source for RedNoteJob {
             let settings = self.ctx.settings.load().await.map_err(|error| crate::settings_job_error(&error))?;
             let config = settings.web.rednote.clone();
             let notifier: SharedNotifier = Arc::new(OutboxNotifier(Outbox::new(self.ctx.db.clone(), Arc::clone(&self.ctx.settings))));
-            // httpx refuses a proxy it cannot dial when the client is built, so the run fails
-            // before anything starts.
-            if let Some(proxy) = &client_options(&config).proxy {
-                proxy_probe::check_httpx_proxy(proxy).map_err(|message| JobError::new("ValueError", message))?;
-            }
-            let client = HttpClient::new(&client_options(&config)).map_err(|error| JobError::new("ValueError", error.to_string()))?;
+            let client = cdn_client(&config)?;
             let factory = chromium_factory(&config);
             let mut source = RedNote::new(self.ctx.db.clone(), notifier, config, client, factory);
             source.update().await

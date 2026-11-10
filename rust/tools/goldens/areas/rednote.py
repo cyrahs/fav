@@ -217,7 +217,14 @@ _VIDEO_CARD: dict[str, Any] = {
 
 def _parsers() -> list[dict[str, Any]]:
     to_int_values = [None, True, 0, 12, -3, 2.9, -2.9, '12', ' 7 ', '-4', '+4', '1.5', '', '٣', [], 1e18]
-    times = [_NOTE_TIME_MS, str(_NOTE_TIME_MS), 0, -1, None, 'x', 1.5e12, 1, 253402300799000]
+    # Past year 9999 each limit `fromtimestamp` meets raises its own error: UTC+8 only, UTC,
+    # `gmtime`'s `int` year, then `time_t`.
+    out_of_range = [
+        *(253402272000000, 253402300800000, 10**18),
+        *(67767976233532799000, 67767976233532800000, 67768036191676780000, 67768036191676800000),
+        *(10**20, 10**30, 9223372036854775807000),
+    ]
+    times = [_NOTE_TIME_MS, str(_NOTE_TIME_MS), 0, -1, None, 'x', 1.5e12, 1, 253402300799000, *out_of_range]
     image_urls = [
         'https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3',
         'https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_avif_3',

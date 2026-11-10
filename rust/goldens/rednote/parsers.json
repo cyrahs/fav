@@ -133,6 +133,86 @@
       }
     },
     {
+      "function": "format_published_at",
+      "value": 253402272000000,
+      "error": {
+        "class": "OverflowError",
+        "message": "date value out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 253402300800000,
+      "error": {
+        "class": "ValueError",
+        "message": "year 10000 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 1000000000000000000,
+      "error": {
+        "class": "ValueError",
+        "message": "year 31690708 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67767976233532799000,
+      "error": {
+        "class": "ValueError",
+        "message": "year -2147483648 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67767976233532800000,
+      "error": {
+        "class": "ValueError",
+        "message": "year -2147483648 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67768036191676780000,
+      "error": {
+        "class": "ValueError",
+        "message": "year -2147481749 is out of range"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 67768036191676800000,
+      "error": {
+        "class": "OSError",
+        "message": "[Errno 75] Value too large for defined data type"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 100000000000000000000,
+      "error": {
+        "class": "OSError",
+        "message": "[Errno 75] Value too large for defined data type"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 1000000000000000000000000000000,
+      "error": {
+        "class": "OverflowError",
+        "message": "timestamp out of range for platform time_t"
+      }
+    },
+    {
+      "function": "format_published_at",
+      "value": 9223372036854775807000,
+      "error": {
+        "class": "OverflowError",
+        "message": "timestamp out of range for platform time_t"
+      }
+    },
+    {
       "function": "infer_image_extension",
       "url": "https://sns-webpic.xhscdn.com/1!nd_dft_wlteh_webp_3",
       "result": "webp"

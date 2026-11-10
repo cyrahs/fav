@@ -6,7 +6,7 @@
 //! `src/web/rednote_browser.py`, and `SESSION_SITE`, `LOGIN_URL`, `SESSION_COOKIE` and
 //! `user_id_from_probe` in `src/web/rednote.py`. WP16 ports them because the login window
 //! opens the crawl's profile presented the way the crawl presents it; the crawl itself
-//! (`PlaywrightNoteBrowser`, the likes walk) is WP17's, and uses these.
+//! (`PlaywrightNoteBrowser`, the likes walk, WP17) uses these.
 
 use std::time::Duration;
 

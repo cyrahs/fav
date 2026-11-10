@@ -9,8 +9,8 @@ use crate::proxy::build_proxy_settings;
 use crate::testutil::golden_cases;
 use crate::window::build_login_launch_options;
 
-/// `rednote_browser.build_launch_options(...)` as far as the command line goes; the crawl
-/// itself is WP17's.
+/// `rednote_browser.build_launch_options(...)` as far as the command line goes (the full
+/// options are `rednote::note_browser::build_launch_options`).
 fn rednote_launch(profile: &Path, proxy: &str, headless: bool) -> LaunchOptions {
     LaunchOptions {
         user_data_dir: profile.to_path_buf(),

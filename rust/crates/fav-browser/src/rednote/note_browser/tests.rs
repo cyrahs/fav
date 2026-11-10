@@ -20,6 +20,24 @@ fn object(value: Value) -> Map<String, Value> {
 
 // ---------- pure helpers ----------
 
+#[test]
+fn a_like_page_is_read_whichever_of_its_two_events_comes_first() {
+    let mut matcher = LikePageMatcher::default();
+    // The usual order: the status line, then the end of the body.
+    assert_eq!(matcher.response("1".into(), "u1".into(), 200), None);
+    assert_eq!(matcher.finished("1".into()), Some(("u1".to_owned(), 200)));
+    // Merged from separate CDP listeners, the end can be seen first.
+    assert_eq!(matcher.finished("2".into()), None);
+    assert_eq!(matcher.response("2".into(), "u2".into(), 200), Some(("u2".to_owned(), 200)));
+    // Each is delivered once.
+    assert_eq!(matcher.finished("1".into()), None);
+    assert_eq!(matcher.finished("2".into()), None);
+    // A failed load is delivered without a body; a failure of a request it never saw is not.
+    assert_eq!(matcher.response("3".into(), "u3".into(), 461), None);
+    assert_eq!(matcher.failed("3"), Some(("u3".to_owned(), 461)));
+    assert_eq!(matcher.failed("4"), None);
+}
+
 // py: tests/test_rednote.py::test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell
 #[test]
 fn the_launch_options_ask_for_the_real_browser_not_the_headless_shell() {
