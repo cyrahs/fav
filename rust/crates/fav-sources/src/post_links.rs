@@ -192,6 +192,12 @@ impl PostClient {
 
     /// The client through `proxy` (a fake web in tests) and with other endpoints.
     pub fn with(proxy: Option<&str>, endpoints: Endpoints) -> Result<Self, BuildError> {
+        Self::with_roots(proxy, endpoints, &[])
+    }
+
+    /// [`Self::with`], trusting only `roots` (DER) when any are given: the fake web's own
+    /// authority, which lets tests serve `https://` addresses.
+    pub fn with_roots(proxy: Option<&str>, endpoints: Endpoints, roots: &[Vec<u8>]) -> Result<Self, BuildError> {
         let build = |read: u64, connect: u64| {
             HttpClient::new(&ClientOptions {
                 headers: vec![("User-Agent".to_owned(), USER_AGENT.to_owned())],
@@ -200,6 +206,7 @@ impl PostClient {
                 follow_redirects: true,
                 proxy: proxy.map(str::to_owned),
                 trust_env: false,
+                roots: roots.to_vec(),
                 ..ClientOptions::default()
             })
         };
@@ -223,6 +230,11 @@ impl PostClient {
 
     pub(crate) fn lens(&self) -> &HttpClient {
         &self.lens
+    }
+
+    /// The client with the video download's timeouts (connect 60 s, read 600 s).
+    pub(crate) fn video(&self) -> &HttpClient {
+        &self.video
     }
 
     pub fn endpoints(&self) -> &Endpoints {

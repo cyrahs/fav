@@ -47,6 +47,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 axum.workspace = true
+# The fake web's HTTPS: a test authority and the `https://` sites it signs for.
+rcgen.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
 fav-core = { workspace = true, features = ["test-support"] }
 fav-db = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "net", "rt", "io-util", "test-util"] }

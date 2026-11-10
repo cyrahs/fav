@@ -1,0 +1,62 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "wechat",
+  "cases": [
+    {
+      "wechat._KNOWN_EXTENSIONS": [
+        "bin",
+        "gif",
+        "jpg",
+        "png",
+        "webp",
+        "wxgf"
+      ],
+      "wechat._CONTENT_TYPE_EXTENSIONS": {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/gif": "gif",
+        "image/webp": "webp"
+      },
+      "wechat._REQUEST_TIMEOUT_SECONDS": 60.0,
+      "wechat._EVENT_PAGE_SIZE": 200,
+      "wechat._MAX_ATTEMPTS": 5,
+      "wechat._OPEN_WAIT_SECONDS": 30,
+      "wechat._LINK_WAIT_SECONDS": 20,
+      "wechat._TAP_OPEN_SECONDS": 1200,
+      "wechat._CURSOR_KEY": "events_after",
+      "wechat._WORK_VERSION": "8",
+      "wechat._WORK_VERSION_KEY": "work_version",
+      "wechat._UNSUPPORTED_SINCE_KEY": "unsupported_since",
+      "wechat._NGA_LOGIN_KEY": "wechat:nga-login",
+      "wechat._TIKHUB_KEY": "wechat:tikhub",
+      "wechat._NEEDS_KEYS": {
+        "nga-login": "wechat:nga-login",
+        "tikhub": "wechat:tikhub"
+      },
+      "wechat._TIKHUB_VIDEO_DETAIL": "/api/v1/wechat_channels/v2/fetch_video_detail",
+      "wechat._TIKHUB_READ_SECONDS": 60,
+      "wechat._TIKHUB_ACCOUNT_STATUSES": [
+        401,
+        402,
+        403
+      ],
+      "wechat._POST_VIDEO_READ_SECONDS": 600.0,
+      "wechat._SILENT_KINDS": [
+        "pat",
+        "recalled",
+        "system",
+        "voip"
+      ],
+      "wechat.WORK": [
+        "image",
+        "sticker",
+        "article",
+        "channel_video",
+        "unsupported"
+      ],
+      "wechat_channels.ENCRYPTED_BYTES": 131072
+    }
+  ]
+}

@@ -147,7 +147,7 @@ tests = [
 
 [WP14]
 title = "WeChat, Channels videos, stickers"
-status = "pending"
+status = "done"
 tests = ["tests/test_wechat.py"]
 
 [WP15]
