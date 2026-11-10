@@ -37,7 +37,6 @@ pub const PENDING: &[(&str, &str)] = &[
     ("/api/v2/hanime1/seeds/{canonical_video_id}", "WP8"),
     ("/api/v2/hanime1/authors", "WP8"),
     ("/api/v2/hanime1/authors/{author_id}", "WP8"),
-    ("/api/v2/kemono/creators/resolve", "WP5"),
     ("/api/v2/azurlane/characters", "WP12"),
     ("/api/v2/azurlane/sidebar/characters", "WP12"),
     ("/api/v2/azurlane/skin-updates", "WP12"),
@@ -312,6 +311,28 @@ fn schemas_c() -> Vec<(&'static str, RefOr<Schema>)> {
             ),
         ),
         (
+            "KemonoCreatorResolveRequest",
+            model(
+                "KemonoCreatorResolveRequest",
+                None,
+                true,
+                vec![("creator", typed(Type::String, "Creator").min_length(Some(1)).into(), true)],
+            ),
+        ),
+        (
+            "KemonoCreatorResolved",
+            model(
+                "KemonoCreatorResolved",
+                None,
+                true,
+                vec![
+                    ("service", string("Service"), true),
+                    ("id", string("Id"), true),
+                    ("name", string("Name"), true),
+                ],
+            ),
+        ),
+        (
             "LoginAttemptView",
             model(
                 "LoginAttemptView",
@@ -555,6 +576,7 @@ fn section_parameter() -> utoipa::openapi::path::Parameter {
 fn paths() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     let mut paths = paths_a();
     paths.extend(paths_b());
+    paths.extend(paths_c());
     paths
 }
 
@@ -696,6 +718,21 @@ fn paths_b() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
                         parameter("offset", ParameterIn::Query, false, bounded_int("Offset", Some(0), None, 0)),
                     ],
                     ..Op::new("archive", "List Archive Items", "listArchiveItems", "ArchiveListResponse")
+                },
+            )],
+        ),
+    ]
+}
+
+fn paths_c() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
+    vec![
+        (
+            "/api/v2/kemono/creators/resolve",
+            vec![(
+                HttpMethod::Post,
+                Op {
+                    body: Some(reference("KemonoCreatorResolveRequest")),
+                    ..Op::new("kemono", "Resolve Kemono Creator", "resolveKemonoCreator", "KemonoCreatorResolved")
                 },
             )],
         ),

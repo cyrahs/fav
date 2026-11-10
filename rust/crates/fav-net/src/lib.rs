@@ -4,12 +4,23 @@
 //! means the TLS backend (rustls with the `ring` provider, the same one sqlx uses) can be
 //! swapped in one place if a site turns out to care about the TLS fingerprint
 //! (`rust/docs/PLAN.md`, technology mapping). Like httpx, the clients honour
-//! `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment. Streamed downloads and
-//! the subprocess runner arrive with the sources that need them.
+//! `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` from the environment.
+//!
+//! The sources use [`client::HttpClient`] (an `httpx.AsyncClient` look-alike: per-source
+//! proxy, httpx's redirect rules and `response.history`, `raise_for_status()` text),
+//! [`download`] (a body streamed into a temporary file beside its destination, hashed on
+//! the way, renamed into place) and [`retry`] (the retry ladders, `Retry-After`, and an
+//! injectable sleep so tests never wait). The subprocess runner arrives with WP7.
 
 use std::sync::Once;
 
 pub use reqwest;
+
+pub mod client;
+pub mod download;
+pub mod retry;
+
+pub use client::{ClientOptions, HttpClient, Request, Response, StatusError, TransportError};
 
 static CRYPTO_PROVIDER: Once = Once::new();
 
@@ -30,28 +41,129 @@ pub fn client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
 }
 
-/// The httpx exception class a reqwest transport error stands in for.
+/// The httpx exception classes a failure maps onto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ErrorClass {
+    ConnectTimeout,
+    ReadTimeout,
+    ConnectError,
+    ReadError,
+    RemoteProtocolError,
+    LocalProtocolError,
+    UnsupportedProtocol,
+    TooManyRedirects,
+    DecodingError,
+    InvalidUrl,
+}
+
+impl ErrorClass {
+    /// The httpx exception class a reqwest transport error stands in for.
+    ///
+    /// reqwest wraps every failure while reading a body as a decode error, so the cause
+    /// is read from the error's source chain: a connection that ends before the message
+    /// is complete is h11's `RemoteProtocolError` (before any response, or with the body
+    /// cut short), a reset or other socket error is `ReadError`, and only a failure to
+    /// decode content stays `DecodingError`. reqwest has no write timeout, so the mapping
+    /// is approximate (DIVERGENCES.md D18).
+    pub fn of(error: &reqwest::Error) -> Self {
+        if error.is_timeout() {
+            return if error.is_connect() {
+                Self::ConnectTimeout
+            } else {
+                Self::ReadTimeout
+            };
+        }
+        if error.is_connect() {
+            return Self::ConnectError;
+        }
+        if error.is_redirect() {
+            return Self::TooManyRedirects;
+        }
+        if error.is_builder() {
+            return Self::UnsupportedProtocol;
+        }
+        if let Some(class) = Self::from_source_chain(error) {
+            return class;
+        }
+        if error.is_decode() {
+            Self::DecodingError
+        } else if error.is_body() {
+            Self::ReadError
+        } else {
+            Self::RemoteProtocolError
+        }
+    }
+
+    fn from_source_chain(error: &reqwest::Error) -> Option<Self> {
+        let mut source: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(error);
+        while let Some(cause) = source {
+            if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+                return Some(match io.kind() {
+                    std::io::ErrorKind::TimedOut => Self::ReadTimeout,
+                    std::io::ErrorKind::UnexpectedEof => Self::RemoteProtocolError,
+                    _ => Self::ReadError,
+                });
+            }
+            if let Some(hyper) = cause.downcast_ref::<hyper::Error>() {
+                if hyper.is_incomplete_message() {
+                    return Some(Self::RemoteProtocolError);
+                }
+                if hyper.is_timeout() {
+                    return Some(Self::ReadTimeout);
+                }
+                if hyper.is_parse() || hyper.is_parse_status() {
+                    return Some(Self::RemoteProtocolError);
+                }
+            }
+            source = cause.source();
+        }
+        None
+    }
+
+    /// The class name, as `exc.__class__.__name__` prints it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ConnectTimeout => "ConnectTimeout",
+            Self::ReadTimeout => "ReadTimeout",
+            Self::ConnectError => "ConnectError",
+            Self::ReadError => "ReadError",
+            Self::RemoteProtocolError => "RemoteProtocolError",
+            Self::LocalProtocolError => "LocalProtocolError",
+            Self::UnsupportedProtocol => "UnsupportedProtocol",
+            Self::TooManyRedirects => "TooManyRedirects",
+            Self::DecodingError => "DecodingError",
+            Self::InvalidUrl => "InvalidURL",
+        }
+    }
+
+    /// `isinstance(exc, httpx.TimeoutException)`.
+    pub fn is_timeout(self) -> bool {
+        matches!(self, Self::ConnectTimeout | Self::ReadTimeout)
+    }
+
+    /// `isinstance(exc, httpx.NetworkError)`: connect, read, write and close errors.
+    pub fn is_network(self) -> bool {
+        matches!(self, Self::ConnectError | Self::ReadError)
+    }
+
+    /// `isinstance(exc, httpx.ProtocolError)`.
+    pub fn is_protocol(self) -> bool {
+        matches!(self, Self::RemoteProtocolError | Self::LocalProtocolError)
+    }
+
+    /// `isinstance(exc, httpx.TransportError)`: everything but redirects, decoding and
+    /// URL errors.
+    pub fn is_transport(self) -> bool {
+        !matches!(self, Self::TooManyRedirects | Self::DecodingError | Self::InvalidUrl)
+    }
+}
+
+/// The httpx exception class name a reqwest transport error stands in for.
 ///
 /// Callers that report a failure by its class name (`Telegram Bot API request failed:
 /// ConnectTimeout`, a job's `RuntimeError: ...`) use this so the text keeps httpx's names.
-/// reqwest has no write timeout and does not tell a read failure from a protocol error, so
-/// the mapping is approximate (DIVERGENCES.md D18).
 pub fn httpx_error_class(error: &reqwest::Error) -> &'static str {
-    if error.is_timeout() {
-        if error.is_connect() { "ConnectTimeout" } else { "ReadTimeout" }
-    } else if error.is_connect() {
-        "ConnectError"
-    } else if error.is_redirect() {
-        "TooManyRedirects"
-    } else if error.is_decode() {
-        "DecodingError"
-    } else if error.is_body() {
-        "ReadError"
-    } else if error.is_builder() {
-        "UnsupportedProtocol"
-    } else {
-        "RemoteProtocolError"
-    }
+    ErrorClass::of(error).name()
 }
 
 #[cfg(test)]

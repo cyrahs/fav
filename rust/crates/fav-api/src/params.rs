@@ -451,6 +451,33 @@ pub fn forbid_extra(errors: &mut Errors, dict: &Dict, fields: &[&str]) {
     }
 }
 
+/// A `str` field of a body model with `min_length`: pydantic's `string_type` for any
+/// other JSON type, then `string_too_short`.
+pub fn body_str(errors: &mut Errors, name: &str, value: &Value, min_length: usize) -> Option<String> {
+    let Value::Str(text) = value else {
+        errors.push(
+            "string_type",
+            body_field_loc(name),
+            "Input should be a valid string",
+            value.clone(),
+            None,
+        );
+        return None;
+    };
+    if text.chars().count() < min_length {
+        let plural = if min_length == 1 { "character" } else { "characters" };
+        errors.push(
+            "string_too_short",
+            body_field_loc(name),
+            &format!("String should have at least {min_length} {plural}"),
+            value.clone(),
+            Some(ctx_one("min_length", Value::from(i64::try_from(min_length).unwrap_or(i64::MAX)))),
+        );
+        return None;
+    }
+    Some(text.clone())
+}
+
 /// `loc` for a body field.
 pub fn body_field_loc(name: &str) -> Vec<Value> {
     let mut field_loc = body_loc();

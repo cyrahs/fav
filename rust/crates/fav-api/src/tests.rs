@@ -101,6 +101,7 @@ impl Harness {
             web_dist: None,
             clock: fixed_clock(),
             mcp: test_mcp_state(),
+            kemono_creators: Arc::new(FakeResolver::default()),
         };
         Self { database, state }
     }
@@ -1208,4 +1209,89 @@ async fn a_stalled_connection_cannot_hold_the_server_after_a_stop() {
     assert!(stopped_at.elapsed() >= grace, "it waited for the connection first");
     drop(client);
     database.drop_database().await;
+}
+
+// ---------- kemono ----------
+
+/// `_KemonoResolver`: records what it was asked and answers Maplestar, or fails.
+#[derive(Default)]
+pub(crate) struct FakeResolver {
+    pub(crate) error: std::sync::Mutex<Option<fav_sources::kemono_creator::ResolveError>>,
+    pub(crate) resolved: std::sync::Mutex<Vec<String>>,
+}
+
+impl fav_sources::kemono_creator::ResolveCreator for FakeResolver {
+    fn resolve<'a>(
+        &'a self,
+        raw_creator: &'a str,
+    ) -> fav_runtime::BoxFuture<'a, Result<fav_sources::kemono_creator::ResolvedCreator, fav_sources::kemono_creator::ResolveError>> {
+        Box::pin(async move {
+            self.resolved.lock().expect("lock").push(raw_creator.to_owned());
+            if let Some(error) = self.error.lock().expect("lock").clone() {
+                return Err(error);
+            }
+            Ok(fav_sources::kemono_creator::ResolvedCreator {
+                service: "fanbox".to_owned(),
+                id: "70050825".to_owned(),
+                name: "Maplestar".to_owned(),
+            })
+        })
+    }
+}
+
+// py: tests/test_api_server.py::test_resolve_kemono_creator_returns_resolved_creator
+#[tokio::test]
+async fn resolve_kemono_creator_returns_resolved_creator() {
+    let mut harness = Harness::new().await;
+    let resolver = Arc::new(FakeResolver::default());
+    harness.state.kemono_creators = resolver.clone();
+    let answer = harness
+        .send_json(
+            "POST",
+            "/api/v2/kemono/creators/resolve",
+            r#"{"creator": "https://pawchive.pw/fanbox/user/70050825"}"#,
+        )
+        .await;
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(*resolver.resolved.lock().unwrap(), ["https://pawchive.pw/fanbox/user/70050825"]);
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(r#"{"service": "fanbox", "id": "70050825", "name": "Maplestar"}"#).unwrap()
+    );
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_resolve_kemono_creator_maps_errors
+#[tokio::test]
+async fn resolve_kemono_creator_maps_errors() {
+    use fav_sources::kemono_creator::ResolveError;
+    let cases = [
+        (ResolveError::Invalid, 422, "invalid_creator", "Creator id or URL is invalid."),
+        (ResolveError::NotFound, 404, "creator_not_found", "Creator not found upstream."),
+        (
+            ResolveError::Unreachable,
+            502,
+            "creator_resolve_failed",
+            "Unable to reach the Kemono site.",
+        ),
+        (
+            ResolveError::Other("boom".to_owned()),
+            500,
+            "internal_server_error",
+            "Internal server error.",
+        ),
+    ];
+    for (error, status, code, message) in cases {
+        let mut harness = Harness::new().await;
+        let resolver = Arc::new(FakeResolver::default());
+        *resolver.error.lock().unwrap() = Some(error);
+        harness.state.kemono_creators = resolver;
+        let answer = harness
+            .send_json("POST", "/api/v2/kemono/creators/resolve", r#"{"creator": "70050825"}"#)
+            .await;
+        assert_eq!(answer.status, status, "{code}");
+        let expected = format!(r#"{{"error": {{"code": "{code}", "message": "{message}", "details": null}}}}"#);
+        assert_eq!(answer.json(), pyjson::loads(&expected).unwrap());
+        harness.finish().await;
+    }
 }

@@ -81,6 +81,7 @@ pub(crate) enum Endpoint {
     TestTelegramNotification,
     ListArchiveSources,
     ListArchiveItems,
+    ResolveKemonoCreator,
     ListSiteSessions,
     GetSiteCredential,
     /// The MCP endpoint, a plain route for every method (`crate::mcp`).
@@ -179,6 +180,11 @@ const ROUTES: &[Route] = &[
         endpoint: Endpoint::ListArchiveItems,
     },
     Route {
+        path: "/api/v2/kemono/creators/resolve",
+        methods: POST,
+        endpoint: Endpoint::ResolveKemonoCreator,
+    },
+    Route {
         path: "/api/v2/site-sessions",
         methods: GET,
         endpoint: Endpoint::ListSiteSessions,
@@ -215,6 +221,7 @@ impl Endpoint {
                 | Self::TestTelegramNotification
                 | Self::ListArchiveSources
                 | Self::ListArchiveItems
+                | Self::ResolveKemonoCreator
                 | Self::ListSiteSessions
         )
     }

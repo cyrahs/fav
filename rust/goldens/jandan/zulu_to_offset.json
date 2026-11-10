@@ -1,0 +1,300 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "jandan",
+  "cases": [
+    {
+      "date": "2026-02-14T02:06:39.000Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39.123456Z",
+      "result": "2026-02-13T18:06:39.123-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39.1234567Z",
+      "result": "2026-02-13T18:06:39.123-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39,5Z",
+      "result": "2026-02-13T18:06:39.500-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39.5+08:00",
+      "result": "2026-02-13T10:06:39.500-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39-05:30",
+      "result": "2026-02-13T23:36:39.000-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39+05:30:15.25",
+      "result": "2026-02-13T12:36:23.750-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39+0530",
+      "result": "2026-02-13T12:36:39.000-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39+05",
+      "result": "2026-02-13T13:06:39.000-0800"
+    },
+    {
+      "date": "2026-02-14 02:06:39Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-02-14x02:06Z",
+      "result": "2026-02-13T18:06:00.000-0800"
+    },
+    {
+      "date": "2026-02-14T02Z",
+      "result": "2026-02-13T18:00:00.000-0800"
+    },
+    {
+      "date": "2026-02-14T0206Z",
+      "result": "2026-02-13T18:06:00.000-0800"
+    },
+    {
+      "date": "2026-02-14T020639Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "20260214T020639Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-02-14",
+      "result": "2026-02-13T16:00:00.000-0800"
+    },
+    {
+      "date": "20260214",
+      "result": "2026-02-13T16:00:00.000-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-W07-6T02:06:39Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026W076",
+      "result": "2026-02-13T16:00:00.000-0800"
+    },
+    {
+      "date": "2026W076T02:06:39Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-W07T02:06:39Z",
+      "result": "2026-02-08T18:06:39.000-0800"
+    },
+    {
+      "date": "2026W07T02:06:39Z",
+      "result": "2026-02-08T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-W07",
+      "result": "2026-02-08T16:00:00.000-0800"
+    },
+    {
+      "date": "2026W07",
+      "result": "2026-02-08T16:00:00.000-0800"
+    },
+    {
+      "date": "2026-W53-1",
+      "result": "2026-12-27T16:00:00.000-0800"
+    },
+    {
+      "date": "2020-W53-1",
+      "result": "2020-12-27T16:00:00.000-0800"
+    },
+    {
+      "date": "2026-W00-1",
+      "result": "ValueError: Invalid isoformat string: '2026-W00-1'"
+    },
+    {
+      "date": "2026-W07-0",
+      "result": "ValueError: Invalid isoformat string: '2026-W07-0'"
+    },
+    {
+      "date": "2026-W07-8",
+      "result": "ValueError: Invalid isoformat string: '2026-W07-8'"
+    },
+    {
+      "date": "9999-W52-6",
+      "result": "ValueError: year 10000 is out of range"
+    },
+    {
+      "date": "9999-W52-5",
+      "result": "ValueError: year 10000 is out of range"
+    },
+    {
+      "date": "0001-W01-1",
+      "result": "ValueError: year 0 is out of range"
+    },
+    {
+      "date": "0000-W01-1",
+      "result": "ValueError: Invalid isoformat string: '0000-W01-1'"
+    },
+    {
+      "date": "2026-W",
+      "result": "ValueError: Invalid isoformat string: '2026-W'"
+    },
+    {
+      "date": "2026-W07-",
+      "result": "ValueError: Invalid isoformat string: '2026-W07-'"
+    },
+    {
+      "date": "2026-W07-12:00",
+      "result": "2026-02-09T04:00:00.000-0800"
+    },
+    {
+      "date": "2026-W07x12",
+      "result": "2026-02-09T04:00:00.000-0800"
+    },
+    {
+      "date": "2026W0761200",
+      "result": "2026-02-09T04:00:00.000-0800"
+    },
+    {
+      "date": "2026W07612:00",
+      "result": "2026-02-09T04:00:00.000-0800"
+    },
+    {
+      "date": "2026W07-6",
+      "result": "ValueError: Invalid isoformat string: '2026W07-6'"
+    },
+    {
+      "date": "2026-W076",
+      "result": "ValueError: Invalid isoformat string: '2026-W076'"
+    },
+    {
+      "date": "2026-W07-6X02",
+      "result": "2026-02-13T18:00:00.000-0800"
+    },
+    {
+      "date": "2026-Wab-1",
+      "result": "ValueError: Invalid isoformat string: '2026-Wab-1'"
+    },
+    {
+      "date": "2026-W07-a",
+      "result": "ValueError: Invalid isoformat string: '2026-W07-a'"
+    },
+    {
+      "date": "2026W",
+      "result": "ValueError: Invalid isoformat string: '2026W'"
+    },
+    {
+      "date": "2026Wxx",
+      "result": "ValueError: Invalid isoformat string: '2026Wxx'"
+    },
+    {
+      "date": "2026-W1",
+      "result": "ValueError: Invalid isoformat string: '2026-W1'"
+    },
+    {
+      "date": "2026-07",
+      "result": "ValueError: Invalid isoformat string: '2026-07'"
+    },
+    {
+      "date": "2026-07-1",
+      "result": "ValueError: Invalid isoformat string: '2026-07-1'"
+    },
+    {
+      "date": "0001-01-01T07:59:59Z",
+      "result": "OverflowError: date value out of range"
+    },
+    {
+      "date": "0001-01-01T08:00:00Z",
+      "result": "1-01-01T00:00:00.000-0800"
+    },
+    {
+      "date": "9999-12-31T23:59:59Z",
+      "result": "9999-12-31T15:59:59.000-0800"
+    },
+    {
+      "date": "2026-02-30T00:00:00Z",
+      "result": "ValueError: day is out of range for month"
+    },
+    {
+      "date": "2026-13-01T00:00:00Z",
+      "result": "ValueError: month must be in 1..12"
+    },
+    {
+      "date": "0000-01-01T00:00:00Z",
+      "result": "ValueError: year 0 is out of range"
+    },
+    {
+      "date": "2026-02-14T24:00:00Z",
+      "result": "ValueError: hour must be in 0..23"
+    },
+    {
+      "date": "2026-02-14T23:60:00Z",
+      "result": "ValueError: minute must be in 0..59"
+    },
+    {
+      "date": "2026-02-14T23:59:60Z",
+      "result": "ValueError: second must be in 0..59"
+    },
+    {
+      "date": "2026-02-14T02:06:39+24:00",
+      "result": "ValueError: offset must be a timedelta strictly between -timedelta(hours=24) and timedelta(hours=24), not datetime.timedelta(days=1)."
+    },
+    {
+      "date": "2026-02-14T02:06:39-23:59:59.999999",
+      "result": "2026-02-14T18:06:38.999-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39ZZ",
+      "result": "ValueError: Invalid isoformat string: '2026-02-14T02:06:39Z+00:00'"
+    },
+    {
+      "date": "2026-02-14T02:06:39.Z",
+      "result": "2026-02-13T18:06:39.000-0800"
+    },
+    {
+      "date": "2026-02-14T02:06:39.000Zjunk",
+      "result": "ValueError: Invalid isoformat string: '2026-02-14T02:06:39.000Zjunk'"
+    },
+    {
+      "date": "2026-02-14T02:06:39 ",
+      "result": "ValueError: Invalid isoformat string: '2026-02-14T02:06:39 '"
+    },
+    {
+      "date": "2026-02-14T2:06:39Z",
+      "result": "ValueError: Invalid isoformat string: '2026-02-14T2:06:39+00:00'"
+    },
+    {
+      "date": "2026-2-14T02:06:39Z",
+      "result": "ValueError: Invalid isoformat string: '2026-2-14T02:06:39+00:00'"
+    },
+    {
+      "date": "",
+      "result": "ValueError: Invalid isoformat string: ''"
+    },
+    {
+      "date": "Z",
+      "result": "ValueError: Invalid isoformat string: '+00:00'"
+    },
+    {
+      "date": "not a date",
+      "result": "ValueError: Invalid isoformat string: 'not a date'"
+    },
+    {
+      "date": "２０２６-02-14T02:06:39Z",
+      "result": "ValueError: Invalid isoformat string: '２０２６-02-14T02:06:39+00:00'"
+    },
+    {
+      "date": "2026-02-14T02:06:39+08:00Z",
+      "result": "ValueError: Invalid isoformat string: '2026-02-14T02:06:39+08:00+00:00'"
+    }
+  ]
+}

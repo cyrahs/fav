@@ -17,6 +17,7 @@ use fav_runtime::control::{self, ControlRequest};
 use fav_runtime::jobs::{self, ScheduledJob};
 use fav_runtime::site_sessions::{self, VALUE_IN_PROFILE};
 use fav_runtime::telegram_bot::TelegramDeliveryError;
+use fav_sources::kemono_creator::ResolveError;
 use regex::Regex;
 
 use crate::error::ApiError;
@@ -102,7 +103,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 /// Run an endpoint: body first (as FastAPI reads it), then the token, then the handler.
 pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathParams, request: &Request) -> Result<Response, ApiError> {
     let body = match endpoint {
-        Endpoint::CreateJobRequest | Endpoint::UpdateSettingsSection => {
+        Endpoint::CreateJobRequest | Endpoint::UpdateSettingsSection | Endpoint::ResolveKemonoCreator => {
             params::read_body(&request.body, request.header("content-type").as_deref())?
         }
         _ => Body::Absent,
@@ -130,6 +131,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::TestTelegramNotification => test_telegram_notification(state).await,
         Endpoint::ListArchiveSources => list_archive_sources(state).await,
         Endpoint::ListArchiveItems => list_archive_items(state, request).await,
+        Endpoint::ResolveKemonoCreator => resolve_kemono_creator(state, &body).await,
         Endpoint::ListSiteSessions => list_site_sessions(state).await,
         Endpoint::GetSiteCredential => get_site_credential(state, path("site"), request).await,
         Endpoint::Mcp => Ok(crate::mcp::handle(state, request).await),
@@ -137,6 +139,33 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
             Some(dist) => web::file_response(&dist.join(name)).await,
             None => Err(ApiError::http(404)),
         },
+    }
+}
+
+// ---------- kemono ----------
+
+/// `resolve_kemono_creator`: a pasted creator URL or fanbox id as `{service, id, name}`.
+async fn resolve_kemono_creator(state: &ApiState, body: &Body) -> Result<Response, ApiError> {
+    let mut errors = Errors::new();
+    let creator = params::model_body(&mut errors, body).and_then(|dict| {
+        let creator = params::body_field(&mut errors, dict, "creator").and_then(|value| params::body_str(&mut errors, "creator", value, 1));
+        params::forbid_extra(&mut errors, dict, &["creator"]);
+        creator
+    });
+    errors.finish()?;
+    match state.kemono_creators.resolve(&creator.unwrap_or_default()).await {
+        Ok(resolved) => Ok(json_response(
+            200,
+            &json::dict([
+                ("service", Value::Str(resolved.service)),
+                ("id", Value::Str(resolved.id)),
+                ("name", Value::Str(resolved.name)),
+            ]),
+        )),
+        Err(ResolveError::Invalid) => Err(ApiError::new(422, "invalid_creator", "Creator id or URL is invalid.")),
+        Err(ResolveError::NotFound) => Err(ApiError::new(404, "creator_not_found", "Creator not found upstream.")),
+        Err(ResolveError::Unreachable) => Err(ApiError::new(502, "creator_resolve_failed", "Unable to reach the Kemono site.")),
+        Err(ResolveError::Other(error)) => Err(internal("Failed to resolve Kemono creator", &error)),
     }
 }
 

@@ -578,6 +578,15 @@ impl PyPath {
     pub fn as_path(&self) -> &std::path::Path {
         std::path::Path::new(&self.0)
     }
+
+    /// `path / part`: pathlib drops a lone `.`, so `Path('.') / 'a'` is `a`, not `./a`.
+    pub fn join(&self, part: impl AsRef<std::path::Path>) -> std::path::PathBuf {
+        if self.0 == "." {
+            part.as_ref().to_path_buf()
+        } else {
+            self.as_path().join(part)
+        }
+    }
 }
 
 impl fmt::Display for PyPath {
@@ -617,6 +626,9 @@ mod tests {
         ] {
             assert_eq!(PyPath::new(raw).as_str(), expected, "{raw:?}");
         }
+        assert_eq!(PyPath::new(".").join("wuliao"), std::path::Path::new("wuliao"));
+        assert_eq!(PyPath::new("./col").join("wuliao"), std::path::Path::new("col/wuliao"));
+        assert_eq!(PyPath::new("/").join("wuliao"), std::path::Path::new("/wuliao"));
     }
 
     #[test]

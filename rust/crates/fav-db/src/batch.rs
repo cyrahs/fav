@@ -105,6 +105,67 @@ fn normalized(statements: Vec<Statement>) -> Vec<Statement> {
         .collect()
 }
 
+/// Groups statements into chunks of at most `chunk_size` statements and
+/// `max_bind_params` parameters, one statement at a time, so a statement over the limit
+/// fails only after the chunks before it have run (as Python's loop does).
+struct Chunker {
+    chunk_size: usize,
+    max_bind_params: usize,
+    chunk: Vec<Statement>,
+    chunk_params: usize,
+}
+
+impl Chunker {
+    fn new(chunk_size: usize, max_bind_params: usize) -> Result<Self, DbError> {
+        if chunk_size == 0 {
+            return Err(invalid("chunk_size must be greater than 0"));
+        }
+        if max_bind_params == 0 {
+            return Err(invalid("max_bind_params must be greater than 0"));
+        }
+        Ok(Self {
+            chunk_size,
+            max_bind_params,
+            chunk: Vec::new(),
+            chunk_params: 0,
+        })
+    }
+
+    /// Adds `statement`; returns the full chunk it closed, if any.
+    fn push(&mut self, statement: Statement) -> Result<Option<Vec<Statement>>, DbError> {
+        let count = statement.params.len();
+        if count > self.max_bind_params {
+            return Err(invalid(format!(
+                "Statement has {count} bind params, exceeds max_bind_params={}",
+                self.max_bind_params
+            )));
+        }
+        let mut full = None;
+        if !self.chunk.is_empty() && (self.chunk.len() >= self.chunk_size || self.chunk_params + count > self.max_bind_params) {
+            full = Some(std::mem::take(&mut self.chunk));
+            self.chunk_params = 0;
+        }
+        self.chunk.push(statement);
+        self.chunk_params += count;
+        Ok(full)
+    }
+
+    fn finish(self) -> Option<Vec<Statement>> {
+        (!self.chunk.is_empty()).then_some(self.chunk)
+    }
+}
+
+fn check_chunk_results<R>(expected: usize, chunk_results: Vec<R>, results: &mut Vec<R>) -> Result<(), DbError> {
+    if chunk_results.len() != expected {
+        return Err(invalid(format!(
+            "Database batch result mismatch: expected {expected} statements, got {}",
+            chunk_results.len()
+        )));
+    }
+    results.extend(chunk_results);
+    Ok(())
+}
+
 /// Run `statements` in chunks of at most `chunk_size` statements and `max_bind_params`
 /// parameters, each chunk through `run`, and return one result per statement.
 pub async fn query_batch_with<R>(
@@ -113,43 +174,17 @@ pub async fn query_batch_with<R>(
     max_bind_params: usize,
     mut run: impl AsyncFnMut(Vec<Statement>) -> Result<Vec<R>, DbError>,
 ) -> Result<Vec<R>, DbError> {
-    if chunk_size == 0 {
-        return Err(invalid("chunk_size must be greater than 0"));
-    }
-    if max_bind_params == 0 {
-        return Err(invalid("max_bind_params must be greater than 0"));
-    }
+    let mut chunker = Chunker::new(chunk_size, max_bind_params)?;
     let mut results = Vec::new();
-    let mut chunk: Vec<Statement> = Vec::new();
-    let mut chunk_params = 0;
-    let mut flush = async |chunk: Vec<Statement>, results: &mut Vec<R>| -> Result<(), DbError> {
-        let expected = chunk.len();
-        let chunk_results = run(chunk).await?;
-        if chunk_results.len() != expected {
-            return Err(invalid(format!(
-                "Database batch result mismatch: expected {expected} statements, got {}",
-                chunk_results.len()
-            )));
-        }
-        results.extend(chunk_results);
-        Ok(())
-    };
     for statement in normalized(statements) {
-        let count = statement.params.len();
-        if count > max_bind_params {
-            return Err(invalid(format!(
-                "Statement has {count} bind params, exceeds max_bind_params={max_bind_params}"
-            )));
+        if let Some(chunk) = chunker.push(statement)? {
+            let expected = chunk.len();
+            check_chunk_results(expected, run(chunk).await?, &mut results)?;
         }
-        if !chunk.is_empty() && (chunk.len() >= chunk_size || chunk_params + count > max_bind_params) {
-            flush(std::mem::take(&mut chunk), &mut results).await?;
-            chunk_params = 0;
-        }
-        chunk.push(statement);
-        chunk_params += count;
     }
-    if !chunk.is_empty() {
-        flush(chunk, &mut results).await?;
+    if let Some(chunk) = chunker.finish() {
+        let expected = chunk.len();
+        check_chunk_results(expected, run(chunk).await?, &mut results)?;
     }
     Ok(results)
 }
@@ -224,15 +259,27 @@ impl Db {
         chunk_size: usize,
         max_bind_params: usize,
     ) -> Result<Vec<Vec<PgRow>>, DbError> {
-        query_batch_with(statements, chunk_size, max_bind_params, async |chunk: Vec<Statement>| {
-            let mut connection = self.pool().acquire().await?;
+        // A plain loop, not `query_batch_with` and an async closure: the closure's future
+        // is not `Send` for every lifetime, which a source's boxed future needs.
+        async fn run_chunk(db: &Db, chunk: &[Statement]) -> Result<Vec<Vec<PgRow>>, DbError> {
+            let mut connection = db.pool().acquire().await?;
             let mut results = Vec::with_capacity(chunk.len());
-            for statement in &chunk {
+            for statement in chunk {
                 results.push(statement.query().fetch_all(&mut *connection).await?);
             }
             Ok(results)
-        })
-        .await
+        }
+        let mut chunker = Chunker::new(chunk_size, max_bind_params)?;
+        let mut results = Vec::new();
+        for statement in normalized(statements) {
+            if let Some(chunk) = chunker.push(statement)? {
+                results.push(run_chunk(self, &chunk).await?);
+            }
+        }
+        if let Some(chunk) = chunker.finish() {
+            results.push(run_chunk(self, &chunk).await?);
+        }
+        Ok(results.into_iter().flatten().collect())
     }
 
     /// `query_db_transaction`: all statements in one transaction.

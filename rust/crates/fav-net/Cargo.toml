@@ -11,9 +11,31 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+bytes.workspace = true
+chrono.workspace = true
 fav-core.workspace = true
-reqwest = { workspace = true, features = ["rustls-no-provider", "charset", "http2", "system-proxy", "json", "multipart"] }
+http.workspace = true
+hyper.workspace = true
+reqwest = { workspace = true, features = [
+    "rustls-no-provider",
+    "charset",
+    "http2",
+    "system-proxy",
+    "json",
+    "multipart",
+    "cookies",
+    "gzip",
+    "deflate",
+    "brotli",
+    "socks",
+] }
 rustls.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "time", "rt"] }
+url.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+axum.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "net"] }

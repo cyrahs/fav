@@ -1,5 +1,7 @@
-use super::{unquote, urljoin, urlsplit};
+use super::{quote, unquote, urljoin, urlsplit, urlunsplit};
 use crate::golden;
+use crate::pyjson::Value;
+use crate::pypath;
 
 #[test]
 fn unquote_matches_python() {
@@ -37,5 +39,51 @@ fn urlsplit_matches_python() {
             expected,
             "{url:?}"
         );
+    }
+}
+
+// WP5's `urls` goldens: `SplitResult.hostname`, the round trip through `urlunsplit`,
+// `quote` with and without `safe`, and the `PurePosixPath` parts Kemono and Jandan use.
+#[test]
+fn urlsplit_hostname_and_unsplit_match_python() {
+    let document = golden::load("urls/urlsplit.json");
+    for case in golden::cases(&document) {
+        let url = golden::string(golden::get(case, "url"));
+        let expected = golden::get(case, "result");
+        let actual = match urlsplit(&url, "") {
+            Ok(split) => Value::List(vec![
+                Value::Str(split.scheme.clone()),
+                Value::Str(split.netloc.clone()),
+                Value::Str(split.path.clone()),
+                Value::Str(split.query.clone()),
+                Value::Str(split.fragment.clone()),
+                split.hostname().map_or(Value::Null, Value::Str),
+                Value::Str(urlunsplit(&split)),
+            ]),
+            Err(error) => Value::Str(format!("ValueError: {error}")),
+        };
+        assert_eq!(&actual, expected, "{url:?}");
+    }
+}
+
+#[test]
+fn quoting_matches_python() {
+    let document = golden::load("urls/quote.json");
+    for case in golden::cases(&document) {
+        let text = golden::string(golden::get(case, "text"));
+        assert_eq!(quote(&text, ""), golden::string(golden::get(case, "quote_no_safe")), "{text:?}");
+        assert_eq!(quote(&text, "/"), golden::string(golden::get(case, "quote")), "{text:?}");
+        assert_eq!(unquote(&text), golden::string(golden::get(case, "unquote")), "{text:?}");
+    }
+}
+
+#[test]
+fn path_parts_match_python() {
+    let document = golden::load("urls/paths.json");
+    for case in golden::cases(&document) {
+        let path = golden::string(golden::get(case, "path"));
+        assert_eq!(pypath::name(&path), golden::string(golden::get(case, "name")), "{path:?}");
+        assert_eq!(pypath::suffix(&path), golden::string(golden::get(case, "suffix")), "{path:?}");
+        assert_eq!(pypath::stem(&path), golden::string(golden::get(case, "stem")), "{path:?}");
     }
 }

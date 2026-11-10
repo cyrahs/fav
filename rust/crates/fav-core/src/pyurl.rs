@@ -1,5 +1,5 @@
-//! The `urllib.parse` functions sources use on scraped links: `unquote`, `urlsplit`,
-//! `urljoin`.
+//! The `urllib.parse` functions sources use on scraped links and URL-quoted fields:
+//! `quote`, `unquote`, `urlsplit` (with `SplitResult.hostname`), `urlunsplit`, `urljoin`.
 //!
 //! Python origin: `urllib/parse.py` of `CPython` 3.12. These work on text the way Python does
 //! (no normalisation, no percent-encoding, no lowercasing of the host), which the `url`
@@ -7,6 +7,7 @@
 //! and stored rows. The `pyurl` goldens replay the same inputs through Python.
 
 use std::fmt;
+use std::fmt::Write as _;
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -260,6 +261,42 @@ fn urlparse(url: &str, default_scheme: &str) -> Result<(SplitResult, String), Ur
         params = found;
     }
     Ok((split, params))
+}
+
+impl SplitResult {
+    /// `SplitResult.hostname`: the host without user info, brackets or port, lowercased
+    /// (an IPv6 zone keeps its case); `None` when empty.
+    pub fn hostname(&self) -> Option<String> {
+        let host_info = self.netloc.rsplit_once('@').map_or(self.netloc.as_str(), |(_, host)| host);
+        let hostname = match host_info.split_once('[') {
+            Some((_, bracketed)) => bracketed.split_once(']').map_or(bracketed, |(host, _)| host),
+            None => host_info.split_once(':').map_or(host_info, |(host, _)| host),
+        };
+        if hostname.is_empty() {
+            return None;
+        }
+        Some(match hostname.split_once('%') {
+            Some((host, zone)) => format!("{}%{zone}", host.to_lowercase()),
+            None => hostname.to_lowercase(),
+        })
+    }
+}
+
+/// `quote(text, safe=safe)`: UTF-8 bytes outside letters, digits, `_.-~` and `safe` become
+/// `%XX` (upper-case hex).
+pub fn quote(text: &str, safe: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | '~') || (ch.is_ascii() && safe.contains(ch)) {
+            out.push(ch);
+        } else {
+            let mut buffer = [0_u8; 4];
+            for byte in ch.encode_utf8(&mut buffer).bytes() {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
 }
 
 /// `urlunsplit(...)`.
