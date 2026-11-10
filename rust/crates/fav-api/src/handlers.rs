@@ -109,6 +109,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         | Endpoint::CreateHanime1Seed
         | Endpoint::CreateHanime1Author
         | Endpoint::ResolveKemonoCreator
+        | Endpoint::TestAzurLaneProxy
         | Endpoint::PutBd2Live2DViewOverride
         | Endpoint::PutNikkeLive2DViewOverride => params::read_body(&request.body, request.header("content-type").as_deref())?,
         _ => Body::Absent,
@@ -137,6 +138,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::UpdateSettingsSection => update_settings_section(state, path("section"), &body).await,
         Endpoint::TestTelegramNotification => test_telegram_notification(state).await,
         Endpoint::TestTikHub => test_tikhub(state).await,
+        Endpoint::TestAzurLaneProxy => test_azurlane_proxy(state, &body).await,
         Endpoint::ListArchiveSources => list_archive_sources(state).await,
         Endpoint::ListArchiveItems => list_archive_items(state, request).await,
         Endpoint::ListHanime1Videos => hanime1::list_videos(state).await,
@@ -167,6 +169,42 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
             None => Err(ApiError::http(404)),
         },
     }
+}
+
+// ---------- azurlane ----------
+
+/// `test_azurlane_proxy`: check that the l2d.su origin is reachable through a proxy,
+/// without saving it. The draft from the form is probed as-is: proxies are shown to the UI
+/// in plaintext, so there is no masked value to resolve.
+async fn test_azurlane_proxy(state: &ApiState, body: &Body) -> Result<Response, ApiError> {
+    const FIELDS: [&str; 2] = ["origin_proxy", "origin_connect_host"];
+    let mut errors = Errors::new();
+    let mut values = [String::new(), String::new()];
+    if let Some(dict) = params::model_body(&mut errors, body) {
+        for (slot, name) in values.iter_mut().zip(FIELDS) {
+            if let Some(value) = dict.get(name) {
+                *slot = params::body_str(&mut errors, name, value, 0).unwrap_or_default();
+            }
+        }
+        params::forbid_extra(&mut errors, dict, &FIELDS);
+    }
+    errors.finish()?;
+    let [proxy, connect_host] = values;
+    // A malformed proxy URL makes the client fail to build, which Python lets escape too.
+    let result = state
+        .azurlane_origin
+        .probe(&proxy, &connect_host)
+        .await
+        .map_err(|error| unhandled(&error))?;
+    Ok(json_response(
+        200,
+        &json::dict([
+            ("ok", Value::Bool(result.ok)),
+            ("code", Value::Str(result.code)),
+            ("message", Value::Str(result.message)),
+            ("exit_ip", Value::Str(result.exit_ip)),
+        ]),
+    ))
 }
 
 // ---------- kemono ----------

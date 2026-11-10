@@ -1,0 +1,1177 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "azurlane",
+  "cases": [
+    {
+      "index": "{\"generatedAt\": \"2026-11-01T04:33:18.041Z\", \"locale\": \"CN\", \"version\": \"9.7.416\", \"ships\": [{\"shipGroupId\": 20101, \"name\": \"标枪\", \"englishName\": \"HMS Javelin\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"biaoqiang\", \"skins\": [{\"id\": 201010, \"name\": \"标枪\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [], \"painting\": \"biaoqiang\", \"prefab\": \"biaoqiang\", \"dynamicType\": \"painting\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": false, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang\", \"shipyardIcon\": \"shipyardicon/biaoqiang\", \"qIcon\": \"qicon/biaoqiang\", \"painting\": \"painting/biaoqiang\"}}, {\"id\": 201011, \"name\": \"闪耀的白刃\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"biaoqiang_2\", \"prefab\": \"biaoqiang_2\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang_2\", \"shipyardIcon\": \"shipyardicon/biaoqiang_2\", \"qIcon\": \"qicon/biaoqiang_2\", \"painting\": \"painting/biaoqiang_2\"}, \"shopTypeName\": \"Swimsuits\"}, {\"id\": 201012, \"name\": \"  礼服  \", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D+\"], \"painting\": \"biaoqiang_3\", \"prefab\": \"biaoqiang_3\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": true, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang_3\", \"shipyardIcon\": \"shipyardicon/biaoqiang_3\", \"qIcon\": \"qicon/biaoqiang_3\", \"painting\": \"painting/biaoqiang_3\"}, \"shopTypeName\": \"Formal\"}, {\"id\": 201013, \"name\": \"动态\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"spine\"], \"painting\": \"biaoqiang_4\", \"prefab\": \"biaoqiang_4\", \"dynamicType\": \"spine\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": true, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang_4\", \"shipyardIcon\": \"shipyardicon/biaoqiang_4\", \"qIcon\": \"qicon/biaoqiang_4\", \"painting\": \"painting/biaoqiang_4\"}}, {\"id\": 201015, \"name\": \"无键\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"\", \"prefab\": \"\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/\", \"shipyardIcon\": \"shipyardicon/\", \"qIcon\": \"qicon/\", \"painting\": \"painting/\"}}], \"defaultSkinId\": 201010, \"className\": \"J Class\"}, {\"shipGroupId\": 10117, \"name\": \"拉菲\", \"englishName\": \"\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"lafei\", \"skins\": [{\"id\": 101170, \"name\": \"拉菲\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [], \"painting\": \"lafei\", \"prefab\": \"lafei\", \"dynamicType\": \"painting\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": false, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/lafei\", \"shipyardIcon\": \"shipyardicon/lafei\", \"qIcon\": \"qicon/lafei\", \"painting\": \"painting/lafei\"}}, {\"id\": 101174, \"name\": \"白兔迎春\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"lafei_4\", \"prefab\": \"lafei_4_prefab\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/lafei_4\", \"shipyardIcon\": \"shipyardicon/lafei_4\", \"qIcon\": \"qicon/lafei_4\", \"painting\": \"painting/lafei_4\"}}, {\"id\": 101172, \"name\": \"慵懒时光\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"spine\"], \"painting\": \"lafei_12\", \"prefab\": \"lafei_12\", \"dynamicType\": \"spine\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": true, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/lafei_12\", \"shipyardIcon\": \"shipyardicon/lafei_12\", \"qIcon\": \"qicon/lafei_12\", \"painting\": \"painting/lafei_12\"}}], \"defaultSkinId\": true}, {\"shipGroupId\": 90001, \"name\": \"Ｚ２３\", \"englishName\": \"\", \"nationName\": \"Iron Blood\", \"typeName\": \" Destroyer \", \"rarityName\": \"SR\", \"resourceKey\": \" Ｚ２３ \", \"skins\": [{\"id\": 900010, \"name\": \"Ｚ２３\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"Ｚ２３_2\", \"prefab\": \"Ｚ２３_2\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/Ｚ２３_2\", \"shipyardIcon\": \"shipyardicon/Ｚ２３_2\", \"qIcon\": \"qicon/Ｚ２３_2\", \"painting\": \"painting/Ｚ２３_2\"}}, {\"id\": 900011, \"name\": \"Z23 Ｂ\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"spine\"], \"painting\": \"z23_3\", \"prefab\": \"z23_3\", \"dynamicType\": \"spine\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": true, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/z23_3\", \"shipyardIcon\": \"shipyardicon/z23_3\", \"qIcon\": \"qicon/z23_3\", \"painting\": \"painting/z23_3\"}}]}, {\"shipGroupId\": 90002, \"name\": \"双子A\", \"englishName\": \"\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"twin\", \"skins\": [{\"id\": 900020, \"name\": \"一\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"twin_2\", \"prefab\": \"twin_2\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/twin_2\", \"shipyardIcon\": \"shipyardicon/twin_2\", \"qIcon\": \"qicon/twin_2\", \"painting\": \"painting/twin_2\"}}]}, {\"shipGroupId\": 90003, \"name\": \"双子B\", \"englishName\": \"\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"twin\", \"skins\": [{\"id\": 900030, \"name\": \"二\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"twin_2\", \"prefab\": \"twin_2\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/twin_2\", \"shipyardIcon\": \"shipyardicon/twin_2\", \"qIcon\": \"qicon/twin_2\", \"painting\": \"painting/twin_2\"}}]}, {\"shipGroupId\": 910117, \"name\": \"新拉菲\", \"englishName\": \"\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"bd433116e13fbc136f40679616583bfc\", \"skins\": [{\"id\": 910170, \"name\": \"Hashed 910170\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"72c534ff50b53ca17c37b6a3d479c9c1\", \"prefab\": \"72c534ff50b53ca17c37b6a3d479c9c1\", \"paintingKeys\": [\"72c534ff50b53ca17c37b6a3d479c9c1\"], \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/72c534ff50b53ca17c37b6a3d479c9c1.webp\", \"shipyardIcon\": \"bb22/72c534ff50b53ca17c37b6a3d479c9c1.webp\", \"qIcon\": \"\", \"painting\": \"cc33/72c534ff50b53ca17c37b6a3d479c9c1.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/72c534ff50b53ca17c37b6a3d479c9c1.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/72c534ff50b53ca17c37b6a3d479c9c1-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/72c534ff50b53ca17c37b6a3d479c9c1-2.webp\"}, {\"id\": 3}]}, \"model\": {\"type\": \"live2d\", \"path\": \"ab12/11111111111111111111111111111111.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"}}, {\"id\": 910171, \"name\": \"Hashed 910171\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"854378e6b067b147616a1b2a4fdd2e98\", \"prefab\": \"854378e6b067b147616a1b2a4fdd2e98\", \"paintingKeys\": [\"854378e6b067b147616a1b2a4fdd2e98\"], \"dynamicType\": \"spine\", \"isLive2d\": false, \"isSpine\": true, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/854378e6b067b147616a1b2a4fdd2e98.webp\", \"shipyardIcon\": \"bb22/854378e6b067b147616a1b2a4fdd2e98.webp\", \"qIcon\": \"\", \"painting\": \"cc33/854378e6b067b147616a1b2a4fdd2e98.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/854378e6b067b147616a1b2a4fdd2e98.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/854378e6b067b147616a1b2a4fdd2e98-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/854378e6b067b147616a1b2a4fdd2e98-2.webp\"}, {\"id\": 3}]}, \"model\": {\"type\": \"spine\", \"path\": \"cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"}}, {\"id\": 910172, \"name\": \"Hashed 910172\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"a0d972712b88c6ef99f443457e7cac61\", \"prefab\": \"a0d972712b88c6ef99f443457e7cac61\", \"paintingKeys\": [\"a0d972712b88c6ef99f443457e7cac61\"], \"dynamicType\": \"painting\", \"isLive2d\": false, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/a0d972712b88c6ef99f443457e7cac61.webp\", \"shipyardIcon\": \"bb22/a0d972712b88c6ef99f443457e7cac61.webp\", \"qIcon\": \"\", \"painting\": \"cc33/a0d972712b88c6ef99f443457e7cac61.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/a0d972712b88c6ef99f443457e7cac61.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/a0d972712b88c6ef99f443457e7cac61-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/a0d972712b88c6ef99f443457e7cac61-2.webp\"}, {\"id\": 3}]}}]}]}",
+      "nagami": "{\"20101\": {\"names\": {\"EN\": \"Javelin\", \"CN\": \"标枪\", \"JP\": \"ジャベリン\"}, \"skins\": [{\"prefab\": \"biaoqiang_2\", \"names\": {\"EN\": \"Gleaming White Blade\"}, \"bg\": \"12\"}, {\"prefab\": \"biaoqiang_9\", \"names\": {\"CN\": \"只在镜像\"}, \"bg\": \"\"}]}, \"10117\": {\"names\": {\"EN\": \"\", \"CN\": \"拉菲\"}, \"skins\": [{\"prefab\": \"lafei_4\", \"names\": {\"JP\": \"白ウサギ\"}, \"bg\": 7}]}, \"shengluyisi_2\": {\"name\": \"St. Louis - Blue and White Pottery\", \"bg\": \"145\"}, \"z23_3\": \"Z23 - B\", \"twin_2\": \"Twin - One\", \"plain\": \"NoDash\"}",
+      "entries": [
+        {
+          "id": "azurlane:live2d:Z23:Z23_2",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/live2d/Ｚ２３_2/Ｚ２３_2.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:biaoqiang:biaoqiang_2",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/live2d/biaoqiang_2/biaoqiang_2.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:biaoqiang:biaoqiang_3",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/live2d/biaoqiang_3/biaoqiang_3.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:biaoqiang:biaoqiang_9",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://cdn.nagami.moe/live2d/biaoqiang_9/biaoqiang_9.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:lafei:lafei_4",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/live2d/lafei_4/lafei_4.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:plain:plain",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://cdn.nagami.moe/live2d/plain/plain.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:shengluyisi:shengluyisi_2",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://cdn.nagami.moe/live2d/shengluyisi_2/shengluyisi_2.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:ship-910117:skin-910170",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/ab12/11111111111111111111111111111111.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:twin:twin_2",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/live2d/twin_2/twin_2.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:live2d:z23:z23_3",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://cdn.nagami.moe/live2d/z23_3/z23_3.model3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:Z23:Z23_2",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/Ｚ２３_2.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:Z23:z23_3",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/z23_3.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:biaoqiang:biaoqiang",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/biaoqiang.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:biaoqiang:biaoqiang_2",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/biaoqiang_2.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:biaoqiang:biaoqiang_3",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/biaoqiang_3.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:biaoqiang:biaoqiang_4",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/biaoqiang_4.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:lafei:lafei",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/lafei.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:lafei:lafei_12",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/lafei_12.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:lafei:lafei_4",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/lafei_4.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:ship-910117:skin-910170",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/cc33/72c534ff50b53ca17c37b6a3d479c9c1.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:ship-910117:skin-910171",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/cc33/854378e6b067b147616a1b2a4fdd2e98.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:ship-910117:skin-910172",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/cc33/a0d972712b88c6ef99f443457e7cac61.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:painting:twin:twin_2",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/painting/twin_2.webp"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:spine:Z23:z23_3",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/spinepainting/z23_3/z23_3.skel",
+              "https://static.l2d.su/al/assets/spinepainting/z23_3/z23_3.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:spine:biaoqiang:biaoqiang_4",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/spinepainting/biaoqiang_4/biaoqiang_4.skel",
+              "https://static.l2d.su/al/assets/spinepainting/biaoqiang_4/biaoqiang_4.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:spine:lafei:lafei_12",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.skel",
+              "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.json"
+            ]
+          }
+        },
+        {
+          "id": "azurlane:spine:ship-910117:skin-910171",
+          "round_trips": true,
+          "probe_urls": {
+            "ok": [
+              "https://static.l2d.su/al/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3/22222222222222222222222222222222.json.skel",
+              "https://static.l2d.su/al/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "legacy_index": "{\"generatedAt\": \"2026-11-01T04:33:18.041Z\", \"locale\": \"CN\", \"version\": \"9.7.416\", \"ships\": [{\"shipGroupId\": 20101, \"name\": \"标枪\", \"englishName\": \"HMS Javelin\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"biaoqiang\", \"skins\": [{\"id\": 201010, \"name\": \"标枪\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [], \"painting\": \"biaoqiang\", \"prefab\": \"biaoqiang\", \"dynamicType\": \"painting\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": false, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang\", \"shipyardIcon\": \"shipyardicon/biaoqiang\", \"qIcon\": \"qicon/biaoqiang\", \"painting\": \"painting/biaoqiang\"}}, {\"id\": 201011, \"name\": \"闪耀的白刃\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"biaoqiang_2\", \"prefab\": \"biaoqiang_2\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang_2\", \"shipyardIcon\": \"shipyardicon/biaoqiang_2\", \"qIcon\": \"qicon/biaoqiang_2\", \"painting\": \"painting/biaoqiang_2\"}, \"shopTypeName\": \"Swimsuits\"}, {\"id\": 201012, \"name\": \"  礼服  \", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D+\"], \"painting\": \"biaoqiang_3\", \"prefab\": \"biaoqiang_3\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": true, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang_3\", \"shipyardIcon\": \"shipyardicon/biaoqiang_3\", \"qIcon\": \"qicon/biaoqiang_3\", \"painting\": \"painting/biaoqiang_3\"}, \"shopTypeName\": \"Formal\"}, {\"id\": 201013, \"name\": \"动态\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"spine\"], \"painting\": \"biaoqiang_4\", \"prefab\": \"biaoqiang_4\", \"dynamicType\": \"spine\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": true, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/biaoqiang_4\", \"shipyardIcon\": \"shipyardicon/biaoqiang_4\", \"qIcon\": \"qicon/biaoqiang_4\", \"painting\": \"painting/biaoqiang_4\"}}, {\"id\": 201015, \"name\": \"无键\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"\", \"prefab\": \"\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/\", \"shipyardIcon\": \"shipyardicon/\", \"qIcon\": \"qicon/\", \"painting\": \"painting/\"}}], \"defaultSkinId\": 201010, \"className\": \"J Class\"}, {\"shipGroupId\": 10117, \"name\": \"拉菲\", \"englishName\": \"\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"lafei\", \"skins\": [{\"id\": 101170, \"name\": \"拉菲\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [], \"painting\": \"lafei\", \"prefab\": \"lafei\", \"dynamicType\": \"painting\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": false, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/lafei\", \"shipyardIcon\": \"shipyardicon/lafei\", \"qIcon\": \"qicon/lafei\", \"painting\": \"painting/lafei\"}}, {\"id\": 101174, \"name\": \"白兔迎春\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"lafei_4\", \"prefab\": \"lafei_4_prefab\", \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": false, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/lafei_4\", \"shipyardIcon\": \"shipyardicon/lafei_4\", \"qIcon\": \"qicon/lafei_4\", \"painting\": \"painting/lafei_4\"}}, {\"id\": 101172, \"name\": \"慵懒时光\", \"groupIndex\": 1, \"skinType\": 4, \"skinTypeName\": \"Skin\", \"featureTags\": [\"spine\"], \"painting\": \"lafei_12\", \"prefab\": \"lafei_12\", \"dynamicType\": \"spine\", \"isLive2d\": false, \"isLive2dPlus\": false, \"isDynamic\": true, \"isSpine\": true, \"paintingFaceIds\": [\"0\", \"1\", 1, \"\"], \"assetPaths\": {\"squareIcon\": \"squareicon/lafei_12\", \"shipyardIcon\": \"shipyardicon/lafei_12\", \"qIcon\": \"qicon/lafei_12\", \"painting\": \"painting/lafei_12\"}}], \"defaultSkinId\": true}]}",
+      "hashed_index": "{\"generatedAt\": \"2026-11-01T04:33:18.041Z\", \"locale\": \"CN\", \"version\": \"9.7.416\", \"ships\": [{\"shipGroupId\": 20101, \"name\": \"标枪\", \"englishName\": \"\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"biaoqiang_hashed\", \"skins\": [{\"id\": 201011, \"name\": \"Hashed 201011\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"dedec7fd74079a690e58e6cd257372f6\", \"prefab\": \"dedec7fd74079a690e58e6cd257372f6\", \"paintingKeys\": [\"dedec7fd74079a690e58e6cd257372f6\"], \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/dedec7fd74079a690e58e6cd257372f6.webp\", \"shipyardIcon\": \"bb22/dedec7fd74079a690e58e6cd257372f6.webp\", \"qIcon\": \"\", \"painting\": \"cc33/dedec7fd74079a690e58e6cd257372f6.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/dedec7fd74079a690e58e6cd257372f6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/dedec7fd74079a690e58e6cd257372f6-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-2.webp\"}, {\"id\": 3}]}}, {\"id\": 201010, \"name\": \"Hashed 201010\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"cb3f2915c84d8090754a8a1234bf5d66\", \"prefab\": \"cb3f2915c84d8090754a8a1234bf5d66\", \"paintingKeys\": [\"cb3f2915c84d8090754a8a1234bf5d66\"], \"dynamicType\": \"painting\", \"isLive2d\": false, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/cb3f2915c84d8090754a8a1234bf5d66.webp\", \"shipyardIcon\": \"bb22/cb3f2915c84d8090754a8a1234bf5d66.webp\", \"qIcon\": \"\", \"painting\": \"cc33/cb3f2915c84d8090754a8a1234bf5d66.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/cb3f2915c84d8090754a8a1234bf5d66.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/cb3f2915c84d8090754a8a1234bf5d66-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/cb3f2915c84d8090754a8a1234bf5d66-2.webp\"}, {\"id\": 3}]}}, {\"id\": 201099, \"name\": \"Hashed 201099\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"3439e90ab23f79943b02c1dc639910a6\", \"prefab\": \"3439e90ab23f79943b02c1dc639910a6\", \"paintingKeys\": [\"3439e90ab23f79943b02c1dc639910a6\"], \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/3439e90ab23f79943b02c1dc639910a6.webp\", \"shipyardIcon\": \"bb22/3439e90ab23f79943b02c1dc639910a6.webp\", \"qIcon\": \"\", \"painting\": \"cc33/3439e90ab23f79943b02c1dc639910a6.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/3439e90ab23f79943b02c1dc639910a6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/3439e90ab23f79943b02c1dc639910a6-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-2.webp\"}, {\"id\": 3}]}}]}]}",
+      "nagami": "{\"20101\": {\"names\": {\"EN\": \"Javelin\", \"CN\": \"标枪\", \"JP\": \"ジャベリン\"}, \"skins\": [{\"prefab\": \"biaoqiang_2\", \"names\": {\"EN\": \"Gleaming White Blade\"}, \"bg\": \"12\"}, {\"prefab\": \"biaoqiang_9\", \"names\": {\"CN\": \"只在镜像\"}, \"bg\": \"\"}]}, \"10117\": {\"names\": {\"EN\": \"\", \"CN\": \"拉菲\"}, \"skins\": [{\"prefab\": \"lafei_4\", \"names\": {\"JP\": \"白ウサギ\"}, \"bg\": 7}]}, \"shengluyisi_2\": {\"name\": \"St. Louis - Blue and White Pottery\", \"bg\": \"145\"}, \"z23_3\": \"Z23 - B\", \"twin_2\": \"Twin - One\", \"plain\": \"NoDash\"}",
+      "pinned": {
+        "archived": [
+          {
+            "entry_id": "azurlane:live2d:biaoqiang:biaoqiang_2",
+            "completed": true
+          },
+          {
+            "entry_id": "azurlane:live2d:biaoqiang:biaoqiang_3",
+            "completed": false
+          },
+          {
+            "entry_id": "azurlane:live2d:lafei:lafei_4",
+            "completed": false
+          },
+          {
+            "entry_id": "azurlane:live2d:shengluyisi:shengluyisi_2",
+            "completed": false
+          },
+          {
+            "entry_id": "azurlane:painting:biaoqiang:biaoqiang",
+            "completed": true
+          },
+          {
+            "entry_id": "azurlane:painting:biaoqiang:biaoqiang_2",
+            "completed": false
+          },
+          {
+            "entry_id": "azurlane:painting:biaoqiang:biaoqiang_3",
+            "completed": true
+          },
+          {
+            "entry_id": "azurlane:painting:biaoqiang:biaoqiang_4",
+            "completed": false
+          },
+          {
+            "entry_id": "azurlane:painting:lafei:lafei",
+            "completed": true
+          },
+          {
+            "entry_id": "azurlane:painting:lafei:lafei_12",
+            "completed": false
+          },
+          {
+            "entry_id": "azurlane:painting:lafei:lafei_4",
+            "completed": true
+          },
+          {
+            "entry_id": "azurlane:spine:biaoqiang:biaoqiang_4",
+            "completed": false
+          },
+          {
+            "entry_id": "azurlane:spine:lafei:lafei_12",
+            "completed": true
+          }
+        ],
+        "catalog": {
+          "entries": [
+            {
+              "id": "azurlane:live2d:biaoqiang:biaoqiang_2",
+              "type": "live2d",
+              "source": "merged",
+              "character": {
+                "key": "biaoqiang",
+                "id": 20101,
+                "name_zh": "标枪",
+                "name_en": "",
+                "nation": "Royal Navy",
+                "ship_type": "Destroyer",
+                "rarity": "SR",
+                "class_name": "",
+                "default_skin_id": null,
+                "skin_series": [
+                  "Skin"
+                ]
+              },
+              "costume": {
+                "key": "biaoqiang_2",
+                "id": 201011,
+                "name_zh": "Hashed 201011",
+                "name_en": "",
+                "skin_type": "Skin",
+                "feature_tags": [
+                  "Live2D"
+                ],
+                "is_live2d_plus": false,
+                "face_ids": [
+                  "0",
+                  "1"
+                ],
+                "square_icon": "squareicon/biaoqiang_2",
+                "shipyard_icon": "shipyardicon/biaoqiang_2",
+                "q_icon": "qicon/biaoqiang_2",
+                "shop_type": "",
+                "face_urls": []
+              },
+              "resources": {
+                "primary_url": "https://static.l2d.su/al/assets/live2d/biaoqiang_2/biaoqiang_2.model3.json",
+                "fallback_url": "https://cdn.nagami.moe/live2d/biaoqiang_2/biaoqiang_2.model3.json",
+                "display_info_url": "",
+                "painting_index_url": ""
+              },
+              "resource_summary": {
+                "moc3": "",
+                "skeleton": "",
+                "textures": [],
+                "physics": "",
+                "display_info": "",
+                "motions": [],
+                "expressions": [],
+                "has_audio": false,
+                "has_text": false,
+                "has_display_info": false
+              },
+              "availability": {
+                "state": "unchecked",
+                "validated_url": "",
+                "checked_at": "",
+                "message": ""
+              }
+            },
+            {
+              "id": "azurlane:live2d:biaoqiang:skin-201099",
+              "type": "live2d",
+              "source": "l2d.su",
+              "character": {
+                "key": "biaoqiang",
+                "id": 20101,
+                "name_zh": "标枪",
+                "name_en": "",
+                "nation": "Royal Navy",
+                "ship_type": "Destroyer",
+                "rarity": "SR",
+                "class_name": "",
+                "default_skin_id": null,
+                "skin_series": [
+                  "Skin"
+                ]
+              },
+              "costume": {
+                "key": "skin-201099",
+                "id": 201099,
+                "name_zh": "Hashed 201099",
+                "name_en": "",
+                "skin_type": "Skin",
+                "feature_tags": [
+                  "Live2D"
+                ],
+                "is_live2d_plus": false,
+                "face_ids": [
+                  "1",
+                  "2"
+                ],
+                "square_icon": "https://static.l2d.su/al/assets/aa11/3439e90ab23f79943b02c1dc639910a6.webp",
+                "shipyard_icon": "https://static.l2d.su/al/assets/bb22/3439e90ab23f79943b02c1dc639910a6.webp",
+                "q_icon": "",
+                "shop_type": "",
+                "face_urls": [
+                  [
+                    "1",
+                    "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-1.webp"
+                  ],
+                  [
+                    "2",
+                    "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-2.webp"
+                  ]
+                ]
+              },
+              "resources": {
+                "primary_url": "",
+                "fallback_url": "",
+                "display_info_url": "",
+                "painting_index_url": "https://static.l2d.su/al/assets/cc33/3439e90ab23f79943b02c1dc639910a6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+              },
+              "resource_summary": {
+                "moc3": "",
+                "skeleton": "",
+                "textures": [],
+                "physics": "",
+                "display_info": "",
+                "motions": [],
+                "expressions": [],
+                "has_audio": false,
+                "has_text": false,
+                "has_display_info": false
+              },
+              "availability": {
+                "state": "unchecked",
+                "validated_url": "",
+                "checked_at": "",
+                "message": ""
+              }
+            },
+            {
+              "id": "azurlane:live2d:shengluyisi:shengluyisi_2",
+              "type": "live2d",
+              "source": "nagami",
+              "character": {
+                "key": "shengluyisi",
+                "id": null,
+                "name_zh": "",
+                "name_en": "St. Louis",
+                "nation": "",
+                "ship_type": "",
+                "rarity": "",
+                "class_name": "",
+                "default_skin_id": null,
+                "skin_series": []
+              },
+              "costume": {
+                "key": "shengluyisi_2",
+                "id": null,
+                "name_zh": "",
+                "name_en": "Blue and White Pottery",
+                "skin_type": "",
+                "feature_tags": [],
+                "is_live2d_plus": false,
+                "face_ids": [],
+                "square_icon": "",
+                "shipyard_icon": "",
+                "q_icon": "",
+                "shop_type": "",
+                "face_urls": []
+              },
+              "resources": {
+                "primary_url": "https://cdn.nagami.moe/live2d/shengluyisi_2/shengluyisi_2.model3.json",
+                "fallback_url": "",
+                "display_info_url": "",
+                "painting_index_url": ""
+              },
+              "resource_summary": {
+                "moc3": "",
+                "skeleton": "",
+                "textures": [],
+                "physics": "",
+                "display_info": "",
+                "motions": [],
+                "expressions": [],
+                "has_audio": false,
+                "has_text": false,
+                "has_display_info": false
+              },
+              "availability": {
+                "state": "unchecked",
+                "validated_url": "",
+                "checked_at": "",
+                "message": ""
+              }
+            },
+            {
+              "id": "azurlane:painting:biaoqiang:biaoqiang",
+              "type": "painting",
+              "source": "l2d.su",
+              "character": {
+                "key": "biaoqiang",
+                "id": 20101,
+                "name_zh": "标枪",
+                "name_en": "",
+                "nation": "Royal Navy",
+                "ship_type": "Destroyer",
+                "rarity": "SR",
+                "class_name": "",
+                "default_skin_id": null,
+                "skin_series": [
+                  "Skin"
+                ]
+              },
+              "costume": {
+                "key": "biaoqiang",
+                "id": 201010,
+                "name_zh": "Hashed 201010",
+                "name_en": "",
+                "skin_type": "Skin",
+                "feature_tags": [
+                  "Live2D"
+                ],
+                "is_live2d_plus": false,
+                "face_ids": [
+                  "0",
+                  "1"
+                ],
+                "square_icon": "squareicon/biaoqiang",
+                "shipyard_icon": "shipyardicon/biaoqiang",
+                "q_icon": "qicon/biaoqiang",
+                "shop_type": "",
+                "face_urls": []
+              },
+              "resources": {
+                "primary_url": "https://static.l2d.su/al/assets/painting/biaoqiang.webp",
+                "fallback_url": "",
+                "display_info_url": "",
+                "painting_index_url": ""
+              },
+              "resource_summary": {
+                "moc3": "",
+                "skeleton": "",
+                "textures": [],
+                "physics": "",
+                "display_info": "",
+                "motions": [],
+                "expressions": [],
+                "has_audio": false,
+                "has_text": false,
+                "has_display_info": false
+              },
+              "availability": {
+                "state": "unchecked",
+                "validated_url": "",
+                "checked_at": "",
+                "message": ""
+              }
+            },
+            {
+              "id": "azurlane:painting:biaoqiang:biaoqiang_2",
+              "type": "painting",
+              "source": "l2d.su",
+              "character": {
+                "key": "biaoqiang",
+                "id": 20101,
+                "name_zh": "标枪",
+                "name_en": "",
+                "nation": "Royal Navy",
+                "ship_type": "Destroyer",
+                "rarity": "SR",
+                "class_name": "",
+                "default_skin_id": null,
+                "skin_series": [
+                  "Skin"
+                ]
+              },
+              "costume": {
+                "key": "biaoqiang_2",
+                "id": 201011,
+                "name_zh": "Hashed 201011",
+                "name_en": "",
+                "skin_type": "Skin",
+                "feature_tags": [
+                  "Live2D"
+                ],
+                "is_live2d_plus": false,
+                "face_ids": [
+                  "1",
+                  "2"
+                ],
+                "square_icon": "https://static.l2d.su/al/assets/aa11/dedec7fd74079a690e58e6cd257372f6.webp",
+                "shipyard_icon": "https://static.l2d.su/al/assets/bb22/dedec7fd74079a690e58e6cd257372f6.webp",
+                "q_icon": "",
+                "shop_type": "",
+                "face_urls": [
+                  [
+                    "1",
+                    "https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-1.webp"
+                  ],
+                  [
+                    "2",
+                    "https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-2.webp"
+                  ]
+                ]
+              },
+              "resources": {
+                "primary_url": "https://static.l2d.su/al/assets/cc33/dedec7fd74079a690e58e6cd257372f6.webp",
+                "fallback_url": "",
+                "display_info_url": "",
+                "painting_index_url": "https://static.l2d.su/al/assets/cc33/dedec7fd74079a690e58e6cd257372f6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+              },
+              "resource_summary": {
+                "moc3": "",
+                "skeleton": "",
+                "textures": [],
+                "physics": "",
+                "display_info": "",
+                "motions": [],
+                "expressions": [],
+                "has_audio": false,
+                "has_text": false,
+                "has_display_info": false
+              },
+              "availability": {
+                "state": "unchecked",
+                "validated_url": "",
+                "checked_at": "",
+                "message": ""
+              }
+            },
+            {
+              "id": "azurlane:painting:biaoqiang:skin-201099",
+              "type": "painting",
+              "source": "l2d.su",
+              "character": {
+                "key": "biaoqiang",
+                "id": 20101,
+                "name_zh": "标枪",
+                "name_en": "",
+                "nation": "Royal Navy",
+                "ship_type": "Destroyer",
+                "rarity": "SR",
+                "class_name": "",
+                "default_skin_id": null,
+                "skin_series": [
+                  "Skin"
+                ]
+              },
+              "costume": {
+                "key": "skin-201099",
+                "id": 201099,
+                "name_zh": "Hashed 201099",
+                "name_en": "",
+                "skin_type": "Skin",
+                "feature_tags": [
+                  "Live2D"
+                ],
+                "is_live2d_plus": false,
+                "face_ids": [
+                  "1",
+                  "2"
+                ],
+                "square_icon": "https://static.l2d.su/al/assets/aa11/3439e90ab23f79943b02c1dc639910a6.webp",
+                "shipyard_icon": "https://static.l2d.su/al/assets/bb22/3439e90ab23f79943b02c1dc639910a6.webp",
+                "q_icon": "",
+                "shop_type": "",
+                "face_urls": [
+                  [
+                    "1",
+                    "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-1.webp"
+                  ],
+                  [
+                    "2",
+                    "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-2.webp"
+                  ]
+                ]
+              },
+              "resources": {
+                "primary_url": "https://static.l2d.su/al/assets/cc33/3439e90ab23f79943b02c1dc639910a6.webp",
+                "fallback_url": "",
+                "display_info_url": "",
+                "painting_index_url": "https://static.l2d.su/al/assets/cc33/3439e90ab23f79943b02c1dc639910a6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+              },
+              "resource_summary": {
+                "moc3": "",
+                "skeleton": "",
+                "textures": [],
+                "physics": "",
+                "display_info": "",
+                "motions": [],
+                "expressions": [],
+                "has_audio": false,
+                "has_text": false,
+                "has_display_info": false
+              },
+              "availability": {
+                "state": "unchecked",
+                "validated_url": "",
+                "checked_at": "",
+                "message": ""
+              }
+            }
+          ],
+          "nagami_fallback_candidates": [
+            {
+              "key": "biaoqiang_2",
+              "character_key": "biaoqiang",
+              "costume_key": "biaoqiang_2",
+              "name": "Javelin - Gleaming White Blade",
+              "character_name_en": "Javelin",
+              "costume_name_en": "Gleaming White Blade",
+              "url": "https://cdn.nagami.moe/live2d/biaoqiang_2/biaoqiang_2.model3.json"
+            },
+            {
+              "key": "biaoqiang_9",
+              "character_key": "biaoqiang",
+              "costume_key": "biaoqiang_9",
+              "name": "Javelin - 只在镜像",
+              "character_name_en": "Javelin",
+              "costume_name_en": "只在镜像",
+              "url": "https://cdn.nagami.moe/live2d/biaoqiang_9/biaoqiang_9.model3.json"
+            },
+            {
+              "key": "lafei_4",
+              "character_key": "lafei",
+              "costume_key": "lafei_4",
+              "name": "拉菲 - 白ウサギ",
+              "character_name_en": "拉菲",
+              "costume_name_en": "白ウサギ",
+              "url": "https://cdn.nagami.moe/live2d/lafei_4/lafei_4.model3.json"
+            },
+            {
+              "key": "plain",
+              "character_key": "plain",
+              "costume_key": "plain",
+              "name": "NoDash",
+              "character_name_en": "NoDash",
+              "costume_name_en": "",
+              "url": "https://cdn.nagami.moe/live2d/plain/plain.model3.json"
+            },
+            {
+              "key": "shengluyisi_2",
+              "character_key": "shengluyisi",
+              "costume_key": "shengluyisi_2",
+              "name": "St. Louis - Blue and White Pottery",
+              "character_name_en": "St. Louis",
+              "costume_name_en": "Blue and White Pottery",
+              "url": "https://cdn.nagami.moe/live2d/shengluyisi_2/shengluyisi_2.model3.json"
+            },
+            {
+              "key": "twin_2",
+              "character_key": "twin",
+              "costume_key": "twin_2",
+              "name": "Twin - One",
+              "character_name_en": "Twin",
+              "costume_name_en": "One",
+              "url": "https://cdn.nagami.moe/live2d/twin_2/twin_2.model3.json"
+            },
+            {
+              "key": "z23_3",
+              "character_key": "z23",
+              "costume_key": "z23_3",
+              "name": "Z23 - B",
+              "character_name_en": "Z23",
+              "costume_name_en": "B",
+              "url": "https://cdn.nagami.moe/live2d/z23_3/z23_3.model3.json"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "hashed_index": "{\"generatedAt\": \"2026-11-01T04:33:18.041Z\", \"locale\": \"CN\", \"version\": \"9.7.416\", \"ships\": [{\"shipGroupId\": 20101, \"name\": \"标枪\", \"englishName\": \"\", \"nationName\": \"Royal Navy\", \"typeName\": \"Destroyer\", \"rarityName\": \"SR\", \"resourceKey\": \"biaoqiang_hashed\", \"skins\": [{\"id\": 201011, \"name\": \"Hashed 201011\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"dedec7fd74079a690e58e6cd257372f6\", \"prefab\": \"dedec7fd74079a690e58e6cd257372f6\", \"paintingKeys\": [\"dedec7fd74079a690e58e6cd257372f6\"], \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/dedec7fd74079a690e58e6cd257372f6.webp\", \"shipyardIcon\": \"bb22/dedec7fd74079a690e58e6cd257372f6.webp\", \"qIcon\": \"\", \"painting\": \"cc33/dedec7fd74079a690e58e6cd257372f6.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/dedec7fd74079a690e58e6cd257372f6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/dedec7fd74079a690e58e6cd257372f6-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-2.webp\"}, {\"id\": 3}]}}, {\"id\": 201010, \"name\": \"Hashed 201010\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"cb3f2915c84d8090754a8a1234bf5d66\", \"prefab\": \"cb3f2915c84d8090754a8a1234bf5d66\", \"paintingKeys\": [\"cb3f2915c84d8090754a8a1234bf5d66\"], \"dynamicType\": \"painting\", \"isLive2d\": false, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/cb3f2915c84d8090754a8a1234bf5d66.webp\", \"shipyardIcon\": \"bb22/cb3f2915c84d8090754a8a1234bf5d66.webp\", \"qIcon\": \"\", \"painting\": \"cc33/cb3f2915c84d8090754a8a1234bf5d66.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/cb3f2915c84d8090754a8a1234bf5d66.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/cb3f2915c84d8090754a8a1234bf5d66-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/cb3f2915c84d8090754a8a1234bf5d66-2.webp\"}, {\"id\": 3}]}}, {\"id\": 201099, \"name\": \"Hashed 201099\", \"skinTypeName\": \"Skin\", \"featureTags\": [\"Live2D\"], \"painting\": \"3439e90ab23f79943b02c1dc639910a6\", \"prefab\": \"3439e90ab23f79943b02c1dc639910a6\", \"paintingKeys\": [\"3439e90ab23f79943b02c1dc639910a6\"], \"dynamicType\": \"live2d\", \"isLive2d\": true, \"isSpine\": false, \"paintingFaceIds\": [\"1\", \"2\"], \"directResources\": true, \"assetPaths\": {\"squareIcon\": \"aa11/3439e90ab23f79943b02c1dc639910a6.webp\", \"shipyardIcon\": \"bb22/3439e90ab23f79943b02c1dc639910a6.webp\", \"qIcon\": \"\", \"painting\": \"cc33/3439e90ab23f79943b02c1dc639910a6.webp\", \"paintingPaths\": [\"cc33/00000000000000000000000000000000.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\", \"cc33/3439e90ab23f79943b02c1dc639910a6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\"], \"paintingFaces\": [{\"id\": \"1\", \"url\": \"dd44/3439e90ab23f79943b02c1dc639910a6-1.webp\"}, {\"id\": \"2\", \"url\": \"https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-2.webp\"}, {\"id\": 3}]}}]}]}",
+      "nagami": "{\"20101\": {\"names\": {\"EN\": \"Javelin\", \"CN\": \"标枪\", \"JP\": \"ジャベリン\"}, \"skins\": [{\"prefab\": \"biaoqiang_2\", \"names\": {\"EN\": \"Gleaming White Blade\"}, \"bg\": \"12\"}, {\"prefab\": \"biaoqiang_9\", \"names\": {\"CN\": \"只在镜像\"}, \"bg\": \"\"}]}, \"10117\": {\"names\": {\"EN\": \"\", \"CN\": \"拉菲\"}, \"skins\": [{\"prefab\": \"lafei_4\", \"names\": {\"JP\": \"白ウサギ\"}, \"bg\": 7}]}, \"shengluyisi_2\": {\"name\": \"St. Louis - Blue and White Pottery\", \"bg\": \"145\"}, \"z23_3\": \"Z23 - B\", \"twin_2\": \"Twin - One\", \"plain\": \"NoDash\"}",
+      "archived": [
+        {
+          "entry": {
+            "id": "live2d:biaoqiang_a:unfinished",
+            "type": "live2d",
+            "source": "l2d.su",
+            "character": {
+              "key": "biaoqiang_hashed",
+              "id": 20101,
+              "name_zh": "标枪",
+              "name_en": "",
+              "nation": "Royal Navy",
+              "ship_type": "Destroyer",
+              "rarity": "SR",
+              "class_name": "",
+              "default_skin_id": null,
+              "skin_series": [
+                "Skin"
+              ]
+            },
+            "costume": {
+              "key": "skin-201011",
+              "id": 201011,
+              "name_zh": "Hashed 201011",
+              "name_en": "",
+              "skin_type": "Skin",
+              "feature_tags": [
+                "Live2D"
+              ],
+              "is_live2d_plus": false,
+              "face_ids": [
+                "1",
+                "2"
+              ],
+              "square_icon": "https://static.l2d.su/al/assets/aa11/dedec7fd74079a690e58e6cd257372f6.webp",
+              "shipyard_icon": "https://static.l2d.su/al/assets/bb22/dedec7fd74079a690e58e6cd257372f6.webp",
+              "q_icon": "",
+              "shop_type": "",
+              "face_urls": [
+                [
+                  "1",
+                  "https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-1.webp"
+                ],
+                [
+                  "2",
+                  "https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-2.webp"
+                ]
+              ]
+            },
+            "resources": {
+              "primary_url": "",
+              "fallback_url": "",
+              "display_info_url": "",
+              "painting_index_url": "https://static.l2d.su/al/assets/cc33/dedec7fd74079a690e58e6cd257372f6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            },
+            "resource_summary": {
+              "moc3": "",
+              "skeleton": "",
+              "textures": [],
+              "physics": "",
+              "display_info": "",
+              "motions": [],
+              "expressions": [],
+              "has_audio": false,
+              "has_text": false,
+              "has_display_info": false
+            },
+            "availability": {
+              "state": "unchecked",
+              "validated_url": "",
+              "checked_at": "",
+              "message": ""
+            }
+          },
+          "completed": false
+        },
+        {
+          "entry": {
+            "id": "live2d:biaoqiang_z:completed",
+            "type": "live2d",
+            "source": "l2d.su",
+            "character": {
+              "key": "biaoqiang_hashed",
+              "id": 20101,
+              "name_zh": "标枪",
+              "name_en": "",
+              "nation": "Royal Navy",
+              "ship_type": "Destroyer",
+              "rarity": "SR",
+              "class_name": "",
+              "default_skin_id": null,
+              "skin_series": [
+                "Skin"
+              ]
+            },
+            "costume": {
+              "key": "skin-201011",
+              "id": 201011,
+              "name_zh": "Hashed 201011",
+              "name_en": "",
+              "skin_type": "Skin",
+              "feature_tags": [
+                "Live2D"
+              ],
+              "is_live2d_plus": false,
+              "face_ids": [
+                "1",
+                "2"
+              ],
+              "square_icon": "https://static.l2d.su/al/assets/aa11/dedec7fd74079a690e58e6cd257372f6.webp",
+              "shipyard_icon": "https://static.l2d.su/al/assets/bb22/dedec7fd74079a690e58e6cd257372f6.webp",
+              "q_icon": "",
+              "shop_type": "",
+              "face_urls": [
+                [
+                  "1",
+                  "https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-1.webp"
+                ],
+                [
+                  "2",
+                  "https://static.l2d.su/al/assets/dd44/dedec7fd74079a690e58e6cd257372f6-2.webp"
+                ]
+              ]
+            },
+            "resources": {
+              "primary_url": "",
+              "fallback_url": "",
+              "display_info_url": "",
+              "painting_index_url": "https://static.l2d.su/al/assets/cc33/dedec7fd74079a690e58e6cd257372f6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            },
+            "resource_summary": {
+              "moc3": "",
+              "skeleton": "",
+              "textures": [],
+              "physics": "",
+              "display_info": "",
+              "motions": [],
+              "expressions": [],
+              "has_audio": false,
+              "has_text": false,
+              "has_display_info": false
+            },
+            "availability": {
+              "state": "unchecked",
+              "validated_url": "",
+              "checked_at": "",
+              "message": ""
+            }
+          },
+          "completed": true
+        },
+        {
+          "entry": {
+            "id": "live2d:biaoqiang_b:asset-1",
+            "type": "live2d",
+            "source": "l2d.su",
+            "character": {
+              "key": "biaoqiang_hashed",
+              "id": 20101,
+              "name_zh": "标枪",
+              "name_en": "",
+              "nation": "Royal Navy",
+              "ship_type": "Destroyer",
+              "rarity": "SR",
+              "class_name": "",
+              "default_skin_id": null,
+              "skin_series": [
+                "Skin"
+              ]
+            },
+            "costume": {
+              "key": "skin-201099",
+              "id": 201099,
+              "name_zh": "Hashed 201099",
+              "name_en": "",
+              "skin_type": "Skin",
+              "feature_tags": [
+                "Live2D"
+              ],
+              "is_live2d_plus": false,
+              "face_ids": [
+                "1",
+                "2"
+              ],
+              "square_icon": "https://static.l2d.su/al/assets/aa11/3439e90ab23f79943b02c1dc639910a6.webp",
+              "shipyard_icon": "https://static.l2d.su/al/assets/bb22/3439e90ab23f79943b02c1dc639910a6.webp",
+              "q_icon": "",
+              "shop_type": "",
+              "face_urls": [
+                [
+                  "1",
+                  "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-1.webp"
+                ],
+                [
+                  "2",
+                  "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-2.webp"
+                ]
+              ]
+            },
+            "resources": {
+              "primary_url": "",
+              "fallback_url": "",
+              "display_info_url": "",
+              "painting_index_url": "https://static.l2d.su/al/assets/cc33/3439e90ab23f79943b02c1dc639910a6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            },
+            "resource_summary": {
+              "moc3": "",
+              "skeleton": "",
+              "textures": [],
+              "physics": "",
+              "display_info": "",
+              "motions": [],
+              "expressions": [],
+              "has_audio": false,
+              "has_text": false,
+              "has_display_info": false
+            },
+            "availability": {
+              "state": "unchecked",
+              "validated_url": "",
+              "checked_at": "",
+              "message": ""
+            }
+          },
+          "completed": true
+        },
+        {
+          "entry": {
+            "id": "live2d:biaoqiang_y:completed",
+            "type": "live2d",
+            "source": "l2d.su",
+            "character": {
+              "key": "biaoqiang_hashed",
+              "id": 20101,
+              "name_zh": "标枪",
+              "name_en": "",
+              "nation": "Royal Navy",
+              "ship_type": "Destroyer",
+              "rarity": "SR",
+              "class_name": "",
+              "default_skin_id": null,
+              "skin_series": [
+                "Skin"
+              ]
+            },
+            "costume": {
+              "key": "skin-201099",
+              "id": 201099,
+              "name_zh": "Hashed 201099",
+              "name_en": "",
+              "skin_type": "Skin",
+              "feature_tags": [
+                "Live2D"
+              ],
+              "is_live2d_plus": false,
+              "face_ids": [
+                "1",
+                "2"
+              ],
+              "square_icon": "https://static.l2d.su/al/assets/aa11/3439e90ab23f79943b02c1dc639910a6.webp",
+              "shipyard_icon": "https://static.l2d.su/al/assets/bb22/3439e90ab23f79943b02c1dc639910a6.webp",
+              "q_icon": "",
+              "shop_type": "",
+              "face_urls": [
+                [
+                  "1",
+                  "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-1.webp"
+                ],
+                [
+                  "2",
+                  "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-2.webp"
+                ]
+              ]
+            },
+            "resources": {
+              "primary_url": "",
+              "fallback_url": "",
+              "display_info_url": "",
+              "painting_index_url": "https://static.l2d.su/al/assets/cc33/3439e90ab23f79943b02c1dc639910a6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            },
+            "resource_summary": {
+              "moc3": "",
+              "skeleton": "",
+              "textures": [],
+              "physics": "",
+              "display_info": "",
+              "motions": [],
+              "expressions": [],
+              "has_audio": false,
+              "has_text": false,
+              "has_display_info": false
+            },
+            "availability": {
+              "state": "unchecked",
+              "validated_url": "",
+              "checked_at": "",
+              "message": ""
+            }
+          },
+          "completed": true
+        },
+        {
+          "entry": {
+            "id": "live2d:biaoqiang_x:completed",
+            "type": "live2d",
+            "source": "l2d.su",
+            "character": {
+              "key": "biaoqiang_hashed",
+              "id": 20101,
+              "name_zh": "标枪",
+              "name_en": "",
+              "nation": "Royal Navy",
+              "ship_type": "Destroyer",
+              "rarity": "SR",
+              "class_name": "",
+              "default_skin_id": null,
+              "skin_series": [
+                "Skin"
+              ]
+            },
+            "costume": {
+              "key": "skin-201099",
+              "id": 201099,
+              "name_zh": "Hashed 201099",
+              "name_en": "",
+              "skin_type": "Skin",
+              "feature_tags": [
+                "Live2D"
+              ],
+              "is_live2d_plus": false,
+              "face_ids": [
+                "1",
+                "2"
+              ],
+              "square_icon": "https://static.l2d.su/al/assets/aa11/3439e90ab23f79943b02c1dc639910a6.webp",
+              "shipyard_icon": "https://static.l2d.su/al/assets/bb22/3439e90ab23f79943b02c1dc639910a6.webp",
+              "q_icon": "",
+              "shop_type": "",
+              "face_urls": [
+                [
+                  "1",
+                  "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-1.webp"
+                ],
+                [
+                  "2",
+                  "https://static.l2d.su/al/assets/dd44/3439e90ab23f79943b02c1dc639910a6-2.webp"
+                ]
+              ]
+            },
+            "resources": {
+              "primary_url": "",
+              "fallback_url": "",
+              "display_info_url": "",
+              "painting_index_url": "https://static.l2d.su/al/assets/cc33/3439e90ab23f79943b02c1dc639910a6.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            },
+            "resource_summary": {
+              "moc3": "",
+              "skeleton": "",
+              "textures": [],
+              "physics": "",
+              "display_info": "",
+              "motions": [],
+              "expressions": [],
+              "has_audio": false,
+              "has_text": false,
+              "has_display_info": false
+            },
+            "availability": {
+              "state": "unchecked",
+              "validated_url": "",
+              "checked_at": "",
+              "message": ""
+            }
+          },
+          "completed": true
+        }
+      ],
+      "pinned_ids": [
+        "azurlane:painting:biaoqiang_hashed:skin-201010",
+        "azurlane:painting:biaoqiang_hashed:skin-201011",
+        "azurlane:painting:biaoqiang_hashed:skin-201099",
+        "live2d:biaoqiang_x:completed",
+        "live2d:biaoqiang_z:completed"
+      ]
+    }
+  ]
+}

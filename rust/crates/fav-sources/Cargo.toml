@@ -17,8 +17,11 @@ fav-net.workspace = true
 fav-runtime.workspace = true
 fav-browser.workspace = true
 aes.workspace = true
+aes-gcm.workspace = true
+blake2.workspace = true
 bytes.workspace = true
 chrono.workspace = true
+flate2.workspace = true
 futures-util = { workspace = true, features = ["alloc"] }
 # Bilibili: the ticket signature (HMAC-SHA256) and the refresh path (RSA-OAEP with SHA-256).
 hmac.workspace = true
@@ -37,6 +40,7 @@ sqlx.workspace = true
 tempfile = "3"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "process", "sync", "time"] }
+unicode-normalization.workspace = true
 url.workspace = true
 webp-animation = { workspace = true, features = ["static"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
