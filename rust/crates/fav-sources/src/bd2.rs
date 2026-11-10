@@ -2,15 +2,14 @@
 //! the BD2-L2D-Viewer repository filling in and correcting the Live2D files.
 //!
 //! Python origin: `src/web/bd2.py` (the `BD2` job). The pure page parsing is in
-//! [`extract`]; the GameKee helpers Python imports from `src/web/nikke.py` and the discovery
-//! helpers from `src/tool/content_discovery.py` are private copies in [`gamekee`] and
-//! [`discovery`] until WP9 (NIKKE) has merged (`rust/docs/PLAN.md`, cleanup notes).
+//! [`extract`]; the discovery helpers are [`crate::content_discovery`], shared with NIKKE. The
+//! GameKee helpers Python imports from `src/web/nikke.py` are still BD2's copy in
+//! [`gamekee`] (`rust/docs/PLAN.md`, cleanup notes).
 //!
 //! Downloads go through a content-addressed blob store under `<root>/_blobs`, each page's
 //! files being hard links to it, as in Python. The run holds the `bd2` advisory lock; the
 //! tables are created by the schema, not by the run (DIVERGENCES.md D96).
 
-mod discovery;
 mod extract;
 mod gamekee;
 #[cfg(test)]
@@ -49,6 +48,7 @@ use self::extract::{
 };
 use self::gamekee::{Asset, Assets, add_asset, asset_headers, normalize_url, parse_spine_atlas_textures, response_json, write_json};
 use crate::bd2_l2d_viewer::{self, VIEWER_PAGE_URL, ViewerResource};
+use crate::content_discovery as discovery;
 use crate::kit::{OutboxNotifier, SharedNotifier, blocking};
 use crate::{SourceContext, db_job_error, pyerr, settings_job_error};
 

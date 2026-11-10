@@ -92,6 +92,15 @@ pub(crate) enum Endpoint {
     ListNikkeCharacters,
     ListNikkeSidebarCharacters,
     GetNikkeCharacter,
+    GetNikkeLive2DViewOverride,
+    PutNikkeLive2DViewOverride,
+    DeleteNikkeLive2DViewOverride,
+    ListBd2Characters,
+    ListBd2SidebarCharacters,
+    GetBd2Character,
+    GetBd2Live2DViewOverride,
+    PutBd2Live2DViewOverride,
+    DeleteBd2Live2DViewOverride,
     ListSiteSessions,
     GetSiteCredential,
     /// The MCP endpoint, a plain route for every method (`crate::mcp`).
@@ -116,6 +125,9 @@ const PUT: &[&str] = &["PUT"];
 const DELETE: &[&str] = &["DELETE"];
 /// A route without methods (an ASGI app as the endpoint) takes every method.
 const ANY: &[&str] = &[];
+
+const BD2_VIEW_OVERRIDE_PATH: &str = "/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}";
+const NIKKE_VIEW_OVERRIDE_PATH: &str = "/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}";
 
 /// The routes in Python's registration order: FastAPI's documents first, then the API
 /// router, the credentials router, the MCP endpoint, the system routes, and the front
@@ -247,6 +259,51 @@ const ROUTES: &[Route] = &[
         endpoint: Endpoint::GetNikkeCharacter,
     },
     Route {
+        path: NIKKE_VIEW_OVERRIDE_PATH,
+        methods: GET,
+        endpoint: Endpoint::GetNikkeLive2DViewOverride,
+    },
+    Route {
+        path: NIKKE_VIEW_OVERRIDE_PATH,
+        methods: PUT,
+        endpoint: Endpoint::PutNikkeLive2DViewOverride,
+    },
+    Route {
+        path: NIKKE_VIEW_OVERRIDE_PATH,
+        methods: DELETE,
+        endpoint: Endpoint::DeleteNikkeLive2DViewOverride,
+    },
+    Route {
+        path: "/api/v2/bd2/characters",
+        methods: GET,
+        endpoint: Endpoint::ListBd2Characters,
+    },
+    Route {
+        path: "/api/v2/bd2/sidebar/characters",
+        methods: GET,
+        endpoint: Endpoint::ListBd2SidebarCharacters,
+    },
+    Route {
+        path: "/api/v2/bd2/characters/{content_id}",
+        methods: GET,
+        endpoint: Endpoint::GetBd2Character,
+    },
+    Route {
+        path: BD2_VIEW_OVERRIDE_PATH,
+        methods: GET,
+        endpoint: Endpoint::GetBd2Live2DViewOverride,
+    },
+    Route {
+        path: BD2_VIEW_OVERRIDE_PATH,
+        methods: PUT,
+        endpoint: Endpoint::PutBd2Live2DViewOverride,
+    },
+    Route {
+        path: BD2_VIEW_OVERRIDE_PATH,
+        methods: DELETE,
+        endpoint: Endpoint::DeleteBd2Live2DViewOverride,
+    },
+    Route {
         path: "/api/v2/site-sessions",
         methods: GET,
         endpoint: Endpoint::ListSiteSessions,
@@ -299,6 +356,15 @@ impl Endpoint {
                 | Self::ListNikkeCharacters
                 | Self::ListNikkeSidebarCharacters
                 | Self::GetNikkeCharacter
+                | Self::GetNikkeLive2DViewOverride
+                | Self::PutNikkeLive2DViewOverride
+                | Self::DeleteNikkeLive2DViewOverride
+                | Self::ListBd2Characters
+                | Self::ListBd2SidebarCharacters
+                | Self::GetBd2Character
+                | Self::GetBd2Live2DViewOverride
+                | Self::PutBd2Live2DViewOverride
+                | Self::DeleteBd2Live2DViewOverride
                 | Self::ListSiteSessions
         )
     }

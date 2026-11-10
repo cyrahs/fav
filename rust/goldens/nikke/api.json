@@ -1537,7 +1537,7 @@
                   ],
                   "live2d_models": [
                     {
-                      "model_id": "",
+                      "model_id": "stable-main",
                       "label": "live2d（full）",
                       "section": "style",
                       "row_index": 5,
@@ -1718,7 +1718,7 @@
                       }
                     },
                     {
-                      "model_id": "",
+                      "model_id": "stable-back",
                       "label": "live2d（full）",
                       "section": "style",
                       "row_index": 5,
@@ -1852,7 +1852,7 @@
                       }
                     },
                     {
-                      "model_id": "",
+                      "model_id": "stable-front",
                       "label": "live2d（full）",
                       "section": "style",
                       "row_index": 5,
@@ -1908,7 +1908,7 @@
                       }
                     },
                     {
-                      "model_id": "",
+                      "model_id": "aim",
                       "label": "live2d（aim）",
                       "section": "style",
                       "row_index": 5,
@@ -1954,7 +1954,7 @@
                       }
                     },
                     {
-                      "model_id": "",
+                      "model_id": "cover-1",
                       "label": "cover",
                       "section": "style",
                       "row_index": 5,
@@ -2270,7 +2270,7 @@
                   ],
                   "live2d_models": [
                     {
-                      "model_id": "",
+                      "model_id": "summer",
                       "label": "live2d（full）",
                       "section": "style",
                       "row_index": 5,
@@ -2341,7 +2341,7 @@
               ],
               "live2d_models": [
                 {
-                  "model_id": "",
+                  "model_id": "stable-main",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -2522,7 +2522,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "stable-back",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -2656,7 +2656,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "stable-front",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -2712,7 +2712,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "aim",
                   "label": "live2d（aim）",
                   "section": "style",
                   "row_index": 5,
@@ -2758,7 +2758,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "cover-1",
                   "label": "cover",
                   "section": "style",
                   "row_index": 5,
@@ -2806,7 +2806,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "summer",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -4568,7 +4568,7 @@
               ],
               "live2d_models": [
                 {
-                  "model_id": "",
+                  "model_id": "a",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -4614,7 +4614,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "b",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -4916,7 +4916,7 @@
               "skins": [],
               "live2d_models": [
                 {
-                  "model_id": "",
+                  "model_id": "n1",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -4962,7 +4962,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "z1",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -5008,7 +5008,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "m1",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -5054,7 +5054,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "n2",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -5100,7 +5100,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "z2",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -5146,7 +5146,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "m2",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -5192,7 +5192,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "t1",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,
@@ -5238,7 +5238,7 @@
                   }
                 },
                 {
-                  "model_id": "",
+                  "model_id": "t2",
                   "label": "live2d（full）",
                   "section": "style",
                   "row_index": 5,

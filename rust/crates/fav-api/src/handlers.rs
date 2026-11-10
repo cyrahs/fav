@@ -21,9 +21,10 @@ use fav_sources::kemono_creator::ResolveError;
 use regex::Regex;
 
 use crate::error::ApiError;
+use crate::live2d_overrides::{self, Live2DSource};
 use crate::params::{self, BigInt, Body, Errors, IntBounds, Source, StrRules};
 use crate::router::{Endpoint, PathParams, Request, json_response};
-use crate::{ApiState, archive, credentials, hanime1, json, masking, nikke, openapi, site_logins, web};
+use crate::{ApiState, archive, bd2, credentials, hanime1, json, masking, nikke, openapi, site_logins, web};
 
 const AUTH_PREFIX: &str = "Bearer ";
 
@@ -107,13 +108,16 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         | Endpoint::UpdateSettingsSection
         | Endpoint::CreateHanime1Seed
         | Endpoint::CreateHanime1Author
-        | Endpoint::ResolveKemonoCreator => params::read_body(&request.body, request.header("content-type").as_deref())?,
+        | Endpoint::ResolveKemonoCreator
+        | Endpoint::PutBd2Live2DViewOverride
+        | Endpoint::PutNikkeLive2DViewOverride => params::read_body(&request.body, request.header("content-type").as_deref())?,
         _ => Body::Absent,
     };
     if endpoint.needs_api_token() {
         authenticate(state, request)?;
     }
     let path = |name: &str| params.iter().find(|(key, _)| *key == name).map(|(_, value)| value.as_str());
+    let owned_path = |name: &str| path(name).map(str::to_owned);
     match endpoint {
         Endpoint::OpenApi => Ok(json_response(200, &openapi::document_value())),
         Endpoint::Docs => Ok(web::html(web::SWAGGER_UI_HTML)),
@@ -145,6 +149,15 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::ListNikkeCharacters => nikke::list_characters(state, request).await,
         Endpoint::ListNikkeSidebarCharacters => nikke::list_sidebar_characters(state, request).await,
         Endpoint::GetNikkeCharacter => nikke::get_character(state, path("content_id")).await,
+        Endpoint::GetNikkeLive2DViewOverride => live2d_overrides::get_override(state, Live2DSource::Nikke, &owned_path).await,
+        Endpoint::PutNikkeLive2DViewOverride => live2d_overrides::put_override(state, Live2DSource::Nikke, &owned_path, &body).await,
+        Endpoint::DeleteNikkeLive2DViewOverride => live2d_overrides::delete_override(state, Live2DSource::Nikke, &owned_path).await,
+        Endpoint::ListBd2Characters => bd2::list(state, request).await,
+        Endpoint::ListBd2SidebarCharacters => bd2::sidebar(state, request).await,
+        Endpoint::GetBd2Character => bd2::detail(state, path("content_id")).await,
+        Endpoint::GetBd2Live2DViewOverride => live2d_overrides::get_override(state, Live2DSource::Bd2, &owned_path).await,
+        Endpoint::PutBd2Live2DViewOverride => live2d_overrides::put_override(state, Live2DSource::Bd2, &owned_path, &body).await,
+        Endpoint::DeleteBd2Live2DViewOverride => live2d_overrides::delete_override(state, Live2DSource::Bd2, &owned_path).await,
         Endpoint::ListSiteSessions => list_site_sessions(state).await,
         Endpoint::GetSiteCredential => get_site_credential(state, path("site"), request).await,
         Endpoint::Mcp => Ok(crate::mcp::handle(state, request).await),

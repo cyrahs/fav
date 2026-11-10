@@ -1,0 +1,479 @@
+//! The BD2 routes: the character list, the sidebar and a character's detail.
+//!
+//! Python origin: the `/bd2/*` routes of `src/api/routes.py` (`_matches_bd2_query`, the
+//! sidebar payload, sort key and `ETag`), the `*_bd2_*` methods of `FavApiService` in
+//! `src/api/service.py` and the `BD2*` models of `src/api/schemas.py`. The library itself is
+//! [`library`]; the view-override routes under a character are
+//! [`crate::live2d_overrides`]. The library is made from `web.bd2.path` on first use, where
+//! Python makes it when the service starts; both keep it for the life of the process.
+
+mod library;
+#[cfg(test)]
+pub(crate) mod tests;
+
+use std::sync::Arc;
+
+use axum::body::Body as HttpBody;
+use axum::http::{HeaderValue, StatusCode, header};
+use axum::response::Response;
+use fav_core::pycasefold::casefold;
+use fav_core::pyjson::{self, Dict, DumpOptions, Value};
+use fav_runtime::pystr::str_value;
+
+pub use library::Bd2Library;
+use library::LibraryError;
+
+use crate::error::ApiError;
+use crate::handlers::{internal, unhandled};
+use crate::live2d_overrides::{self, Live2DSource};
+use crate::params::{self, BigInt, Errors, IntBounds, Source, StrRules};
+use crate::response_models::{self as models, Checked, Model};
+use crate::router::{Request, json_response};
+use crate::{ApiState, json};
+
+/// `_BD2_SIDEBAR_CACHE_CONTROL`.
+const SIDEBAR_CACHE_CONTROL: &str = "public, max-age=300";
+
+/// The library, made from the settings on first use.
+async fn library(state: &ApiState) -> Result<Arc<Bd2Library>, ApiError> {
+    state
+        .bd2
+        .get_or_try_init(|| async {
+            let settings = state.settings.load().await.map_err(|error| unhandled(&error))?;
+            Ok(Arc::new(Bd2Library::new(settings.web.bd2.path.as_path())))
+        })
+        .await
+        .cloned()
+}
+
+/// Run a library call off the async workers: it reads files.
+async fn blocking<T: Send + 'static>(
+    library: Arc<Bd2Library>,
+    call: impl FnOnce(&Bd2Library) -> Result<T, LibraryError> + Send + 'static,
+) -> Result<Result<T, LibraryError>, ApiError> {
+    tokio::task::spawn_blocking(move || call(&library))
+        .await
+        .map_err(|error| unhandled(&error))
+}
+
+/// `list_bd2_characters`.
+async fn list_characters(state: &ApiState) -> Result<Vec<Dict>, ApiError> {
+    match blocking(library(state).await?, Bd2Library::list_characters).await? {
+        Ok(characters) => Ok(characters),
+        Err(LibraryError::NotFound) => Err(internal("Failed to list BD2 characters", &"BD2CharacterNotFoundError")),
+        Err(LibraryError::Failed(error)) => Err(internal("Failed to list BD2 characters", &error)),
+    }
+}
+
+/// A path's `content_id` (`Path(gt=0)`). Python's ints are unbounded, so a long one is
+/// still looked up; nothing beyond 128 bits can name a character.
+pub(crate) fn content_id_param(errors: &mut Errors, raw: Option<&str>) -> Option<i128> {
+    let parsed = params::int_param(
+        errors,
+        Source::Path,
+        "content_id",
+        raw,
+        None,
+        IntBounds {
+            gt: Some(0),
+            ..IntBounds::default()
+        },
+    )?;
+    Some(match parsed {
+        BigInt::Fits(content_id) => i128::from(content_id),
+        _ => raw
+            .and_then(|raw| fav_core::validate::int_unbounded(&Value::Str(raw.to_owned()), &[]).ok())
+            .unwrap_or(i128::MAX),
+    })
+}
+
+/// The `q` query parameter (`Query(alias='q', min_length=1)`).
+fn search_param(errors: &mut Errors, request: &Request) -> Option<String> {
+    params::str_param(
+        errors,
+        Source::Query,
+        "q",
+        request.query_last("q"),
+        false,
+        StrRules {
+            min_length: Some(1),
+            ..StrRules::default()
+        },
+    )
+}
+
+/// `str(value or '')`.
+fn or_empty(value: Option<&Value>) -> String {
+    value.filter(|value| value.is_truthy()).map(str_value).unwrap_or_default()
+}
+
+/// `_matches_bd2_query(character, query)`: the id, title, tags, profile values, search
+/// terms and costume names, case-folded.
+fn matches_query(character: &Dict, query: &str) -> bool {
+    let mut haystack = vec![or_empty(character.get("content_id")), or_empty(character.get("title"))];
+    if let Some(Value::Dict(tags)) = character.get("tags") {
+        haystack.extend(tags.iter().map(|(_, value)| str_value(value)));
+    }
+    if let Some(Value::List(profile)) = character.get("profile") {
+        haystack.extend(profile.iter().filter_map(Value::as_dict).map(|item| or_empty(item.get("value"))));
+    }
+    if let Some(Value::List(terms)) = character.get("search_terms") {
+        haystack.extend(terms.iter().map(str_value));
+    }
+    if let Some(Value::List(costumes)) = character.get("costumes") {
+        for costume in costumes.iter().filter_map(Value::as_dict) {
+            haystack.push(or_empty(costume.get("title")));
+            haystack.push(or_empty(costume.get("category")));
+        }
+    }
+    casefold(&haystack.join(" ")).contains(&casefold(query))
+}
+
+// ---------- response models ----------
+
+/// `BD2Asset`.
+fn asset_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2Asset", value)?;
+    model.required("kind", models::string)?;
+    model.required("path", models::string)?;
+    model.required("url", models::string)?;
+    model.optional("content_type", Value::from(""), models::string)?;
+    model.optional("size", Value::Int(0), models::int)?;
+    for field in ["sha256", "status", "label", "field"] {
+        model.optional(field, Value::from(""), models::string)?;
+    }
+    model.optional("style_index", Value::Null, models::nullable(models::int))?;
+    for field in ["style_name", "costume_title", "costume_category", "column_role", "live2d_key"] {
+        model.optional(field, Value::from(""), models::string)?;
+    }
+    model.optional("available", Value::Bool(false), models::boolean)?;
+    model.optional("contexts", Value::List(Vec::new()), models::list_of(models::free_dict))?;
+    model.finish()
+}
+
+/// `BD2ProfileItem`.
+fn profile_item_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2ProfileItem", value)?;
+    model.required("key", models::string)?;
+    model.required("label", models::string)?;
+    model.optional("value", Value::from(""), models::string)?;
+    model.optional("asset", Value::Null, models::nullable(asset_model))?;
+    model.finish()
+}
+
+fn summary_fields(model: &mut Model<'_>) -> Result<(), String> {
+    model.required("content_id", models::int)?;
+    model.required("title", models::string)?;
+    model.optional("directory_name", Value::from(""), models::string)?;
+    model.optional("source_url", Value::from(""), models::string)?;
+    model.optional("updated_at", Value::Null, models::int_or_str_or_none)?;
+    model.optional("fetched_at", Value::Null, models::nullable(models::string))?;
+    model.optional("asset_counts", Value::Dict(Dict::new()), models::dict_of(models::int))?;
+    model.optional("tags", Value::Dict(Dict::new()), models::dict_of(models::string))?;
+    model.optional("profile", Value::List(Vec::new()), models::list_of(profile_item_model))?;
+    model.optional("icon", Value::Null, models::nullable(asset_model))?;
+    model.optional("portrait", Value::Null, models::nullable(asset_model))?;
+    model.optional("costume_count", Value::Int(0), models::int)?;
+    model.optional("live2d_model_count", Value::Int(0), models::int)?;
+    model.optional("search_terms", Value::List(Vec::new()), models::list_of(models::string))
+}
+
+/// `BD2CharacterSummary`.
+fn summary_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2CharacterSummary", value)?;
+    summary_fields(&mut model)?;
+    model.finish()
+}
+
+/// `BD2Live2DModel`.
+fn live2d_model_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2Live2DModel", value)?;
+    for field in ["model_id", "label", "section"] {
+        model.optional(field, Value::from(""), models::string)?;
+    }
+    model.optional("style_index", Value::Null, models::nullable(models::int))?;
+    for field in ["style_name", "costume_title", "costume_category"] {
+        model.optional(field, Value::from(""), models::string)?;
+    }
+    model.optional("row_index", Value::Null, models::nullable(models::int))?;
+    model.optional("column_index", Value::Null, models::nullable(models::int))?;
+    model.optional("field", Value::from(""), models::string)?;
+    model.optional("is_art_row", Value::Bool(false), models::boolean)?;
+    for field in [
+        "column_name",
+        "column_category",
+        "column_role",
+        "column_header",
+        "key",
+        "stable_id",
+        "live2d_key",
+        "animation",
+        "skin",
+    ] {
+        model.optional(field, Value::from(""), models::string)?;
+    }
+    model.optional("limit_age", Value::Bool(false), models::boolean)?;
+    for field in [
+        "source",
+        "variant",
+        "supplement_reason",
+        "viewer_entry_id",
+        "viewer_stem",
+        "source_page_url",
+    ] {
+        model.optional(field, Value::from(""), models::string)?;
+    }
+    model.optional("position", Value::Dict(Dict::new()), models::free_dict)?;
+    model.optional("bg_position", Value::Dict(Dict::new()), models::free_dict)?;
+    model.optional(
+        "view_overrides",
+        Value::Dict(Dict::new()),
+        models::dict_of(live2d_overrides::override_value_model),
+    )?;
+    model.optional("source_urls", Value::Dict(Dict::new()), models::free_dict)?;
+    model.optional("spine_version", Value::Null, models::nullable(models::string))?;
+    model.optional("assets", Value::Dict(Dict::new()), models::free_dict)?;
+    model.finish()
+}
+
+/// `BD2Costume`.
+fn costume_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2Costume", value)?;
+    model.optional("style_index", Value::Null, models::nullable(models::int))?;
+    for field in ["style_name", "title", "category"] {
+        model.optional(field, Value::from(""), models::string)?;
+    }
+    for field in ["sprite", "portrait", "full_portrait"] {
+        model.optional(field, Value::Null, models::nullable(asset_model))?;
+    }
+    for field in ["gallery", "videos", "audio"] {
+        model.optional(field, Value::List(Vec::new()), models::list_of(asset_model))?;
+    }
+    model.optional("live2d_models", Value::List(Vec::new()), models::list_of(live2d_model_model))?;
+    model.optional("rows", Value::List(Vec::new()), models::list_of(models::free_dict))?;
+    model.finish()
+}
+
+/// `BD2CharacterDetail`.
+fn detail_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2CharacterDetail", value)?;
+    summary_fields(&mut model)?;
+    model.optional("tree_row", Value::Null, models::nullable(models::free_dict))?;
+    model.optional("base_info", Value::Dict(Dict::new()), models::free_dict)?;
+    model.optional("costumes", Value::List(Vec::new()), models::list_of(costume_model))?;
+    model.optional("live2d_models", Value::List(Vec::new()), models::list_of(live2d_model_model))?;
+    model.optional("assets", Value::List(Vec::new()), models::list_of(asset_model))?;
+    model.finish()
+}
+
+/// `BD2SidebarIcon`.
+fn sidebar_icon_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2SidebarIcon", value)?;
+    model.required("url", models::string)?;
+    model.required("available", models::boolean)?;
+    model.required("sha256", models::string)?;
+    model.required("content_type", models::string)?;
+    model.finish()
+}
+
+/// `BD2SidebarCharacter`.
+fn sidebar_character_model(value: &Value) -> Checked {
+    let mut model = Model::begin("BD2SidebarCharacter", value)?;
+    model.required("content_id", models::int)?;
+    model.required("title", models::string)?;
+    model.required("icon", sidebar_icon_model)?;
+    model.optional("updated_at", Value::Null, models::int_or_str_or_none)?;
+    model.optional("fetched_at", Value::Null, models::nullable(models::string))?;
+    model.finish()
+}
+
+/// A model that refused what the library built: pydantic's `ValidationError`, which the
+/// generic handler answers with 500.
+fn invalid(error: &str) -> ApiError {
+    unhandled(&format!("ValidationError: {error}"))
+}
+
+// ---------- the routes ----------
+
+/// `GET /api/v2/bd2/characters`: a page of summaries, optionally searched.
+pub(crate) async fn list(state: &ApiState, request: &Request) -> Result<Response, ApiError> {
+    let mut errors = Errors::new();
+    let query = search_param(&mut errors, request);
+    let limit = params::int_param(
+        &mut errors,
+        Source::Query,
+        "limit",
+        request.query_last("limit"),
+        Some(200),
+        IntBounds {
+            ge: Some(1),
+            le: Some(500),
+            ..IntBounds::default()
+        },
+    );
+    let offset = params::int_param(
+        &mut errors,
+        Source::Query,
+        "offset",
+        request.query_last("offset"),
+        Some(0),
+        IntBounds {
+            ge: Some(0),
+            ..IntBounds::default()
+        },
+    );
+    errors.finish()?;
+    let limit = match limit {
+        Some(BigInt::Fits(limit)) => limit,
+        _ => 200,
+    };
+    let offset = match offset {
+        Some(BigInt::Fits(offset)) => offset,
+        Some(BigInt::AbovePositive) => i64::MAX,
+        _ => 0,
+    };
+    let mut characters = list_characters(state).await?;
+    if let Some(query) = &query {
+        characters.retain(|character| matches_query(character, query));
+    }
+    let total = characters.len();
+    let start = usize::try_from(offset).unwrap_or(usize::MAX).min(total);
+    let end = start.saturating_add(usize::try_from(limit).unwrap_or(0)).min(total);
+    let items = characters[start..end]
+        .iter()
+        .map(|character| summary_model(&Value::Dict(character.clone())))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| invalid(&error))?;
+    Ok(json_response(
+        200,
+        &json::dict([
+            ("items", Value::List(items)),
+            ("total", Value::Int(i128::try_from(total).unwrap_or(i128::MAX))),
+            ("limit", Value::from(limit)),
+            ("offset", Value::from(offset)),
+        ]),
+    ))
+}
+
+/// `_bd2_sidebar_character_payload(character)`.
+fn sidebar_payload(character: &Dict) -> Value {
+    let icon = match character.get("icon") {
+        Some(Value::Dict(icon)) => icon.clone(),
+        _ => Dict::new(),
+    };
+    json::dict([
+        ("content_id", character.get("content_id").cloned().unwrap_or(Value::Null)),
+        (
+            "title",
+            character
+                .get("title")
+                .filter(|value| value.is_truthy())
+                .cloned()
+                .unwrap_or(Value::from("")),
+        ),
+        (
+            "icon",
+            json::dict([
+                ("url", Value::Str(or_empty(icon.get("url")))),
+                ("available", Value::Bool(icon.get("available").is_some_and(Value::is_truthy))),
+                ("sha256", Value::Str(or_empty(icon.get("sha256")))),
+                ("content_type", Value::Str(or_empty(icon.get("content_type")))),
+            ]),
+        ),
+        ("updated_at", character.get("updated_at").cloned().unwrap_or(Value::Null)),
+        ("fetched_at", character.get("fetched_at").cloned().unwrap_or(Value::Null)),
+    ])
+}
+
+/// `_bd2_sidebar_sort_key(item)`.
+fn sidebar_sort_key(item: &Value) -> Result<(f64, f64, i128), LibraryError> {
+    let field = |name: &str| item.get(name).cloned().unwrap_or(Value::Null);
+    let content_id = match item.get("content_id") {
+        Some(Value::Int(content_id)) => *content_id,
+        _ => 0,
+    };
+    Ok((
+        library::route_sort_timestamp(&field("updated_at"))?,
+        library::route_sort_timestamp(&field("fetched_at"))?,
+        content_id,
+    ))
+}
+
+/// `_etag_matches(header_value, etag)`.
+fn etag_matches(header_value: Option<&str>, etag: &str) -> bool {
+    let Some(header_value) = header_value.filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    header_value
+        .split(',')
+        .map(fav_core::pytext::py_strip)
+        .any(|candidate| candidate == "*" || candidate == etag)
+}
+
+/// `GET /api/v2/bd2/sidebar/characters`: every character, newest first, with an `ETag`.
+pub(crate) async fn sidebar(state: &ApiState, request: &Request) -> Result<Response, ApiError> {
+    let mut errors = Errors::new();
+    let query = search_param(&mut errors, request);
+    errors.finish()?;
+    let mut characters = list_characters(state).await?;
+    if let Some(query) = &query {
+        characters.retain(|character| matches_query(character, query));
+    }
+    let mut keyed = Vec::with_capacity(characters.len());
+    for character in &characters {
+        let item = sidebar_character_model(&sidebar_payload(character)).map_err(|error| invalid(&error))?;
+        let key = sidebar_sort_key(&item).map_err(|error| match error {
+            LibraryError::Failed(message) => unhandled(&message),
+            LibraryError::NotFound => ApiError::internal(),
+        })?;
+        keyed.push((key, item));
+    }
+    // `sorted(reverse=True)` keeps equal keys in their order.
+    keyed.sort_by(|left, right| right.0.partial_cmp(&left.0).unwrap_or(std::cmp::Ordering::Equal));
+    let items: Vec<Value> = keyed.into_iter().map(|(_, item)| item).collect();
+    let total = Value::Int(i128::try_from(items.len()).unwrap_or(i128::MAX));
+    let payload = json::dict([("items", Value::List(items)), ("total", total)]);
+    let text = pyjson::dumps(&payload, &DumpOptions::hash()).map_err(|error| unhandled(&error))?;
+    let etag = format!("\"{}\"", crate::credentials::sha256_hex(&text));
+    let mut response = if etag_matches(request.header("if-none-match").as_deref(), &etag) {
+        let mut response = Response::new(HttpBody::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        response
+    } else {
+        json_response(200, &payload)
+    };
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(SIDEBAR_CACHE_CONTROL));
+    if let Ok(value) = HeaderValue::from_str(&etag) {
+        headers.insert(header::ETAG, value);
+    }
+    Ok(response)
+}
+
+/// `get_bd2_character(content_id)` without the overlay.
+async fn get_character(state: &ApiState, content_id: i128, failure: &str) -> Result<Dict, ApiError> {
+    match blocking(library(state).await?, move |library| library.get_character(content_id)).await? {
+        Ok(character) => Ok(character),
+        Err(LibraryError::NotFound) => Err(ApiError::new(404, "bd2_character_not_found", "BD2 character not found.")),
+        Err(LibraryError::Failed(error)) => Err(internal(&format!("{failure} content_id={content_id}"), &error)),
+    }
+}
+
+/// `_load_character_for_live2d_source('bd2', content_id)`.
+pub(crate) async fn character_for_live2d(state: &ApiState, content_id: i128) -> Result<Dict, ApiError> {
+    get_character(state, content_id, "Failed to load Live2D source character source=bd2").await
+}
+
+/// `GET /api/v2/bd2/characters/{content_id}`: the detail, with the view overrides laid
+/// over its models.
+pub(crate) async fn detail(state: &ApiState, raw: Option<&str>) -> Result<Response, ApiError> {
+    let mut errors = Errors::new();
+    let content_id = content_id_param(&mut errors, raw);
+    errors.finish()?;
+    let content_id = content_id.ok_or_else(ApiError::internal)?;
+    let mut character = get_character(state, content_id, "Failed to get BD2 character").await?;
+    let overrides = live2d_overrides::overrides_for_character(state, Live2DSource::Bd2, content_id).await?;
+    live2d_overrides::apply_live2d_view_overrides(&mut character, &overrides);
+    let dumped = detail_model(&Value::Dict(character)).map_err(|error| invalid(&error))?;
+    Ok(json_response(200, &dumped))
+}

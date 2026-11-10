@@ -15,7 +15,6 @@ use fav_net::retry::RecordingSleeper;
 use fav_net::{ClientOptions, HttpClient};
 use sqlx::Row as _;
 
-use super::discovery::CharacterSnapshot;
 use super::extract::{
     add_viewer_model_assets, assign_asset_paths, extract_resources, filter_bd2_character_rows, live2d_atlas_texture_context,
     max_attempts_for_status, prefer_live2d_model_assets_from_viewer, retry_after_delay_seconds, retry_delay_seconds,
@@ -24,6 +23,7 @@ use super::extract::{
 use super::gamekee::{Asset, Assets, add_asset, sha256_hex};
 use super::{Bd2Crawler, client_options};
 use crate::bd2_l2d_viewer::{Category, ViewerResource};
+use crate::content_discovery::CharacterSnapshot;
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, Reply, Seen};
 

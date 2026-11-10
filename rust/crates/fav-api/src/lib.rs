@@ -16,7 +16,9 @@
 //! Work-package scope (`rust/docs/PLAN.md`): WP3 ports the system, jobs, settings, archive,
 //! site-session, credential and notification-test routes, the documents and the bundled
 //! front end; WP4 the MCP endpoint ([`mcp`]); WP5 the Kemono creator lookup; WP8 the
-//! Hanime1 routes and `/readyz` ([`hanime1`]); WP9 the Nikke character routes ([`nikke`]). The other source-specific routes arrive with
+//! Hanime1 routes and `/readyz` ([`hanime1`]); WP9 the Nikke character routes ([`nikke`]);
+//! WP10 the BD2 routes ([`bd2`]) and the Live2D view overrides of both games
+//! ([`live2d_overrides`]). The other source-specific routes arrive with
 //! their sources; [`openapi::PENDING`] lists every route still missing and which package owns it.
 
 use std::path::PathBuf;
@@ -30,11 +32,13 @@ use fav_sources::hanime1_series::{Hanime1SeriesService, SeriesSubscriptions};
 use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
 
 pub mod archive;
+pub mod bd2;
 pub mod config;
 pub mod cors;
 pub mod credentials;
 pub mod error;
 pub mod hanime1;
+pub mod live2d_overrides;
 pub mod masking;
 pub mod mcp;
 pub mod nikke;
@@ -47,6 +51,7 @@ mod summary_cache;
 
 mod handlers;
 mod json;
+mod response_models;
 mod web;
 
 pub use config::ApiConfig;
@@ -84,6 +89,10 @@ pub struct ApiState {
     pub readiness: hanime1::Readiness,
     /// The Nikke collection under `web.nikke.path`, with its summary cache.
     pub nikke: nikke::NikkeLibraries,
+    /// The BD2 library (`/api/v2/bd2/*`), made from `web.bd2.path` on first use unless set.
+    pub bd2: tokio::sync::OnceCell<Arc<bd2::Bd2Library>>,
+    /// The saved Live2D view overrides.
+    pub live2d_overrides: Arc<dyn live2d_overrides::Live2DViewOverrideStore>,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -111,6 +120,7 @@ impl ApiState {
     ) -> Result<Self, String> {
         let hanime1_series = Arc::new(Hanime1SeriesService::new(db.clone(), Arc::clone(&settings))?);
         let hanime1_authors = Arc::new(Hanime1AuthorService::new(db.clone(), Arc::clone(&settings))?);
+        let db_for_overrides = db.clone();
         Ok(Self {
             token: config.token.clone(),
             db,
@@ -125,6 +135,8 @@ impl ApiState {
             hanime1_authors,
             readiness: hanime1::Readiness::default(),
             nikke: nikke::NikkeLibraries::default(),
+            bd2: tokio::sync::OnceCell::new(),
+            live2d_overrides: live2d_overrides::postgres_store(db_for_overrides),
             settings,
         })
     }

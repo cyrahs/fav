@@ -7,8 +7,8 @@
 scenario's `files`, so the summary cache, the payload builders, the response models
 (`model_validate` and their dump), the query filter, the sidebar sort and `ETag`, the
 parameter validation and the error envelopes are all Python's. The Live2D view-override
-overlay (`_apply_live2d_view_overrides`, WP10's store) is switched off: the detail is the
-library's payload as the response model shapes it. A request header whose value is
+overlay (`_apply_live2d_view_overrides`) runs over a store with no saved overrides, so
+the detail carries the model ids it assigns. A request header whose value is
 `$etag` is sent with the `ETag` of the scenario's previous response.
 
 `helpers.json` calls the small helpers directly: the skin-index order of
@@ -550,8 +550,6 @@ def _service(root: Path) -> service_module.FavApiService:
         nikke_library=NikkeLibrary(root),
         live2d_view_override_store=_NoOverrides(),
     )
-    # WP10's overlay (model ids and saved view overrides) is not part of this golden.
-    service._apply_live2d_view_overrides = lambda **_kwargs: None  # noqa: SLF001
     return service
 
 

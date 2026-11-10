@@ -563,9 +563,7 @@ async fn get_nikke_character_returns_skins_assets_and_live2d_refs() {
     );
     let model = field(skin, &["live2d_models", "0"]);
     assert_eq!(text_at(model, &["live2d_key"]), "model-a");
-    // `model_id` comes with WP10's overlay (`assign_live2d_model_ids`); until then it is
-    // the model's default, and so are the view overrides.
-    assert_eq!(text_at(model, &["model_id"]), "");
+    assert_eq!(text_at(model, &["model_id"]), "model-a");
     assert_eq!(field(model, &["layer_order"]), &Value::Int(2));
     assert_eq!(field(model, &["source_z_index"]), &Value::Int(9));
     assert_eq!(field(model, &["source_layer_index"]), &Value::Int(0));
@@ -856,6 +854,70 @@ async fn get_nikke_character_exposes_runtime_animation_metadata_separately_from_
     );
     assert_eq!(text_at(&model("main"), &["runtime_animation_match_confidence"]), "high");
     assert_eq!(text_at(&model("front"), &["runtime_animation_match_confidence"]), "high");
+    harness.finish().await;
+}
+
+// py: tests/test_nikke_api.py::test_nikke_live2d_view_override_save_and_detail_overlay
+#[tokio::test]
+async fn nikke_live2d_view_override_save_and_detail_overlay() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path().join("nikke");
+    create_nikke_fixture(&root);
+    let mut harness = Harness::new().await;
+    configure(&harness, &root).await;
+    let stamp = chrono::DateTime::parse_from_rfc3339("2026-04-30T00:00:00Z")
+        .expect("timestamp")
+        .with_timezone(&chrono::Utc);
+    harness.state.live2d_overrides = std::sync::Arc::new(crate::bd2::tests::FakeStore::new(stamp, stamp));
+    let target = "/api/v2/nikke/characters/101/live2d-models/model-a/view-overrides/mobile";
+    let json_type = ("Content-Type", "application/json");
+
+    let save = harness
+        .request(
+            "PUT",
+            target,
+            &[AUTH, json_type],
+            Some(r#"{"position": {"x": -10, "y": 22.5}, "scale": 0.85}"#),
+        )
+        .await;
+    let detail = get(&harness, "/api/v2/nikke/characters/101").await;
+    let invalid = harness
+        .request(
+            "PUT",
+            target,
+            &[AUTH, json_type],
+            Some(r#"{"position": {"x": 0, "y": 0}, "scale": 0}"#),
+        )
+        .await;
+
+    assert_eq!(save.status, 200, "{}", save.text());
+    let sorted = |value: &Value| fav_core::pyjson::dumps(value, &fav_core::pyjson::DumpOptions::hash()).expect("dump");
+    assert_eq!(
+        sorted(&save.json()),
+        sorted(&value(&json!({
+            "source": "nikke",
+            "content_id": 101,
+            "model_id": "model-a",
+            "profile": "mobile",
+            "position": {"x": -10.0, "y": 22.5},
+            "scale": 0.85,
+            "background_position": null,
+            "background_scale": null,
+            "created_at": "2026-04-30T00:00:00Z",
+            "updated_at": "2026-04-30T00:00:00Z",
+        })))
+    );
+    assert_eq!(detail.status, 200, "{}", detail.text());
+    let payload = detail.json();
+    let model = field(&payload, &["skins", "0", "live2d_models", "0"]);
+    assert_eq!(text_at(model, &["model_id"]), "model-a");
+    assert_eq!(
+        field(model, &["view_overrides", "mobile", "position"]),
+        &value(&json!({"x": -10.0, "y": 22.5}))
+    );
+    assert_eq!(field(model, &["view_overrides", "mobile", "scale"]), &Value::Float(0.85));
+    assert_eq!(invalid.status, 422);
+    assert_eq!(text_at(&invalid.json(), &["error", "code"]), "validation_error");
     harness.finish().await;
 }
 
