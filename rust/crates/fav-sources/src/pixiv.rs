@@ -334,7 +334,7 @@ pub fn synthesize_ugoira_webp(frame_paths: &[PathBuf], delays_ms: &[i64], dst_pa
     for (index, (path, delay)) in frame_paths.iter().zip(delays_ms).enumerate() {
         let frame = if index == 0 { first.clone() } else { decode_frame(path)? };
         if frame.dimensions() != first.dimensions() {
-            return Err(Failure::other("ValueError", "attempting to add frame of different size"));
+            return Err(Failure::other("RuntimeError", "ERROR adding frame: Invalid frame dimensions."));
         }
         encoder.add_frame(frame.as_raw(), to_ms(timestamp)?).map_err(encoder_error)?;
         timestamp += delay;
@@ -354,7 +354,7 @@ fn decode_frame(path: &Path) -> Result<image::RgbaImage, Failure> {
     Ok(image.to_rgba8())
 }
 
-/// `ZipFile.extractall(directory)`: member names with `/` as separator, empty, `.` and
+/// `ZipFile.extractall(directory)` on POSIX: member names split on `/`, empty, `.` and
 /// `..` parts dropped.
 fn extract_zip(zip_path: &Path, directory: &Path) -> Result<(), Failure> {
     let bad_zip = |error: zip::result::ZipError| match error {
@@ -365,7 +365,8 @@ fn extract_zip(zip_path: &Path, directory: &Path) -> Result<(), Failure> {
     let mut archive = zip::ZipArchive::new(file).map_err(bad_zip)?;
     for index in 0..archive.len() {
         let mut member = archive.by_index(index).map_err(bad_zip)?;
-        let name = member.name().replace('\\', "/");
+        // POSIX `zipfile` splits on `/` only; a backslash is part of the name.
+        let name = member.name().to_owned();
         let parts: Vec<&str> = name.split('/').filter(|part| !matches!(*part, "" | "." | "..")).collect();
         if parts.is_empty() {
             continue;
@@ -652,10 +653,19 @@ impl Pixiv {
             if let Some(cookie) = &self.cookie {
                 request = request.header(header::COOKIE, cookie);
             }
-            let response = match request.send().await {
-                Ok(response) => response,
+            // httpx reads the whole body inside `client.get()`, so a failure while reading
+            // it rides the same retry table as one while connecting.
+            let fetched = async {
+                let response = request.send().await.map_err(|error| HttpError::transport(&error))?;
+                let status = response.status().as_u16();
+                let status_check = kit::raise_for_status(&response);
+                let text = response.text().await.map_err(|error| HttpError::transport(&error))?;
+                Ok::<_, HttpError>((status, status_check, text))
+            }
+            .await;
+            let (status, status_check, text) = match fetched {
+                Ok(fetched) => fetched,
                 Err(error) => {
-                    let error = HttpError::transport(&error);
                     if !error.is_connect_timeout_or_protocol() || attempt >= attempts {
                         return Err(Failure::Http(error));
                     }
@@ -670,19 +680,15 @@ impl Pixiv {
                     continue;
                 }
             };
-            let status = response.status().as_u16();
             if API_RETRYABLE_STATUS_CODES.contains(&status) && attempt < attempts {
                 let delay = self.pacing.retry_delays[attempt - 1];
                 log().warning(format_args!(
                     "Pixiv API returned HTTP {status} url={url} attempt={attempt}/{attempts}, retry in {}s",
                     seconds_1(delay)
                 ));
-                drop(response);
                 tokio::time::sleep(delay).await;
                 continue;
             }
-            let status_check = kit::raise_for_status(&response);
-            let text = response.text().await.map_err(|error| Failure::Http(HttpError::transport(&error)))?;
             let payload = json_value(&text);
             if let Some(payload) = payload.as_ref().filter(|payload| payload.as_dict().is_some())
                 && payload.get("error").is_some_and(Value::is_truthy)

@@ -17,6 +17,8 @@ fav-net.workspace = true
 fav-runtime.workspace = true
 fav-browser.workspace = true
 futures-util.workspace = true
+# Only to tell a body cut short from other read failures (`kit::HttpError::transport`).
+hyper = { version = "1", default-features = false }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 reqwest = { workspace = true, features = ["query", "stream"] }
 sqlx.workspace = true

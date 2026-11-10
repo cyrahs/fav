@@ -670,7 +670,8 @@ fn py_first(value: &Value) -> Result<Value, JobError> {
     match value {
         Value::List(items) => Ok(items.first().cloned().unwrap_or(Value::Null)),
         Value::Str(text) => Ok(Value::Str(text.chars().next().map(String::from).unwrap_or_default())),
-        Value::Dict(dict) => dict.get("0").cloned().ok_or_else(|| JobError::new("KeyError", "0")),
+        // `imageinfo[0]` looks up the int 0, which no JSON object key equals.
+        Value::Dict(_) => Err(JobError::new("KeyError", "0")),
         other => Err(JobError::new(
             "TypeError",
             format!("'{}' object is not subscriptable", py_type_name(other)),
@@ -870,7 +871,7 @@ impl StellaSora {
                 .text()
                 .await
                 .map_err(|error| HttpError::transport(&error).into_job_error())?;
-            let payload = pyjson::loads(&text).map_err(|error| JobError::new("JSONDecodeError", error.to_string()))?;
+            let payload = pyjson::loads(&text).map_err(|error| JobError::new("JSONDecodeError", error.python_message(&text)))?;
             results.extend(parse_imageinfo_payload(&payload)?);
         }
         Ok(results)
@@ -961,7 +962,7 @@ impl StellaSora {
     }
 
     /// `_handle_existing_file`: `(needs_download, moved, skipped)`.
-    pub fn handle_existing_file(&self, title: &str, dst_dir: &str, index: &mut ExistingIndex) -> Result<(bool, u64, u64), JobError> {
+    pub async fn handle_existing_file(&self, title: &str, dst_dir: &str, index: &mut ExistingIndex) -> Result<(bool, u64, u64), JobError> {
         let local_name = safe_local_filename_from_wiki_title(title).map_err(|error| value_error(&error))?;
         let dst_path = pypath::join(dst_dir, &local_name);
         if Path::new(&dst_path).exists() {
@@ -976,10 +977,16 @@ impl StellaSora {
         if dst_dir != disc_dir
             && let Some(source) = existing.iter().find(|path| parent(path) == disc_dir)
         {
-            let source = source.clone();
+            let (source, dir, dst) = (source.clone(), dst_dir.to_owned(), dst_path.clone());
             let io_error = |error: std::io::Error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error));
-            std::fs::create_dir_all(dst_dir).map_err(io_error)?;
-            kit::move_file(Path::new(&source), Path::new(&dst_path)).map_err(io_error)?;
+            // A move across file systems copies the whole file: off the async threads.
+            tokio::task::spawn_blocking(move || {
+                std::fs::create_dir_all(&dir)?;
+                kit::move_file(Path::new(&source), Path::new(&dst))
+            })
+            .await
+            .map_err(|error| JobError::new("RuntimeError", error.to_string()))?
+            .map_err(io_error)?;
             // As in Python, the old location stays in the index too.
             index.push(key, dst_path);
             return Ok((false, 1, 0));
@@ -1003,12 +1010,16 @@ impl StellaSora {
         }
 
         let title_to_dir = self.build_target_destination_map().await?;
-        let mut index = ExistingIndex::scan(&self.path);
+        // The walk covers the whole collection tree: off the async threads.
+        let root = self.path.clone();
+        let mut index = tokio::task::spawn_blocking(move || ExistingIndex::scan(&root))
+            .await
+            .map_err(|error| JobError::new("RuntimeError", error.to_string()))?;
         let mut stats = DownloadStats::default();
 
         let mut to_download = Vec::new();
         for (title, dst_dir) in title_to_dir.iter() {
-            let (needs_download, moved, skipped) = self.handle_existing_file(title, dst_dir, &mut index)?;
+            let (needs_download, moved, skipped) = self.handle_existing_file(title, dst_dir, &mut index).await?;
             stats.moved += moved;
             stats.skipped += skipped;
             if needs_download {
@@ -1068,7 +1079,7 @@ impl StellaSora {
                 .to_owned();
             let local_name = safe_local_filename_from_wiki_title(title).map_err(|error| value_error(&error))?;
             let dst_path = pypath::join(&dst_dir, &local_name);
-            let (needs_download, moved, skipped) = self.handle_existing_file(title, &dst_dir, index)?;
+            let (needs_download, moved, skipped) = self.handle_existing_file(title, &dst_dir, index).await?;
             stats.moved += moved;
             stats.skipped += skipped;
             if !needs_download {

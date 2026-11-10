@@ -598,6 +598,28 @@ pub enum LoadError {
     IntegerTooLarge(usize),
 }
 
+impl LoadError {
+    /// `str(JSONDecodeError)` for `doc`: the message, then `line L column C (char N)`.
+    pub fn python_message(&self, doc: &str) -> String {
+        let (message, pos) = match *self {
+            Self::ExpectingValue(pos) => ("Expecting value", pos),
+            Self::ExtraData(pos) => ("Extra data", pos),
+            Self::UnterminatedString(pos) => ("Unterminated string starting at", pos),
+            Self::ControlCharacter(pos) => ("Invalid control character at", pos),
+            Self::InvalidEscape(pos) => ("Invalid \\escape", pos),
+            Self::ExpectingPropertyName(pos) => ("Expecting property name enclosed in double quotes", pos),
+            Self::ExpectingColon(pos) => ("Expecting ':' delimiter", pos),
+            Self::ExpectingComma(pos) => ("Expecting ',' delimiter", pos),
+            Self::LoneSurrogate(pos) => ("Lone surrogate escape", pos),
+            Self::IntegerTooLarge(pos) => ("Integer out of range", pos),
+        };
+        let before: Vec<char> = doc.chars().take(pos).collect();
+        let lineno = before.iter().filter(|ch| **ch == '\n').count() + 1;
+        let colno = before.iter().rposition(|ch| *ch == '\n').map_or(pos + 1, |newline| pos - newline);
+        format!("{message}: line {lineno} column {colno} (char {pos})")
+    }
+}
+
 /// `json.loads(text)`.
 pub fn loads(text: &str) -> Result<Value, LoadError> {
     let mut parser = Parser {
@@ -1063,5 +1085,15 @@ mod tests {
             dumps(&Value::Dict(dict), &DumpOptions::compact()).unwrap(),
             r#"{"1":null,"a":null}"#
         );
+    }
+
+    #[test]
+    fn decode_errors_read_like_python() {
+        let document = golden::load("pyweb/json_errors.json");
+        for case in golden::cases(&document) {
+            let doc = golden::string(golden::get(case, "doc"));
+            let message = loads(&doc).err().map(|error| error.python_message(&doc));
+            assert_eq!(message.as_deref(), golden::get(case, "message").as_str(), "{doc:?}");
+        }
     }
 }

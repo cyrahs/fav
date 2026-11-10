@@ -409,7 +409,7 @@ async fn a_whole_run_resolves_downloads_and_moves_disc_art_into_character_folder
 }
 
 #[tokio::test]
-async fn a_download_that_keeps_failing_ends_the_run_and_leaves_no_part_file() {
+async fn a_download_that_keeps_failing_ends_the_run_after_three_attempts() {
     let (_dir, root) = temp_root();
     let server = FakeServer::start(|_| Answer::bytes(503, b"busy")).await;
     let ss = source(&server.base_url, &root, Arc::default());

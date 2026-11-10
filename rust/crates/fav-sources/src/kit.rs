@@ -34,7 +34,7 @@ pub enum HttpError {
 
 impl HttpError {
     pub(crate) fn transport(error: &reqwest::Error) -> Self {
-        let class = fav_net::httpx_error_class(error);
+        let class = body_error_class(error).unwrap_or_else(|| fav_net::httpx_error_class(error));
         // httpx's timeouts carry no text; other transport errors carry the OS error's.
         let message = if error.is_timeout() {
             String::new()
@@ -83,6 +83,35 @@ impl fmt::Display for HttpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.message())
     }
+}
+
+/// reqwest reports a failure while reading the body as a decode error; httpx calls a body
+/// cut short `RemoteProtocolError` and a broken connection `ReadError`.
+fn body_error_class(error: &reqwest::Error) -> Option<&'static str> {
+    if !error.is_decode() && !error.is_body() {
+        return None;
+    }
+    let mut current: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(error);
+    while let Some(source) = current {
+        if let Some(hyper_error) = source.downcast_ref::<hyper::Error>() {
+            if hyper_error.is_incomplete_message() {
+                return Some("RemoteProtocolError");
+            }
+            if hyper_error.is_timeout() {
+                return Some("ReadTimeout");
+            }
+        }
+        if let Some(io_error) = source.downcast_ref::<std::io::Error>() {
+            // hyper's length decoder reports a body cut short as an unexpected EOF.
+            return Some(if io_error.kind() == std::io::ErrorKind::UnexpectedEof {
+                "RemoteProtocolError"
+            } else {
+                "ReadError"
+            });
+        }
+        current = source.source();
+    }
+    None
 }
 
 fn innermost_message(error: &reqwest::Error) -> String {
@@ -279,13 +308,23 @@ pub(crate) async fn stream_body_to(response: Response, part: &Path) -> Result<()
     Ok(())
 }
 
-/// `shutil.move(src, dst)`: a rename, or copy and delete across file systems.
+/// `shutil.move(src, dst)`: a rename, or copy (with times) and delete across file systems.
 pub(crate) fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
     match std::fs::rename(src, dst) {
         Ok(()) => Ok(()),
         Err(error) if error.raw_os_error() == Some(18) => {
-            // EXDEV: another file system.
-            std::fs::copy(src, dst)?;
+            // EXDEV: another file system. `copy2` keeps the times; the copy goes to a
+            // `.part` first so a crash never leaves a truncated file at `dst` (D52).
+            let mut part = dst.as_os_str().to_owned();
+            part.push(".part");
+            let part = std::path::PathBuf::from(part);
+            std::fs::copy(src, &part)?;
+            let metadata = std::fs::metadata(src)?;
+            let times = std::fs::FileTimes::new()
+                .set_accessed(metadata.accessed()?)
+                .set_modified(metadata.modified()?);
+            std::fs::File::options().write(true).open(&part)?.set_times(times)?;
+            std::fs::rename(&part, dst)?;
             std::fs::remove_file(src)
         }
         Err(error) => Err(error),

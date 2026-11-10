@@ -581,6 +581,11 @@ async fn the_crawl_stops_after_consecutive_fully_archived_pages() {
 #[tokio::test]
 async fn a_masked_bookmark_is_settled_as_unavailable_during_the_walk() {
     let database = database().await;
+    // A work seen before: one page still pending, one already downloaded.
+    sqlx::query("INSERT INTO pixiv (illust_id, num, downloaded) VALUES (130954211, 1, 0), (130954211, 2, 1);")
+        .execute(database.db().pool())
+        .await
+        .unwrap();
     let server = FakeServer::start(|request| {
         if request.param("offset") == Some("0") {
             Answer::json(
@@ -597,14 +602,17 @@ async fn a_masked_bookmark_is_settled_as_unavailable_during_the_walk() {
     let (works, _pages, _total) = source.crawl_bookmarks("21029043").await.unwrap();
 
     assert!(works.is_empty());
-    let row = sqlx::query("SELECT num, unavailable, downloaded, last_error FROM pixiv WHERE illust_id = 130954211;")
-        .fetch_one(database.db().pool())
+    let rows = sqlx::query("SELECT num, unavailable, downloaded, last_error FROM pixiv WHERE illust_id = 130954211 ORDER BY num;")
+        .fetch_all(database.db().pool())
         .await
         .unwrap();
-    assert_eq!(row.get::<i32, _>("num"), 0);
-    assert_eq!(row.get::<i32, _>("unavailable"), 1);
-    assert_eq!(row.get::<i32, _>("downloaded"), 0);
-    assert_eq!(row.get::<String, _>("last_error"), "masked in bookmarks");
+    let rows: Vec<(i32, i32, i32, String)> = rows
+        .iter()
+        .map(|row| (row.get("num"), row.get("unavailable"), row.get("downloaded"), row.get("last_error")))
+        .collect();
+    let masked = "masked in bookmarks".to_owned();
+    // The stub and the pending page are settled; the downloaded page is left alone.
+    assert_eq!(rows, [(0, 1, 0, masked.clone()), (1, 1, 0, masked), (2, 0, 1, String::new())]);
     database.drop_database().await;
 }
 
@@ -673,6 +681,7 @@ async fn a_session_without_an_embedded_uid_asks_for_an_explicit_override() {
 
     let error = source.update().await.unwrap_err();
 
+    assert_eq!(error.class_name(), "PixivError");
     assert!(error.message().contains("user_id"));
     assert_eq!(error.notification_dedupe_key(), Some("pixiv:auth"));
     database.drop_database().await;
@@ -977,4 +986,44 @@ async fn output_paths_match_python() {
             "{work:?}"
         );
     }
+}
+
+/// A server whose first answer promises more body than it sends, then a good one.
+async fn truncating_server() -> (String, Arc<AtomicUsize>) {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&calls);
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else { return };
+            let mut request = vec![0_u8; 4096];
+            let _ = socket.read(&mut request).await;
+            let body = r#"{"error": false, "body": {"ok": 1}}"#;
+            let answer = if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 500\r\n\r\n{body}")
+            } else {
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+            };
+            let _ = socket.write_all(answer.as_bytes()).await;
+            let _ = socket.shutdown().await;
+        }
+    });
+    (format!("http://{address}"), calls)
+}
+
+#[tokio::test]
+async fn a_body_cut_short_is_retried_like_a_protocol_error() {
+    let (base, calls) = truncating_server().await;
+    let source = pixiv(unused_db(), &base, "/data/pixiv", "");
+
+    let body = source.get_body(&format!("{base}/ajax/illust/1/pages"), &[]).await.unwrap();
+
+    assert_eq!(body, json(r#"{"ok": 1}"#));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }

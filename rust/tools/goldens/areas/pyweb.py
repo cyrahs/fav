@@ -10,6 +10,7 @@ to it.
 
 from __future__ import annotations
 
+import json
 from html import unescape
 from html.entities import html5
 from html.parser import HTMLParser
@@ -310,7 +311,37 @@ def _status_errors() -> list[dict[str, Any]]:
     return cases
 
 
+JSON_ERROR_CASES: list[str] = [
+    '',
+    '<!DOCTYPE html><html>challenge</html>',
+    '\n\n  x',
+    '{"a": 1,}',
+    '{"a" 1}',
+    '[1 2]',
+    '{"a": "unterminated',
+    '{"a": "ctrl\u0001"}',
+    '{"a": "\\q"}',
+    '{"a": 1}\n\nextra',
+    '中文\n{',
+    '{1: 2}',
+]
+
+
+def _json_errors() -> list[dict[str, Any]]:
+    # `str(JSONDecodeError)` of `json.loads` on API answers that are not JSON.
+    cases = []
+    for doc in JSON_ERROR_CASES:
+        try:
+            json.loads(doc)
+            message = None
+        except json.JSONDecodeError as exc:
+            message = str(exc)
+        cases.append({'doc': doc, 'message': message})
+    return cases
+
+
 GOLDENS = {
+    'pyweb/json_errors.json': _json_errors,
     'pyweb/httpx_reason_phrases.json': _reason_phrases,
     'pyweb/httpx_status_errors.json': _status_errors,
     'pyweb/unescape.json': _unescape,

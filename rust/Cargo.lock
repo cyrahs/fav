@@ -954,6 +954,7 @@ dependencies = [
  "fav-net",
  "fav-runtime",
  "futures-util",
+ "hyper",
  "image",
  "reqwest",
  "sqlx",
