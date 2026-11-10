@@ -11,6 +11,8 @@ use fav_net::download::DownloadError;
 use fav_net::{StatusError, TransportError};
 use fav_runtime::source::JobError;
 
+use crate::pydecode::{self, PyError};
+
 /// psycopg's class for a database error: the SQLSTATE's own class where fav can meet it,
 /// else the class of its SQLSTATE group; connection and pool failures are
 /// `OperationalError`. The message is the server's (`str(exc)` in psycopg is too).
@@ -77,44 +79,18 @@ pub(crate) fn no_attribute(value: &Value, name: &str) -> JobError {
 
 /// `bytes.decode('utf-8')` with Python's `UnicodeDecodeError` text on failure.
 pub(crate) fn decode_utf8(bytes: &[u8]) -> Result<String, JobError> {
-    match std::str::from_utf8(bytes) {
-        Ok(text) => Ok(text.to_owned()),
-        Err(error) => {
-            let start = error.valid_up_to();
-            let message = match error.error_len() {
-                None if bytes.len() - start > 1 => format!(
-                    "'utf-8' codec can't decode bytes in position {start}-{}: unexpected end of data",
-                    bytes.len() - 1
-                ),
-                None => format!(
-                    "'utf-8' codec can't decode byte 0x{:02x} in position {start}: unexpected end of data",
-                    bytes[start]
-                ),
-                Some(_) => {
-                    let byte = bytes[start];
-                    let reason = if (0x80..=0xc1).contains(&byte) || byte >= 0xf5 {
-                        "invalid start byte"
-                    } else {
-                        "invalid continuation byte"
-                    };
-                    format!("'utf-8' codec can't decode byte 0x{byte:02x} in position {start}: {reason}")
-                }
-            };
-            Err(JobError::new("UnicodeDecodeError", message))
-        }
-    }
+    pydecode::decode_utf8(bytes).map(str::to_owned).map_err(PyError::into_job_error)
 }
 
 /// `json.loads(text)` with Python's `JSONDecodeError` text on failure.
 pub(crate) fn json_loads(text: &str) -> Result<Value, JobError> {
-    fav_core::pyjson::loads(text).map_err(|error| JobError::new("JSONDecodeError", error.python_message(text)))
+    pydecode::json_loads(text).map_err(PyError::into_job_error)
 }
 
-/// `json.loads(body_bytes)` as httpx's `response.json()` does it: UTF-8, with or
-/// without a byte-order mark.
+/// `json.loads(body_bytes)` as httpx's `response.json()` does it: the encoding
+/// `json.detect_encoding` picks (UTF-8 with or without a byte-order mark, UTF-16, UTF-32).
 pub(crate) fn json_loads_bytes(bytes: &[u8]) -> Result<Value, JobError> {
-    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    json_loads(&decode_utf8(bytes)?)
+    pydecode::json_from_bytes(bytes).map_err(PyError::into_job_error)
 }
 
 #[cfg(test)]

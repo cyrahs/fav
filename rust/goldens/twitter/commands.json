@@ -1,0 +1,1289 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "twitter",
+  "cases": [
+    {
+      "settings": {
+        "path": "/data/twitter",
+        "abort_after": 20
+      },
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "/data/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "/data/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=2.0",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "/data/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "/data/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            2.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "path": "/data/twitter",
+        "abort_after": 7
+      },
+      "incremental": true,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "/data/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "/data/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=2.0",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "--option",
+        "extractor.twitter.skip=abort:7",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "/data/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "/data/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            2.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "skip",
+            "abort:7"
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {},
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=2.0",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            2.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {},
+      "incremental": true,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=2.0",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "--option",
+        "extractor.twitter.skip=abort:20",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            2.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "skip",
+            "abort:20"
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "include_retweets": false,
+        "include_videos": false
+      },
+      "incremental": true,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=2.0",
+        "--option",
+        "extractor.twitter.retweets=false",
+        "--option",
+        "extractor.twitter.videos=false",
+        "--option",
+        "extractor.twitter.skip=abort:20",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            2.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            false
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            false
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "skip",
+            "abort:20"
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "proxy": "http://proxy.example:8080",
+        "sleep_request_seconds": 3.5
+      },
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=3.5",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "--proxy",
+        "http://proxy.example:8080",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            3.5
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ],
+          [
+            [],
+            "proxy",
+            "http://proxy.example:8080"
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "sleep_request_seconds": 0
+      },
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=0.0",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            0.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "sleep_request_seconds": 0.1
+      },
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=0.1",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            0.1
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "sleep_request_seconds": 1e-05
+      },
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=1e-05",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            1e-05
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "sleep_request_seconds": 1e+17
+      },
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=1e+17",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            1e+17
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "sleep_request_seconds": 123456789.123
+      },
+      "incremental": true,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=123456789.123",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "--option",
+        "extractor.twitter.skip=abort:20",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            123456789.123
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "skip",
+            "abort:20"
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "path": "relative/dir/",
+        "username": "@Some_User",
+        "video_path": "/v"
+      },
+      "incremental": true,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "relative/dir",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "relative/dir/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=2.0",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "--option",
+        "extractor.twitter.skip=abort:20",
+        "https://x.com/Some_User/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/Some_User/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "relative/dir"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "relative/dir/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            2.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "skip",
+            "abort:20"
+          ]
+        ]
+      }
+    },
+    {
+      "settings": {
+        "path": "./collection/twitter"
+      },
+      "incremental": false,
+      "command": [
+        "gallery-dl",
+        "--destination",
+        "collection/twitter",
+        "--cookies",
+        "/run/c.txt",
+        "--download-archive",
+        "collection/twitter/.gallery-dl-archive.db",
+        "--write-metadata",
+        "--option",
+        "extractor.twitter.directory=[\"{author[name]}\"]",
+        "--option",
+        "extractor.twitter.filename=[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}",
+        "--option",
+        "extractor.twitter.sleep-request=2.0",
+        "--option",
+        "extractor.twitter.retweets=original",
+        "--option",
+        "extractor.twitter.videos=true",
+        "https://x.com/me/likes"
+      ],
+      "gallery_dl": {
+        "urls": [
+          "https://x.com/me/likes"
+        ],
+        "postprocessors": [
+          "metadata"
+        ],
+        "options": [
+          [
+            [],
+            "base-directory",
+            "collection/twitter"
+          ],
+          [
+            [],
+            "cookies",
+            "/run/c.txt"
+          ],
+          [
+            [],
+            "archive",
+            "collection/twitter/.gallery-dl-archive.db"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "directory",
+            [
+              "{author[name]}"
+            ]
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "filename",
+            "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "sleep-request",
+            2.0
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "retweets",
+            "original"
+          ],
+          [
+            [
+              "extractor",
+              "twitter"
+            ],
+            "videos",
+            true
+          ]
+        ]
+      }
+    }
+  ]
+}

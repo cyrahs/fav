@@ -1,0 +1,512 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "twitter",
+  "cases": [
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "Me",
+      "answer": {
+        "status": 200,
+        "body": "{\"screen_name\":\"me\"}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "me",
+        "message": ""
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 200,
+        "body": "{\"screen_name\":\"someone_else\"}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "someone_else",
+        "message": "signed in as @someone_else, but web.twitter.username is @me; the likes timeline is only readable by its owner"
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 401,
+        "body": "{\"errors\":[]}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "X rejected the session (HTTP 401)"
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 403,
+        "body": "blocked"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "X rejected the session (HTTP 403)"
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": null,
+      "requests": [],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "no auth_token/ct0 cookies yet; not signed in"
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token"
+      ],
+      "username": "me",
+      "answer": null,
+      "requests": [],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "no auth_token/ct0 cookies yet; not signed in"
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 404,
+        "body": "{\"errors\":[]}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "me",
+        "message": ""
+      },
+      "warnings": [
+        "X account settings answered HTTP 404 without a screen name; accepting the login"
+      ]
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "",
+      "answer": {
+        "status": 404,
+        "body": "{\"errors\":[]}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "4242",
+        "message": ""
+      },
+      "warnings": [
+        "X account settings answered HTTP 404 without a screen name; accepting the login"
+      ]
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0"
+      ],
+      "username": "",
+      "answer": {
+        "status": 429,
+        "body": "slow down"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "",
+        "message": ""
+      },
+      "warnings": [
+        "X account settings answered HTTP 429 without a screen name; accepting the login"
+      ]
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "",
+      "answer": {
+        "status": 200,
+        "body": "{\"screen_name\":\"Found\"}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "Found",
+        "message": ""
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 200,
+        "body": "{\"screen_name\":\"\"}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "me",
+        "message": ""
+      },
+      "warnings": [
+        "X account settings answered HTTP 200 without a screen name; accepting the login"
+      ]
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 200,
+        "body": "{\"screen_name\":5}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "5",
+        "message": "signed in as @5, but web.twitter.username is @me; the likes timeline is only readable by its owner"
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 200,
+        "body": "[1]"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "me",
+        "message": ""
+      },
+      "warnings": [
+        "X account settings answered HTTP 200 without a screen name; accepting the login"
+      ]
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 200,
+        "body": "<html>"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "me",
+        "message": ""
+      },
+      "warnings": [
+        "X account settings answered HTTP 200 without a screen name; accepting the login"
+      ]
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "STRASSE",
+      "answer": {
+        "status": 200,
+        "body": "{\"screen_name\":\"straße\"}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "straße",
+        "message": ""
+      },
+      "warnings": []
+    },
+    {
+      "cookies": [
+        "auth_token",
+        "ct0",
+        "twid"
+      ],
+      "username": "me",
+      "answer": {
+        "status": 500,
+        "body": "{\"screen_name\":\"me\"}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.x.com/1.1/account/settings.json",
+          "headers": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-csrf-token": "csrf",
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "referer": "https://x.com/",
+            "cookie": "auth_token=tok; ct0=csrf"
+          }
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "me",
+        "message": ""
+      },
+      "warnings": [
+        "X account settings answered HTTP 500 without a screen name; accepting the login"
+      ]
+    }
+  ]
+}

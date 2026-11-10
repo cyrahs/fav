@@ -1,0 +1,214 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "input": {
+        "bvid": "BV1wM4m1S7oo",
+        "title": "让你说话了吗?笨蛋",
+        "upper": "孟程程_",
+        "fav_id": 123,
+        "resolution": "720p",
+        "file_size_bytes": 20971520,
+        "release_date": "2024-01-01",
+        "cover_url": "https://example.com/cover.jpg"
+      },
+      "enqueued": [
+        {
+          "kind": "download_completed",
+          "source": "bilibili",
+          "header": "Bilibili (fav)",
+          "title": "让你说话了吗?笨蛋",
+          "body": "孟程程_ | 720p | 20.0 MB | 2024-01-01",
+          "link_url": "https://www.bilibili.com/video/BV1wM4m1S7oo",
+          "image_url": "https://example.com/cover.jpg",
+          "payload": {
+            "bvid": "BV1wM4m1S7oo",
+            "fav_id": 123,
+            "upper": "孟程程_",
+            "resolution": "720p",
+            "file_size_bytes": 20971520,
+            "release_date": "2024-01-01"
+          }
+        }
+      ],
+      "resolved": [
+        {
+          "dedupe_key": "job_failed:bilibili:bilibili:download:BV1wM4m1S7oo",
+          "kind": "job_recovered",
+          "source": "worker",
+          "header": "Bilibili",
+          "title": "Job recovered",
+          "body": "Download succeeded: 让你说话了吗?笨蛋 [BV1wM4m1S7oo]\n孟程程_ | fav | 720p | 20.0 MB | 2024-01-01",
+          "link_url": "https://www.bilibili.com/video/BV1wM4m1S7oo",
+          "image_url": "https://example.com/cover.jpg",
+          "payload": {
+            "job": "bilibili",
+            "bvid": "BV1wM4m1S7oo",
+            "fav_id": 123,
+            "upper": "孟程程_",
+            "resolution": "720p",
+            "file_size_bytes": 20971520,
+            "release_date": "2024-01-01"
+          }
+        }
+      ],
+      "recovered": true
+    },
+    {
+      "input": {
+        "bvid": "BV1xx411c7mD",
+        "title": "t",
+        "upper": "u",
+        "fav_id": -1
+      },
+      "enqueued": [
+        {
+          "kind": "download_completed",
+          "source": "bilibili",
+          "header": "Bilibili (toview)",
+          "title": "t",
+          "body": "u | unknown | unknown | unknown",
+          "link_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+          "image_url": "",
+          "payload": {
+            "bvid": "BV1xx411c7mD",
+            "fav_id": -1,
+            "upper": "u",
+            "resolution": null,
+            "file_size_bytes": null,
+            "release_date": null
+          }
+        }
+      ],
+      "resolved": [
+        {
+          "dedupe_key": "job_failed:bilibili:bilibili:download:BV1xx411c7mD",
+          "kind": "job_recovered",
+          "source": "worker",
+          "header": "Bilibili",
+          "title": "Job recovered",
+          "body": "Download succeeded: t [BV1xx411c7mD]\nu | toview | unknown | unknown | unknown",
+          "link_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+          "image_url": "",
+          "payload": {
+            "job": "bilibili",
+            "bvid": "BV1xx411c7mD",
+            "fav_id": -1,
+            "upper": "u",
+            "resolution": null,
+            "file_size_bytes": null,
+            "release_date": null
+          }
+        }
+      ],
+      "recovered": true
+    },
+    {
+      "input": {
+        "bvid": "BV1xx411c7mD",
+        "title": "t",
+        "upper": "u",
+        "fav_id": -1,
+        "resolution": "",
+        "file_size_bytes": 0,
+        "release_date": "   ",
+        "cover_url": ""
+      },
+      "enqueued": [
+        {
+          "kind": "download_completed",
+          "source": "bilibili",
+          "header": "Bilibili (toview)",
+          "title": "t",
+          "body": "u | unknown | 0 B | unknown",
+          "link_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+          "image_url": "",
+          "payload": {
+            "bvid": "BV1xx411c7mD",
+            "fav_id": -1,
+            "upper": "u",
+            "resolution": "",
+            "file_size_bytes": 0,
+            "release_date": "   "
+          }
+        }
+      ],
+      "resolved": [
+        {
+          "dedupe_key": "job_failed:bilibili:bilibili:download:BV1xx411c7mD",
+          "kind": "job_recovered",
+          "source": "worker",
+          "header": "Bilibili",
+          "title": "Job recovered",
+          "body": "Download succeeded: t [BV1xx411c7mD]\nu | toview | unknown | 0 B | unknown",
+          "link_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+          "image_url": "",
+          "payload": {
+            "job": "bilibili",
+            "bvid": "BV1xx411c7mD",
+            "fav_id": -1,
+            "upper": "u",
+            "resolution": "",
+            "file_size_bytes": 0,
+            "release_date": "   "
+          }
+        }
+      ],
+      "recovered": true
+    },
+    {
+      "input": {
+        "bvid": "BV1xx411c7mD",
+        "title": "multi\nline",
+        "upper": "u",
+        "fav_id": 7,
+        "file_size_bytes": 1023,
+        "release_date": " 2020-02-02 "
+      },
+      "enqueued": [
+        {
+          "kind": "download_completed",
+          "source": "bilibili",
+          "header": "Bilibili (fav)",
+          "title": "multi\nline",
+          "body": "u | unknown | 1023 B | 2020-02-02",
+          "link_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+          "image_url": "",
+          "payload": {
+            "bvid": "BV1xx411c7mD",
+            "fav_id": 7,
+            "upper": "u",
+            "resolution": null,
+            "file_size_bytes": 1023,
+            "release_date": " 2020-02-02 "
+          }
+        }
+      ],
+      "resolved": [
+        {
+          "dedupe_key": "job_failed:bilibili:bilibili:download:BV1xx411c7mD",
+          "kind": "job_recovered",
+          "source": "worker",
+          "header": "Bilibili",
+          "title": "Job recovered",
+          "body": "Download succeeded: multi\nline [BV1xx411c7mD]\nu | fav | unknown | 1023 B | 2020-02-02",
+          "link_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+          "image_url": "",
+          "payload": {
+            "job": "bilibili",
+            "bvid": "BV1xx411c7mD",
+            "fav_id": 7,
+            "upper": "u",
+            "resolution": null,
+            "file_size_bytes": 1023,
+            "release_date": " 2020-02-02 "
+          }
+        }
+      ],
+      "recovered": true
+    }
+  ]
+}

@@ -1,0 +1,170 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "status": 200,
+      "body": "{\"code\": 0, \"message\": \"0\", \"data\": {\"bvid\": \"BV1xx411c7mD\", \"is_upower_exclusive\": false}}",
+      "attempts": 1,
+      "result": {
+        "bvid": "BV1xx411c7mD",
+        "is_upower_exclusive": false
+      }
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": 0, \"data\": null, \"result\": {\"from\": \"result\"}}",
+      "attempts": 1,
+      "result": {
+        "from": "result"
+      }
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": 0}",
+      "attempts": 1,
+      "result": null
+    },
+    {
+      "status": 200,
+      "body": "{\"OK\": 1, \"list\": []}",
+      "attempts": 1,
+      "result": {
+        "OK": 1,
+        "list": []
+      }
+    },
+    {
+      "status": 200,
+      "body": "{\"OK\": 0}",
+      "attempts": 1,
+      "error_class": "ResponseCodeException",
+      "error": "接口返回错误代码：-1，信息：API 返回数据 OK 不为 1。\n{'OK': 0}"
+    },
+    {
+      "status": 200,
+      "body": "{\"data\": 1}",
+      "attempts": 1,
+      "error_class": "ResponseCodeException",
+      "error": "接口返回错误代码：-1，信息：API 返回数据未含 code 字段。\n{'data': 1}"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": -404, \"message\": \"å¥é½æ¨æ\", \"ttl\": 1}",
+      "attempts": 1,
+      "error_class": "ResponseCodeException",
+      "error": "接口返回错误代码：-404，信息：啥都木有。\n{'code': -404, 'message': '啥都木有', 'ttl': 1}"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": -400, \"msg\": \"bad request\", \"message\": \"ignored\"}",
+      "attempts": 1,
+      "error_class": "ResponseCodeException",
+      "error": "接口返回错误代码：-400，信息：bad request。\n{'code': -400, 'msg': 'bad request', 'message': 'ignored'}"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": -101}",
+      "attempts": 1,
+      "error_class": "ResponseCodeException",
+      "error": "接口返回错误代码：-101，信息：接口未返回错误信息。\n{'code': -101}"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": \"0\", \"message\": \"string code\"}",
+      "attempts": 1,
+      "error_class": "ResponseCodeException",
+      "error": "接口返回错误代码：0，信息：string code。\n{'code': '0', 'message': 'string code'}"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": 62002, \"message\": \"\\u7a3f\\u4ef6\\u4e0d\\u53ef\\u89c1\", \"data\": {\"nested\": [1, 2.5, true, null, \"s'q\"]}}",
+      "attempts": 1,
+      "error_class": "ResponseCodeException",
+      "error": "接口返回错误代码：62002，信息：稿件不可见。\n{'code': 62002, 'message': '稿件不可见', 'data': {'nested': [1, 2.5, True, None, \"s'q\"]}}"
+    },
+    {
+      "status": 412,
+      "body": "<html><body>blocked</body></html>",
+      "attempts": 1,
+      "error_class": "JSONDecodeError",
+      "error": "Expecting value: line 1 column 1 (char 0)"
+    },
+    {
+      "status": 200,
+      "body": "",
+      "attempts": 1,
+      "error_class": "JSONDecodeError",
+      "error": "Expecting value: line 1 column 1 (char 0)"
+    },
+    {
+      "status": 200,
+      "body": "\"just a string\"",
+      "attempts": 1,
+      "error_class": "AttributeError",
+      "error": "'str' object has no attribute 'get'"
+    },
+    {
+      "status": 200,
+      "body": "[1, 2]",
+      "attempts": 1,
+      "error_class": "AttributeError",
+      "error": "'list' object has no attribute 'get'"
+    },
+    {
+      "status": 200,
+      "body": "ÿ{\"code\": 0}",
+      "attempts": 1,
+      "error_class": "UnicodeDecodeError",
+      "error": "'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": 0, \"data\": \"ä¸\"}",
+      "attempts": 1,
+      "error_class": "UnicodeDecodeError",
+      "error": "'utf-8' codec can't decode bytes in position 21-22: invalid continuation byte"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": 0, \"data\": \"ä\u0000\"}",
+      "attempts": 1,
+      "error_class": "UnicodeDecodeError",
+      "error": "'utf-8' codec can't decode byte 0xe4 in position 21: invalid continuation byte"
+    },
+    {
+      "status": 200,
+      "body": "{\"code\": 0, \"data\": 1} trailing",
+      "attempts": 1,
+      "error_class": "JSONDecodeError",
+      "error": "Extra data: line 1 column 24 (char 23)"
+    },
+    {
+      "status": 200,
+      "body": "",
+      "content_length_zero": true,
+      "attempts": 1,
+      "result": null
+    },
+    {
+      "script": [
+        "{\"code\": -403, \"message\": \"denied\"}"
+      ],
+      "attempts": 3,
+      "error_class": "WbiRetryTimesExceedException",
+      "error": "Wbi 重试达到最大次数"
+    },
+    {
+      "script": [
+        "{\"code\": -403, \"message\": \"denied\"}",
+        "{\"code\": 0, \"data\": {\"second\": true}}"
+      ],
+      "attempts": 2,
+      "result": {
+        "second": true
+      }
+    }
+  ]
+}

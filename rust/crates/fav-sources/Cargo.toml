@@ -19,13 +19,17 @@ fav-browser.workspace = true
 aes.workspace = true
 bytes.workspace = true
 chrono.workspace = true
-futures-util.workspace = true
+futures-util = { workspace = true, features = ["alloc"] }
+# Bilibili: the ticket signature (HMAC-SHA256) and the refresh path (RSA-OAEP with SHA-256).
+hmac.workspace = true
 # Only to tell a body cut short from other read failures (`kit::HttpError::transport`).
 hyper = { version = "1", default-features = false }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 regex.workspace = true
 reqwest = { workspace = true, features = ["query", "stream"] }
+rsa.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["fs", "io-util", "time"] }
@@ -40,4 +44,3 @@ fav-db = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "net", "rt", "io-util", "test-util"] }
 url.workspace = true
 http.workspace = true
-sha2.workspace = true

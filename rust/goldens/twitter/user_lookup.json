@@ -1,0 +1,93 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "twitter",
+  "cases": [
+    {
+      "returncode": 4,
+      "errors": [
+        "[twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": true
+    },
+    {
+      "returncode": 4,
+      "errors": [
+        "[twitter][info] Initializing client transaction keys",
+        "[twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": true
+    },
+    {
+      "returncode": 16,
+      "errors": [
+        "[twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": false
+    },
+    {
+      "returncode": 20,
+      "errors": [
+        "[twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": false
+    },
+    {
+      "returncode": 4,
+      "errors": [
+        "[twitter][warning] API errors (1/10):",
+        "[twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": false
+    },
+    {
+      "returncode": 4,
+      "errors": [
+        "[twitter][error] Unable to retrieve Tweets from this timeline"
+      ],
+      "transient": false
+    },
+    {
+      "returncode": 0,
+      "errors": [],
+      "transient": false
+    },
+    {
+      "returncode": 4,
+      "errors": [],
+      "transient": false
+    },
+    {
+      "returncode": 4,
+      "errors": [
+        "prefix [twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": true
+    },
+    {
+      "returncode": 4,
+      "errors": [
+        "[twitter][error] NotFoundError: Requested user could not be found suffix"
+      ],
+      "transient": false
+    },
+    {
+      "returncode": 4,
+      "errors": [
+        "[twitter][error] NotFoundError: Requested user could not be found",
+        "[twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": false
+    },
+    {
+      "returncode": 4,
+      "errors": [
+        "[info] a",
+        "[twitter][info] b",
+        "[twitter][error] NotFoundError: Requested user could not be found"
+      ],
+      "transient": true
+    }
+  ]
+}

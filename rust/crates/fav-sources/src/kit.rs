@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use fav_net::reqwest::{self, Response};
 use fav_runtime::BoxFuture;
-use fav_runtime::notifications::{NewNotification, Outbox};
+use fav_runtime::notifications::{NewNotification, Outbox, Resolution};
 use fav_runtime::source::JobError;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
@@ -233,6 +233,9 @@ pub(crate) fn reason_phrase(status: u16) -> &'static str {
 pub trait Notifier: Send + Sync {
     /// Queue one notification; the error text is what the caller logs.
     fn enqueue(&self, notification: NewNotification) -> BoxFuture<'_, Result<(), String>>;
+
+    /// `resolve_notification(dedupe_key, ...)`: mark an earlier failure resolved.
+    fn resolve(&self, dedupe_key: String, resolution: Resolution) -> BoxFuture<'_, Result<(), String>>;
 }
 
 /// The real outbox.
@@ -242,6 +245,16 @@ pub struct OutboxNotifier(pub Outbox);
 impl Notifier for OutboxNotifier {
     fn enqueue(&self, notification: NewNotification) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(async move { self.0.enqueue(&notification).await.map(|_| ()).map_err(|error| error.to_string()) })
+    }
+
+    fn resolve(&self, dedupe_key: String, resolution: Resolution) -> BoxFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            self.0
+                .resolve(&dedupe_key, &resolution)
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
     }
 }
 
@@ -329,6 +342,16 @@ pub(crate) fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
         Err(error) => Err(error),
     }
+}
+
+/// `await asyncio.to_thread(work)`: file work (a move across file systems copies the whole
+/// file) off the async threads.
+pub(crate) async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, fav_runtime::source::JobError> + Send + 'static,
+) -> Result<T, fav_runtime::source::JobError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| fav_runtime::source::JobError::new("RuntimeError", error.to_string()))?
 }
 
 #[cfg(test)]

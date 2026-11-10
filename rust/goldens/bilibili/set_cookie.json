@@ -1,0 +1,437 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "SESSDATA=new-sess; Path=/; Domain=bilibili.com; Expires=Wed, 01 Jan 2031 00:00:00 GMT; HttpOnly",
+        "bili_jct=new-jct; Path=/; Domain=bilibili.com; Expires=Wed, 01 Jan 2031 00:00:00 GMT",
+        "sid=new-sid; Path=/; Domain=bilibili.com",
+        "DedeUserID=42; Path=/; Domain=.bilibili.com; Max-Age=15552000"
+      ],
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "new-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "new-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "sid",
+          "value": "new-sid",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1815552000.0
+        }
+      ]
+    },
+    {
+      "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "nodomain=1",
+        "nopath=2; Domain=passport.bilibili.com",
+        "other=3; Domain=example.com",
+        "nodot=4; Domain=com",
+        "gone=5; Max-Age=0",
+        "past=6; Expires=Thu, 01 Jan 1970 00:00:01 GMT",
+        "badage=7; Max-Age=soon",
+        "baddate=8; Expires=not a date",
+        "$dollar=9",
+        "flag",
+        "=novalue",
+        " spaced = value with spaces ; path = /x ",
+        "quoted=\"a b\"; Domain=\".bilibili.com\"",
+        "twice=1; Domain=a.bilibili.com; Domain=b.bilibili.com",
+        "emptypath=10; Path=",
+        "emptydomain=11; Domain=",
+        "novaluedomain=12; Domain",
+        "ver=13; Version=1",
+        "badver=14; Version=x",
+        "port=15; Port=\"443,80\"",
+        "later=16; Expires=Wed, 01 Jan 2031 00:00:00 GMT; Max-Age=60",
+        "agefirst=17; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:01 GMT"
+      ],
+      "cookies": [
+        {
+          "name": "nodomain",
+          "value": "1",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "baddate",
+          "value": "8",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "$dollar",
+          "value": "9",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "flag",
+          "value": "",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "emptypath",
+          "value": "10",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "later",
+          "value": "16",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1800000060.0
+        },
+        {
+          "name": "agefirst",
+          "value": "17",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1800000060.0
+        },
+        {
+          "name": "spaced",
+          "value": "value with spaces",
+          "domain": "passport.bilibili.com",
+          "path": "/x",
+          "expires": null
+        },
+        {
+          "name": "ver",
+          "value": "13",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie/",
+          "expires": null
+        },
+        {
+          "name": "nopath",
+          "value": "2",
+          "domain": ".passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "rfc850=1; Expires=Wednesday, 01-Jan-31 00:00:00 GMT",
+        "short=2; Expires=01-Jan-2031 00:00:00",
+        "numeric=3; Expires=01 Jan 2031 08:00:00 +0800",
+        "zone=4; Expires=01 Jan 2031 00:00:00 UTC",
+        "unknownzone=5; Expires=01 Jan 2031 00:00:00 PST",
+        "ampm=6; Expires=01 Jan 2031 00:00:00 AM",
+        "noclock=7; Expires=1 Jan 2031",
+        "twodigit=8; Expires=Thu, 01-Jan-70 00:00:01 GMT",
+        "monthnum=9; Expires=01-01-2031 00:00:00",
+        "parens=10; Expires=01 Jan 2031 00:00:00 GMT (UTC)",
+        "lower=11; Expires=wed, 01 jan 2031 00:00:00 gmt",
+        "bigyear=12; Expires=01 Jan 99999 00:00:00 GMT",
+        "quoteddate=13; Expires=\"Wed, 01 Jan 2031 00:00:00 GMT\""
+      ],
+      "cookies": [
+        {
+          "name": "rfc850",
+          "value": "1",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "short",
+          "value": "2",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "numeric",
+          "value": "3",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "zone",
+          "value": "4",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "unknownzone",
+          "value": "5",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "ampm",
+          "value": "6",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "noclock",
+          "value": "7",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "twodigit",
+          "value": "8",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 3155760001.0
+        },
+        {
+          "name": "monthnum",
+          "value": "9",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "parens",
+          "value": "10",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "lower",
+          "value": "11",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        },
+        {
+          "name": "bigyear",
+          "value": "12",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": null
+        },
+        {
+          "name": "quoteddate",
+          "value": "13",
+          "domain": "passport.bilibili.com",
+          "path": "/x/passport-login/web/cookie",
+          "expires": 1924992000.0
+        }
+      ]
+    },
+    {
+      "url": "https://www.bilibili.com/correspond/1/abc",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "deep=1",
+        "up=2; Path=/correspond"
+      ],
+      "cookies": [
+        {
+          "name": "deep",
+          "value": "1",
+          "domain": "www.bilibili.com",
+          "path": "/correspond/1",
+          "expires": null
+        },
+        {
+          "name": "up",
+          "value": "2",
+          "domain": "www.bilibili.com",
+          "path": "/correspond",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "url": "http://localhost/x",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "local=1; Domain=localhost",
+        "local2=2; Domain=.localhost",
+        "plain=3"
+      ],
+      "cookies": [
+        {
+          "name": "local",
+          "value": "1",
+          "domain": ".localhost",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "local2",
+          "value": "2",
+          "domain": ".localhost",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "plain",
+          "value": "3",
+          "domain": "localhost.local",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "url": "https://passport.bilibili.com/",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "a=1; Domain=.BiliBili.COM",
+        "a=2; Domain=bilibili.com",
+        "b=1",
+        "b=2"
+      ],
+      "cookies": [
+        {
+          "name": "a",
+          "value": "2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "b",
+          "value": "2",
+          "domain": "passport.bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "url": "https://passport.bilibili.com/x",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "keep=1",
+        "broken=2; Max-Age",
+        "after=3"
+      ],
+      "cookies": []
+    },
+    {
+      "url": "https://passport.bilibili.com:8443/x",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "p1=1; Port=\"8443\"",
+        "p2=2; Port=80, 443",
+        "p3=3; Port",
+        "p4=4; Port=x",
+        "p5=5; Port=443"
+      ],
+      "cookies": [
+        {
+          "name": "p3",
+          "value": "3",
+          "domain": "passport.bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "url": "https://passport.bilibili.com/a%7eb/c d",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "esc=1",
+        "pathesc=2; Path=/%c3%bc/%7e x[y]"
+      ],
+      "cookies": [
+        {
+          "name": "esc",
+          "value": "1",
+          "domain": "passport.bilibili.com",
+          "path": "/a%7Eb",
+          "expires": null
+        },
+        {
+          "name": "pathesc",
+          "value": "2",
+          "domain": "passport.bilibili.com",
+          "path": "/%C3%BC/%7E%20x%5By%5D",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "url": "https://passport.bilibili.com/x",
+      "now": 1800000000.0,
+      "set_cookie": [
+        "v=1; Version=\"1\"; Path=/",
+        "w=\"quoted value\"; secure; HttpOnly; SameSite=Lax",
+        "age=1; Max-Age=+60",
+        "neg=1; Max-Age=-1",
+        "u=1; Max-Age=1_0"
+      ],
+      "cookies": [
+        {
+          "name": "v",
+          "value": "1",
+          "domain": "passport.bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "w",
+          "value": "\"quoted value\"",
+          "domain": "passport.bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "age",
+          "value": "1",
+          "domain": "passport.bilibili.com",
+          "path": "/",
+          "expires": 1800000060.0
+        },
+        {
+          "name": "u",
+          "value": "1",
+          "domain": "passport.bilibili.com",
+          "path": "/",
+          "expires": 1800000010.0
+        }
+      ]
+    }
+  ]
+}

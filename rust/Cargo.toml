@@ -67,13 +67,15 @@ chrono-tz = "0.10"
 axum = "0.8"
 clap = { version = "4.6", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false }
+hmac = "0.13"
 http = "1"
 hyper = { version = "1", default-features = false }
 regex = "1"
 reqwest = { version = "0.13", default-features = false }
+rsa = "0.10"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1", features = ["derive"] }
-sha2 = "0.10"
+sha2 = "0.11"
 tempfile = "3"
 serde_json = "1"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "tls-rustls-ring-webpki"] }

@@ -10,7 +10,7 @@
 //! proxy, httpx's redirect rules and `response.history`, `raise_for_status()` text),
 //! [`download`] (a body streamed into a temporary file beside its destination, hashed on
 //! the way, renamed into place) and [`retry`] (the retry ladders, `Retry-After`, and an
-//! injectable sleep so tests never wait). The subprocess runner arrives with WP7.
+//! injectable sleep so tests never wait). [`subprocess`] runs yt-dlp and gallery-dl.
 
 use std::sync::Once;
 
@@ -19,6 +19,7 @@ pub use reqwest;
 pub mod client;
 pub mod download;
 pub mod retry;
+pub mod subprocess;
 
 pub use client::{ClientOptions, HttpClient, Request, Response, StatusError, TransportError};
 
