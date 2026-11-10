@@ -13,11 +13,13 @@ workspace = true
 [dependencies]
 axum.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 fav-core.workspace = true
 fav-db.workspace = true
 fav-runtime.workspace = true
 fav-sources.workspace = true
 form_urlencoded = "1"
+futures-util.workspace = true
 percent-encoding = "2"
 regex = "1"
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -25,6 +27,7 @@ sha2 = "0.10"
 sqlx.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "net", "sync", "time"] }
+url.workspace = true
 utoipa = { workspace = true, features = ["preserve_order", "preserve_path_order"] }
 
 [dev-dependencies]

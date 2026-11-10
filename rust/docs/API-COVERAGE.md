@@ -108,6 +108,11 @@ Probe: `probes/api-coverage/src/mcp.rs`. Tests send JSON-RPC to the axum router 
 | `@mcp.tool()` input schemas | Hand-built `Tool` with the schema as a JSON object, passed through verbatim | Test (byte-identical schema, key order kept) |
 | Tool results, `ToolError` | `CallToolResult::structured` / `CallToolResult::error` | Test |
 
+Outcome (WP4): the endpoint does not use `rmcp`. Matching FastMCP's answers to malformed requests (its
+error envelopes, pydantic's validation texts, the `-32602` with empty data, the 4 MiB limit) needed overrides
+at every layer, so `fav-api/src/mcp` implements the stateless JSON transport directly and golden-checks it
+byte for byte (`DIVERGENCES.md` D31). The pin and the probe stay as the record of this check.
+
 Notes for WP4:
 
 - Key order in schemas survives only with `serde_json`'s `preserve_order` feature. Cargo unifies features,

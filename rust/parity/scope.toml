@@ -44,7 +44,7 @@ tests = [
 
 [WP4]
 title = "MCP tools and ops queries"
-status = "pending"
+status = "done"
 tests = ["tests/test_mcp.py"]
 
 [WP5]
