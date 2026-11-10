@@ -284,6 +284,34 @@ fn int_value(value: &Value) -> i128 {
     }
 }
 
+/// `text.encode('ascii')`'s `UnicodeEncodeError`, naming the first run of characters it
+/// cannot encode as Python does; `None` for ASCII text.
+fn ascii_encode_error(text: &str) -> Option<PyError> {
+    let chars: Vec<char> = text.chars().collect();
+    let start = chars.iter().position(|c| !c.is_ascii())?;
+    let end = chars[start..]
+        .iter()
+        .position(char::is_ascii)
+        .map_or(chars.len(), |run| start + run);
+    let message = if end - start == 1 {
+        let code = u32::from(chars[start]);
+        let escaped = if code < 0x100 {
+            format!("\\x{code:02x}")
+        } else if code < 0x1_0000 {
+            format!("\\u{code:04x}")
+        } else {
+            format!("\\U{code:08x}")
+        };
+        format!("'ascii' codec can't encode character '{escaped}' in position {start}: ordinal not in range(128)")
+    } else {
+        format!(
+            "'ascii' codec can't encode characters in position {start}-{}: ordinal not in range(128)",
+            end - 1
+        )
+    };
+    Some(PyError::new("UnicodeEncodeError", message))
+}
+
 /// A value bound to a `BIGINT` column, as psycopg sends it: an int in range, else
 /// PostgreSQL's refusal (DIVERGENCES.md D139).
 fn bigint(value: &Value, column: &str) -> Result<i64, Failure> {
@@ -671,6 +699,14 @@ pub fn post_video_name(index: usize, count: usize) -> String {
     } else {
         format!("video-{index:02}")
     }
+}
+
+/// `await asyncio.to_thread(function, path)`: the `stat` loops of picking an unused name
+/// run off the async threads.
+async fn off_thread(function: fn(&Path) -> PathBuf, path: PathBuf) -> PathBuf {
+    tokio::task::spawn_blocking(move || function(&path))
+        .await
+        .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
 }
 
 /// `_unused_directory`.
@@ -1279,7 +1315,7 @@ impl Wechat {
             sniff_extension(content).map_or_else(|| file_extension(item, content_type), str::to_owned)
         };
         let relative = relative_path(item, &ext)?;
-        let destination = ensure_unique_path(&self.cfg.path.join(&relative));
+        let destination = off_thread(ensure_unique_path, self.cfg.path.join(&relative)).await;
         if let Some(folder) = destination.parent() {
             tokio::fs::create_dir_all(folder).await.map_err(|error| os_error(&error, folder))?;
         }
@@ -1622,9 +1658,9 @@ impl Wechat {
         videos: &[Option<FetchedVideo>],
     ) -> Result<SavedArticle, Failure> {
         let title = if page.title.is_empty() { &link.title } else { &page.title };
-        let destination = unused_directory(&self.cfg.path.join(article_directory(message, title)?));
+        let destination = off_thread(unused_directory, self.cfg.path.join(article_directory(message, title)?)).await;
         let partial = with_name(&destination, &format!("{}.part", file_name(&destination)));
-        if partial.exists() {
+        if tokio::fs::try_exists(&partial).await.unwrap_or(false) {
             tokio::fs::remove_dir_all(&partial)
                 .await
                 .map_err(|error| os_error(&error, &partial))?;
@@ -1777,7 +1813,7 @@ impl Wechat {
                 error_detail(&fetched.body)
             )));
         }
-        // `response.text`, read as UTF-8 whatever the page declares (D127).
+        // `response.text`, read as UTF-8 whatever the page declares (D141, as D128).
         let text = String::from_utf8_lossy(&fetched.body).into_owned();
         let mut page = parse_article_page(&text)?;
         if page.images.is_empty() {
@@ -2068,8 +2104,13 @@ impl Wechat {
             return Err(Failure::keyed("视频号 videos need a TikHub API key (services.tikhub)", TIKHUB_KEY));
         }
         let failure = format!("TikHub could not look up 视频号 video {}", video.object_id);
+        let authorization = format!("Bearer {}", tikhub.token);
+        if let Some(error) = ascii_encode_error(&authorization) {
+            // httpx encodes header values as ASCII before sending: not an `HTTPError`.
+            return Err(Failure::Py(error));
+        }
         let request = Self::json_request(format!("{}{TIKHUB_VIDEO_DETAIL}", tikhub.api_url), &tikhub_lookup(video))?
-            .header("Authorization", format!("Bearer {}", tikhub.token));
+            .header("Authorization", authorization);
         let fetched = match Fetched::send(self.post_client().http(), request).await {
             Ok(fetched) => fetched,
             Err(error) if is_http_error(&error) => return Err(Failure::inbox(format!("{failure}: {}", error.message))),
@@ -2171,7 +2212,7 @@ impl Wechat {
         if self.video_stored(message, &video).await? {
             return Ok(());
         }
-        let destination = ensure_unique_path(&self.cfg.path.join(video_path(message, &video)?));
+        let destination = off_thread(ensure_unique_path, self.cfg.path.join(video_path(message, &video)?)).await;
         let partial = with_name(&destination, &format!("{}.part", file_name(&destination)));
         let size = self.download_video(&video, &partial).await?;
         tokio::fs::rename(&partial, &destination)
@@ -2374,7 +2415,13 @@ impl Source for WechatJob {
             let settings = self.ctx.settings.load().await.map_err(|error| crate::settings_job_error(&error))?;
             let cfg = settings.web.wechat.clone();
             let build_error = |error: BuildError| JobError::new("RuntimeError", error.to_string());
-            let clients = Clients::new(&cfg.token, None, &[]).map_err(build_error)?;
+            // An unconfigured source only logs and returns, whatever its token (D140).
+            let token = if cfg.validate_runnable().is_empty() {
+                cfg.token.as_str()
+            } else {
+                ""
+            };
+            let clients = Clients::new(token, None, &[]).map_err(build_error)?;
             let sessions: Arc<dyn SessionStore> = Arc::new(self.ctx.db.clone());
             let web = PostLinks::new(PostClient::new().map_err(build_error)?, Arc::clone(&self.ctx.settings), sessions);
             let notifier: SharedNotifier = Arc::new(OutboxNotifier(Outbox::new(self.ctx.db.clone(), Arc::clone(&self.ctx.settings))));

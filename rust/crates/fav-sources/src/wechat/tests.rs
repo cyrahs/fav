@@ -2884,3 +2884,41 @@ fn the_clients_never_show_the_token() {
     assert!(shown.contains("authorization"), "{shown}");
     assert!(!shown.contains("plain-secret"), "{shown}");
 }
+
+// D140: httpx refuses a TikHub key it cannot encode before sending, outside `HTTPError`.
+#[tokio::test]
+async fn a_tikhub_key_that_is_not_ascii_fails_the_run_uncounted() {
+    let mut env = Env::new(Inbox::bridge(vec![event(1, video_message(65))]), video_sites(None, None)).await;
+    env.tikhub("kéy");
+
+    let error = env.run_err().await;
+
+    assert_eq!(error.class_name(), "UnicodeEncodeError");
+    assert_eq!(
+        error.message(),
+        "'ascii' codec can't encode character '\\xe9' in position 8: ordinal not in range(128)"
+    );
+    assert!(tikhub_requests(&env).is_empty());
+    assert_eq!(env.queue(65).await.attempts, 0);
+    // The run stops there: the inbox is not drained.
+    assert!(!env.inbox_requests().iter().any(|seen| seen.path() == "/items"));
+    env.finish().await;
+}
+
+#[test]
+fn an_unencodable_run_is_named_by_its_positions() {
+    let message = |text: &str| super::ascii_encode_error(text).map(|error| error.message);
+    assert_eq!(message("Bearer key"), None);
+    assert_eq!(
+        message("Bearer 中文x😀").as_deref(),
+        Some("'ascii' codec can't encode characters in position 7-8: ordinal not in range(128)")
+    );
+    assert_eq!(
+        message("Bearer x😀").as_deref(),
+        Some("'ascii' codec can't encode character '\\U0001f600' in position 8: ordinal not in range(128)")
+    );
+    assert_eq!(
+        message("Bearer x中").as_deref(),
+        Some("'ascii' codec can't encode character '\\u4e2d' in position 8: ordinal not in range(128)")
+    );
+}
