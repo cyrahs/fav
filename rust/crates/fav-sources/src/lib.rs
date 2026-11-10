@@ -15,6 +15,8 @@ use std::sync::Arc;
 use fav_db::{Db, SettingsStore};
 use fav_runtime::source::{JobError, Registry};
 
+pub mod bd2;
+pub mod bd2_l2d_viewer;
 pub mod bilibili;
 pub mod content_discovery;
 pub mod hanime1;
@@ -66,6 +68,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     kemono::register(&mut registry, ctx);
     hanime1::register(&mut registry, ctx);
     nikke::register(&mut registry, ctx);
+    bd2::register(&mut registry, ctx);
     registry
 }
 
