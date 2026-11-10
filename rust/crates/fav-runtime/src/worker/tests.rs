@@ -936,7 +936,7 @@ async fn direct_telegram_retry_uses_server_retry_after() {
         "sendMessage",
         vec![Answer::json(
             429,
-            json!({"ok": false, "error_code": 429, "description": "Telegram rate limited", "parameters": {"retry_after": 120}}),
+            json!({"ok": false, "error_code": 429, "description": "Telegram rate limited", "parameters": {"retry_after": 500}}),
         )],
     );
     let worker = worker_with(db, telegram_settings(true), api.client(), stop_signal().1);
@@ -958,9 +958,11 @@ async fn direct_telegram_retry_uses_server_retry_after() {
     assert_eq!(row.attempt_count, 3);
     assert_eq!(row.last_error, "Telegram Bot API responded with error 429: Telegram rate limited");
     let delay = row.next_attempt_at - Utc::now();
+    // The third attempt's own backoff is 120 s; the server asked for 500 (Python's test
+    // uses 120, which cannot tell the two apart).
     assert!(
-        delay > chrono::Duration::seconds(110),
-        "the server's 120 s beat the 120 s backoff floor: {delay}"
+        delay > chrono::Duration::seconds(490) && delay <= chrono::Duration::seconds(500),
+        "the server's retry_after wins over the 120 s backoff: {delay}"
     );
 
     // A permanent error marks the row failed.
@@ -1016,36 +1018,66 @@ fn registry(outcome: Outcome, log: &Arc<StdMutex<Vec<String>>>) -> Registry {
 async fn main_starts_notification_consumer_and_closes_client() {
     let database = database().await;
     let db = database.db().clone();
-    // A run the previous worker left behind, and a trigger waiting for this one.
+    let api = FakeBotApi::start().await;
+    // A run the previous worker left behind, a trigger waiting for this one, and a
+    // notification waiting for the delivery consumer.
     let leftover = control::record_scheduled_run_start(&db, "nikke").await.expect("leftover");
     let request = control::create(&db, KIND_TRIGGER_JOB, "nikke", None).await.expect("created");
+    queue_failure(&worker_with(&db, telegram_settings(true), api.client(), stop_signal().1)).await;
     let log = calls();
     let (handle, _) = stop_signal();
-    let worker = tokio::spawn(run_worker(
-        options(&database, nikke_settings(false), registry(Outcome::Succeed, &log), offline_bot()),
-        handle.clone(),
-    ));
-    for _ in 0..250 {
-        if outcome(&db, request.request_id).await.0 != control::STATUS_PENDING && outcome(&db, request.request_id).await.0 != STATUS_RUNNING
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    handle.stop();
-    tokio::time::timeout(Duration::from_secs(15), worker)
-        .await
-        .expect("stops")
-        .expect("no panic")
-        .expect("clean exit");
-    // Leftover rows are closed before the consumer can claim anything: the trigger went
-    // through instead of being swept up as interrupted.
+    let watcher = {
+        let (db, handle) = (db.clone(), handle.clone());
+        tokio::spawn(async move {
+            for _ in 0..500 {
+                let status = outcome(&db, request.request_id).await.0;
+                let delivered = notifications(&db).await.iter().all(|row| row.delivery_status == DELIVERY_DELIVERED);
+                if status != control::STATUS_PENDING && status != STATUS_RUNNING && delivered {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            handle.stop();
+        })
+    };
+    // The worker's own steps log on this task; the consumers run on theirs.
+    let records = tokio::time::timeout(
+        Duration::from_secs(20),
+        capture_async(async {
+            run_worker(
+                options(&database, nikke_settings(true), registry(Outcome::Succeed, &log), api.client()),
+                handle.clone(),
+            )
+            .await
+            .expect("clean exit");
+        }),
+    )
+    .await
+    .expect("stops");
+    watcher.await.expect("watcher");
+    let messages: Vec<&str> = records.iter().map(|record| record.message.as_str()).collect();
+    let position = |message: &str| {
+        messages
+            .iter()
+            .position(|logged| *logged == message)
+            .unwrap_or_else(|| panic!("{message:?} not logged: {messages:?}"))
+    };
+    // Leftover rows are closed before the consumer can claim anything.
+    assert!(
+        position("Marked 1 run(s) left by the previous worker as interrupted") < position("Control request consumer enabled"),
+        "{messages:?}"
+    );
     assert_eq!(outcome(&db, leftover).await.0, STATUS_INTERRUPTED);
     assert_eq!(
         outcome(&db, request.request_id).await,
         strings(STATUS_SUCCEEDED, "Completed nikke.", "")
     );
     assert_eq!(recorded(&log), ["update", "close"]);
+    // The notification consumer ran: the queued row went out through the Bot API.
+    position("Notification delivery consumer enabled");
+    assert_eq!(api.methods().first().map(String::as_str), Some("sendMessage"));
+    let [row] = notifications(&db).await.try_into().expect("one row");
+    assert_eq!(row.delivery_status, DELIVERY_DELIVERED);
     database.drop_database().await;
 }
 
@@ -1126,4 +1158,12 @@ fn failure_payload_times_are_whole_utc_seconds() {
         .to_utc();
     assert_eq!(serialize_datetime(when), "2026-03-01T17:02:03Z");
     assert!(matches!(round3(1.234_56), Value::Float(value) if (value - 1.235).abs() < 1e-12));
+    // Python's `round` works on the exact binary value: 76.3775 and 1.0005 sit just below
+    // the half, so they round down where `(v * 1000.0).round()` would round up.
+    for (value, expected) in [(76.3775, 76.377), (1.0005, 1.0), (0.0, 0.0)] {
+        assert!(
+            matches!(round3(value), Value::Float(rounded) if rounded.to_bits() == f64::to_bits(expected)),
+            "{value}"
+        );
+    }
 }

@@ -217,7 +217,8 @@ pub fn to_netscape(cookies: &[StoredCookie]) -> String {
         let include_subdomains = if cookie.domain.starts_with('.') { "TRUE" } else { "FALSE" };
         // `str(int(expires)) if expires else '0'`.
         let expires = match cookie.expires {
-            Some(expires) if expires != 0.0 => format!("{:.0}", expires.trunc()),
+            // `+ 0.0` turns the -0.0 that truncating -0.5 gives into 0.0: `int()` has no sign for zero.
+            Some(expires) if expires != 0.0 => format!("{:.0}", expires.trunc() + 0.0),
             _ => "0".to_owned(),
         };
         let path = if cookie.path.is_empty() { "/" } else { cookie.path.as_str() };

@@ -24,6 +24,7 @@ _COOKIE_SETS: list[tuple[StoredCookie, ...]] = [
         StoredCookie(name='名字', value='值 "quoted" \\ back', domain='.example.cn', path='/a b', expires=1700000000.123456),
     ),
     (StoredCookie(name='PHPSESSID', value='x', domain='.pixiv.net', path='/', expires=1.5e9),),
+    (StoredCookie(name='neg', value='x', domain='.example.com', path='/', expires=-0.5),),
 ]
 
 _BROWSER_COOKIES: list[list[dict[str, Any]]] = [

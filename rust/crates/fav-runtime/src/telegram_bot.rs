@@ -250,6 +250,8 @@ impl BotClient {
         let http = fav_net::client_builder()
             .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
             .read_timeout(Duration::from_secs(READ_TIMEOUT_SECONDS))
+            // httpx does not follow redirects unless asked; a 3xx is an answer like any other.
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
         Ok(Self {
             http,

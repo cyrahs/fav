@@ -113,10 +113,8 @@ impl Scheduler {
         };
         let mut state = self.state();
         state.jobs.retain(|job| job.id != id);
-        // APScheduler drops a job whose trigger never fires again.
-        if entry.next_run.is_some() {
-            state.jobs.push(entry);
-        }
+        // A trigger that never fires gives a paused job (`next_run_time=None`), as in APScheduler.
+        state.jobs.push(entry);
         drop(state);
         self.wake.notify_one();
     }
@@ -128,13 +126,10 @@ impl Scheduler {
             return false;
         };
         let next_run = trigger.next_fire_time(None, &ZonedTime::now(self.zone));
-        if next_run.is_none() {
-            state.jobs.remove(index);
-        } else {
-            let entry = &mut state.jobs[index];
-            entry.trigger = trigger;
-            entry.next_run = next_run;
-        }
+        // A trigger that never fires pauses the job, as APScheduler's `modify_job` does.
+        let entry = &mut state.jobs[index];
+        entry.trigger = trigger;
+        entry.next_run = next_run;
         drop(state);
         self.wake.notify_one();
         true
@@ -194,8 +189,9 @@ impl Scheduler {
             if full {
                 continue;
             }
-            // Same zone on both sides: Python subtracts the wall times.
-            let late = now.naive() - run_time.naive();
+            // `datetime.now(utc) - run_time`: aware datetimes in different zones, so an
+            // instant difference (a run time in a DST gap is not an hour late).
+            let late = now.to_utc() - run_time.to_utc();
             if late > chrono::Duration::seconds(MISFIRE_GRACE_SECONDS) {
                 executor_log().warning(format!(
                     "Run time of job \"{}\" was missed by {}",
@@ -223,6 +219,12 @@ impl Scheduler {
 
     /// Run the scheduler until `stop` is set, then wait for the runs it started.
     pub async fn run(&self, stop: StopSignal) {
+        // `start()`: jobs added before it get their first fire time from now, so one that
+        // came due during startup is neither run nor reported as missed.
+        let now = ZonedTime::now(self.zone);
+        for entry in &mut self.state().jobs {
+            entry.next_run = entry.trigger.next_fire_time(None, &now);
+        }
         let mut runs = JoinSet::new();
         loop {
             let now = ZonedTime::now(self.zone);

@@ -201,6 +201,45 @@
       }
     },
     {
+      "function": "cookies",
+      "cookies": [
+        {
+          "name": "neg",
+          "value": "x",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": -0.5
+        }
+      ],
+      "encoded": "[{\"name\": \"neg\", \"value\": \"x\", \"domain\": \".example.com\", \"path\": \"/\", \"expires\": -0.5}]",
+      "netscape": "# Netscape HTTP Cookie File\n\n.example.com\tTRUE\t/\tTRUE\t0\tneg\tx\n",
+      "without_values": [
+        {
+          "name": "neg",
+          "value": "in-profile",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": -0.5
+        }
+      ],
+      "cookie_value": {
+        "SESSDATA": "",
+        "sessdata": "",
+        "ct0": "",
+        "lang": "",
+        "missing": ""
+      },
+      "cookie_expiry": {
+        "SESSDATA": null,
+        "sessdata": null,
+        "auth_token": null,
+        "ct0": null,
+        "lang": null,
+        "twid": null,
+        "missing": null
+      }
+    },
+    {
       "function": "cookies_from_browser",
       "raw": [],
       "cookies": []

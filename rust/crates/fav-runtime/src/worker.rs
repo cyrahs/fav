@@ -141,9 +141,10 @@ fn serialize_datetime(value: DateTime<Utc>) -> String {
     value.trunc_subsecs(0).format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-/// `round(value, 3)` as a JSON float.
+/// `round(value, 3)` as a JSON float: the exact binary value rounded half to even, which
+/// formatting does and `(value * 1000.0).round()` does not (76.3775 is 76.37749... in binary).
 fn round3(value: f64) -> Value {
-    Value::Float((value * 1000.0).round_ties_even() / 1000.0)
+    Value::Float(format!("{value:.3}").parse().unwrap_or(value))
 }
 
 /// `_disabled_job_reason`.
@@ -732,10 +733,15 @@ pub async fn run_trigger(options: WorkerOptions, target: &str, stop: StopSignal)
         } = startup(&options, &stop, false).await?;
         let trigger_jobs = resolve_trigger_jobs(target, &all_jobs).map_err(|message| WorkerError::Exit(Some(message)))?;
         validate_commands(&trigger_jobs)?;
+        // Every runner before any job runs, so `all` does not stop half-way (D17).
+        let mut triggered = Vec::with_capacity(trigger_jobs.len());
         for job in &trigger_jobs {
-            let Some(runner) = runners.get(&job.key) else {
-                return Err(WorkerError::Exit(Some(format!("Runner unavailable for job: {}", job.key))));
-            };
+            let runner = runners
+                .get(&job.key)
+                .ok_or_else(|| WorkerError::Exit(Some(format!("Runner unavailable for job: {}", job.key))))?;
+            triggered.push((job, runner));
+        }
+        for (job, runner) in triggered {
             if !job.enabled {
                 log().warning(format!("{} is disabled in config; running once due to --trigger", job.name));
             }
@@ -792,6 +798,11 @@ pub async fn run_worker(options: WorkerOptions, stop: StopHandle) -> Result<(), 
                 ready = source.wait_until_ready() => {
                     resident_task = Some(run);
                     ready.map_err(|error| WorkerError::Failed(error.formatted()))?;
+                }
+                // A signal cancels Python's `main` wherever it waits: a clean shutdown.
+                () = signal.wait() => {
+                    resident_task = Some(run);
+                    return Ok(());
                 }
             }
             log().info("Telegram event listeners and queue workers enabled");

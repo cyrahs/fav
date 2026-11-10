@@ -96,7 +96,7 @@ fn a_run_missed_by_more_than_the_grace_time_is_skipped() {
     let expected = format!(
         "Run time of job \"Yearly (trigger: cron[month='1', day='1', day_of_week='*', hour='0', minute='0'], next run at: {} UTC)\" was missed by {}",
         next.naive().format("%Y-%m-%d %H:%M:%S"),
-        crate::pystr::timedelta(now.naive() - missed.naive()),
+        crate::pystr::timedelta(now.to_utc() - missed.to_utc()),
     );
     assert_eq!(record.message, expected);
 }
@@ -144,11 +144,14 @@ async fn run_starts_due_jobs_and_waits_for_them_after_stop() {
         })
     };
     scheduler.add_job("x", "X", trigger("* * * * *"), job);
-    set_next_run(&scheduler, "x", ZonedTime::now(Tz::UTC));
     let running = tokio::spawn({
         let scheduler = scheduler.clone();
         async move { scheduler.run(signal).await }
     });
+    // Once the loop has started (and set the first fire time), make the job due now.
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    set_next_run(&scheduler, "x", ZonedTime::now(Tz::UTC));
+    scheduler.wake.notify_one();
     // Let the loop start the run, then stop.
     for _ in 0..100 {
         if scheduler.state().jobs[0].running.load(Ordering::SeqCst) == 1 {
@@ -163,10 +166,67 @@ async fn run_starts_due_jobs_and_waits_for_them_after_stop() {
 }
 
 #[test]
-fn a_trigger_that_never_fires_again_drops_the_job() {
+fn a_trigger_that_never_fires_again_pauses_the_job() {
     let scheduler = Scheduler::new(Tz::UTC);
     let counter = Arc::default();
-    // February 30th never comes.
+    // February 30th never comes: APScheduler keeps the job with no next run time.
     scheduler.add_job("x", "X", trigger("0 0 30 2 *"), counting_job(&counter));
-    assert!(scheduler.job_ids().is_empty());
+    assert_eq!(scheduler.job_ids(), ["x"]);
+    assert_eq!(scheduler.next_run_time("x"), None);
+    let mut runs = JoinSet::new();
+    assert_eq!(scheduler.process_due(&ZonedTime::now(Tz::UTC), &mut runs), None);
+    assert!(runs.is_empty());
+    // Rescheduling onto a trigger that fires resumes it; one that never fires pauses it.
+    assert!(scheduler.reschedule_job("x", trigger("0 4 * * *")));
+    assert!(scheduler.next_run_time("x").is_some());
+    assert!(scheduler.reschedule_job("x", trigger("0 0 31 4 *")));
+    assert_eq!(scheduler.job_ids(), ["x"]);
+    assert_eq!(scheduler.next_run_time("x"), None);
+}
+
+#[tokio::test]
+async fn a_run_time_in_a_dst_gap_is_late_by_the_instant_difference() {
+    let zone: Tz = "America/New_York".parse().expect("zone");
+    let scheduler = Scheduler::new(zone);
+    let counter = Arc::default();
+    let trigger = CronTrigger::from_crontab("30 2 * * *", zone).expect("valid cron");
+    // 2026-03-08 02:30 does not exist in New York; APScheduler keeps the -05:00 offset.
+    let midnight = ZonedTime::from_utc("2026-03-08T05:00:00Z".parse().expect("instant"), zone);
+    let gap = trigger.next_fire_time(None, &midnight).expect("fires");
+    assert_eq!(
+        gap.to_utc(),
+        "2026-03-08T07:30:00Z".parse::<chrono::DateTime<Utc>>().expect("instant")
+    );
+    scheduler.add_job("x", "X", trigger, counting_job(&counter));
+    set_next_run(&scheduler, "x", gap);
+    // One second after the instant (03:30:01 EDT on the wall clock).
+    let now = ZonedTime::from_utc("2026-03-08T07:30:01Z".parse().expect("instant"), zone);
+    let records = logging::capture(|| {
+        let mut runs = JoinSet::new();
+        scheduler.process_due(&now, &mut runs);
+        assert_eq!(runs.len(), 1, "started, not missed");
+    });
+    assert!(records.is_empty(), "{records:?}");
+}
+
+#[tokio::test]
+async fn a_fire_time_that_passes_before_start_is_neither_run_nor_missed() {
+    let scheduler = Scheduler::new(Tz::UTC);
+    let counter = Arc::default();
+    scheduler.add_job("x", "X", trigger("* * * * *"), counting_job(&counter));
+    // Came due while the worker was still starting up (a long Telegram readiness wait).
+    let earlier = ZonedTime::from_utc(Utc::now() - Duration::minutes(10), Tz::UTC);
+    set_next_run(&scheduler, "x", earlier);
+    let (handle, signal) = stop_signal();
+    let records = logging::capture(|| {
+        let running = scheduler.run(signal);
+        handle.stop();
+        let waker = std::task::Waker::noop();
+        let mut context = std::task::Context::from_waker(waker);
+        let mut running = std::pin::pin!(running);
+        assert!(running.as_mut().poll(&mut context).is_ready());
+    });
+    assert!(records.is_empty(), "{records:?}");
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
+    assert!(scheduler.next_run_time("x").expect("next").to_utc() > Utc::now() - Duration::seconds(1));
 }
