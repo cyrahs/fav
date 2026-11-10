@@ -33,6 +33,7 @@ use fav_sources::azurlane::l2d_sources::{OriginProbe, ProbeOrigin};
 use fav_sources::hanime1_author::{AuthorSubscriptions, Hanime1AuthorService};
 use fav_sources::hanime1_series::{Hanime1SeriesService, SeriesSubscriptions};
 use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
+use fav_sources::rednote::proxy_probe::{ProbeRedNoteProxy, RedNoteProxyProbe};
 
 pub mod archive;
 pub mod azurlane;
@@ -102,6 +103,8 @@ pub struct ApiState {
     pub live2d_overrides: Arc<dyn live2d_overrides::Live2DViewOverrideStore>,
     /// Checks the l2d.su origin through a draft proxy (`POST /api/v2/azurlane/proxy/test`).
     pub azurlane_origin: Arc<dyn ProbeOrigin>,
+    /// Checks xiaohongshu.com through a draft proxy (`POST /api/v2/rednote/proxy/test`).
+    pub rednote_proxy: Arc<dyn ProbeRedNoteProxy>,
     /// The 登录态 page's browser logins (`app.state.browser_login`), closed on shutdown.
     pub browser_login: Arc<BrowserLoginManager>,
 }
@@ -151,6 +154,7 @@ impl ApiState {
             azurlane: azurlane::AzurLaneLibraries::default(),
             live2d_overrides: live2d_overrides::postgres_store(db_for_overrides),
             azurlane_origin: Arc::new(OriginProbe),
+            rednote_proxy: Arc::new(RedNoteProxyProbe),
             browser_login: Arc::new(default_browser_login(&db_for_logins, &settings)),
             settings,
         })

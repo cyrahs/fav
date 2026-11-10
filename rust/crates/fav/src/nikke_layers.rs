@@ -12,7 +12,7 @@ use clap::{Args, Subcommand};
 use fav_core::pyjson::Value;
 use fav_sources::PyError;
 use fav_sources::nikke::layer_tool::{self, LayerTool, MergeArgs, MergeDirArgs, Outcome, RuntimeCaptureArgs, StripArgs, ValidateArgs};
-use fav_sources::nikke::runtime::UnavailableCapturer;
+use fav_sources::nikke::runtime::BrowserCapturer;
 
 const DEFAULT_ROOT: &str = "./collection/nikke";
 
@@ -229,9 +229,9 @@ pub(crate) async fn run(command: NikkeLayers, tool: &LayerTool, out: &mut dyn Wr
     }
 }
 
-/// The production tool: runtime capture is WP17's, so it reports itself unavailable.
+/// The production tool: runtime capture in Chromium from Playwright's registry.
 pub(crate) fn production_tool() -> LayerTool {
-    LayerTool::new(Arc::new(UnavailableCapturer))
+    LayerTool::new(Arc::new(BrowserCapturer::new()))
 }
 
 #[cfg(test)]

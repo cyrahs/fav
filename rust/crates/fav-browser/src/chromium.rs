@@ -152,9 +152,9 @@ fn user_data_dir(path: &Path, cwd: &Path) -> PathBuf {
     crate::profile::resolve_path(&cwd.join(path))
 }
 
-/// The command line `launch_persistent_context` gives Chromium, `--remote-debugging-pipe`
-/// replaced by [`REMOTE_DEBUGGING_ARG`] (D160). The executable is not part of it.
-pub fn persistent_context_argv(options: &LaunchOptions) -> Vec<String> {
+/// `_innerDefaultArgs`: the switches, the headless set, the sandbox, the proxy and the
+/// caller's `args`, before the profile and the DevTools transport.
+fn inner_default_args(options: &LaunchOptions) -> Vec<String> {
     let mut argv = chromium_switches();
     argv.push("--enable-unsafe-swiftshader".to_owned());
     if options.headless {
@@ -181,6 +181,13 @@ pub fn persistent_context_argv(options: &LaunchOptions) -> Vec<String> {
         argv.push("--proxy-bypass-list=<-loopback>".to_owned());
     }
     argv.extend(options.args.iter().cloned());
+    argv
+}
+
+/// The command line `launch_persistent_context` gives Chromium, `--remote-debugging-pipe`
+/// replaced by [`REMOTE_DEBUGGING_ARG`] (D160). The executable is not part of it.
+pub fn persistent_context_argv(options: &LaunchOptions) -> Vec<String> {
+    let mut argv = inner_default_args(options);
     let cwd = std::env::current_dir().unwrap_or_default();
     argv.push(format!("--user-data-dir={}", user_data_dir(&options.user_data_dir, &cwd).display()));
     argv.push(REMOTE_DEBUGGING_ARG.to_owned());
@@ -188,6 +195,22 @@ pub fn persistent_context_argv(options: &LaunchOptions) -> Vec<String> {
     argv.retain(|arg| !options.ignore_default_args.contains(arg));
     argv
 }
+
+/// The command line `chromium.launch(...)` gives Chromium: the same defaults, the
+/// throwaway profile Playwright makes for it (`options.user_data_dir`, a
+/// `playwright_chromiumdev_profile-*` directory) and `--no-startup-window` where a
+/// persistent context opens `about:blank`.
+pub fn launch_argv(options: &LaunchOptions) -> Vec<String> {
+    let mut argv = inner_default_args(options);
+    argv.push(format!("--user-data-dir={}", options.user_data_dir.display()));
+    argv.push(REMOTE_DEBUGGING_ARG.to_owned());
+    argv.push("--no-startup-window".to_owned());
+    argv.retain(|arg| !options.ignore_default_args.contains(arg));
+    argv
+}
+
+/// The prefix of the throwaway profile `chromium.launch` creates in the temp directory.
+pub const LAUNCH_PROFILE_PREFIX: &str = "playwright_chromiumdev_profile-";
 
 /// The registry directory: `PLAYWRIGHT_BROWSERS_PATH`, else `$XDG_CACHE_HOME/ms-playwright`
 /// (`~/.cache/ms-playwright`). Playwright's `0` (browsers inside the Python package) has no

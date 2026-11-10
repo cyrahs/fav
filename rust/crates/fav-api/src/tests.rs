@@ -112,6 +112,7 @@ impl Harness {
             azurlane: crate::azurlane::AzurLaneLibraries::default(),
             live2d_overrides: crate::live2d_overrides::postgres_store(database.db().clone()),
             azurlane_origin: Arc::new(FakeOriginProbe::default()),
+            rednote_proxy: Arc::new(FakeRedNoteProbe::default()),
         };
         Self { database, state }
     }
@@ -2101,6 +2102,105 @@ async fn hanime1_routes_need_the_api_token() {
     let wrong = harness.request("PUT", "/api/v2/hanime1/seeds/1", &[], None).await;
     assert_eq!(wrong.status, 405);
     assert_eq!(wrong.header("allow"), Some("DELETE"));
+    harness.finish().await;
+}
+
+// ---------- rednote ----------
+
+/// Stands in for the RedNote proxy probe: records the drafts it was given and answers with
+/// a reachable exit, or with the `ValueError` of a proxy string `urlsplit` cannot read.
+#[derive(Default)]
+pub(crate) struct FakeRedNoteProbe {
+    pub(crate) calls: std::sync::Mutex<Vec<String>>,
+    pub(crate) fail: bool,
+}
+
+impl fav_sources::rednote::proxy_probe::ProbeRedNoteProxy for FakeRedNoteProbe {
+    fn probe<'a>(&'a self, proxy: &'a str) -> fav_runtime::BoxFuture<'a, Result<fav_sources::rednote::proxy_probe::ProxyProbe, String>> {
+        Box::pin(async move {
+            self.calls.lock().expect("lock").push(proxy.to_owned());
+            if self.fail {
+                return Err("Port could not be cast to integer value as 'abc'".to_owned());
+            }
+            Ok(fav_sources::rednote::proxy_probe::ProxyProbe {
+                ok: true,
+                code: "ok".to_owned(),
+                message: String::new(),
+                exit_ip: "203.0.113.7".to_owned(),
+                direct: false,
+            })
+        })
+    }
+}
+
+// py: tests/test_rednote.py::test_the_proxy_test_button_probes_the_draft_as_typed
+#[tokio::test]
+async fn the_proxy_test_button_probes_the_draft_as_typed() {
+    // Proxies reach the UI in plaintext, so the draft is probed verbatim: no resolution
+    // against the stored section.
+    let mut harness = Harness::new().await;
+    harness
+        .send_json("PUT", "/api/v2/settings/web.rednote", r#"{"proxy": "http://stored.example:3128"}"#)
+        .await;
+    let probe = Arc::new(FakeRedNoteProbe::default());
+    harness.state.rednote_proxy = probe.clone();
+
+    let answer = harness
+        .send_json(
+            "POST",
+            "/api/v2/rednote/proxy/test",
+            r#"{"proxy": "http://user:pw@home.example:3128"}"#,
+        )
+        .await;
+    let defaults = harness.send_json("POST", "/api/v2/rednote/proxy/test", "{}").await;
+
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(r#"{"ok": true, "code": "ok", "message": "", "exit_ip": "203.0.113.7", "direct": false}"#).unwrap()
+    );
+    assert_eq!(defaults.status, 200, "{}", defaults.text());
+    assert_eq!(
+        *probe.calls.lock().unwrap(),
+        ["http://user:pw@home.example:3128".to_owned(), String::new()]
+    );
+    harness.finish().await;
+}
+
+#[tokio::test]
+async fn the_rednote_proxy_test_validates_its_body_and_reports_an_unreadable_proxy() {
+    let mut harness = Harness::new().await;
+    let probe = Arc::new(FakeRedNoteProbe {
+        fail: true,
+        ..FakeRedNoteProbe::default()
+    });
+    harness.state.rednote_proxy = probe.clone();
+
+    let wrong_type = harness
+        .send_json("POST", "/api/v2/rednote/proxy/test", r#"{"proxy": 3128, "extra": 1}"#)
+        .await;
+    let unauthorised = harness
+        .request(
+            "POST",
+            "/api/v2/rednote/proxy/test",
+            &[("content-type", "application/json")],
+            Some("{}"),
+        )
+        .await;
+    let broken = harness
+        .send_json("POST", "/api/v2/rednote/proxy/test", r#"{"proxy": "http://home.example:abc"}"#)
+        .await;
+
+    assert_eq!(wrong_type.status, 422, "{}", wrong_type.text());
+    let detail = wrong_type.json();
+    let types: Vec<String> = golden::list(golden::get(golden::get(&detail, "error"), "details"))
+        .iter()
+        .map(|error| golden::string(golden::get(error, "type")))
+        .collect();
+    assert_eq!(types, ["string_type", "extra_forbidden"]);
+    assert_eq!(unauthorised.status, 401);
+    assert_eq!(broken.status, 500);
+    assert_eq!(probe.calls.lock().unwrap().len(), 1);
     harness.finish().await;
 }
 

@@ -2,15 +2,15 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{
-    ChromiumProcess, LaunchError, LaunchOptions, REMOTE_DEBUGGING_ARG, normalized_proxy_server, persistent_context_argv,
+    ChromiumProcess, LaunchError, LaunchOptions, REMOTE_DEBUGGING_ARG, launch_argv, normalized_proxy_server, persistent_context_argv,
     playwright_chromium_executable, proxy_hostname,
 };
 use crate::proxy::build_proxy_settings;
 use crate::testutil::golden_cases;
 use crate::window::build_login_launch_options;
 
-/// `rednote_browser.build_launch_options(...)` as far as the command line goes; the crawl
-/// itself is WP17's.
+/// `rednote_browser.build_launch_options(...)` as far as the command line goes (the full
+/// options are `rednote::note_browser::build_launch_options`).
 fn rednote_launch(profile: &Path, proxy: &str, headless: bool) -> LaunchOptions {
     LaunchOptions {
         user_data_dir: profile.to_path_buf(),
@@ -54,6 +54,32 @@ fn the_command_line_is_playwrights_own() {
             })
             .collect();
         assert_eq!(serde_json::json!(argv), case["argv"], "{}/{headless}/{proxy}", case["launch"]);
+    }
+}
+
+#[test]
+fn the_launch_command_line_is_playwrights_own() {
+    // `chromium.launch(headless=...)`, as the Nikke runtime capture calls it; the throwaway
+    // profile is `<profile>` in the golden.
+    for case in golden_cases("nikke_runtime/launch_argv.json") {
+        let options = LaunchOptions {
+            user_data_dir: PathBuf::from("/tmp/playwright_chromiumdev_profile-x"),
+            headless: case["headless"].as_bool().unwrap(),
+            proxy: None,
+            args: Vec::new(),
+            ignore_default_args: Vec::new(),
+        };
+        let argv: Vec<String> = launch_argv(&options)
+            .into_iter()
+            .map(|arg| {
+                if arg == REMOTE_DEBUGGING_ARG {
+                    "--remote-debugging-pipe".to_owned()
+                } else {
+                    arg.replace("/tmp/playwright_chromiumdev_profile-x", "<profile>")
+                }
+            })
+            .collect();
+        assert_eq!(serde_json::json!(argv), case["argv"], "{case}");
     }
 }
 

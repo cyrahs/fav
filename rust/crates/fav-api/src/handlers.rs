@@ -111,6 +111,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         | Endpoint::CreateHanime1Author
         | Endpoint::ResolveKemonoCreator
         | Endpoint::TestAzurLaneProxy
+        | Endpoint::TestRedNoteProxy
         | Endpoint::PutBd2Live2DViewOverride
         | Endpoint::PutNikkeLive2DViewOverride => params::read_body(&request.body, request.header("content-type").as_deref())?,
         _ => Body::Absent,
@@ -140,6 +141,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::TestTelegramNotification => test_telegram_notification(state).await,
         Endpoint::TestTikHub => test_tikhub(state).await,
         Endpoint::TestAzurLaneProxy => test_azurlane_proxy(state, &body).await,
+        Endpoint::TestRedNoteProxy => test_rednote_proxy(state, &body).await,
         Endpoint::ListArchiveSources => list_archive_sources(state).await,
         Endpoint::ListArchiveItems => list_archive_items(state, request).await,
         Endpoint::ListHanime1Videos => hanime1::list_videos(state).await,
@@ -177,6 +179,37 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
             None => Err(ApiError::http(404)),
         },
     }
+}
+
+// ---------- rednote ----------
+
+/// `test_rednote_proxy`: check that xiaohongshu.com is reachable through a proxy, without
+/// saving it. The draft is probed as typed: proxies reach the UI in plaintext, so there is
+/// no masked value to resolve against the stored section.
+async fn test_rednote_proxy(state: &ApiState, body: &Body) -> Result<Response, ApiError> {
+    const FIELDS: [&str; 1] = ["proxy"];
+    let mut errors = Errors::new();
+    let mut proxy = String::new();
+    if let Some(dict) = params::model_body(&mut errors, body) {
+        if let Some(value) = dict.get("proxy") {
+            proxy = params::body_str(&mut errors, "proxy", value, 0).unwrap_or_default();
+        }
+        params::forbid_extra(&mut errors, dict, &FIELDS);
+    }
+    errors.finish()?;
+    // A proxy string `urlsplit` cannot read (a port that is not a number) is the
+    // `ValueError` Python lets escape too.
+    let result = state.rednote_proxy.probe(&proxy).await.map_err(|error| unhandled(&error))?;
+    Ok(json_response(
+        200,
+        &json::dict([
+            ("ok", Value::Bool(result.ok)),
+            ("code", Value::Str(result.code)),
+            ("message", Value::Str(result.message)),
+            ("exit_ip", Value::Str(result.exit_ip)),
+            ("direct", Value::Bool(result.direct)),
+        ]),
+    ))
 }
 
 // ---------- azurlane ----------

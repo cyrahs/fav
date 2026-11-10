@@ -20,7 +20,7 @@ use fav_runtime::source::{JobError, Registry, Source};
 use futures_util::StreamExt as _;
 use futures_util::future::BoxFuture;
 
-use super::runtime::{RuntimeCaptureRequest, RuntimeCapturer, UnavailableCapturer};
+use super::runtime::{BrowserCapturer, RuntimeCaptureRequest, RuntimeCapturer};
 use super::{
     Asset, Assets, GAMEKEE_BASE_URL, JOB_KEY, MAX_RETRIES, ReverseBind, api_payload, asset_headers, assign_asset_paths,
     base_info_from_summary, cdn_json_url, cdn_request_headers, content_hash, content_json_from_cdn_payload, context_hash, detail_name,
@@ -484,8 +484,8 @@ impl std::fmt::Debug for Nikke {
 }
 
 impl Nikke {
-    /// `Nikke()`: the settings' path, GameKee's API, the real sleeps and no runtime capture
-    /// until WP17.
+    /// `Nikke()`: the settings' path, GameKee's API, the real sleeps and the browser
+    /// runtime capture.
     pub fn new(cfg: settings::Nikke, http: HttpClient, db: Db, notifier: Arc<dyn Notifier>) -> Self {
         Self {
             path: cfg.path.clone(),
@@ -497,7 +497,7 @@ impl Nikke {
             sleeper: tokio_sleeper(),
             pacer: tokio_sleeper(),
             jitter: random_jitter,
-            capturer: Arc::new(UnavailableCapturer),
+            capturer: Arc::new(BrowserCapturer::new()),
             link: hard_link,
             api_limiter: RateLimiter::new(API_REQUEST_INTERVAL_SECONDS),
             cdn_limiter: RateLimiter::new(CDN_REQUEST_INTERVAL_SECONDS),
@@ -507,7 +507,7 @@ impl Nikke {
         }
     }
 
-    /// Use another runtime capturer (WP17's browser capture, or a test double).
+    /// Use another runtime capturer (a test double).
     #[must_use]
     pub fn with_capturer(mut self, capturer: Arc<dyn RuntimeCapturer>) -> Self {
         self.capturer = capturer;

@@ -128,6 +128,7 @@ fn authenticating_proxy(request: &str) -> Reply {
             content_type: "text/plain",
             headers: "Proxy-Authenticate: Basic realm=\"fav\"\r\n".to_owned(),
             body: String::new(),
+            delay: std::time::Duration::ZERO,
         }
     }
 }
@@ -228,4 +229,169 @@ fn cookies_are_filtered_like_playwright() {
     // localhost counts as secure even over plain HTTP.
     assert_eq!(names(&["http://localhost/"]), ["local"]);
     assert_eq!(names(&[]).len(), jar.len());
+}
+
+/// A page that fetches JSON once loaded, follows a redirect and fails a request.
+const NETWORK_PAGE: &str = "<html><body><button class='one'>a</button><button class='two'>b</button><button class='two'>c</button>\
+    <script>window.__clicked = [];\
+    document.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => window.__clicked.push(b.textContent)));\
+    fetch('/api/data?cursor=1').then((r) => r.json()).then((j) => { window.__data = j; });\
+    fetch('/moved');\
+    fetch('http://127.0.0.1:1/refused').catch(() => {});</script></body></html>";
+
+fn network_site(request: &str) -> Reply {
+    if request.starts_with("get /api/data") {
+        Reply {
+            status: "200 OK",
+            content_type: "application/json",
+            headers: String::new(),
+            body: r#"{"code": 0, "data": {"notes": [1, 2]}, "big": 12345678901234567890123}"#.to_owned(),
+            delay: std::time::Duration::ZERO,
+        }
+    } else if request.starts_with("get /moved") {
+        Reply {
+            status: "302 Found",
+            content_type: "text/plain",
+            headers: "Location: /landed\r\n".to_owned(),
+            body: String::new(),
+            delay: std::time::Duration::ZERO,
+        }
+    } else if request.starts_with("get /landed") {
+        Reply {
+            status: "200 OK",
+            content_type: "text/plain",
+            headers: String::new(),
+            body: "here".to_owned(),
+            delay: std::time::Duration::ZERO,
+        }
+    } else {
+        Reply::html(NETWORK_PAGE)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)] // reason: one page load walks every event kind in order; split, each half would reload the page
+async fn reports_network_traffic_and_reads_response_bodies() {
+    use futures_util::StreamExt as _;
+
+    use super::NetworkEvent;
+
+    let Some(executable) = chromium() else { return };
+    let (addr, _seen) = serve(network_site).await;
+    let context = BrowserContext::launch_browser(
+        &executable,
+        &launch_options(std::path::Path::new("/unused"), ""),
+        &[],
+        ContextOptions {
+            viewport: Some((1440, 1000)),
+            ..ContextOptions::default()
+        },
+    )
+    .await
+    .expect("launched");
+    let page = context.new_page().await.expect("a page");
+    page.add_init_script("window.__init = 'ran';").await.unwrap();
+    let mut events = page.network_events().await.unwrap();
+    page.goto(&format!("http://{addr}/"), WAIT).await.expect("loaded");
+    assert_eq!(page.evaluate("() => window.__init").await.unwrap(), json!("ran"));
+    assert_eq!(page.evaluate("() => [innerWidth, innerHeight]").await.unwrap(), json!([1440, 1000]));
+
+    let mut seen = Vec::new();
+    let collected = tokio::time::timeout(WAIT, async {
+        while let Some(event) = events.next().await {
+            seen.push(event);
+            let finished_data = seen
+                .iter()
+                .any(|event| matches!(event, NetworkEvent::Response { url, .. } if url.contains("/api/data")))
+                && seen.iter().filter(|event| matches!(event, NetworkEvent::Finished { .. })).count() >= 3;
+            let failed = seen.iter().any(|event| matches!(event, NetworkEvent::Failed { .. }));
+            if finished_data && failed {
+                break;
+            }
+        }
+    })
+    .await;
+    assert!(collected.is_ok(), "events so far: {seen:?}");
+
+    let document = seen
+        .iter()
+        .find(|event| matches!(event, NetworkEvent::Request { resource_type, .. } if resource_type == "document"));
+    assert!(document.is_some(), "{seen:?}");
+    let data_id = seen
+        .iter()
+        .find_map(|event| match event {
+            NetworkEvent::Request { id, url, resource_type } if url.ends_with("/api/data?cursor=1") => {
+                assert_eq!(resource_type, "fetch");
+                Some(id.clone())
+            }
+            _ => None,
+        })
+        .expect("the fetch was seen");
+    assert!(seen.contains(&NetworkEvent::Finished { id: data_id.clone() }), "{seen:?}");
+    let body = page.response_body(&data_id).await.expect("the body");
+    assert_eq!(
+        String::from_utf8(body).unwrap(),
+        r#"{"code": 0, "data": {"notes": [1, 2]}, "big": 12345678901234567890123}"#
+    );
+    // The redirect: the 302 hop's response, then the next hop's request under the same id.
+    let hop = seen
+        .iter()
+        .position(|event| matches!(event, NetworkEvent::Response { url, status: 302, .. } if url.ends_with("/moved")))
+        .expect("the redirect's response");
+    let redirect_id = seen[hop].id().to_owned();
+    assert!(
+        seen[hop + 1..]
+            .iter()
+            .any(|event| matches!(event, NetworkEvent::Request { id, url, .. } if *id == redirect_id && url.ends_with("/landed")))
+    );
+    assert!(
+        seen.iter()
+            .any(|event| matches!(event, NetworkEvent::Failed { error, .. } if error.starts_with("net::ERR_"))),
+        "{seen:?}"
+    );
+
+    // Strict mode: one match is clicked, two are refused at once.
+    page.click_strict("button.one", WAIT).await.expect("one match");
+    let refused = page.click_strict("button.two", WAIT).await.expect_err("two matches");
+    assert!(
+        refused
+            .to_string()
+            .starts_with("strict mode violation: locator(\"button.two\") resolved to 2 elements"),
+        "{refused}"
+    );
+    assert_eq!(page.evaluate("() => window.__clicked").await.unwrap(), json!(["a"]));
+    let waited = page
+        .wait_for_function_with_arg(
+            "(count) => document.querySelectorAll('button').length >= count",
+            json!(3),
+            WAIT,
+            Duration::from_millis(50),
+        )
+        .await
+        .unwrap();
+    assert_eq!(waited, json!(true));
+    let timed_out = page
+        .wait_for_function_with_arg(
+            "(count) => document.querySelectorAll('button').length >= count",
+            json!(4),
+            Duration::from_millis(200),
+            Duration::from_millis(50),
+        )
+        .await
+        .expect_err("never true");
+    assert!(matches!(timed_out, DriverError::Timeout(200)));
+
+    let profile = std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(crate::chromium::LAUNCH_PROFILE_PREFIX)
+        })
+        .count();
+    assert!(profile >= 1);
+    context.close().await;
+    assert!(context.is_closed().await);
 }
