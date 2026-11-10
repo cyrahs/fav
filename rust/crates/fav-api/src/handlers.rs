@@ -24,7 +24,7 @@ use crate::error::ApiError;
 use crate::live2d_overrides::{self, Live2DSource};
 use crate::params::{self, BigInt, Body, Errors, IntBounds, Source, StrRules};
 use crate::router::{Endpoint, PathParams, Request, json_response};
-use crate::{ApiState, archive, bd2, credentials, hanime1, json, masking, nikke, openapi, site_logins, web};
+use crate::{ApiState, archive, azurlane, bd2, credentials, hanime1, json, masking, nikke, openapi, site_logins, web};
 
 const AUTH_PREFIX: &str = "Bearer ";
 
@@ -149,6 +149,11 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::ListHanime1Authors => hanime1::list_authors(state).await,
         Endpoint::DeleteHanime1Author => hanime1::delete_author(state, path("author_id")).await,
         Endpoint::ResolveKemonoCreator => resolve_kemono_creator(state, &body).await,
+        Endpoint::ListAzurLaneCharacters => azurlane::list(state, request).await,
+        Endpoint::ListAzurLaneSidebarCharacters => azurlane::sidebar(state, request).await,
+        Endpoint::GetAzurLaneSkinUpdates => azurlane::skin_updates(state, request).await,
+        Endpoint::GetAzurLaneCharacter => azurlane::detail(state, path("character_key")).await,
+        Endpoint::GetAzurLaneShipDetail => azurlane::ship_detail(state, path("character_key")).await,
         Endpoint::ListNikkeCharacters => nikke::list_characters(state, request).await,
         Endpoint::ListNikkeSidebarCharacters => nikke::list_sidebar_characters(state, request).await,
         Endpoint::GetNikkeCharacter => nikke::get_character(state, path("content_id")).await,

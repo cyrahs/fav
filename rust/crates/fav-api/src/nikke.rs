@@ -1629,8 +1629,8 @@ fn query_param(errors: &mut Errors, request: &Request) -> Option<String> {
     )
 }
 
-fn validated(model: &schema::Model, payload: Dict) -> Result<Value, ApiError> {
-    schema::validate(model, &Value::Dict(payload))
+fn validated(model: &crate::schema::Model, payload: Dict) -> Result<Value, ApiError> {
+    crate::schema::validate(model, &Value::Dict(payload))
         .map_err(|error| unhandled(&format!("ValidationError: 1 validation error for {}: {error}", model.name)))
 }
 

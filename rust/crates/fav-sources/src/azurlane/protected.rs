@@ -469,4 +469,4 @@ pub(crate) fn gzip_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

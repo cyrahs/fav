@@ -8,7 +8,8 @@
 //! settings held when the API started; here the path is read at each request and the
 //! library (with its cache) is rebuilt when it changes, as for NIKKE (DIVERGENCES.md D95).
 
-mod library;
+pub(crate) mod library;
+pub(crate) mod models;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -28,8 +29,8 @@ use crate::error::ApiError;
 use crate::handlers::{internal, unhandled};
 use crate::live2d_overrides::{self, Live2DSource};
 use crate::params::{self, BigInt, Errors, IntBounds, Source, StrRules};
-use crate::response_models::{self as models, Checked, Model};
 use crate::router::{Request, json_response};
+use crate::schema;
 use crate::{ApiState, json};
 
 /// `_BD2_SIDEBAR_CACHE_CONTROL`.
@@ -147,162 +148,6 @@ fn matches_query(character: &Dict, query: &str) -> bool {
 
 // ---------- response models ----------
 
-/// `BD2Asset`.
-fn asset_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2Asset", value)?;
-    model.required("kind", models::string)?;
-    model.required("path", models::string)?;
-    model.required("url", models::string)?;
-    model.optional("content_type", Value::from(""), models::string)?;
-    model.optional("size", Value::Int(0), models::int)?;
-    for field in ["sha256", "status", "label", "field"] {
-        model.optional(field, Value::from(""), models::string)?;
-    }
-    model.optional("style_index", Value::Null, models::nullable(models::int))?;
-    for field in ["style_name", "costume_title", "costume_category", "column_role", "live2d_key"] {
-        model.optional(field, Value::from(""), models::string)?;
-    }
-    model.optional("available", Value::Bool(false), models::boolean)?;
-    model.optional("contexts", Value::List(Vec::new()), models::list_of(models::free_dict))?;
-    model.finish()
-}
-
-/// `BD2ProfileItem`.
-fn profile_item_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2ProfileItem", value)?;
-    model.required("key", models::string)?;
-    model.required("label", models::string)?;
-    model.optional("value", Value::from(""), models::string)?;
-    model.optional("asset", Value::Null, models::nullable(asset_model))?;
-    model.finish()
-}
-
-fn summary_fields(model: &mut Model<'_>) -> Result<(), String> {
-    model.required("content_id", models::int)?;
-    model.required("title", models::string)?;
-    model.optional("directory_name", Value::from(""), models::string)?;
-    model.optional("source_url", Value::from(""), models::string)?;
-    model.optional("updated_at", Value::Null, models::int_or_str_or_none)?;
-    model.optional("fetched_at", Value::Null, models::nullable(models::string))?;
-    model.optional("asset_counts", Value::Dict(Dict::new()), models::dict_of(models::int))?;
-    model.optional("tags", Value::Dict(Dict::new()), models::dict_of(models::string))?;
-    model.optional("profile", Value::List(Vec::new()), models::list_of(profile_item_model))?;
-    model.optional("icon", Value::Null, models::nullable(asset_model))?;
-    model.optional("portrait", Value::Null, models::nullable(asset_model))?;
-    model.optional("costume_count", Value::Int(0), models::int)?;
-    model.optional("live2d_model_count", Value::Int(0), models::int)?;
-    model.optional("search_terms", Value::List(Vec::new()), models::list_of(models::string))
-}
-
-/// `BD2CharacterSummary`.
-fn summary_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2CharacterSummary", value)?;
-    summary_fields(&mut model)?;
-    model.finish()
-}
-
-/// `BD2Live2DModel`.
-fn live2d_model_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2Live2DModel", value)?;
-    for field in ["model_id", "label", "section"] {
-        model.optional(field, Value::from(""), models::string)?;
-    }
-    model.optional("style_index", Value::Null, models::nullable(models::int))?;
-    for field in ["style_name", "costume_title", "costume_category"] {
-        model.optional(field, Value::from(""), models::string)?;
-    }
-    model.optional("row_index", Value::Null, models::nullable(models::int))?;
-    model.optional("column_index", Value::Null, models::nullable(models::int))?;
-    model.optional("field", Value::from(""), models::string)?;
-    model.optional("is_art_row", Value::Bool(false), models::boolean)?;
-    for field in [
-        "column_name",
-        "column_category",
-        "column_role",
-        "column_header",
-        "key",
-        "stable_id",
-        "live2d_key",
-        "animation",
-        "skin",
-    ] {
-        model.optional(field, Value::from(""), models::string)?;
-    }
-    model.optional("limit_age", Value::Bool(false), models::boolean)?;
-    for field in [
-        "source",
-        "variant",
-        "supplement_reason",
-        "viewer_entry_id",
-        "viewer_stem",
-        "source_page_url",
-    ] {
-        model.optional(field, Value::from(""), models::string)?;
-    }
-    model.optional("position", Value::Dict(Dict::new()), models::free_dict)?;
-    model.optional("bg_position", Value::Dict(Dict::new()), models::free_dict)?;
-    model.optional(
-        "view_overrides",
-        Value::Dict(Dict::new()),
-        models::dict_of(live2d_overrides::override_value_model),
-    )?;
-    model.optional("source_urls", Value::Dict(Dict::new()), models::free_dict)?;
-    model.optional("spine_version", Value::Null, models::nullable(models::string))?;
-    model.optional("assets", Value::Dict(Dict::new()), models::free_dict)?;
-    model.finish()
-}
-
-/// `BD2Costume`.
-fn costume_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2Costume", value)?;
-    model.optional("style_index", Value::Null, models::nullable(models::int))?;
-    for field in ["style_name", "title", "category"] {
-        model.optional(field, Value::from(""), models::string)?;
-    }
-    for field in ["sprite", "portrait", "full_portrait"] {
-        model.optional(field, Value::Null, models::nullable(asset_model))?;
-    }
-    for field in ["gallery", "videos", "audio"] {
-        model.optional(field, Value::List(Vec::new()), models::list_of(asset_model))?;
-    }
-    model.optional("live2d_models", Value::List(Vec::new()), models::list_of(live2d_model_model))?;
-    model.optional("rows", Value::List(Vec::new()), models::list_of(models::free_dict))?;
-    model.finish()
-}
-
-/// `BD2CharacterDetail`.
-fn detail_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2CharacterDetail", value)?;
-    summary_fields(&mut model)?;
-    model.optional("tree_row", Value::Null, models::nullable(models::free_dict))?;
-    model.optional("base_info", Value::Dict(Dict::new()), models::free_dict)?;
-    model.optional("costumes", Value::List(Vec::new()), models::list_of(costume_model))?;
-    model.optional("live2d_models", Value::List(Vec::new()), models::list_of(live2d_model_model))?;
-    model.optional("assets", Value::List(Vec::new()), models::list_of(asset_model))?;
-    model.finish()
-}
-
-/// `BD2SidebarIcon`.
-fn sidebar_icon_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2SidebarIcon", value)?;
-    model.required("url", models::string)?;
-    model.required("available", models::boolean)?;
-    model.required("sha256", models::string)?;
-    model.required("content_type", models::string)?;
-    model.finish()
-}
-
-/// `BD2SidebarCharacter`.
-fn sidebar_character_model(value: &Value) -> Checked {
-    let mut model = Model::begin("BD2SidebarCharacter", value)?;
-    model.required("content_id", models::int)?;
-    model.required("title", models::string)?;
-    model.required("icon", sidebar_icon_model)?;
-    model.optional("updated_at", Value::Null, models::int_or_str_or_none)?;
-    model.optional("fetched_at", Value::Null, models::nullable(models::string))?;
-    model.finish()
-}
-
 /// A model that refused what the library built: pydantic's `ValidationError`, which the
 /// generic handler answers with 500.
 fn invalid(error: &str) -> ApiError {
@@ -362,7 +207,7 @@ pub(crate) async fn list(state: &ApiState, request: &Request) -> Result<Response
     let end = start.saturating_add(usize::try_from(limit).unwrap_or(0)).min(total);
     let items = characters[start..end]
         .iter()
-        .map(|character| summary_model(&Value::Dict(character.clone())))
+        .map(|character| schema::validate(&models::BD2_CHARACTER_SUMMARY, &Value::Dict(character.clone())))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| invalid(&error))?;
     Ok(json_response(
@@ -442,7 +287,7 @@ pub(crate) async fn sidebar(state: &ApiState, request: &Request) -> Result<Respo
     }
     let mut keyed = Vec::with_capacity(characters.len());
     for character in &characters {
-        let item = sidebar_character_model(&sidebar_payload(character)).map_err(|error| invalid(&error))?;
+        let item = schema::validate(&models::BD2_SIDEBAR_CHARACTER, &sidebar_payload(character)).map_err(|error| invalid(&error))?;
         let key = sidebar_sort_key(&item).map_err(|error| match error {
             LibraryError::Failed(message) => unhandled(&message),
             LibraryError::NotFound => ApiError::internal(),
@@ -495,6 +340,6 @@ pub(crate) async fn detail(state: &ApiState, raw: Option<&str>) -> Result<Respon
     let mut character = get_character(state, content_id, "Failed to get BD2 character").await?;
     let overrides = live2d_overrides::overrides_for_character(state, Live2DSource::Bd2, content_id).await?;
     live2d_overrides::apply_live2d_view_overrides(&mut character, &overrides);
-    let dumped = detail_model(&Value::Dict(character)).map_err(|error| invalid(&error))?;
+    let dumped = schema::validate(&models::BD2_CHARACTER_DETAIL, &Value::Dict(character)).map_err(|error| invalid(&error))?;
     Ok(json_response(200, &dumped))
 }

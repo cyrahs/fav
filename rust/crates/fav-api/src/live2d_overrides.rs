@@ -26,8 +26,8 @@ use sqlx::Row as _;
 use crate::error::ApiError;
 use crate::handlers::{internal, unhandled};
 use crate::params::{self, Body, Errors, Source, StrRules};
-use crate::response_models::{self as models, Checked, Model};
 use crate::router::json_response;
+use crate::schema::{self, Default, Model, Ty, field};
 use crate::{ApiState, json};
 
 /// `Live2DModelIdPath`'s pattern.
@@ -442,50 +442,43 @@ pub(crate) async fn overrides_for_character(state: &ApiState, source: Live2DSour
 
 // ---------- response models ----------
 
-/// `Live2DVector2`: finite `x` and `y`.
-fn vector(value: &Value) -> Checked {
-    let finite = |value: &Value| {
-        let value = models::float(value)?;
-        match value {
-            Value::Float(number) if !number.is_finite() => Err("coordinate must be finite".to_owned()),
-            other => Ok(other),
-        }
-    };
-    let mut model = Model::begin("Live2DVector2", value)?;
-    model.required("x", finite)?;
-    model.required("y", finite)?;
-    model.finish()
-}
+pub(crate) static LIVE2D_VECTOR2: Model = Model {
+    name: "Live2DVector2",
+    base: None,
+    fields: &[
+        field("x", Ty::FiniteFloat("coordinate must be finite"), Default::Required),
+        field("y", Ty::FiniteFloat("coordinate must be finite"), Default::Required),
+    ],
+};
 
-fn override_value_fields(model: &mut Model<'_>) -> Result<(), String> {
-    model.required("position", vector)?;
-    model.required("scale", models::float)?;
-    model.optional("background_position", Value::Null, models::nullable(vector))?;
-    model.optional("background_scale", Value::Null, models::nullable(models::float))?;
-    model.required("created_at", models::string)?;
-    model.required("updated_at", models::string)
-}
-
-/// `Live2DViewOverrideValue`.
-pub(crate) fn override_value_model(value: &Value) -> Checked {
-    let mut model = Model::begin("Live2DViewOverrideValue", value)?;
-    override_value_fields(&mut model)?;
-    model.finish()
-}
+pub(crate) static LIVE2D_VIEW_OVERRIDE_VALUE: Model = Model {
+    name: "Live2DViewOverrideValue",
+    base: None,
+    fields: &[
+        field("position", Ty::Model(&LIVE2D_VECTOR2), Default::Required),
+        field("scale", Ty::Float, Default::Required),
+        field("background_position", Ty::Nullable(&Ty::Model(&LIVE2D_VECTOR2)), Default::Null),
+        field("background_scale", Ty::Nullable(&Ty::Float), Default::Null),
+        field("created_at", Ty::Str, Default::Required),
+        field("updated_at", Ty::Str, Default::Required),
+    ],
+};
 
 /// `Live2DViewOverride`: the value's fields first, as the subclass lists them.
-fn override_model(value: &Value) -> Checked {
-    let mut model = Model::begin("Live2DViewOverride", value)?;
-    override_value_fields(&mut model)?;
-    model.required("source", |value| match value {
-        Value::Str(text) if text == "bd2" || text == "nikke" => Ok(value.clone()),
-        _ => Err("input should be 'bd2' or 'nikke'".to_owned()),
-    })?;
-    model.required("content_id", models::int)?;
-    model.required("model_id", models::string)?;
-    model.required("profile", models::string)?;
-    model.finish()
-}
+pub(crate) static LIVE2D_VIEW_OVERRIDE: Model = Model {
+    name: "Live2DViewOverride",
+    base: Some(&LIVE2D_VIEW_OVERRIDE_VALUE),
+    fields: &[
+        field("source", Ty::Literal(&["bd2", "nikke"]), Default::Required),
+        field("content_id", Ty::Int, Default::Required),
+        field("model_id", Ty::Str, Default::Required),
+        field("profile", Ty::Str, Default::Required),
+    ],
+};
+
+/// The Live2D response models of the document (the upsert body is a request model,
+/// which `openapi` declares with the other request bodies).
+pub(crate) const MODELS: [&Model; 3] = [&LIVE2D_VECTOR2, &LIVE2D_VIEW_OVERRIDE, &LIVE2D_VIEW_OVERRIDE_VALUE];
 
 // ---------- the routes ----------
 
@@ -763,7 +756,8 @@ fn store_failure(action: &str, key: &OverrideKey, content_id: i128, error: &dyn 
 }
 
 fn override_response(row: &OverrideRow) -> Result<Response, ApiError> {
-    let dumped = override_model(&serialize_override(row)).map_err(|error| unhandled(&format!("ValidationError: {error}")))?;
+    let dumped = schema::validate(&LIVE2D_VIEW_OVERRIDE, &serialize_override(row))
+        .map_err(|error| unhandled(&format!("ValidationError: {error}")))?;
     Ok(json_response(200, &dumped))
 }
 

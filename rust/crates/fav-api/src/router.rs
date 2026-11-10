@@ -91,6 +91,11 @@ pub(crate) enum Endpoint {
     ListHanime1Authors,
     DeleteHanime1Author,
     ResolveKemonoCreator,
+    ListAzurLaneCharacters,
+    ListAzurLaneSidebarCharacters,
+    GetAzurLaneSkinUpdates,
+    GetAzurLaneCharacter,
+    GetAzurLaneShipDetail,
     ListNikkeCharacters,
     ListNikkeSidebarCharacters,
     GetNikkeCharacter,
@@ -256,6 +261,31 @@ const ROUTES: &[Route] = &[
         endpoint: Endpoint::ResolveKemonoCreator,
     },
     Route {
+        path: "/api/v2/azurlane/characters",
+        methods: GET,
+        endpoint: Endpoint::ListAzurLaneCharacters,
+    },
+    Route {
+        path: "/api/v2/azurlane/sidebar/characters",
+        methods: GET,
+        endpoint: Endpoint::ListAzurLaneSidebarCharacters,
+    },
+    Route {
+        path: "/api/v2/azurlane/skin-updates",
+        methods: GET,
+        endpoint: Endpoint::GetAzurLaneSkinUpdates,
+    },
+    Route {
+        path: "/api/v2/azurlane/characters/{character_key}",
+        methods: GET,
+        endpoint: Endpoint::GetAzurLaneCharacter,
+    },
+    Route {
+        path: "/api/v2/azurlane/characters/{character_key}/ship-detail",
+        methods: GET,
+        endpoint: Endpoint::GetAzurLaneShipDetail,
+    },
+    Route {
         path: "/api/v2/nikke/characters",
         methods: GET,
         endpoint: Endpoint::ListNikkeCharacters,
@@ -367,6 +397,11 @@ impl Endpoint {
                 | Self::ListHanime1Authors
                 | Self::DeleteHanime1Author
                 | Self::ResolveKemonoCreator
+                | Self::ListAzurLaneCharacters
+                | Self::ListAzurLaneSidebarCharacters
+                | Self::GetAzurLaneSkinUpdates
+                | Self::GetAzurLaneCharacter
+                | Self::GetAzurLaneShipDetail
                 | Self::ListNikkeCharacters
                 | Self::ListNikkeSidebarCharacters
                 | Self::GetNikkeCharacter

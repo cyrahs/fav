@@ -59,7 +59,7 @@ pub(crate) fn os_error_text(error: &std::io::Error, path: &Path) -> String {
 }
 
 /// `_read_json_object(path)`: the error is the exception's text.
-fn read_json_object(path: &Path) -> std::result::Result<Dict, String> {
+pub(crate) fn read_json_object(path: &Path) -> std::result::Result<Dict, String> {
     let bytes = std::fs::read(path).map_err(|error| os_error_text(&error, path))?;
     let text = String::from_utf8(bytes).map_err(|error| {
         let at = error.utf8_error().valid_up_to();
@@ -255,7 +255,7 @@ pub(crate) struct Record {
     manifest: Dict,
 }
 
-fn directory_name(manifest_path: &Path) -> String {
+pub(crate) fn directory_name(manifest_path: &Path) -> String {
     manifest_path
         .parent()
         .and_then(Path::file_name)
@@ -284,7 +284,7 @@ fn freshness(manifest: &Dict, mtime_ns: i128) -> Result<(f64, f64, i128)> {
 
 /// Python's `<=` on `(float, float, int)` tuples.
 #[allow(clippy::float_cmp)] // Tuple comparison looks for the first unequal item exactly.
-fn freshness_le(left: (f64, f64, i128), right: (f64, f64, i128)) -> bool {
+pub(crate) fn freshness_le(left: (f64, f64, i128), right: (f64, f64, i128)) -> bool {
     if left.0 != right.0 {
         return left.0 <= right.0;
     }
@@ -337,7 +337,7 @@ impl<'a> Query<'a> {
 
 /// `_normalize_asset_path(asset_path)`: a relative path under `assets/`, normalised, or
 /// `None` for anything else (`BD2AssetNotFoundError`).
-fn normalize_asset_path(asset_path: &str) -> Option<String> {
+pub(crate) fn normalize_asset_path(asset_path: &str) -> Option<String> {
     let decoded = percent_decode_str(asset_path).decode_utf8_lossy().replace('\\', "/");
     let raw = py_strip(&decoded);
     if raw.is_empty() || raw.starts_with('/') {
@@ -353,8 +353,14 @@ fn normalize_asset_path(asset_path: &str) -> Option<String> {
 
 /// `_asset_static_url(directory_name, asset_path, sha256=...)`.
 fn asset_static_url(directory_name: &str, asset_path: &str, sha256: &str) -> String {
+    static_url(BD2_STATIC_PREFIX, directory_name, asset_path, sha256)
+}
+
+/// A static file's URL under `prefix`, versioned by its hash (BD2's and Azur Lane's
+/// `_asset_static_url`).
+pub(crate) fn static_url(prefix: &str, directory_name: &str, asset_path: &str, sha256: &str) -> String {
     let url = format!(
-        "{BD2_STATIC_PREFIX}/{}/{}",
+        "{prefix}/{}/{}",
         utf8_percent_encode(directory_name, QUOTE),
         utf8_percent_encode(asset_path, QUOTE_PATH)
     );
