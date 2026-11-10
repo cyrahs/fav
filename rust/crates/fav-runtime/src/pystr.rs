@@ -9,7 +9,7 @@ use fav_core::pytext::is_py_space;
 ///
 /// Escapes backslashes, the chosen quote, `\t` `\n` `\r`, other control characters and
 /// the Unicode separators Python does not print (`isprintable()` is false for them).
-pub(crate) fn repr_str(text: &str) -> String {
+pub fn repr_str(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
     let mut out = String::with_capacity(text.len() + 2);
     out.push(quote);
@@ -41,7 +41,7 @@ pub(crate) fn repr_str(text: &str) -> String {
 }
 
 /// `str(value)` for a value `json.loads` produced.
-pub(crate) fn str_value(value: &Value) -> String {
+pub fn str_value(value: &Value) -> String {
     match value {
         Value::Str(text) => text.clone(),
         other => repr_value(other),
@@ -49,7 +49,7 @@ pub(crate) fn str_value(value: &Value) -> String {
 }
 
 /// `str(key)` for a dictionary key.
-pub(crate) fn str_key(key: &Key) -> String {
+pub fn str_key(key: &Key) -> String {
     match key {
         Key::Str(text) => text.clone(),
         other => repr_key(other),

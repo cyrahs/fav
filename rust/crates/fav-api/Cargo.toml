@@ -11,7 +11,24 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+axum.workspace = true
+chrono.workspace = true
 fav-core.workspace = true
 fav-db.workspace = true
 fav-runtime.workspace = true
 fav-sources.workspace = true
+form_urlencoded = "1"
+percent-encoding = "2"
+regex = "1"
+serde_json = { workspace = true, features = ["preserve_order"] }
+sha2 = "0.10"
+sqlx.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "net", "sync", "time"] }
+utoipa = { workspace = true, features = ["preserve_order", "preserve_path_order"] }
+
+[dev-dependencies]
+fav-core = { workspace = true, features = ["test-support"] }
+fav-db = { workspace = true, features = ["test-support"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["io-util"] }
