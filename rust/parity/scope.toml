@@ -177,7 +177,7 @@ tests = ["tests/test_rednote.py", "tests/test_rednote_missing_db.py", "tests/tes
 
 [WP18]
 title = "Dockerfile, memory benchmark, parity audit, final report"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_dependencies.py",
     # Reads the Python Dockerfile (the layer-metadata script and the Playwright smoke run);

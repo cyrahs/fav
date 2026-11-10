@@ -20,6 +20,8 @@ use fav_runtime::telegram_bot::BotClient;
 use fav_runtime::worker::{self, WorkerError, WorkerOptions};
 use fav_runtime::{StopHandle, StopSignal};
 
+#[cfg(test)]
+mod image_tests;
 mod nikke_layers;
 
 static VERSION: LazyLock<String> = LazyLock::new(version);
