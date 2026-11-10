@@ -172,3 +172,72 @@ fn timestamps_round_like_python() {
     assert_eq!(from_timestamp(-1.5).expect("in range").timestamp(), -2);
     assert_eq!(from_timestamp(f64::NAN), None);
 }
+
+fn browser_cookie(name: &str, value: &str, expires: f64) -> Value {
+    Value::from_serde(&serde_json::json!({"name": name, "value": value, "domain": ".example.com", "path": "/", "expires": expires}))
+}
+
+// py: tests/test_browser_login.py::test_browser_cookies_keep_expiry_and_drop_nameless_entries
+#[test]
+fn browser_cookies_keep_expiry_and_drop_nameless_entries() {
+    let orphan = Value::from_serde(&serde_json::json!({"value": "orphan"}));
+    let cookies = cookies_from_browser(&[
+        browser_cookie("SID", "v", 1_800_000_000.0),
+        browser_cookie("tmp", "x", -1.0),
+        orphan,
+    ]);
+
+    assert_eq!(
+        cookies.iter().map(|cookie| cookie.name.as_str()).collect::<Vec<_>>(),
+        ["SID", "tmp"]
+    );
+    assert_eq!(cookies[1].expires, None);
+    assert_eq!(cookie_expiry(&cookies, "sid"), DateTime::from_timestamp(1_800_000_000, 0));
+    assert_eq!(cookie_expiry(&cookies, "tmp"), None);
+}
+
+// py: tests/test_browser_login.py::test_stored_cookies_survive_the_round_trip
+#[test]
+fn stored_cookies_survive_the_round_trip() {
+    let cookies = vec![StoredCookie {
+        name: "PHPSESSID".to_owned(),
+        value: "1_a".to_owned(),
+        domain: ".pixiv.net".to_owned(),
+        path: "/".to_owned(),
+        expires: Some(1.5e9),
+    }];
+
+    assert_eq!(decode_cookies(&encode_cookies(&cookies)), cookies);
+    assert_eq!(decode_cookies("not json"), Vec::new());
+}
+
+// py: tests/test_browser_login.py::test_saving_a_login_upserts_by_site
+#[tokio::test]
+async fn saving_a_login_upserts_by_site() {
+    // Python checks the statement's text; here the table itself shows the upsert: a second
+    // login of the same site replaces its row rather than adding one.
+    let database = database().await;
+    let db = database.db();
+    let pixiv = |value: &str| StoredCookie {
+        name: "PHPSESSID".to_owned(),
+        value: value.to_owned(),
+        domain: ".pixiv.net".to_owned(),
+        path: "/".to_owned(),
+        expires: None,
+    };
+    save_signed_in(db, "pixiv", &[pixiv("1_a")], "1", None, &[]).await.expect("saved");
+    save_signed_in(db, "pixiv", &[pixiv("1_b")], "1", None, &[])
+        .await
+        .expect("saved again");
+
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM site_sessions WHERE site = 'pixiv';")
+        .fetch_one(db.pool())
+        .await
+        .expect("count");
+    assert_eq!(rows, 1);
+    let session = load(db, "pixiv").await.expect("load").expect("row");
+    assert_eq!(session.account, "1");
+    assert_eq!(session.status, STATUS_VALID);
+    assert_eq!(session.cookie("PHPSESSID"), "1_b");
+    database.drop_database().await;
+}

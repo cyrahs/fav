@@ -1136,8 +1136,23 @@ dependencies = [
 name = "fav-browser"
 version = "0.1.0"
 dependencies = [
+ "async-tungstenite",
+ "base64 0.22.1",
+ "chromiumoxide",
+ "chrono",
  "fav-core",
+ "fav-db",
  "fav-net",
+ "fav-runtime",
+ "futures-util",
+ "getrandom 0.3.4",
+ "nix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "url",
 ]
 
 [[package]]
