@@ -1,8 +1,8 @@
 """`src/core/logger.py`: the file line and the console line one record becomes (WP1).
 
 The file lines are what the MCP log tools parse (`src/api/ops.py`), so their layout is
-part of the contract. Times are given in nanoseconds since the epoch and rendered in UTC;
-`msecs` is derived the way Python 3.12's `LogRecord` derives it.
+part of the contract. Times are given in nanoseconds since the epoch, handed to the real
+`LogRecord` as the float `time.time()` would return, and rendered in UTC.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import logging
 import os
 import time
 from typing import Any
+from unittest import mock
 
 from src.core import logger
 
@@ -29,10 +30,9 @@ RECORDS: list[tuple[str, int, str, int]] = [
 
 
 def _record(name: str, level: int, message: str, ns: int) -> logging.LogRecord:
-    record = logging.LogRecord(name, level, __file__, 0, message, None, None)
-    record.created = ns / 1e9
-    record.msecs = (ns % 1_000_000_000) // 1_000_000 + 0.0
-    return record
+    # LogRecord reads the clock itself (`ct = time.time()`); give it this time instead.
+    with mock.patch.object(logging.time, 'time', return_value=ns / 1e9):
+        return logging.LogRecord(name, level, __file__, 0, message, None, None)
 
 
 def _cases() -> list[dict[str, Any]]:

@@ -117,10 +117,15 @@ fn added_columns(script: &str) -> Vec<(usize, String, String)> {
 }
 
 fn created_indexes(script: &str) -> Vec<(usize, String, String)> {
-    let marker = "CREATE INDEX";
-    script
-        .match_indices(marker)
-        .filter_map(|(offset, _)| {
+    // Python's regex only sees `CREATE INDEX`; unique indexes are checked too.
+    let mut starts: Vec<usize> = ["CREATE INDEX", "CREATE UNIQUE INDEX"]
+        .iter()
+        .flat_map(|marker| script.match_indices(marker).map(|(offset, _)| offset))
+        .collect();
+    starts.sort_unstable();
+    starts
+        .into_iter()
+        .filter_map(|offset| {
             let statement = script[offset..offset + script[offset..].find(';')?].replace('\n', " ");
             let on = statement.find(" ON ")?;
             let after = statement[on + 4..].trim_start();
@@ -147,7 +152,12 @@ fn schema_script_adds_columns_before_indexing_them() {
     let alters = added_columns(SCHEMA_SQL);
     assert!(alters.len() > 40, "{alters:?}");
     let indexes = created_indexes(SCHEMA_SQL);
-    assert!(indexes.len() >= 12, "{indexes:?}");
+    assert_eq!(indexes.len(), 13, "{indexes:?}");
+    assert!(
+        indexes
+            .iter()
+            .any(|(_, table, columns)| table == "notifications" && columns == "dedupe_key")
+    );
     for (alter_at, table, column) in &alters {
         for (index_at, index_table, columns) in &indexes {
             if index_table == table && index_at < alter_at && names_column(columns, column) {
@@ -160,19 +170,64 @@ fn schema_script_adds_columns_before_indexing_them() {
 
 #[test]
 fn every_statement_is_idempotent() {
-    for statement in SCHEMA_SQL.split(";\n").map(str::trim) {
+    let statements = split_statements(SCHEMA_SQL);
+    assert_eq!(statements.len(), 43 + 41 + 13, "tables, added columns, indexes");
+    for statement in statements {
         let code: Vec<&str> = statement
             .lines()
             .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with("--"))
             .collect();
-        let Some(first) = code.first() else { continue };
+        let first = code[0];
         let ok = first.starts_with("CREATE TABLE IF NOT EXISTS ")
             || first.starts_with("CREATE INDEX IF NOT EXISTS ")
             || first.starts_with("CREATE UNIQUE INDEX IF NOT EXISTS ")
-            || first.starts_with("ALTER TABLE ") && first.contains(" ADD COLUMN IF NOT EXISTS ")
-            // The one DO block, split at its inner semicolons.
-            || first.starts_with("DO $$")
-            || first.trim_start().starts_with("END");
+            || first.starts_with("ALTER TABLE ") && first.contains(" ADD COLUMN IF NOT EXISTS ");
         assert!(ok, "not idempotent: {statement}");
+        assert!(statement.ends_with(';'), "{statement}");
     }
+}
+
+#[test]
+fn statements_split_outside_quotes_and_comments() {
+    let script = "-- a; comment\nCREATE TABLE a (x TEXT DEFAULT ';', \"we;ird\" INT);\n/* b; */ SELECT 'it''s; fine';\n-- trailing only\n";
+    assert_eq!(
+        split_statements(script),
+        [
+            "-- a; comment\nCREATE TABLE a (x TEXT DEFAULT ';', \"we;ird\" INT);",
+            "/* b; */ SELECT 'it''s; fine';"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_failing_statement_does_not_stop_the_others() {
+    let database = TestDatabase::create().await;
+    let db = database.db();
+    // A view where a table belongs: its CREATE TABLE IF NOT EXISTS is skipped and its ALTERs fail.
+    sqlx::raw_sql("CREATE VIEW jandan AS SELECT 'x'::text AS id;")
+        .execute(db.pool())
+        .await
+        .expect("view");
+    let Err(DbError::Schema(failures)) = db.ensure_schema().await else {
+        panic!("expected schema failures")
+    };
+    assert_eq!(failures.len(), 3, "{failures:#?}");
+    assert!(
+        failures
+            .iter()
+            .all(|failure| failure.starts_with("ALTER TABLE jandan ADD COLUMN IF NOT EXISTS")),
+        "{failures:#?}"
+    );
+    let have = describe(db).await;
+    let want: Vec<String> = python_schema()
+        .into_iter()
+        .filter(|line| {
+            line.split_whitespace()
+                .nth(1)
+                .is_none_or(|object| object != "jandan" && !object.starts_with("jandan."))
+        })
+        .collect();
+    let missing: Vec<&String> = want.iter().filter(|line| !have.contains(line)).collect();
+    assert!(missing.is_empty(), "{missing:#?}");
+    database.drop_database().await;
 }

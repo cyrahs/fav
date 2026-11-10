@@ -5,7 +5,7 @@
 -- dropped leaves no gap.
 SELECT line FROM (
     SELECT c.relname AS tbl, 0 AS kind, '' AS name, 0 AS pos,
-           'table ' || c.relname AS line
+           'table ' || c.relname || CASE WHEN c.relpersistence = 'u' THEN ' unlogged' ELSE '' END AS line
     FROM pg_class c
     WHERE c.relnamespace = current_schema()::regnamespace AND c.relkind IN ('r', 'p')
     UNION ALL
@@ -39,8 +39,14 @@ SELECT line FROM (
                || ' start ' || q.seqstart || ' increment ' || q.seqincrement
                || ' min ' || q.seqmin || ' max ' || q.seqmax || ' cache ' || q.seqcache
                || CASE WHEN q.seqcycle THEN ' cycle' ELSE '' END
+               || COALESCE(' owned by ' || owner.relname || '.' || owner_column.attname, '')
     FROM pg_sequence q
     JOIN pg_class s ON s.oid = q.seqrelid
+    LEFT JOIN pg_depend dep
+      ON dep.classid = 'pg_class'::regclass AND dep.objid = s.oid
+     AND dep.refclassid = 'pg_class'::regclass AND dep.deptype IN ('a', 'i')
+    LEFT JOIN pg_class owner ON owner.oid = dep.refobjid
+    LEFT JOIN pg_attribute owner_column ON owner_column.attrelid = dep.refobjid AND owner_column.attnum = dep.refobjsubid
     WHERE s.relnamespace = current_schema()::regnamespace
 ) AS objects
 ORDER BY tbl, kind, pos, name, line;

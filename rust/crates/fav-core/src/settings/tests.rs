@@ -5,6 +5,7 @@ use crate::pyjson::{DumpOptions, Key, dumps, loads};
 /// Build a JSON object from `key => value` pairs.
 macro_rules! obj {
     ($($key:literal => $value:expr),* $(,)?) => {{
+        // `obj!{}` with no pairs never inserts.
         #[allow(unused_mut)]
         let mut dict = Dict::new();
         $(dict.insert($key, Value::from($value));)*
@@ -518,4 +519,26 @@ fn notify_enabled_reads_the_source_toggle_of_a_snapshot() {
     settings.job_schedule_mut("bilibili").unwrap().notify = false;
     assert!(!notify_enabled(&settings, " Bilibili "));
     assert!(notify_enabled(&settings, "worker"));
+}
+
+#[test]
+fn debug_output_redacts_sensitive_fields() {
+    let telegram = loads(r#"{"accounts": [{"name": "main", "api_id": 1, "api_hash": "hash-secret"}]}"#).expect("json");
+    let sections = [
+        ("web.telegram", telegram),
+        (
+            "notifications.telegram",
+            loads(r#"{"bot_token": "123:bot-secret", "chat_id": "1"}"#).expect("json"),
+        ),
+        ("web.wechat", loads(r#"{"token": "wechat-secret"}"#).expect("json")),
+        ("services.tikhub", loads(r#"{"token": "tikhub-secret"}"#).expect("json")),
+    ];
+    for (section, value) in &sections {
+        let model = SectionValue::validate(section, value).expect("valid");
+        let text = format!("{model:?}");
+        assert!(!text.contains("secret") && text.contains("<redacted>"), "{text}");
+    }
+    let settings = build_settings(sections.iter().map(|(section, value)| (*section, value))).expect("valid");
+    let text = format!("{settings:?}");
+    assert!(!text.contains("secret"), "{text}");
 }

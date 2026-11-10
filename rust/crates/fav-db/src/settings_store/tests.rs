@@ -73,8 +73,12 @@ async fn saved_sections_round_trip_through_jsonb() {
     assert!(loaded.job_schedule("nikke").expect("nikke").enabled);
 
     let version = store.settings_version().await.expect("version");
-    assert_eq!(version.len(), "2026-11-10T01:02:03.456789+00:00".len().min(version.len()));
-    assert!(version.ends_with("+00:00") && version.as_bytes()[10] == b'T', "{version}");
+    assert!(is_isoformat_utc(&version), "{version}");
+    let stored_at: DateTime<Utc> = sqlx::query_scalar("SELECT updated_at FROM app_settings WHERE section = 'web.nikke'")
+        .fetch_one(database.db().pool())
+        .await
+        .expect("row");
+    assert_eq!(DateTime::parse_from_rfc3339(&version).expect("RFC 3339"), stored_at);
     database.drop_database().await;
 }
 
@@ -161,4 +165,29 @@ async fn snapshots_are_cached_for_the_ttl() {
         .expect("save");
     assert!(!enabled().await);
     database.drop_database().await;
+}
+
+/// `datetime.isoformat()` of a UTC time: `YYYY-MM-DDTHH:MM:SS[.ffffff]+00:00`.
+fn is_isoformat_utc(text: &str) -> bool {
+    let shape = |part: &str, pattern: &str| {
+        part.len() == pattern.len()
+            && part
+                .bytes()
+                .zip(pattern.bytes())
+                .all(|(byte, want)| if want == b'9' { byte.is_ascii_digit() } else { byte == want })
+    };
+    let Some(body) = text.strip_suffix("+00:00") else { return false };
+    match body.split_once('.') {
+        Some((whole, fraction)) => shape(whole, "9999-99-99T99:99:99") && shape(fraction, "999999"),
+        None => shape(body, "9999-99-99T99:99:99"),
+    }
+}
+
+#[test]
+fn isoformat_shape_check() {
+    assert!(is_isoformat_utc("2026-11-10T01:02:03.456789+00:00"));
+    assert!(is_isoformat_utc("2026-11-10T01:02:03+00:00"));
+    assert!(!is_isoformat_utc("2026-11-10 01:02:03+00:00"));
+    assert!(!is_isoformat_utc("2026-11-10T01:02:03.4567+00:00"));
+    assert!(!is_isoformat_utc("2026-11-10T01:02:03Z"));
 }

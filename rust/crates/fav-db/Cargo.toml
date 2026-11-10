@@ -10,10 +10,17 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Temporary databases for other crates' tests (`testdb`).
+test-support = []
+
 [dependencies]
 blake2.workspace = true
 chrono.workspace = true
 fav-core.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+fav-core = { workspace = true, features = ["test-support"] }
 tokio.workspace = true

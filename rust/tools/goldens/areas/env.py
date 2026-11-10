@@ -74,6 +74,12 @@ DOTENV_CASES: list[str] = [
     'POSTGRES_DSN="multi\nline"\nAPI_TOKEN=t\n',
     'POSTGRES_DSN=postgresql://x/fav\r\nAPI_TOKEN=crlf\r\n',
     'not a valid line\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n',
+    # A bad statement is skipped from where reading stopped, which can be lines later.
+    'A="x\nAPI_TOKEN=evil" junk\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n',
+    'POSTGRES_DSN=postgresql://x/fav\nAPI_BIND="evil" junk\nAPI_TOKEN=t\n',
+    "POSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN='unterminated\nAPI_TOKEN=t\n",
+    "'UNTERMINATED_KEY\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n",
+    "'A'B=1\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n",
 ]
 
 

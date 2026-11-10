@@ -161,6 +161,76 @@
       "cors_origins": []
     },
     {
+      "dotenv": "A=\"x\nAPI_TOKEN=evil\" junk\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "t",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://x/fav\nAPI_BIND=\"evil\" junk\nAPI_TOKEN=t\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "t",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "POSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN='unterminated\nAPI_TOKEN=t\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "t",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "'UNTERMINATED_KEY\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "t",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "dotenv": "'A'B=1\nPOSTGRES_DSN=postgresql://x/fav\nAPI_TOKEN=t\n",
+      "value": {
+        "postgres_dsn": "postgresql://x/fav",
+        "api_token": "t",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
       "dotenv": "POSTGRES_DSN=postgresql://file/fav\nAPI_TOKEN=from-file\nAPI_PORT=1\n",
       "environ": {
         "API_TOKEN": "from-environ"

@@ -48,6 +48,15 @@ impl std::fmt::Debug for Env {
     }
 }
 
+/// Why the bootstrap values could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum EnvError {
+    #[error(transparent)]
+    Invalid(#[from] ValidationError),
+    #[error("cannot read .env: {0}")]
+    Dotenv(std::io::Error),
+}
+
 /// The variables `Env` reads, in field order.
 const NAMES: [&str; 8] = [
     "POSTGRES_DSN",
@@ -62,9 +71,17 @@ const NAMES: [&str; 8] = [
 
 impl Env {
     /// Read the process environment and `./.env`, like `Env()` at import time.
-    pub fn from_process() -> Result<Self, ValidationError> {
-        let dotenv = std::fs::read_to_string(".env").ok();
-        Self::from_sources(std::env::vars(), dotenv.as_deref())
+    ///
+    /// A missing `.env` is fine; one that cannot be read or is not UTF-8 is an error, as it
+    /// is for pydantic-settings. Variables that are not UTF-8 are read lossily.
+    pub fn from_process() -> Result<Self, EnvError> {
+        let dotenv = match std::fs::read_to_string(".env") {
+            Ok(text) => Some(text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(EnvError::Dotenv(error)),
+        };
+        let vars = std::env::vars_os().map(|(name, value)| (name.to_string_lossy().into_owned(), value.to_string_lossy().into_owned()));
+        Ok(Self::from_sources(vars, dotenv.as_deref())?)
     }
 
     /// Read the given variables and `.env` text (`None`: no file), variables winning.
@@ -291,13 +308,12 @@ impl DotenvReader<'_> {
     fn bindings(mut self) -> Vec<(String, Option<String>)> {
         let mut out = Vec::new();
         while self.pos < self.text.len() {
-            let mark = self.pos;
             match self.binding() {
                 Ok(Some(binding)) => out.push(binding),
                 Ok(None) => {}
                 Err(()) => {
-                    // An unparsable statement is skipped up to the end of its line.
-                    self.pos = mark;
+                    // Like `_rest_of_line`: skip from where reading stopped (each read either
+                    // matches whole or leaves the position alone) to the end of that line.
                     self.skip_while(|ch| ch != '\r' && ch != '\n');
                     if self.rest().starts_with("\r\n") {
                         self.pos += 2;
@@ -324,9 +340,11 @@ impl DotenvReader<'_> {
         let key = if self.rest().starts_with('#') {
             None
         } else if self.rest().starts_with('\'') {
+            let start = self.pos;
             self.pos += 1;
             let key = self.skip_while(|ch| ch != '\'').to_owned();
             if key.is_empty() || !self.rest().starts_with('\'') {
+                self.pos = start;
                 return Err(());
             }
             self.pos += 1;
@@ -377,6 +395,7 @@ impl DotenvReader<'_> {
             }
             escaped = ch == '\\' && !escaped;
         }
+        self.pos = start - 1;
         Err(())
     }
 

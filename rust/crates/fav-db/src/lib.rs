@@ -6,10 +6,12 @@
 //! PostgreSQL: there is no SQLite-dialect translation layer (DIVERGENCES.md).
 
 pub mod batch;
+pub mod dsn;
 pub mod lock;
 pub mod pool;
 pub mod schema;
 pub mod settings_store;
+#[cfg(any(test, feature = "test-support"))]
 pub mod testdb;
 
 pub use batch::{Param, Statement};
@@ -32,6 +34,9 @@ pub enum DbError {
         #[source]
         source: fav_core::pyjson::LoadError,
     },
+    /// Schema statements that failed; the others were applied.
+    #[error("schema setup failed: {}", .0.join("; "))]
+    Schema(Vec<String>),
     /// The store was pinned without a database (tests) and a call needed one.
     #[error("no database: this settings store is pinned to a snapshot")]
     NoDatabase,

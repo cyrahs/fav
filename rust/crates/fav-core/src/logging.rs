@@ -83,15 +83,31 @@ pub struct Record {
     pub time: DateTime<chrono::FixedOffset>,
 }
 
-/// `%(asctime)s - %(name)s - %(levelname)s - %(message)s`, milliseconds truncated.
+/// `%(asctime)s - %(name)s - %(levelname)s - %(message)s`.
+///
+/// The time is rendered the way Python 3.12 renders it, from a float of seconds: the
+/// seconds are floored and the milliseconds are `int((ct - int(ct)) * 1000)` of that float,
+/// which is often one below the exact value and near a boundary can disagree with them.
 pub fn format_file_line(record: &Record) -> String {
     format!(
         "{} - {} - {} - {}",
-        record.time.format("%Y-%m-%d %H:%M:%S,%3f"),
+        python_asctime(&record.time),
         record.name,
         record.level,
         record.message
     )
+}
+
+/// `%Y-%m-%d %H:%M:%S,mmm` from `time.time()`'s float, as `logging.Formatter` makes it.
+// Copying Python's float arithmetic, losses included, is the point here.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+fn python_asctime(time: &DateTime<chrono::FixedOffset>) -> String {
+    let nanos = time.timestamp_nanos_opt().unwrap_or(i64::MAX);
+    let created = nanos as f64 / 1e9;
+    let msecs = ((created - created.trunc()) * 1000.0) as i64;
+    let seconds = created.floor() as i64;
+    let whole = DateTime::from_timestamp(seconds, 0).map_or(*time, |utc| utc.with_timezone(time.offset()));
+    format!("{},{msecs:03}", whole.format("%Y-%m-%d %H:%M:%S"))
 }
 
 /// `%(log_color)s[%(name)s]%(message)s` plus a reset, as colorlog renders it.
@@ -317,13 +333,7 @@ mod tests {
         let document = golden::load("logging/format.json");
         for case in golden::cases(&document) {
             let record = record_from(case);
-            let mut expected = golden::string(golden::get(case, "file"));
-            if record.time.timestamp_subsec_nanos() > 999_999_000 {
-                // Python stores the time as a float, which rounds these last nanoseconds up
-                // to the next second while `msecs` still says 999 (DIVERGENCES.md D10).
-                expected = expected.replace(":01,999", ":00,999");
-            }
-            assert_eq!(format_file_line(&record), expected);
+            assert_eq!(format_file_line(&record), golden::string(golden::get(case, "file")));
             assert_eq!(format_console_line(&record, true), golden::string(golden::get(case, "console")));
         }
     }

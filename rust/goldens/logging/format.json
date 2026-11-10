@@ -17,7 +17,7 @@
       "level": "NOTICE",
       "message": "Job completed: Jandan (12.3s)",
       "time_ns": 1762790400999999999,
-      "file": "2025-11-10 16:00:01,999 - embyx.run - NOTICE - Job completed: Jandan (12.3s)",
+      "file": "2025-11-10 16:00:01,000 - embyx.run - NOTICE - Job completed: Jandan (12.3s)",
       "console": "\u001b[36m[embyx.run]Job completed: Jandan (12.3s)\u001b[0m"
     },
     {
@@ -41,7 +41,7 @@
       "level": "ERROR",
       "message": "request failed: 中文 detail",
       "time_ns": 1700000000001000000,
-      "file": "2023-11-14 22:13:20,001 - embyx.api - ERROR - request failed: 中文 detail",
+      "file": "2023-11-14 22:13:20,000 - embyx.api - ERROR - request failed: 中文 detail",
       "console": "\u001b[31m[embyx.api]request failed: 中文 detail\u001b[0m"
     },
     {
@@ -73,7 +73,7 @@
       "level": "INFO",
       "message": "",
       "time_ns": 1762790405010000000,
-      "file": "2025-11-10 16:00:05,010 - embyx.x - INFO - ",
+      "file": "2025-11-10 16:00:05,009 - embyx.x - INFO - ",
       "console": "\u001b[32m[embyx.x]\u001b[0m"
     }
   ]

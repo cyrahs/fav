@@ -178,7 +178,7 @@ column control_requests.9 result text not null default ''::text
 column control_requests.10 error text not null default ''::text
 constraint control_requests control_requests_pkey PRIMARY KEY (id)
 index control_requests control_requests_pkey CREATE UNIQUE INDEX control_requests_pkey ON public.control_requests USING btree (id)
-sequence control_requests_id_seq bigint start 1 increment 1 min 1 max 9223372036854775807 cache 1
+sequence control_requests_id_seq bigint start 1 increment 1 min 1 max 9223372036854775807 cache 1 owned by control_requests.id
 table hanime1
 column hanime1.1 id text not null
 column hanime1.2 title text not null default ''::text
@@ -370,7 +370,7 @@ column notifications.28 telegram_pinned_message_id bigint
 constraint notifications notifications_pkey PRIMARY KEY (id)
 index notifications notifications_dedupe_key_unique CREATE UNIQUE INDEX notifications_dedupe_key_unique ON public.notifications USING btree (dedupe_key) WHERE (dedupe_key <> ''::text)
 index notifications notifications_pkey CREATE UNIQUE INDEX notifications_pkey ON public.notifications USING btree (id)
-sequence notifications_id_seq bigint start 1 increment 1 min 1 max 9223372036854775807 cache 1
+sequence notifications_id_seq bigint start 1 increment 1 min 1 max 9223372036854775807 cache 1 owned by notifications.id
 table pixiv
 column pixiv.1 illust_id bigint not null
 column pixiv.2 num integer not null

@@ -56,7 +56,8 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
   `log.notice(...)` and so on, which keeps Python's `embyx.<name>` logger names, the NOTICE level, `LOG_LEVEL`
   and the file format the MCP log tools parse. Other crates' `tracing` events from WARN up land in the same
   outputs. Tests read what was logged with `logging::capture`. Never log secrets (cookies, tokens, API
-  hashes, proxy credentials, DSNs).
+  hashes, proxy credentials, DSNs). Types holding one get a `Debug` that redacts it (see the settings
+  models with `SENSITIVE_FIELDS`).
 - Python-compatible data: `fav_core::pyjson` reads and writes JSON the way Python does (`1` and `1.0` stay
   apart, `json.dumps` byte formats), `fav_core::validate` reproduces pydantic's lax coercion and its error
   entries, `fav_core::pytext` has Python's `isspace`/`isdigit`/`strip`/`split`. Use them wherever Python's
@@ -65,6 +66,9 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
   change mechanism: add tables, columns and indexes to `fav-db/src/schema.sql` in its three blocks, then
   regenerate the snapshot below), `Db::try_advisory_lock`, `Db::query_batch`/`insert_batch`, and
   `fav_db::SettingsStore` for `app_settings`. Write native PostgreSQL with `$n` placeholders.
+- Test helpers live behind the `test-support` feature: `fav_core::golden` and `fav_db::testdb`. Add
+  `fav-core = { workspace = true, features = ["test-support"] }` (or `fav-db`) to a crate's
+  `[dev-dependencies]` to use them.
 - All external effects are injected: HTTP client, database pool, clock, browser, Telegram client, subprocess
   runner, filesystem root. A source never builds its own client.
 - Memory: stream downloads to `.part` and rename; stream large result sets; write manifests in batches; never

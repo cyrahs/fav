@@ -50,7 +50,7 @@ pub fn index(loc: &[LocItem], position: usize) -> Loc {
 }
 
 /// One entry of a pydantic error list.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ErrorItem {
     /// pydantic's error type, such as `int_parsing` or `value_error`.
     pub kind: &'static str,
@@ -59,6 +59,19 @@ pub struct ErrorItem {
     /// The input as it was given at `loc`, before any coercion.
     pub input: Value,
     pub ctx: Option<Dict>,
+}
+
+/// The input can be a secret (a token, or the whole env for a missing variable), so
+/// `Debug` leaves it out; `to_value` still carries it, as the API returns it.
+impl fmt::Debug for ErrorItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ErrorItem")
+            .field("kind", &self.kind)
+            .field("loc", &self.loc)
+            .field("msg", &self.msg)
+            .field("ctx", &self.ctx)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ErrorItem {

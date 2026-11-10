@@ -7,12 +7,14 @@
 -- Python code creates on an empty database; fav-db's schema test checks that this script
 -- creates exactly that.
 --
--- Every statement is idempotent: the script runs at every start, also against a database
--- the Python code created, where a source that has not run since a column was added may
--- still lack it. So the script keeps Python's three blocks (AGENTS.md, "Database"):
--- tables, then every column added later (a no-op on a fresh database), then every index,
--- which may name such a column. Within the first block foreign keys need their targets
--- first.
+-- Every statement is idempotent and runs on its own in autocommit, as Python's did: a
+-- failing statement does not undo the others, and no lock outlives its statement. The
+-- script runs at every start, also against a database the Python code created, where a
+-- source that has not run since a column was added may still lack it. So the script keeps
+-- Python's three blocks (AGENTS.md, "Database"): tables, then every column added later (a
+-- no-op on a fresh database), then every index, which may name such a column. Within the
+-- first block foreign keys need their targets first. `schema.rs` splits the script at
+-- semicolons outside quotes and comments; it does not understand dollar quoting.
 
 -- ============================================================================
 -- Tables
@@ -650,30 +652,9 @@ ALTER TABLE jandan ADD COLUMN IF NOT EXISTS unavailable INTEGER NOT NULL DEFAULT
 ALTER TABLE jandan ADD COLUMN IF NOT EXISTS failed_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE jandan ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
 
--- src/web/bilibili.py: databases from before `bvid` was the primary key get the unique
--- constraint its ON CONFLICT needs (`_BILIBILI_BVID_ARBITER_SQL`).
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_index AS idx
-        JOIN pg_attribute AS attr
-          ON attr.attrelid = idx.indrelid
-         AND attr.attnum = idx.indkey[0]
-        WHERE idx.indrelid = 'bilibili'::regclass
-          AND idx.indisunique
-          AND idx.indimmediate
-          AND idx.indisvalid
-          AND idx.indisready
-          AND idx.indnkeyatts = 1
-          AND idx.indpred IS NULL
-          AND idx.indexprs IS NULL
-          AND attr.attname = 'bvid'
-    ) THEN
-        ALTER TABLE bilibili ADD CONSTRAINT bilibili_bvid_unique UNIQUE (bvid);
-    END IF;
-END
-$$;
+-- src/web/bilibili.py: a database from before `bvid` was the primary key also needs the
+-- unique constraint its ON CONFLICT relies on. That check runs after this script, in its
+-- own transaction under Python's `bilibili:schema` lock (`schema.rs`).
 
 -- ============================================================================
 -- Indexes

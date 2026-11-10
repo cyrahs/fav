@@ -58,7 +58,7 @@ fn dotenv_matches_pydantic_settings() {
         let environ = case.get("environ").map(pairs).unwrap_or_default();
         check_case(case, Env::from_sources(environ, Some(&text)));
     }
-    assert_eq!(golden::cases(&document).len(), 12);
+    assert_eq!(golden::cases(&document).len(), 17);
 }
 
 #[test]
@@ -77,10 +77,21 @@ fn dotenv_expands_variables_like_python_dotenv() {
 }
 
 #[test]
+fn a_bad_statement_is_skipped_from_where_reading_stopped() {
+    // python-dotenv's `_rest_of_line` resumes after the closing quote, two lines down.
+    let parsed = parse_dotenv("A=\"x\nAPI_TOKEN=evil\" junk\nB=1\n", &[]);
+    assert_eq!(parsed, [("B".to_owned(), Some("1".to_owned()))]);
+}
+
+#[test]
 fn debug_output_redacts_secrets() {
     let env = Env::from_sources(base([]), None).expect("valid");
     let text = format!("{env:?}");
     assert!(!text.contains("abc123") && !text.contains("db.local"), "{text}");
+    // A missing variable's error input is every variable found, secrets included.
+    let error = Env::from_sources(vars([("API_TOKEN", "abc123")]), None).expect_err("missing DSN");
+    let text = format!("{error:?} {error}");
+    assert!(!text.contains("abc123"), "{text}");
 }
 
 fn base<const N: usize>(extra: [(&str, &str); N]) -> Vec<(String, String)> {

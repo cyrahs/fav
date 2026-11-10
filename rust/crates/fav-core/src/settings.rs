@@ -433,7 +433,7 @@ impl Model for TelegramChannel {
 }
 
 /// One Telegram account and its channel routes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct TelegramAccount {
     pub name: String,
     pub channels: Vec<TelegramChannel>,
@@ -1510,7 +1510,7 @@ fn url_without_trailing_slash(value: &Value, loc: &[LocItem]) -> Result<String, 
 }
 
 /// `web.wechat`: what is forwarded to the agent's WeChat account (`FavInbox` plugin).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Wechat {
     pub schedule: Schedule,
     pub path: PyPath,
@@ -1569,7 +1569,7 @@ impl Wechat {
 // ---------- notifications and services ----------
 
 /// `notifications.telegram`: the bot that delivers notifications.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct TelegramNotification {
     pub enabled: bool,
     pub bot_token: String,
@@ -1631,7 +1631,7 @@ impl TelegramNotification {
 }
 
 /// `services.tikhub`: a paid API that reads sites which refuse the cluster.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TikHub {
     /// `api.tikhub.dev` serves mainland China.
     pub api_url: String,
@@ -1815,6 +1815,30 @@ pub const SECTIONS: [&str; 15] = [
     "notifications.telegram",
     "services.tikhub",
 ];
+
+/// `Debug` for a model holding a secret: the `SENSITIVE_FIELDS` print as `<redacted>` (or
+/// `""` when empty, so an unset secret is still visible), so a stray `{:?}` cannot leak one.
+macro_rules! redacted_debug {
+    ($ty:ident { $($field:ident),* } secret { $($secret:ident),* }) => {
+        impl std::fmt::Debug for $ty {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct(stringify!($ty))
+                    $(.field(stringify!($field), &self.$field))*
+                    $(.field(stringify!($secret), &redacted(&self.$secret)))*
+                    .finish()
+            }
+        }
+    };
+}
+
+fn redacted(secret: &str) -> &'static str {
+    if secret.is_empty() { "" } else { "<redacted>" }
+}
+
+redacted_debug!(TelegramAccount { name, channels, api_id, session_path } secret { api_hash });
+redacted_debug!(Wechat { schedule, path, api_url } secret { token });
+redacted_debug!(TelegramNotification { enabled, chat_id, message_thread_id } secret { bot_token });
+redacted_debug!(TikHub { api_url } secret { token });
 
 /// Written by the UI, never echoed back in full (`SENSITIVE_FIELDS`).
 pub fn sensitive_fields(section: &str) -> &'static [&'static str] {

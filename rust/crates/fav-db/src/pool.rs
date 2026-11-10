@@ -2,8 +2,11 @@
 //!
 //! Python origin: `_get_pool`/`connection` in `src/tool/database.py`: up to 16 autocommit
 //! connections, at least one kept open, 15 s to get one, each checked before use.
+//!
+//! sqlx sets every session's `TimeZone` to UTC, where psycopg keeps the server's setting.
+//! fav's server runs with `TZ=UTC`, so `CURRENT_TIMESTAMP` defaults and returned times
+//! agree (DIVERGENCES.md D11).
 
-use std::str::FromStr;
 use std::time::Duration;
 
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -36,7 +39,7 @@ impl std::fmt::Debug for Db {
 impl Db {
     /// A pool for `dsn` (`POSTGRES_DSN`); connections are opened when first needed.
     pub fn connect_lazy(dsn: &str) -> Result<Self, DbError> {
-        Ok(Self::from_options(PgConnectOptions::from_str(dsn)?))
+        Ok(Self::from_options(crate::dsn::parse_dsn(dsn)?))
     }
 
     /// A pool for already parsed connect options.
