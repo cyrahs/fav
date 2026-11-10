@@ -48,9 +48,6 @@ TOKEN = 'token-for-smoke'  # noqa: S105
 
 # Routes the pages call that later work packages port (rust/crates/fav-api/src/openapi.rs).
 PENDING = {
-    '/readyz': 'WP8',
-    '/api/v2/hanime1/seeds': 'WP8',
-    '/api/v2/hanime1/authors': 'WP8',
     '/api/v2/services/tikhub/test': 'WP13',
 }
 

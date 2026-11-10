@@ -23,7 +23,7 @@ use regex::Regex;
 use crate::error::ApiError;
 use crate::params::{self, BigInt, Body, Errors, IntBounds, Source, StrRules};
 use crate::router::{Endpoint, PathParams, Request, json_response};
-use crate::{ApiState, archive, credentials, json, masking, openapi, site_logins, web};
+use crate::{ApiState, archive, credentials, hanime1, json, masking, openapi, site_logins, web};
 
 const AUTH_PREFIX: &str = "Bearer ";
 
@@ -53,18 +53,18 @@ pub(crate) const SITE_PATTERN: &str = "^[A-Za-z0-9_-]+$";
 static SETTINGS_SECTION_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(SETTINGS_SECTION_PATTERN).expect("valid pattern"));
 static SITE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(SITE_PATTERN).expect("valid pattern"));
 
-fn log() -> fav_core::logging::Logger {
+pub(crate) fn log() -> fav_core::logging::Logger {
     fav_core::logging::get("fav-api")
 }
 
 /// `log.exception(message)` and the 500 the service raises after it.
-fn internal(message: &str, error: &dyn std::fmt::Display) -> ApiError {
+pub(crate) fn internal(message: &str, error: &dyn std::fmt::Display) -> ApiError {
     log().error(format!("{message}: {error}"));
     ApiError::internal()
 }
 
 /// An exception no handler expected: the generic handler logs it and answers 500.
-fn unhandled(error: &dyn std::fmt::Display) -> ApiError {
+pub(crate) fn unhandled(error: &dyn std::fmt::Display) -> ApiError {
     log().error(format!("Unhandled API error: {error}"));
     ApiError::internal()
 }
@@ -103,9 +103,11 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 /// Run an endpoint: body first (as FastAPI reads it), then the token, then the handler.
 pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathParams, request: &Request) -> Result<Response, ApiError> {
     let body = match endpoint {
-        Endpoint::CreateJobRequest | Endpoint::UpdateSettingsSection | Endpoint::ResolveKemonoCreator => {
-            params::read_body(&request.body, request.header("content-type").as_deref())?
-        }
+        Endpoint::CreateJobRequest
+        | Endpoint::UpdateSettingsSection
+        | Endpoint::CreateHanime1Seed
+        | Endpoint::CreateHanime1Author
+        | Endpoint::ResolveKemonoCreator => params::read_body(&request.body, request.header("content-type").as_deref())?,
         _ => Body::Absent,
     };
     if endpoint.needs_api_token() {
@@ -118,6 +120,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::OAuth2Redirect => Ok(web::html(web::OAUTH2_REDIRECT_HTML)),
         Endpoint::Redoc => Ok(web::html(web::REDOC_HTML)),
         Endpoint::Health => Ok(json_response(200, &health(state))),
+        Endpoint::Readiness => hanime1::readiness(state).await,
         Endpoint::ListJobs => list_jobs(state).await,
         Endpoint::CreateJobRequest => create_job_request(state, &body).await,
         Endpoint::GetJobRequest => get_job_request(state, path("request_id")).await,
@@ -131,6 +134,13 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::TestTelegramNotification => test_telegram_notification(state).await,
         Endpoint::ListArchiveSources => list_archive_sources(state).await,
         Endpoint::ListArchiveItems => list_archive_items(state, request).await,
+        Endpoint::ListHanime1Videos => hanime1::list_videos(state).await,
+        Endpoint::CreateHanime1Seed => hanime1::create_seed(state, &body).await,
+        Endpoint::ListHanime1Seeds => hanime1::list_seeds(state).await,
+        Endpoint::DeleteHanime1Seed => hanime1::delete_seed(state, path("canonical_video_id")).await,
+        Endpoint::CreateHanime1Author => hanime1::create_author(state, &body).await,
+        Endpoint::ListHanime1Authors => hanime1::list_authors(state).await,
+        Endpoint::DeleteHanime1Author => hanime1::delete_author(state, path("author_id")).await,
         Endpoint::ResolveKemonoCreator => resolve_kemono_creator(state, &body).await,
         Endpoint::ListSiteSessions => list_site_sessions(state).await,
         Endpoint::GetSiteCredential => get_site_credential(state, path("site"), request).await,
@@ -205,7 +215,7 @@ async fn list_jobs(state: &ApiState) -> Result<Response, ApiError> {
     Ok(json_response(200, &list_response(items)))
 }
 
-fn list_response(items: Vec<Value>) -> Value {
+pub(crate) fn list_response(items: Vec<Value>) -> Value {
     let total = Value::from(i64::try_from(items.len()).unwrap_or(i64::MAX));
     json::dict([("items", Value::List(items)), ("total", total)])
 }

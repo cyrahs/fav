@@ -64,7 +64,9 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
   behaviour is observable (stored rows, API errors, filenames). For scraped pages (WP6):
   `fav_core::pyhtml` (CPython 3.12's `HTMLParser` tokenizer behind a handler trait, `html.unescape`), `pyurl`
   (`unquote`, `urlsplit`, `urljoin`), `pypath` (`PurePosixPath` joins, `name`, `suffix`, `stem`) and
-  `pycasefold` (`str.casefold`).
+  `pycasefold` (`str.casefold`). Python `re` patterns (WP8): `fav-sources/src/pyre.rs` compiles them as
+  written, with `regex`, or `fancy-regex` where they need look-around or back-references, and rewrites `\s`
+  to Python's class; see D73 for what is not translated.
 - Database: `fav_db::Db` (pool and dedicated connections), `Db::ensure_schema` at startup (the only schema
   change mechanism: add tables, columns and indexes to `fav-db/src/schema.sql` in its three blocks, then
   regenerate the snapshot below), `Db::try_advisory_lock`, `Db::query_batch`/`insert_batch`, and
@@ -170,6 +172,12 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
   input, `zulu_to_offset` through `datetime.fromisoformat` including week dates and range errors, the JSON
   extractors and image URL helpers), `kemono` (`parse_post` on well-formed and malformed listings, file
   naming, URLs, `Retry-After`, `email.utils.parsedate_to_datetime`, `extract_kemono_creator`).
+- Areas from WP8: `hanime1` (`t2s.json`: `opencc-python-reimplemented`'s `t2s` over every dictionary key and
+  mixed strings; `t2s_dictionaries.json` pins the bundled dictionary files; `parsing.json`: every pure
+  function of `src/web/hanime1.py`, `runtime_config.py` and `hanime1_author.py`, as `{fn, args, result}` with
+  Python's exception class and message for a raise; `constants.json`). The replay test
+  (`fav-sources/src/hanime1_golden.rs`) calls the Rust function of the same name for each case and fails on
+  a name it does not know.
 - Generate with the latest 3.12 patch release, as CI's `setup-python` does (`uv python install 3.12`; at
   WP5 that was 3.12.13). Older 3.12 patch releases differ in security fixes to `urllib.parse` and `email`,
   and an Ubuntu system 3.12.3 produces different goldens.
