@@ -1,0 +1,381 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bd2",
+  "cases": [
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {
+          "stable_id": "abc",
+          "live2d_key": "k"
+        }
+      ],
+      "result": "abc"
+    },
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {
+          "stable_id": " ",
+          "live2d_key": "key.with:colon-_"
+        }
+      ],
+      "result": "key.with:colon-_"
+    },
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {
+          "stable_id": "has space"
+        }
+      ],
+      "result": "stable_id_47b5c36fc0b017ba"
+    },
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {
+          "live2d_key": "é"
+        }
+      ],
+      "result": "live2d_key_4a99557e4033c353"
+    },
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {
+          "live2d_key": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "result": "live2d_key_fdb7f3c40645e79c"
+    },
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {
+          "live2d_key": 5
+        }
+      ],
+      "result": "5"
+    },
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {}
+      ],
+      "result": "generated_1041eefcd5eb5893"
+    },
+    {
+      "fn": "live2d_model_id",
+      "args": [
+        {
+          "label": "L",
+          "row_index": 1,
+          "source_urls": {
+            "atlas": "a"
+          },
+          "skin_index": 2
+        }
+      ],
+      "result": "generated_75284156148dd252"
+    },
+    {
+      "fn": "apply_live2d_view_overrides",
+      "args": [
+        {
+          "live2d_models": [
+            {
+              "stable_id": "same"
+            },
+            {
+              "stable_id": "same",
+              "field": "other"
+            },
+            {
+              "stable_id": "same"
+            },
+            {
+              "live2d_key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+              "row_index": 1
+            },
+            {
+              "live2d_key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+              "row_index": 2
+            },
+            "junk"
+          ],
+          "costumes": [
+            {
+              "live2d_models": [
+                {
+                  "stable_id": "same",
+                  "field": "other"
+                },
+                {}
+              ]
+            },
+            "junk",
+            {
+              "live2d_models": "x"
+            }
+          ],
+          "skins": [
+            {
+              "live2d_models": [
+                {
+                  "stable_id": "skin"
+                }
+              ]
+            }
+          ]
+        },
+        [
+          {
+            "model_id": "same",
+            "profile": "default",
+            "position": {
+              "x": 1,
+              "y": 2
+            },
+            "scale": 1.5,
+            "background_position": null,
+            "background_scale": null,
+            "created_at": "c",
+            "updated_at": "u"
+          },
+          {
+            "model_id": "same",
+            "profile": "mobile",
+            "position": "x",
+            "scale": 2,
+            "background_position": {
+              "x": 0
+            },
+            "created_at": "c2"
+          },
+          {
+            "model_id": " ",
+            "profile": "p"
+          },
+          {
+            "model_id": "skin",
+            "profile": ""
+          }
+        ]
+      ],
+      "result": {
+        "live2d_models": [
+          {
+            "stable_id": "same",
+            "model_id": "same",
+            "view_overrides": {
+              "default": {
+                "position": {
+                  "x": 1,
+                  "y": 2
+                },
+                "scale": 1.5,
+                "background_position": null,
+                "background_scale": null,
+                "created_at": "c",
+                "updated_at": "u"
+              },
+              "mobile": {
+                "position": {},
+                "scale": 2,
+                "background_position": {
+                  "x": 0
+                },
+                "background_scale": null,
+                "created_at": "c2",
+                "updated_at": null
+              }
+            }
+          },
+          {
+            "stable_id": "same",
+            "field": "other",
+            "model_id": "same_eb324e46",
+            "view_overrides": {}
+          },
+          {
+            "stable_id": "same",
+            "model_id": "same",
+            "view_overrides": {
+              "default": {
+                "position": {
+                  "x": 1,
+                  "y": 2
+                },
+                "scale": 1.5,
+                "background_position": null,
+                "background_scale": null,
+                "created_at": "c",
+                "updated_at": "u"
+              },
+              "mobile": {
+                "position": {},
+                "scale": 2,
+                "background_position": {
+                  "x": 0
+                },
+                "background_scale": null,
+                "created_at": "c2",
+                "updated_at": null
+              }
+            }
+          },
+          {
+            "live2d_key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "row_index": 1,
+            "model_id": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "view_overrides": {}
+          },
+          {
+            "live2d_key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+            "row_index": 2,
+            "model_id": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk_9837aeb6",
+            "view_overrides": {}
+          },
+          "junk"
+        ],
+        "costumes": [
+          {
+            "live2d_models": [
+              {
+                "stable_id": "same",
+                "field": "other",
+                "model_id": "same_eb324e46",
+                "view_overrides": {}
+              },
+              {
+                "model_id": "generated_1041eefcd5eb5893",
+                "view_overrides": {}
+              }
+            ]
+          },
+          "junk",
+          {
+            "live2d_models": "x"
+          }
+        ],
+        "skins": [
+          {
+            "live2d_models": [
+              {
+                "stable_id": "skin",
+                "model_id": "skin",
+                "view_overrides": {}
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fn": "validate_live2d_source",
+      "args": [
+        "bd2"
+      ],
+      "result": "bd2"
+    },
+    {
+      "fn": "validate_live2d_source",
+      "args": [
+        " BD2 "
+      ],
+      "result": "bd2"
+    },
+    {
+      "fn": "validate_live2d_source",
+      "args": [
+        "Nikke"
+      ],
+      "result": "nikke"
+    },
+    {
+      "fn": "validate_live2d_source",
+      "args": [
+        "azurlane"
+      ],
+      "result": {
+        "error": "ValueError: Unsupported Live2D source: azurlane"
+      }
+    },
+    {
+      "fn": "validate_live2d_source",
+      "args": [
+        ""
+      ],
+      "result": {
+        "error": "ValueError: Unsupported Live2D source: "
+      }
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        "default"
+      ],
+      "result": "default"
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        " mobile "
+      ],
+      "result": "mobile"
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        "a-b_c"
+      ],
+      "result": "a-b_c"
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ],
+      "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ],
+      "result": {
+        "error": "ValueError: Live2D override profile must contain only ASCII letters, digits, underscores, or hyphens"
+      }
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        "bad.profile"
+      ],
+      "result": {
+        "error": "ValueError: Live2D override profile must contain only ASCII letters, digits, underscores, or hyphens"
+      }
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        ""
+      ],
+      "result": {
+        "error": "ValueError: Live2D override profile must contain only ASCII letters, digits, underscores, or hyphens"
+      }
+    },
+    {
+      "fn": "validate_live2d_profile",
+      "args": [
+        "é"
+      ],
+      "result": {
+        "error": "ValueError: Live2D override profile must contain only ASCII letters, digits, underscores, or hyphens"
+      }
+    }
+  ]
+}
