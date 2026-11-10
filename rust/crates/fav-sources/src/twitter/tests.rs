@@ -1247,3 +1247,17 @@ async fn the_job_is_registered_and_parked_until_configured() {
     assert!(!job.enabled);
     assert!(job.missing_fields.iter().any(|field| field == "username"));
 }
+
+/// D67: a proxy httpx's `Proxy` refuses (no scheme, or one it does not know) is reported
+/// instead of raised, and nothing is sent.
+#[tokio::test]
+async fn a_proxy_httpx_would_refuse_is_reported() {
+    let server = FakeServer::start(|request| panic!("unexpected request {}", request.path)).await;
+    for proxy in ["127.0.0.1:8080", "proxy.example:8080", "ftp://proxy.example", "bogus"] {
+        let check = verify_session_at(&server.url("/1.1/account/settings.json"), &signed_in(), "me", proxy).await;
+
+        assert!(!check.ok, "{proxy}");
+        assert_eq!(check.message, "X unreachable: UnsupportedProtocol", "{proxy}");
+    }
+    assert!(server.received().is_empty());
+}

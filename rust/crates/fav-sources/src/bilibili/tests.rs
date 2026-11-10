@@ -12,6 +12,9 @@ use super::*;
 use crate::testkit::{Answer, FakeServer, Received, RecordingNotifier};
 
 const NOW: f64 = 1_800_000_000.0;
+/// Where tests that expect no request point the crawler: a request fails at once instead
+/// of reaching Bilibili.
+const UNROUTABLE: &str = "http://127.0.0.1:1";
 /// Valid BV ids (the Python tests' `BV1TEST1` would not decode to an aid here).
 const BV_A: &str = "BV1xx411c7mD";
 const BV_B: &str = "BV1GJ411x7h7";
@@ -361,6 +364,54 @@ async fn update_fav_sends_notification_for_each_video() {
     database.drop_database().await;
 }
 
+/// `ON CONFLICT (bvid) DO UPDATE`: a video already in the table (stored by an earlier pass
+/// of the same run) takes the new list, title and uploader.
+#[tokio::test]
+async fn a_video_already_stored_is_updated_in_place() {
+    let database = database().await;
+    sqlx::query("INSERT INTO bilibili (bvid, fav_id, title, upper) VALUES ($1, 1, 'Old title', 'Old uploader');")
+        .bind(BV_A)
+        .execute(database.db().pool())
+        .await
+        .expect("seed");
+    let server = site(Site {
+        details: HashMap::from([(BV_A.to_owned(), ("Title One".to_owned(), "Uploader One".to_owned()))]),
+        ..Site::default()
+    })
+    .await;
+    let mut fixture = signed_in(database.db().clone(), &server, RecordingNotifier::default(), FakeYtDlp::default());
+    let root = tempfile::tempdir().expect("tempdir");
+    let video = Video::new(BV_A).expect("video");
+    std::fs::create_dir_all(root.path().join("fav")).expect("fav dir");
+
+    assert!(
+        fixture
+            .crawler
+            .download_video(&video, 123, &root.path().join("fav"))
+            .await
+            .expect("download")
+    );
+
+    assert_eq!(
+        rows(database.db()).await,
+        [(BV_A.to_owned(), 123, "Title One".to_owned(), "Uploader One".to_owned())]
+    );
+    database.drop_database().await;
+}
+
+/// `Video(bvid=None)`: bilibili-api's own complaint, not a type error.
+#[test]
+fn a_list_entry_without_a_bvid_is_an_args_exception() {
+    let error = video_of(&json(r#"{"bvid": null}"#)).expect_err("no bvid");
+
+    assert_eq!(
+        (error.class_name(), error.message()),
+        ("ArgsException", "请至少提供 bvid 和 aid 中的其中一个参数。")
+    );
+    let error = video_of(&json(r#"{"bvid": 5}"#)).expect_err("not a string");
+    assert_eq!(error.class_name(), "TypeError");
+}
+
 // py: tests/test_bilibili.py::test_update_fav_continues_when_notification_fails
 #[tokio::test]
 async fn update_fav_continues_when_notification_fails() {
@@ -655,7 +706,7 @@ async fn notifications_match_the_recorded_calls() {
         let input = golden::get(case, "input");
         let fixture = fixture(
             unused_db(),
-            Endpoints::default(),
+            Endpoints::at(UNROUTABLE),
             RecordingNotifier::default(),
             FakeYtDlp::default(),
             BilibiliConfig::default(),
@@ -679,7 +730,7 @@ async fn notifications_match_the_recorded_calls() {
 async fn notify_download_enqueues_structured_payload() {
     let fixture = fixture(
         unused_db(),
-        Endpoints::default(),
+        Endpoints::at(UNROUTABLE),
         RecordingNotifier::default(),
         FakeYtDlp::default(),
         BilibiliConfig::default(),
@@ -817,7 +868,7 @@ async fn a_cover_lookup_that_fails_is_no_cover() {
 // ---------- downloads ----------
 
 fn offline(config: BilibiliConfig, runner: FakeYtDlp, cookie_path: &str) -> Fixture {
-    let mut fixture = fixture(unused_db(), Endpoints::default(), RecordingNotifier::default(), runner, config);
+    let mut fixture = fixture(unused_db(), Endpoints::at(UNROUTABLE), RecordingNotifier::default(), runner, config);
     fixture.crawler.cookie_path = PathBuf::from(cookie_path);
     fixture
 }
@@ -1084,7 +1135,7 @@ fn update_activates_each_account_before_its_favourites() {
 async fn no_accounts_is_nothing_to_do() {
     let mut fixture = fixture(
         unused_db(),
-        Endpoints::default(),
+        Endpoints::at(UNROUTABLE),
         RecordingNotifier::default(),
         FakeYtDlp::default(),
         BilibiliConfig::default(),
@@ -1380,20 +1431,58 @@ async fn renew_session_keeps_the_session_when_bilibili_refuses() {
 async fn renew_session_without_a_refresh_token_only_renews_the_ticket() {
     let database = database().await;
     let db = database.db();
-    let session = signed_in_with_token(db, None).await;
-    // The ticket step answers nothing usable; no refresh is attempted without a token.
-    let server = FakeServer::start(|request| {
-        assert!(request.path.ends_with("/GenWebTicket"), "unexpected request {}", request.path);
-        ok("{}")
-    })
-    .await;
+    // A ticket that is not due yet: `renew_ticket` has nothing to do.
+    let mut cookies = full_session("v");
+    cookies.extend(stored(&["bili_ticket"], "v"));
+    cookies.push(StoredCookie {
+        value: "1900000000".to_owned(),
+        ..stored(&["bili_ticket_expires"], "v").remove(0)
+    });
+    site_sessions::save_signed_in(db, "bilibili-main", &cookies, "u", None, &[])
+        .await
+        .expect("store the login");
+    let session = stored_session(db, "bilibili-main").await;
+    let before = session.clone();
+    let server = FakeServer::start(|request| panic!("no token, no refresh: {}", request.path)).await;
 
-    let result = renew_session(db, "bilibili-main", session.clone(), &Endpoints::at(&server.base_url), NOW)
+    let result = renew_session(db, "bilibili-main", session, &Endpoints::at(&server.base_url), NOW)
         .await
         .expect("kept");
 
-    assert_eq!(result.cookies, session.cookies);
-    assert_eq!(stored_session(db, "bilibili-main").await.cookies, session.cookies);
+    assert_eq!(result.cookies, before.cookies);
+    assert!(server.received().is_empty());
+    let after = stored_session(db, "bilibili-main").await;
+    assert_eq!((after.cookies, after.extra), (before.cookies, before.extra));
+    database.drop_database().await;
+}
+
+/// The renewed ticket is stored on its own, before (and without) any refresh: the `RSSHub`
+/// proxy reads it from the store.
+#[tokio::test]
+async fn a_renewed_ticket_is_stored_with_the_old_refresh_token() {
+    let database = database().await;
+    let db = database.db();
+    let session = signed_in_with_token(db, Some("rt-old")).await;
+    // The ticket is renewed; Bilibili then says no refresh is needed.
+    let server = FakeServer::start(|request| {
+        if request.path.ends_with("/cookie/info") {
+            ok(r#"{"refresh": false}"#)
+        } else {
+            renewal_site(request)
+        }
+    })
+    .await;
+
+    let result = renew_session(db, "bilibili-main", session, &Endpoints::at(&server.base_url), NOW)
+        .await
+        .expect("renewed");
+
+    assert_eq!(result.cookie("bili_ticket"), "t");
+    assert_eq!(result.cookie("SESSDATA"), "v-SESSDATA");
+    let stored = stored_session(db, "bilibili-main").await;
+    assert_eq!(stored.cookies, result.cookies);
+    assert_eq!(stored.extra, [(session::REFRESH_TOKEN_KEY.to_owned(), "rt-old".to_owned())]);
+    assert!(requests_to(&server, "/x/passport-login/web/cookie/refresh").is_empty());
     database.drop_database().await;
 }
 

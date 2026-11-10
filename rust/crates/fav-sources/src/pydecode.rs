@@ -77,6 +77,7 @@ pub(crate) fn json_from_bytes(body: &[u8]) -> Result<Value, PyError> {
 }
 
 fn detect_and_decode(body: &[u8]) -> Result<String, PyError> {
+    // D68: the codec's own text is not reproduced.
     let not_decodable = || PyError::new("UnicodeDecodeError", "the body is not valid in the encoding json.loads detected");
     if body.starts_with(b"\x00\x00\xfe\xff") {
         return decode_utf32(&body[4..], true).ok_or_else(not_decodable);

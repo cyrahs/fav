@@ -21,17 +21,15 @@ bytes.workspace = true
 chrono.workspace = true
 futures-util = { workspace = true, features = ["alloc"] }
 # Bilibili: the ticket signature (HMAC-SHA256) and the refresh path (RSA-OAEP with SHA-256).
-hmac = "0.13"
+hmac.workspace = true
 # Only to tell a body cut short from other read failures (`kit::HttpError::transport`).
 hyper = { version = "1", default-features = false }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 regex.workspace = true
 reqwest = { workspace = true, features = ["query", "stream"] }
-rsa = "0.10"
+rsa.workspace = true
 serde_json.workspace = true
-# hmac 0.13 and rsa 0.10 take digest 0.11, which the workspace's sha2 0.10 predates.
-# The tests hash with it too.
-sha2 = "0.11"
+sha2.workspace = true
 sqlx.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["fs", "io-util", "time"] }

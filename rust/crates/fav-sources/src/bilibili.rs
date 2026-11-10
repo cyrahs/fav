@@ -184,6 +184,8 @@ fn py_iter(value: &Value) -> Result<Vec<Value>, PyError> {
 fn video_of(item: &Value) -> Result<Video, JobError> {
     match py_item(item, "bvid").map_err(py_error)? {
         Value::Str(bvid) => Video::new(bvid).map_err(ApiError::into_job_error),
+        // `Video(bvid=None)` without an aid.
+        Value::Null => Err(PyError::new("ArgsException", "请至少提供 bvid 和 aid 中的其中一个参数。").into_job_error()),
         other => Err(JobError::new(
             "TypeError",
             format!("expected string or bytes-like object, got '{}'", crate::pyerr::type_name(other)),
@@ -966,7 +968,8 @@ impl Bilibili {
         let command = self.download_command(url, bvid, dirpath);
         let mut attempt = 1;
         loop {
-            cleanup_dir(dirpath)?;
+            let cache = dirpath.to_owned();
+            kit::blocking(move || cleanup_dir(&cache)).await?;
             let result = self.runner.run(command.clone()).await.map_err(|error| {
                 JobError::new(
                     kit::io_class_name(&error),
@@ -1062,7 +1065,10 @@ impl Bilibili {
         }
         log().info(format_args!("Downloading [{upper}]{title} [{bvid}]"));
         self.download(&url, &bvid, &video_cache_dir).await?;
-        let saved_paths = move_downloads(&video_cache_dir, path, &title, &bvid, &upper)?;
+        let saved_paths = {
+            let (cache, dest, title, bvid, upper) = (video_cache_dir.clone(), path.to_owned(), title.clone(), bvid.clone(), upper.clone());
+            kit::blocking(move || move_downloads(&cache, &dest, &title, &bvid, &upper)).await?
+        };
         let resolution = extract_resolution_label(&detail).map_err(py_error)?;
         let mut file_size_bytes: Option<i128> = None;
         for saved_path in &saved_paths {

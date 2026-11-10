@@ -108,6 +108,7 @@ type Handler = Arc<dyn Fn(&Received) -> Answer + Send + Sync>;
 struct State {
     handler: Handler,
     received: Arc<Mutex<Vec<Received>>>,
+    panics: Arc<Mutex<Vec<String>>>,
 }
 
 /// A server on 127.0.0.1 that answers every request through one closure.
@@ -115,6 +116,9 @@ struct State {
 pub(crate) struct FakeServer {
     pub(crate) base_url: String,
     received: Arc<Mutex<Vec<Received>>>,
+    /// Handler panics (an assertion about a request), raised again when the server is dropped:
+    /// the server task would otherwise swallow them.
+    panics: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeServer {
@@ -144,8 +148,20 @@ impl FakeServer {
                 headers,
                 body,
             };
-            let answer = (state.handler)(&received);
-            state.received.lock().expect("fake server state").push(received);
+            state.received.lock().expect("fake server state").push(received.clone());
+            let handler = Arc::clone(&state.handler);
+            let answer = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(&received))) {
+                Ok(answer) => answer,
+                Err(payload) => {
+                    let message = payload
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| payload.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+                        .unwrap_or_default();
+                    state.panics.lock().expect("fake server state").push(message);
+                    Answer::text(500, "the fake server's handler panicked")
+                }
+            };
             let status = axum::http::StatusCode::from_u16(answer.status).expect("status");
             let mut response = (status, [(axum::http::header::CONTENT_TYPE, answer.content_type)], answer.body).into_response();
             for (name, value) in &answer.headers {
@@ -157,9 +173,11 @@ impl FakeServer {
         }
 
         let received: Arc<Mutex<Vec<Received>>> = Arc::default();
+        let panics: Arc<Mutex<Vec<String>>> = Arc::default();
         let state = State {
             handler: Arc::new(handler),
             received: Arc::clone(&received),
+            panics: Arc::clone(&panics),
         };
         let app = axum::Router::new().fallback(handle).with_state(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -170,6 +188,7 @@ impl FakeServer {
         Self {
             base_url: format!("http://{address}"),
             received,
+            panics,
         }
     }
 
@@ -179,6 +198,15 @@ impl FakeServer {
 
     pub(crate) fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)
+    }
+}
+
+impl Drop for FakeServer {
+    fn drop(&mut self) {
+        let panics = std::mem::take(&mut *self.panics.lock().expect("fake server state"));
+        if !std::thread::panicking() {
+            assert!(panics.is_empty(), "the fake server's handler panicked: {panics:?}");
+        }
     }
 }
 

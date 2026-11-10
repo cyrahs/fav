@@ -242,12 +242,17 @@ fn settings_client(proxy: &str) -> Result<reqwest::Client, HttpError> {
         .read_timeout(VERIFY_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none());
     if !proxy.is_empty() {
-        let proxy = reqwest::Proxy::all(proxy).map_err(|_| HttpError::Transport {
+        let unknown_scheme = || HttpError::Transport {
             class: "UnsupportedProtocol",
             message: "Unknown scheme for proxy URL".to_owned(),
             host: String::new(),
-        })?;
-        builder = builder.proxy(proxy);
+        };
+        // httpx's `Proxy` check; reqwest itself would take `host:port` as an HTTP proxy.
+        let scheme = fav_core::pyurl::urlsplit(proxy, "").map(|split| split.scheme).unwrap_or_default();
+        if !["http", "https", "socks5", "socks5h"].contains(&scheme.as_str()) {
+            return Err(unknown_scheme());
+        }
+        builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|_| unknown_scheme())?);
     }
     builder.build().map_err(|error| HttpError::transport(&error))
 }
@@ -602,7 +607,10 @@ impl Twitter {
                 log().warning(format_args!("Skipping sidecar without tweet identifiers: {sidecar}"));
                 continue;
             };
-            relocate(&media_path, &destination)?;
+            {
+                let (media_path, destination) = (media_path.clone(), destination.clone());
+                kit::blocking(move || relocate(&media_path, &destination)).await?;
+            }
             insert_row(&self.db, &row).await?;
             if let Err(error) = std::fs::remove_file(&sidecar)
                 && error.kind() != std::io::ErrorKind::NotFound

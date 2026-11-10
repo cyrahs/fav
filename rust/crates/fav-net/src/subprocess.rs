@@ -124,20 +124,22 @@ async fn drain(stdout: impl AsyncRead + Unpin, stderr: impl AsyncRead + Unpin, s
     while out_open || err_open {
         tokio::select! {
             read = out.read_until(b'\n', &mut out_line), if out_open => {
-                if read? == 0 {
-                    out_open = false;
-                } else {
+                // `read_until` keeps a partial line in the buffer when the other branch wins the
+                // race, so a last line without a newline can be there when the end is reached.
+                let ended = read? == 0;
+                if !out_line.is_empty() {
                     sink(Stream::Stdout, &decode_line(&out_line));
                     out_line.clear();
                 }
+                out_open = !ended;
             }
             read = err.read_until(b'\n', &mut err_line), if err_open => {
-                if read? == 0 {
-                    err_open = false;
-                } else {
+                let ended = read? == 0;
+                if !err_line.is_empty() {
                     sink(Stream::Stderr, &decode_line(&err_line));
                     err_line.clear();
                 }
+                err_open = !ended;
             }
         }
     }
@@ -146,7 +148,58 @@ async fn drain(stdout: impl AsyncRead + Unpin, stderr: impl AsyncRead + Unpin, s
 
 #[cfg(test)]
 mod tests {
-    use super::{Runner, Stream, SystemRunner, decode_line, decode_text};
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use tokio::io::{AsyncRead, ReadBuf};
+
+    use super::{Runner, Stream, SystemRunner, decode_line, decode_text, drain};
+
+    /// The order of a race between the pipes, scripted: stdout gives `tail` without a newline
+    /// and then waits; only then does stderr give a whole line, which wins the race and drops
+    /// stdout's unfinished read; stdout ends after that.
+    #[derive(Default)]
+    struct Race {
+        tail_given: bool,
+        line_given: bool,
+        stderr_waker: Option<std::task::Waker>,
+    }
+
+    struct Pipe {
+        race: std::sync::Arc<std::sync::Mutex<Race>>,
+        stderr: bool,
+        done: bool,
+    }
+
+    impl AsyncRead for Pipe {
+        fn poll_read(mut self: Pin<&mut Self>, context: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+            let race = std::sync::Arc::clone(&self.race);
+            let mut race = race.lock().expect("race");
+            if self.done {
+                return Poll::Ready(Ok(()));
+            }
+            if self.stderr {
+                if !race.tail_given {
+                    race.stderr_waker = Some(context.waker().clone());
+                    return Poll::Pending;
+                }
+                buf.put_slice(b"line\n");
+                race.line_given = true;
+                self.done = true;
+            } else if !race.tail_given {
+                buf.put_slice(b"tail");
+                race.tail_given = true;
+                if let Some(waker) = race.stderr_waker.take() {
+                    waker.wake();
+                }
+            } else if !race.line_given {
+                return Poll::Pending;
+            } else {
+                self.done = true;
+            }
+            Poll::Ready(Ok(()))
+        }
+    }
 
     fn sh(script: &str) -> Vec<String> {
         vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()]
@@ -188,6 +241,26 @@ mod tests {
             .await
             .expect_err("nothing to run");
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[tokio::test]
+    async fn a_last_line_cut_off_by_the_other_pipe_is_kept() {
+        let mut lines = Vec::new();
+        let mut sink = |stream: Stream, line: &str| lines.push((stream, line.to_owned()));
+        let race = std::sync::Arc::default();
+        let stdout = Pipe {
+            race: std::sync::Arc::clone(&race),
+            stderr: false,
+            done: false,
+        };
+        let stderr = Pipe {
+            race,
+            stderr: true,
+            done: false,
+        };
+        drain(stdout, stderr, &mut sink).await.expect("drained");
+        lines.sort_unstable_by_key(|(stream, _)| *stream == Stream::Stdout);
+        assert_eq!(lines, [(Stream::Stderr, "line".to_owned()), (Stream::Stdout, "tail".to_owned())]);
     }
 
     #[tokio::test]

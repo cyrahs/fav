@@ -344,6 +344,16 @@ pub(crate) fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
+/// `await asyncio.to_thread(work)`: file work (a move across file systems copies the whole
+/// file) off the async threads.
+pub(crate) async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, fav_runtime::source::JobError> + Send + 'static,
+) -> Result<T, fav_runtime::source::JobError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| fav_runtime::source::JobError::new("RuntimeError", error.to_string()))?
+}
+
 #[cfg(test)]
 mod tests {
     use fav_core::golden;
