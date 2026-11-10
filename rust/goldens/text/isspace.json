@@ -1,0 +1,52 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "text",
+  "cases": [
+    {
+      "ranges": [
+        [
+          9,
+          13
+        ],
+        [
+          28,
+          32
+        ],
+        [
+          133,
+          133
+        ],
+        [
+          160,
+          160
+        ],
+        [
+          5760,
+          5760
+        ],
+        [
+          8192,
+          8202
+        ],
+        [
+          8232,
+          8233
+        ],
+        [
+          8239,
+          8239
+        ],
+        [
+          8287,
+          8287
+        ],
+        [
+          12288,
+          12288
+        ]
+      ]
+    }
+  ]
+}

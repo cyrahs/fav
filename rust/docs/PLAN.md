@@ -113,7 +113,8 @@ Level 1, offline, all in CI:
    ensure_ascii=False, default=str)` bytes). Goldens come from Python, never hand-written by the porting session.
 3. API contract. Structural diff of `/openapi.json` and the MCP tool list against Python's. The unmodified React
    front end passes a page smoke test against the Rust API with a seeded database.
-4. Schema. Both sides create their schema on an empty database; `pg_dump --schema-only` diff is empty.
+4. Schema. Both sides create their schema on an empty database; the descriptions are identical (since WP1 a
+   catalog query, `rust/tools/schema/describe.sql`, instead of a `pg_dump --schema-only` diff; `CONVENTIONS.md`).
 
 Level 2, read-only replay: scrubbed production dump (no `site_sessions` data, `app_settings` secrets masked) in a
 temporary database; Python API and Rust API both point at it and every GET endpoint is diffed; game manifests are
@@ -127,7 +128,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP | Phase | Content | Python lines (approx.) | Status |
 | --- | --- | --- | --- | --- |
 | WP0 | 0 foundation | Workspace skeleton, CI, in-repo plan and conventions docs, golden generator, test-parity script, API-coverage check of the four key crates | new | done |
-| WP1 | 1 core runtime | Env, settings models and store, DB layer and consolidated schema, logging, filenames, Python-compatible JSON | 1,900 | pending |
+| WP1 | 1 core runtime | Env, settings models and store, DB layer and consolidated schema, logging, filenames, Python-compatible JSON | 1,900 | done |
 | WP2 | 1 core runtime | Notification outbox and Telegram Bot delivery, control-request queue, site-session store, scheduler and worker loop, `trigger` | 2,900 | pending |
 | WP3 | 2 API and MCP | axum skeleton, auth, settings, jobs, archive, credentials, health endpoints, serving the front end | 3,700 | pending |
 | WP4 | 2 API and MCP | 18 MCP tools and ops queries | 900 | pending |
@@ -191,3 +192,4 @@ the independent review found; review findings are summarised with a link to the 
 | WP | PR | Rework | Independent review findings | Notes |
 | --- | --- | --- | --- | --- |
 | WP0 | #133 | 1 push after review | 0 blockers, 8 should-fix, 7 nits: goldens could be generated from a shadow copy of `src/` under `rust/`; `cfg_attr(..., ignore)` slipped past the ignore check; tests could be parked in an invented WP or moved out of a done one; `ci.yml` dispatch/tags could publish from `rust`; APScheduler DST repeat recorded without a note; JSON and filename goldens missed formats and edge cases; `min_id` advice wrong and RedNote click/scroll/reload/cookie-filter APIs missing from the coverage check. All fixed in the PR except `ci.yml` (rule added above) | Probe crate exercises a real Chromium in CI |
+| WP1 | #134 | 1 push after review | 0 blockers, 6 should-fix, 8 nits: schema script ran as one implicit transaction (now statement by statement, failures collected) and the bilibili constraint lacked Python's lock; sqlx's forced UTC session time zone unrecorded (D11, server is UTC); `.env` parser skipped bad lines from the wrong place; logging golden bypassed Python's float `msecs` (now copied exactly); key/value DSNs refused (now parsed); secrets reachable through `Debug`; plus weak/narrow test checks, D9 wording, uncommented `allow`, test helpers public outside `test-support`, sequence ownership missing from the schema description. All fixed in the PR | Schema compared through a catalog description (`rust/tools/schema`) instead of `pg_dump` |

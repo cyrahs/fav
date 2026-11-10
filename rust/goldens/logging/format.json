@@ -1,0 +1,80 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "logging_format",
+  "cases": [
+    {
+      "name": "embyx.run",
+      "level": "INFO",
+      "message": "Job started: Jandan",
+      "time_ns": 1762790400000000000,
+      "file": "2025-11-10 16:00:00,000 - embyx.run - INFO - Job started: Jandan",
+      "console": "\u001b[32m[embyx.run]Job started: Jandan\u001b[0m"
+    },
+    {
+      "name": "embyx.run",
+      "level": "NOTICE",
+      "message": "Job completed: Jandan (12.3s)",
+      "time_ns": 1762790400999999999,
+      "file": "2025-11-10 16:00:01,000 - embyx.run - NOTICE - Job completed: Jandan (12.3s)",
+      "console": "\u001b[36m[embyx.run]Job completed: Jandan (12.3s)\u001b[0m"
+    },
+    {
+      "name": "embyx.jandan",
+      "level": "DEBUG",
+      "message": "payload keys: a, b",
+      "time_ns": 1762790401123456789,
+      "file": "2025-11-10 16:00:01,123 - embyx.jandan - DEBUG - payload keys: a, b",
+      "console": "\u001b[37m[embyx.jandan]payload keys: a, b\u001b[0m"
+    },
+    {
+      "name": "embyx.telegram",
+      "level": "WARNING",
+      "message": "flood wait 30s",
+      "time_ns": 1762790402000999000,
+      "file": "2025-11-10 16:00:02,000 - embyx.telegram - WARNING - flood wait 30s",
+      "console": "\u001b[33m[embyx.telegram]flood wait 30s\u001b[0m"
+    },
+    {
+      "name": "embyx.api",
+      "level": "ERROR",
+      "message": "request failed: 中文 detail",
+      "time_ns": 1700000000001000000,
+      "file": "2023-11-14 22:13:20,000 - embyx.api - ERROR - request failed: 中文 detail",
+      "console": "\u001b[31m[embyx.api]request failed: 中文 detail\u001b[0m"
+    },
+    {
+      "name": "embyx.worker",
+      "level": "CRITICAL",
+      "message": "giving up",
+      "time_ns": 946684799999000000,
+      "file": "1999-12-31 23:59:59,999 - embyx.worker - CRITICAL - giving up",
+      "console": "\u001b[1;31m[embyx.worker]giving up\u001b[0m"
+    },
+    {
+      "name": "httpx",
+      "level": "WARNING",
+      "message": "HTTP Request: GET https://example.com \"HTTP/1.1 500\"",
+      "time_ns": 1762790403500000000,
+      "file": "2025-11-10 16:00:03,500 - httpx - WARNING - HTTP Request: GET https://example.com \"HTTP/1.1 500\"",
+      "console": "\u001b[33m[httpx]HTTP Request: GET https://example.com \"HTTP/1.1 500\"\u001b[0m"
+    },
+    {
+      "name": "embyx",
+      "level": "INFO",
+      "message": "multi\nline message",
+      "time_ns": 1762790404000000000,
+      "file": "2025-11-10 16:00:04,000 - embyx - INFO - multi\nline message",
+      "console": "\u001b[32m[embyx]multi\nline message\u001b[0m"
+    },
+    {
+      "name": "embyx.x",
+      "level": "INFO",
+      "message": "",
+      "time_ns": 1762790405010000000,
+      "file": "2025-11-10 16:00:05,009 - embyx.x - INFO - ",
+      "console": "\u001b[32m[embyx.x]\u001b[0m"
+    }
+  ]
+}

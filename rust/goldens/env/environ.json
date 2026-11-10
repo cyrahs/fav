@@ -1,0 +1,581 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "env",
+  "cases": [
+    {
+      "environ": {},
+      "errors": [
+        {
+          "type": "missing",
+          "loc": [
+            "POSTGRES_DSN"
+          ],
+          "msg": "Field required",
+          "input": {}
+        },
+        {
+          "type": "missing",
+          "loc": [
+            "API_TOKEN"
+          ],
+          "msg": "Field required",
+          "input": {}
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "  postgresql://user:pass@db.local/fav  ",
+        "API_TOKEN": " abc123 "
+      },
+      "value": {
+        "postgres_dsn": "postgresql://user:pass@db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "API_TOKEN": "abc123"
+      },
+      "errors": [
+        {
+          "type": "missing",
+          "loc": [
+            "POSTGRES_DSN"
+          ],
+          "msg": "Field required",
+          "input": {
+            "API_TOKEN": "abc123"
+          }
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav"
+      },
+      "errors": [
+        {
+          "type": "missing",
+          "loc": [
+            "API_TOKEN"
+          ],
+          "msg": "Field required",
+          "input": {
+            "POSTGRES_DSN": "postgresql://db.local/fav"
+          }
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "   ",
+        "API_TOKEN": "abc123"
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "POSTGRES_DSN"
+          ],
+          "msg": "Value error, POSTGRES_DSN cannot be empty",
+          "input": "   "
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "   "
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "API_TOKEN"
+          ],
+          "msg": "Value error, API_TOKEN cannot be empty",
+          "input": "   "
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "",
+        "API_TOKEN": ""
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "POSTGRES_DSN"
+          ],
+          "msg": "Value error, POSTGRES_DSN cannot be empty",
+          "input": ""
+        },
+        {
+          "type": "value_error",
+          "loc": [
+            "API_TOKEN"
+          ],
+          "msg": "Value error, API_TOKEN cannot be empty",
+          "input": ""
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_BIND": "127.0.0.1",
+        "API_PORT": "9000"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "127.0.0.1",
+        "api_port": 9000,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_BIND": "   "
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_PORT": "70000"
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "API_PORT"
+          ],
+          "msg": "Value error, API_PORT must be between 1 and 65535",
+          "input": "70000"
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_PORT": "0"
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "API_PORT"
+          ],
+          "msg": "Value error, API_PORT must be between 1 and 65535",
+          "input": "0"
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_PORT": "65535"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 65535,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_PORT": " 8_080 "
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8080,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_PORT": "http"
+      },
+      "errors": [
+        {
+          "type": "int_parsing",
+          "loc": [
+            "API_PORT"
+          ],
+          "msg": "Input should be a valid integer, unable to parse string as an integer",
+          "input": "http"
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_PORT": ""
+      },
+      "errors": [
+        {
+          "type": "int_parsing",
+          "loc": [
+            "API_PORT"
+          ],
+          "msg": "Input should be a valid integer, unable to parse string as an integer",
+          "input": ""
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "LOG_LEVEL": "debug"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "DEBUG",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "LOG_LEVEL": " notice "
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "NOTICE",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "LOG_LEVEL": ""
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "LOG_LEVEL": "verbose"
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "LOG_LEVEL"
+          ],
+          "msg": "Value error, LOG_LEVEL must be one of: DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL",
+          "input": "verbose"
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "LOG_LEVEL": "warn"
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "LOG_LEVEL"
+          ],
+          "msg": "Value error, LOG_LEVEL must be one of: DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL",
+          "input": "warn"
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_CORS_ORIGINS": " https://a.example/, https://b.example ,, https://a.example "
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": " https://a.example/, https://b.example ,, https://a.example ",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": [
+        "https://a.example",
+        "https://b.example"
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_CORS_ORIGINS": "https://a.example//"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "https://a.example//",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": [
+        "https://a.example"
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_CORS_ALLOW_CREDENTIALS": "true"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": true,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_CORS_ALLOW_CREDENTIALS": "1"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": true,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_CORS_ALLOW_CREDENTIALS": "off"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_CORS_ALLOW_CREDENTIALS": "maybe"
+      },
+      "errors": [
+        {
+          "type": "bool_parsing",
+          "loc": [
+            "API_CORS_ALLOW_CREDENTIALS"
+          ],
+          "msg": "Input should be a valid boolean, unable to interpret input",
+          "input": "maybe"
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_CORS_ALLOW_CREDENTIALS": ""
+      },
+      "errors": [
+        {
+          "type": "bool_parsing",
+          "loc": [
+            "API_CORS_ALLOW_CREDENTIALS"
+          ],
+          "msg": "Input should be a valid boolean, unable to interpret input",
+          "input": ""
+        }
+      ]
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "CREDENTIAL_CLIENTS": "rsshub:abc:bilibili"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://db.local/fav",
+        "api_token": "abc123",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": "rsshub:abc:bilibili"
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "postgres_dsn": "postgresql://lower/fav",
+        "Api_Token": "mixed"
+      },
+      "value": {
+        "postgres_dsn": "postgresql://lower/fav",
+        "api_token": "mixed",
+        "log_level": "INFO",
+        "api_bind": "0.0.0.0",
+        "api_port": 8091,
+        "api_cors_origins": "",
+        "api_cors_allow_credentials": false,
+        "credential_clients": ""
+      },
+      "cors_origins": []
+    },
+    {
+      "environ": {
+        "POSTGRES_DSN": "postgresql://db.local/fav",
+        "API_TOKEN": "abc123",
+        "API_PORT": "-1",
+        "LOG_LEVEL": "x",
+        "API_CORS_ALLOW_CREDENTIALS": "x"
+      },
+      "errors": [
+        {
+          "type": "value_error",
+          "loc": [
+            "LOG_LEVEL"
+          ],
+          "msg": "Value error, LOG_LEVEL must be one of: DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL",
+          "input": "x"
+        },
+        {
+          "type": "value_error",
+          "loc": [
+            "API_PORT"
+          ],
+          "msg": "Value error, API_PORT must be between 1 and 65535",
+          "input": "-1"
+        },
+        {
+          "type": "bool_parsing",
+          "loc": [
+            "API_CORS_ALLOW_CREDENTIALS"
+          ],
+          "msg": "Input should be a valid boolean, unable to interpret input",
+          "input": "x"
+        }
+      ]
+    }
+  ]
+}
