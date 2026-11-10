@@ -33,6 +33,8 @@ reqwest = { workspace = true, features = [
     "deflate",
     "brotli",
     "socks",
+    # `Response::bytes_stream()` in `httpx::stream_body_to`.
+    "stream",
 ] }
 rustls.workspace = true
 sha2.workspace = true

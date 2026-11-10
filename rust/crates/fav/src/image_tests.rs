@@ -109,3 +109,21 @@ fn dockerfile_ships_the_layer_metadata_tool_and_runs_a_chromium_smoke() {
     assert!(dockerfile.contains("COPY --from=rust-builder /out/fav /usr/local/bin/fav"));
     assert!(dockerfile.contains("fav nikke-layers --help"));
 }
+
+/// The image's Chromium is the revision the browser code launches: `uv.lock` pins the
+/// Playwright whose installer the Dockerfile runs, `fav_browser::chromium` names that
+/// Playwright and its Chromium revision, and the Dockerfile's launch check uses the same
+/// revision. A Playwright bump in `uv.lock` alone fails here instead of at the first login.
+#[test]
+fn the_image_chromium_is_the_revision_fav_launches() {
+    let lock = repo_file("uv.lock");
+    let start = lock.find("\nname = \"playwright\"\n").expect("playwright in uv.lock");
+    let version = lock[start..]
+        .lines()
+        .find_map(|line| line.strip_prefix("version = \""))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .expect("playwright's version");
+    assert_eq!(version, fav_browser::chromium::PLAYWRIGHT_VERSION);
+    let path = format!("/ms-playwright/chromium-{}/", fav_browser::chromium::CHROMIUM_REVISION);
+    assert!(dockerfile().contains(&path), "the Dockerfile checks {path}");
+}

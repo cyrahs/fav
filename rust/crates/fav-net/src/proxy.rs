@@ -3,8 +3,9 @@
 //! Python origin: `httpx.Proxy.__init__`, which raises `ValueError: Unknown scheme for proxy
 //! URL ...` unless the scheme is `http`, `https`, `socks5` or `socks5h`. reqwest takes a
 //! bare `host:port` (and other schemes) as an HTTP proxy, so every client that is given a
-//! proxy setting checks it here first (DIVERGENCES.md D67, D113, D181). Folded in WP18 from
-//! the copies in X, Pixiv, Azur Lane and the RedNote proxy probe.
+//! proxy setting checks it here first (DIVERGENCES.md D50, D67, D113, D181). Folded in WP18
+//! from the copies in X, Azur Lane and the RedNote proxy probe; Pixiv, which only knew
+//! reqwest's own refusals, applies it since then.
 
 /// The schemes httpx's `Proxy` takes.
 pub const HTTPX_PROXY_SCHEMES: [&str; 4] = ["http", "https", "socks5", "socks5h"];

@@ -34,8 +34,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends make \
     && rm -rf /var/lib/apt/lists/*
 
-# The toolchain and the lockfile first: the pinned toolchain and every crate are
-# downloaded in a layer that only a dependency change invalidates.
+# The toolchain, the lockfile and the crates' manifests and sources, then every crate
+# downloaded in its own layer (rebuilt when any of them change).
 COPY rust/rust-toolchain.toml rust/Cargo.toml rust/Cargo.lock ./
 COPY rust/crates/ crates/
 RUN cargo fetch --locked
@@ -93,9 +93,11 @@ COPY --from=downloaders /opt/downloaders /opt/downloaders
 # only on native amd64 builds, as in the Python image (Chromium's GPU process can crash
 # under qemu).
 COPY --from=downloaders /opt/playwright /opt/playwright
+# The revision checked is the one `fav_browser::chromium` launches (CHROMIUM_REVISION; a test
+# in crates/fav keeps it, the line below and uv.lock's Playwright in step).
 RUN /opt/playwright/bin/python -m playwright install --with-deps chromium \
     && rm -rf /opt/playwright /var/lib/apt/lists/* \
-    && chrome="$(find /ms-playwright -path '*/chromium-*/chrome-linux*/chrome' -type f | head -n 1)" \
+    && chrome="/ms-playwright/chromium-1228/$(if [ "$TARGETARCH" = "arm64" ]; then echo chrome-linux; else echo chrome-linux64; fi)/chrome" \
     && test -x "$chrome" \
     && if [ "$TARGETARCH" = "amd64" ]; then \
         "$chrome" --headless --no-sandbox --disable-gpu --dump-dom 'data:text/html,<main>ok</main>' | grep -q '<main>ok</main>'; \

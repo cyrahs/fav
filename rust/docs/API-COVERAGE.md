@@ -11,9 +11,9 @@ webp. WP0 checked each candidate crate against what the Python code actually cal
 | `mcp` 1.30 (FastMCP) | `rmcp` **3.9.0** | Sufficient, but not used (D31); unpinned in WP18 |
 | Pillow 11 (animated webp) | `webp-animation` **0.10.0** (bundled static libwebp) + `image` 0.25 | Sufficient |
 
-The probe crate is a workspace member outside `default-members`; CI builds, lints and tests it. It is deleted
-when the real implementations land (MCP in WP4, ugoira in WP6, Telegram in WP15, the CDP driver in WP16), and
-the pins in `rust/Cargo.toml` move to the crates that use them.
+The probe crate was a workspace member outside `default-members`, built, linted and tested in CI until the real
+implementations landed (MCP in WP4, ugoira in WP6, Telegram in WP15, the CDP driver in WP16); WP18 deleted the
+last of it, and the pins in `rust/Cargo.toml` moved to the crates that use them.
 
 ## grammers 0.12.0 (WP15)
 

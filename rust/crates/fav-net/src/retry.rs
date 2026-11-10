@@ -19,12 +19,13 @@ use fav_core::pytext::{is_py_decimal, py_decimal_value, py_isdigit, py_split, py
 pub type Sleeper = Arc<dyn Fn(f64) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// The real sleep. A negative or non-finite delay returns at once, as `asyncio.sleep` does
-/// for zero and below.
+/// for zero and below; one too long for a `Duration` (a setting past about 5.8e11 years)
+/// sleeps for `Duration::MAX` instead of panicking.
 pub fn tokio_sleeper() -> Sleeper {
     Arc::new(|seconds: f64| {
         Box::pin(async move {
             if seconds.is_finite() && seconds > 0.0 {
-                tokio::time::sleep(Duration::from_secs_f64(seconds)).await;
+                tokio::time::sleep(Duration::try_from_secs_f64(seconds).unwrap_or(Duration::MAX)).await;
             }
         })
     })

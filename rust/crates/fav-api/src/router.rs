@@ -136,6 +136,23 @@ const DELETE: &[&str] = &["DELETE"];
 /// A route without methods (an ASGI app as the endpoint) takes every method.
 const ANY: &[&str] = &[];
 
+/// `(METHOD, path)` for every route the dispatch table serves, `HEAD` left out (FastAPI
+/// adds it to `GET` routes without an OpenAPI operation). The registry completeness test
+/// compares it with Python's operations.
+#[cfg(test)]
+pub(crate) fn served_operations() -> Vec<(String, String)> {
+    ROUTES
+        .iter()
+        .flat_map(|route| {
+            route
+                .methods
+                .iter()
+                .filter(|method| **method != "HEAD")
+                .map(|method| ((*method).to_owned(), route.path.to_owned()))
+        })
+        .collect()
+}
+
 const BD2_VIEW_OVERRIDE_PATH: &str = "/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}";
 const NIKKE_VIEW_OVERRIDE_PATH: &str = "/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}";
 

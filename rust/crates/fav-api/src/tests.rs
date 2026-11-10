@@ -375,8 +375,8 @@ async fn requests_replay_python() {
 
 // ---------- documents ----------
 
-/// Registry completeness (WP18): Python's 44 operations on 36 paths, every one served, none
-/// pending, none extra.
+/// Registry completeness (WP18): Python's 44 operations on 36 paths, every one in the OpenAPI
+/// document and in the router's dispatch table, none pending, none extra in the document.
 #[test]
 fn the_contract_has_python_routes() {
     fn operations(document: &serde_json::Value) -> Vec<(String, String)> {
@@ -398,6 +398,11 @@ fn the_contract_has_python_routes() {
     assert!(openapi::PENDING.is_empty(), "{:?}", openapi::PENDING);
 
     assert_eq!(operations(&openapi::document_json()), python);
+
+    // The dispatch table serves each of them, not only the hand-built document.
+    let served = router::served_operations();
+    let missing: Vec<_> = python.iter().filter(|operation| !served.contains(operation)).collect();
+    assert!(missing.is_empty(), "operations the router does not serve: {missing:?}");
 }
 
 #[tokio::test]

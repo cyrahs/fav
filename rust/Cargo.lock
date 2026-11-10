@@ -1181,7 +1181,6 @@ dependencies = [
  "grammers-client",
  "hmac",
  "http",
- "hyper",
  "image",
  "md-5",
  "rcgen",
