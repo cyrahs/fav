@@ -3,9 +3,10 @@
 //!
 //! Python origin: `run.py`. Everything the worker talks to is injected through
 //! [`WorkerOptions`]; the process entry points (signals, logging, the database URL) live in
-//! the `fav` binary. Each job's runner is built once at startup from the job as the
-//! settings described it then, as Python's closures are (D15); which jobs are runnable is
-//! re-read per control request and on every settings change.
+//! the `fav` binary. Each job's runner is built once at startup, as Python's closures are,
+//! but a run reads the job's `notify` toggle as it is when the run starts, where Python keeps
+//! the startup value until a restart (D15); which jobs are runnable is re-read per control
+//! request and on every settings change.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -326,8 +327,24 @@ impl Worker {
         result
     }
 
+    /// `job` with the `notify` toggle in force now, so a run started after the toggle
+    /// changed follows it without a worker restart (D15). If the settings cannot be read,
+    /// the run keeps the value the worker started with.
+    async fn with_current_notify(&self, job: &ScheduledJob) -> ScheduledJob {
+        let mut job = job.clone();
+        match self.settings.notify_enabled(&job.key).await {
+            Ok(notify) => job.notify = notify,
+            Err(error) => log().warning(format!(
+                "Failed to read the notify toggle of {}; keeping notify={}: {error}",
+                job.key, job.notify
+            )),
+        }
+        job
+    }
+
     /// The runner of one job (the `runner` closure of `main`): one run at a time, the rest
-    /// skipped while it lasts.
+    /// skipped while it lasts. Each run takes the job's `notify` toggle as it is when the
+    /// run starts and keeps it until the run ends (D15).
     pub fn runner(&self, job: ScheduledJob, kind: SourceKind, resident: Option<Arc<dyn ResidentSource>>) -> RunnerFn {
         let worker = self.clone();
         let lock = Arc::new(Mutex::new(()));
@@ -339,6 +356,7 @@ impl Worker {
                     log().warning(format!("{} is still running, skip this trigger", job.name));
                     return JobRunResult::failed(&job, "Job is already running");
                 };
+                let job = worker.with_current_notify(&job).await;
                 let instance = match (resident, &kind) {
                     (Some(source), _) => Instance::Shared { source, close: false },
                     (None, SourceKind::PerRun(factory)) => Instance::PerRun(factory()),

@@ -339,7 +339,7 @@ Rust copies). Full text in DIVERGENCES.md. Counts: 90 visible, 41 internal.
 | D12 | WP2 | dropped | visible | Neither runs; `ensure_schema` creates the columns and the index only |
 | D13 | WP2 | observable | visible | Numbers and names are ASCII only; a number beyond `i64` is refused with `Number too large in cron expression: N`. |
 | D14 | WP2 | python-bug | visible | Rust fixes it: the error is logged (`Control request loop failed: ...`), a request it had claimed is marked failed (`Failed to record control request N: ...` if that fails too), and the loop polls aga... |
-| D15 | WP2 | python-bug | internal | Rust copies it: runners are built once from the startup snapshot, enablement and triggers are re-read per control request and on every settings change |
+| D15 | WP2 | python-bug | visible | Rust fixes it: a run reads the job's `notify` toggle as the settings say when it starts (the shared snapshot, cached for at most 2 s like every settings read) and keeps that value until it ends, so a run already in flight is not affected. |
 | D16 | WP2 | observable | visible | Tasks stop cooperatively on the stop flag. |
 | D17 | WP2 | observable (transitional) | visible | Sources register with `fav_sources::registry()` as their work package lands. |
 | D18 | WP2, WP5 | mechanism | internal | `fav_net::httpx_error_class` maps reqwest errors onto httpx's names (timeout during connect: `ConnectTimeout`, other timeouts: `ReadTimeout`, connect: `ConnectError`, redirect: `TooManyRedirects`, bui... |
