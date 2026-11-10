@@ -22,7 +22,7 @@ experiment log below in the same PR. Read this file, `CONVENTIONS.md`, `PARITY.m
 
 ## Hard safety rules
 
-- Never deploy. No image publish, no change to charys117/nas-gitops. The `rust` branch CI has checks only.
+- Never deploy. No image publish, no change to charys117/nas-gitops. The `rust` branch CI had checks only.
   (fav CI publishes `latest` only from `main`; Flux follows `latest` by digest.)
   Lifted by Max on 2026-11-10 23:34Z for the direct production deployment: `.github/workflows/rust-image.yml`
   publishes `ghcr.io/cyrahs/fav:rust-<short sha>` on every push to `rust` (never `latest`), and nas-gitops pins it
@@ -148,7 +148,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | done |
 | WP16 | 6 browser | CDP driver layer, login window (Xvnc, VNC relay, cookie polling) | 1,100 | done |
 | WP17 | 6 browser | RedNote, Nikke runtime capture | 3,100 | done |
-| WP18 | 7 wrap-up | Dockerfile (build only, never published), memory benchmark, parity audit, final report | new | done |
+| WP18 | 7 wrap-up | Dockerfile (build only at the time; published as `rust-<sha>` since 2026-11-10), memory benchmark, parity audit, final report | new | done |
 
 Status values: pending, in progress (PR open), done (merged into `rust`).
 

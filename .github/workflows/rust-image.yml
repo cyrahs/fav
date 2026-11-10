@@ -52,9 +52,11 @@ jobs:
       env:
         TAGS: ${{ steps.meta.outputs.tags }}
       run: |
-        printf '%s\n' "$TAGS"
-        if printf '%s\n' "$TAGS" | grep -vE '^ghcr\.io/[^:]+:rust-[0-9a-f]{7,}$' | grep -q .; then
-          echo "::error::unexpected image tag"
+        tags="$(printf '%s\n' "$TAGS" | sed '/^[[:space:]]*$/d')"
+        printf '%s\n' "$tags"
+        expected="ghcr.io/${GITHUB_REPOSITORY}:rust-${GITHUB_SHA::7}"
+        if [ "$tags" != "$expected" ]; then
+          echo "::error::expected exactly ${expected}"
           exit 1
         fi
 
