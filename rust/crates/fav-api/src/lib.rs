@@ -52,7 +52,7 @@ mod summary_cache;
 
 mod handlers;
 mod json;
-mod response_models;
+mod schema;
 mod web;
 
 pub use config::ApiConfig;
