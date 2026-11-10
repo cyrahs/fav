@@ -108,6 +108,7 @@ impl Harness {
             nikke: crate::nikke::NikkeLibraries::default(),
             bd2: crate::bd2::Bd2Libraries::default(),
             live2d_overrides: crate::live2d_overrides::postgres_store(database.db().clone()),
+            azurlane_origin: Arc::new(FakeOriginProbe::default()),
         };
         Self { database, state }
     }
@@ -1952,5 +1953,115 @@ async fn hanime1_routes_need_the_api_token() {
     let wrong = harness.request("PUT", "/api/v2/hanime1/seeds/1", &[], None).await;
     assert_eq!(wrong.status, 405);
     assert_eq!(wrong.header("allow"), Some("DELETE"));
+    harness.finish().await;
+}
+
+// ---------- azurlane ----------
+
+/// Stands in for the l2d.su origin probe: records the drafts it was given and answers
+/// with `result`, or fails to build its client.
+#[derive(Default)]
+pub(crate) struct FakeOriginProbe {
+    pub(crate) calls: std::sync::Mutex<Vec<(String, String)>>,
+    pub(crate) fail: bool,
+}
+
+impl fav_sources::azurlane::l2d_sources::ProbeOrigin for FakeOriginProbe {
+    fn probe<'a>(
+        &'a self,
+        proxy: &'a str,
+        connect_host: &'a str,
+    ) -> fav_runtime::BoxFuture<'a, Result<fav_sources::azurlane::l2d_sources::L2DSuOriginProbe, String>> {
+        Box::pin(async move {
+            self.calls.lock().expect("lock").push((proxy.to_owned(), connect_host.to_owned()));
+            if self.fail {
+                return Err("Invalid proxy URL".to_owned());
+            }
+            Ok(fav_sources::azurlane::l2d_sources::L2DSuOriginProbe {
+                ok: false,
+                code: "http_error".to_owned(),
+                message: "https://static.l2d.su/al/data/ships-CN.json returned HTTP 403.".to_owned(),
+                exit_ip: "203.0.113.7".to_owned(),
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn the_azurlane_proxy_test_probes_the_draft_without_saving_it() {
+    let mut harness = Harness::new().await;
+    let probe = Arc::new(FakeOriginProbe::default());
+    harness.state.azurlane_origin = probe.clone();
+
+    let answer = harness
+        .send_json(
+            "POST",
+            "/api/v2/azurlane/proxy/test",
+            r#"{"origin_proxy": "http://user:pass@proxy.example:8080", "origin_connect_host": " static.l2d.su "}"#,
+        )
+        .await;
+    let defaults = harness.send_json("POST", "/api/v2/azurlane/proxy/test", "{}").await;
+
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(
+            r#"{"ok": false, "code": "http_error", "message": "https://static.l2d.su/al/data/ships-CN.json returned HTTP 403.", "exit_ip": "203.0.113.7"}"#
+        )
+        .unwrap()
+    );
+    assert_eq!(defaults.status, 200, "{}", defaults.text());
+    // The probe strips what it is given itself, as Python's `probe_l2d_su_origin` does.
+    assert_eq!(
+        *probe.calls.lock().unwrap(),
+        [
+            ("http://user:pass@proxy.example:8080".to_owned(), " static.l2d.su ".to_owned()),
+            (String::new(), String::new()),
+        ]
+    );
+    let stored = harness.get("/api/v2/settings/web.azurlane").await;
+    assert_eq!(stored.status, 200, "{}", stored.text());
+    assert!(!stored.text().contains("proxy.example"));
+    harness.finish().await;
+}
+
+#[tokio::test]
+async fn the_azurlane_proxy_test_validates_its_body_and_reports_a_broken_client() {
+    let mut harness = Harness::new().await;
+    let probe = Arc::new(FakeOriginProbe {
+        fail: true,
+        ..FakeOriginProbe::default()
+    });
+    harness.state.azurlane_origin = probe.clone();
+
+    let wrong_type = harness
+        .send_json("POST", "/api/v2/azurlane/proxy/test", r#"{"origin_proxy": 8080, "extra": 1}"#)
+        .await;
+    let unauthorised = harness
+        .request(
+            "POST",
+            "/api/v2/azurlane/proxy/test",
+            &[("content-type", "application/json")],
+            Some("{}"),
+        )
+        .await;
+    let broken = harness
+        .send_json("POST", "/api/v2/azurlane/proxy/test", r#"{"origin_proxy": "http://[::1"}"#)
+        .await;
+
+    assert_eq!(wrong_type.status, 422, "{}", wrong_type.text());
+    let detail = wrong_type.json();
+    let types: Vec<String> = golden::list(golden::get(golden::get(&detail, "error"), "details"))
+        .iter()
+        .map(|error| golden::string(golden::get(error, "type")))
+        .collect();
+    assert_eq!(types, ["string_type", "extra_forbidden"]);
+    assert_eq!(unauthorised.status, 401);
+    assert_eq!(broken.status, 500);
+    assert_eq!(
+        broken.json(),
+        pyjson::loads(r#"{"error": {"code": "internal_server_error", "message": "Internal server error.", "details": null}}"#).unwrap()
+    );
+    assert_eq!(probe.calls.lock().unwrap().len(), 1);
     harness.finish().await;
 }

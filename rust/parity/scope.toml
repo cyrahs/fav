@@ -106,7 +106,7 @@ tests = [
 
 [WP11]
 title = "Azur Lane source parsing, AZP2, connect_to"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_azurlane_l2d_sources.py",
     "tests/test_azurlane_protected.py",

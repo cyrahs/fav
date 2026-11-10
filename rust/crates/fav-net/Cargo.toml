@@ -11,11 +11,15 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+base64.workspace = true
 bytes.workspace = true
 chrono.workspace = true
 fav-core.workspace = true
 http.workspace = true
+http-body-util.workspace = true
 hyper.workspace = true
+# The connect-to route (`connect_to.rs`): the same client pieces reqwest is built from.
+hyper-util = { workspace = true, features = ["client-legacy", "client-proxy", "http1", "tokio"] }
 reqwest = { workspace = true, features = [
     "rustls-no-provider",
     "charset",
@@ -33,9 +37,14 @@ rustls.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "io-util", "time", "rt", "macros", "process"] }
+tokio = { workspace = true, features = ["fs", "io-util", "time", "rt", "macros", "process", "net"] }
+tokio-rustls = { workspace = true }
+tower-http = { workspace = true, features = ["decompression-gzip", "decompression-deflate", "decompression-br"] }
+tower-service.workspace = true
 url.workspace = true
+webpki-roots.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
+rcgen.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "net"] }

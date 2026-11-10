@@ -39,6 +39,7 @@ from src.api.settings_masking import mask_section, unmask_section
 from src.core import settings
 from src.service.jobs import build_jobs
 from src.tool import site_sessions
+from src.tool.azurlane_l2d_sources import L2DSuOriginProbe
 from src.tool.control_queue import ControlRequest
 from src.tool.site_sessions import SiteSession, StoredCookie
 from src.tool.telegram_bot import send_test_notification
@@ -121,6 +122,15 @@ def _api_only(app: FastAPI) -> None:
     app.state.web_dist_dir = None
 
 
+def _origin_probe(_proxy: str, *, connect_host: str = '') -> L2DSuOriginProbe:  # noqa: ARG001
+    return L2DSuOriginProbe(
+        ok=False,
+        code='http_error',
+        message='https://static.l2d.su/al/data/ships-CN.json returned HTTP 403.',
+        exit_ip='203.0.113.7',
+    )
+
+
 @contextlib.contextmanager
 def _patched(state: _State) -> Iterator[None]:
     saved = (
@@ -130,6 +140,7 @@ def _patched(state: _State) -> Iterator[None]:
         routes.site_sessions,
         credentials.site_sessions,
         app_module._mount_web_ui,  # noqa: SLF001
+        service_module.probe_l2d_su_origin,
     )
     settings._fetch_rows_sync = lambda: dict(state.rows)  # noqa: SLF001
     settings.ensure_table_sync = lambda: None
@@ -139,6 +150,8 @@ def _patched(state: _State) -> Iterator[None]:
     # The goldens describe the API alone, whether or not a local web/dist was built;
     # the Rust tests and rust/tools/smoke cover the front end.
     app_module._mount_web_ui = _api_only  # noqa: SLF001
+    # The l2d.su origin is never probed for real; the Rust harness answers the same.
+    service_module.probe_l2d_su_origin = _origin_probe
     settings.use(None)
     settings.invalidate_cache()
     try:
@@ -151,6 +164,7 @@ def _patched(state: _State) -> Iterator[None]:
             routes.site_sessions,
             credentials.site_sessions,
             app_module._mount_web_ui,  # noqa: SLF001
+            service_module.probe_l2d_su_origin,
         ) = saved
         settings.invalidate_cache()
         settings.use(settings.Settings())
@@ -551,6 +565,24 @@ def _scenarios() -> list[dict[str, Any]]:
             _req('GET', '/api/v2/notifications/telegram/test'),
         ],
         settings={'notifications.telegram': {'enabled': True, 'bot_token': '', 'chat_id': '-100'}},
+    )
+    add(
+        'azurlane proxy test',
+        [
+            _json_req(
+                'POST',
+                '/api/v2/azurlane/proxy/test',
+                {'origin_proxy': 'http://user:pass@proxy.example:8080', 'origin_connect_host': 'static.l2d.su'},
+            ),
+            _json_req('POST', '/api/v2/azurlane/proxy/test', {}),
+            _json_req('POST', '/api/v2/azurlane/proxy/test', {'origin_proxy': 8080, 'origin_connect_host': None, 'extra': 1}),
+            _json_req('POST', '/api/v2/azurlane/proxy/test', [1]),
+            _json_req('POST', '/api/v2/azurlane/proxy/test', None),
+            _req('POST', '/api/v2/azurlane/proxy/test'),
+            _req('POST', '/api/v2/azurlane/proxy/test', headers={**AUTH, 'content-type': 'text/plain'}, body='{}'),
+            _req('POST', '/api/v2/azurlane/proxy/test', headers={'content-type': 'application/json'}, body='{}'),
+            _req('GET', '/api/v2/azurlane/proxy/test'),
+        ],
     )
     add(
         'archive request validation',

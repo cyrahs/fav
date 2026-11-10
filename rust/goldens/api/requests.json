@@ -4965,6 +4965,289 @@
       ]
     },
     {
+      "name": "azurlane proxy test",
+      "setup": {},
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests",
+              "content-type": "application/json"
+            },
+            "body": "{\"origin_proxy\": \"http://user:pass@proxy.example:8080\", \"origin_connect_host\": \"static.l2d.su\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "json": {
+              "ok": false,
+              "code": "http_error",
+              "message": "https://static.l2d.su/al/data/ships-CN.json returned HTTP 403.",
+              "exit_ip": "203.0.113.7"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests",
+              "content-type": "application/json"
+            },
+            "body": "{}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "json": {
+              "ok": false,
+              "code": "http_error",
+              "message": "https://static.l2d.su/al/data/ships-CN.json returned HTTP 403.",
+              "exit_ip": "203.0.113.7"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests",
+              "content-type": "application/json"
+            },
+            "body": "{\"origin_proxy\": 8080, \"origin_connect_host\": null, \"extra\": 1}"
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "json": {
+              "error": {
+                "code": "validation_error",
+                "message": "Request validation failed.",
+                "details": [
+                  {
+                    "type": "string_type",
+                    "loc": [
+                      "body",
+                      "origin_proxy"
+                    ],
+                    "msg": "Input should be a valid string",
+                    "input": 8080
+                  },
+                  {
+                    "type": "string_type",
+                    "loc": [
+                      "body",
+                      "origin_connect_host"
+                    ],
+                    "msg": "Input should be a valid string",
+                    "input": null
+                  },
+                  {
+                    "type": "extra_forbidden",
+                    "loc": [
+                      "body",
+                      "extra"
+                    ],
+                    "msg": "Extra inputs are not permitted",
+                    "input": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests",
+              "content-type": "application/json"
+            },
+            "body": "[1]"
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "json": {
+              "error": {
+                "code": "validation_error",
+                "message": "Request validation failed.",
+                "details": [
+                  {
+                    "type": "model_attributes_type",
+                    "loc": [
+                      "body"
+                    ],
+                    "msg": "Input should be a valid dictionary or object to extract fields from",
+                    "input": [
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests",
+              "content-type": "application/json"
+            },
+            "body": "null"
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "json": {
+              "error": {
+                "code": "validation_error",
+                "message": "Request validation failed.",
+                "details": [
+                  {
+                    "type": "missing",
+                    "loc": [
+                      "body"
+                    ],
+                    "msg": "Field required",
+                    "input": null
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests"
+            }
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "json": {
+              "error": {
+                "code": "validation_error",
+                "message": "Request validation failed.",
+                "details": [
+                  {
+                    "type": "missing",
+                    "loc": [
+                      "body"
+                    ],
+                    "msg": "Field required",
+                    "input": null
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests",
+              "content-type": "text/plain"
+            },
+            "body": "{}"
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "json": {
+              "error": {
+                "code": "validation_error",
+                "message": "Request validation failed.",
+                "details": [
+                  {
+                    "type": "model_attributes_type",
+                    "loc": [
+                      "body"
+                    ],
+                    "msg": "Input should be a valid dictionary or object to extract fields from",
+                    "input": "{}"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "content-type": "application/json"
+            },
+            "body": "{}"
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/json",
+              "www-authenticate": "Bearer realm=\"fav-api\""
+            },
+            "json": {
+              "error": {
+                "code": "missing_authorization",
+                "message": "Authorization header is required.",
+                "details": null
+              }
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/v2/azurlane/proxy/test",
+            "headers": {
+              "Authorization": "Bearer token-for-tests"
+            }
+          },
+          "response": {
+            "status": 405,
+            "headers": {
+              "content-type": "application/json",
+              "allow": "POST"
+            },
+            "json": {
+              "error": {
+                "code": "method_not_allowed",
+                "message": "Method Not Allowed",
+                "details": null
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "archive request validation",
       "setup": {},
       "exchanges": [

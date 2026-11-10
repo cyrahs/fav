@@ -1,0 +1,600 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "azurlane",
+  "cases": [
+    {
+      "data_descriptor": [
+        {
+          "path": "ships-CN.json",
+          "result": {
+            "ok": {
+              "key": "b8204c1606377b015de1682f533cc840bf3ebc488eb44c6e6f2bd325ce7d83f2",
+              "identity": "15357b7847d2fa8b261774e10b7b510bce868107c7247259dd9582062304abe5"
+            }
+          }
+        },
+        {
+          "path": "ships/CN/10117.json",
+          "result": {
+            "ok": {
+              "key": "2499be97b75563a1359f1c161211058e82a988746c8f78d37d4aca3459f5cfbd",
+              "identity": "8d2451cedb6f02b7d31ed399e85e2a306e3e0ea9463a31a47a7d472b6ee8472b"
+            }
+          }
+        },
+        {
+          "path": "  ships-EN.json  ",
+          "result": {
+            "ok": {
+              "key": "e3f3317eeb832cabc3a78626963ea62d4535f25914df77281cecc5ff436e032e",
+              "identity": "35118e409e75b066bb179bfca509eb87678834608901fe184994aa044dc2de25"
+            }
+          }
+        },
+        {
+          "path": "中文/名字.json",
+          "result": {
+            "ok": {
+              "key": "094d058c83b56cee3e75d4a2da474f8c63507115b8120fea7bb9fa93beba3aa8",
+              "identity": "408677ac4e1ab502623302aac3841548480f8d51b09f98a50a8f874c34b65d0b"
+            }
+          }
+        },
+        {
+          "path": "",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: ''"
+            }
+          }
+        },
+        {
+          "path": "   ",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: '   '"
+            }
+          }
+        },
+        {
+          "path": "/ships-CN.json",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: '/ships-CN.json'"
+            }
+          }
+        },
+        {
+          "path": "ships//CN.json",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: 'ships//CN.json'"
+            }
+          }
+        },
+        {
+          "path": "ships/./CN.json",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: 'ships/./CN.json'"
+            }
+          }
+        },
+        {
+          "path": "ships/../CN.json",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: 'ships/../CN.json'"
+            }
+          }
+        },
+        {
+          "path": "ships\\CN.json",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: 'ships\\\\CN.json'"
+            }
+          }
+        },
+        {
+          "path": "ships/CN/",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: 'ships/CN/'"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "urls": [
+        {
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "fragment_descriptor": {
+            "ok": {
+              "key": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+              "identity": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+            }
+          },
+          "data_url_descriptor": {
+            "ok": null
+          },
+          "is_protected_url": {
+            "ok": true
+          },
+          "strip_fragment": "https://static.l2d.su/al/assets/a1/b2.model3.json"
+        },
+        {
+          "url": "https://static.l2d.su/al/assets/a1/b2.webp",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "ok": null
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": "https://static.l2d.su/al/assets/a1/b2.webp"
+        },
+        {
+          "url": "https://static.l2d.su/al/data/ships-CN.json",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "ok": {
+              "key": "b8204c1606377b015de1682f533cc840bf3ebc488eb44c6e6f2bd325ce7d83f2",
+              "identity": "15357b7847d2fa8b261774e10b7b510bce868107c7247259dd9582062304abe5"
+            }
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": "https://static.l2d.su/al/data/ships-CN.json"
+        },
+        {
+          "url": "https://static.l2d.su/al/data/ships/CN/10117.json?v=2",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "ok": {
+              "key": "2499be97b75563a1359f1c161211058e82a988746c8f78d37d4aca3459f5cfbd",
+              "identity": "8d2451cedb6f02b7d31ed399e85e2a306e3e0ea9463a31a47a7d472b6ee8472b"
+            }
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": "https://static.l2d.su/al/data/ships/CN/10117.json?v=2"
+        },
+        {
+          "url": "https://static.l2d.su/al/data/",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: ''"
+            }
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": "https://static.l2d.su/al/data/"
+        },
+        {
+          "url": "https://static.l2d.su/al/data/ships/../x.json",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid protected data path: 'ships/../x.json'"
+            }
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": "https://static.l2d.su/al/data/ships/../x.json"
+        },
+        {
+          "url": "https://static.l2d.su/al/data/x.json#azp2=short",
+          "fragment_descriptor": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 resource descriptor in https://static.l2d.su/al/data/x.json#azp2=short"
+            }
+          },
+          "data_url_descriptor": {
+            "ok": {
+              "key": "a3a313af1b2e15c96d58b60668c7897530eb138d53dc0254a0cb2c5efbd24649",
+              "identity": "1bb733e84803d1314313c4cd4f16f3b3bdd978a11c4daf0bce238f85f64f4d54"
+            }
+          },
+          "is_protected_url": {
+            "ok": true
+          },
+          "strip_fragment": "https://static.l2d.su/al/data/x.json"
+        },
+        {
+          "url": "https://static.l2d.su/al/x.json#azp2=ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB.cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "fragment_descriptor": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 resource descriptor in https://static.l2d.su/al/x.json#azp2=ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB.cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+            }
+          },
+          "data_url_descriptor": {
+            "ok": null
+          },
+          "is_protected_url": {
+            "ok": true
+          },
+          "strip_fragment": "https://static.l2d.su/al/x.json"
+        },
+        {
+          "url": "https://static.l2d.su/al/x.json#azp2=abababababababababababababababababababababababababababababababab.cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd&more",
+          "fragment_descriptor": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 resource descriptor in https://static.l2d.su/al/x.json#azp2=abababababababababababababababababababababababababababababababab.cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd&more"
+            }
+          },
+          "data_url_descriptor": {
+            "ok": null
+          },
+          "is_protected_url": {
+            "ok": true
+          },
+          "strip_fragment": "https://static.l2d.su/al/x.json"
+        },
+        {
+          "url": "https://static.l2d.su/al/x.json#other",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "ok": null
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": "https://static.l2d.su/al/x.json"
+        },
+        {
+          "url": "https://static.l2d.su/al/x.json#",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "ok": null
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": "https://static.l2d.su/al/x.json"
+        },
+        {
+          "url": "https://[::1/data/x.json",
+          "fragment_descriptor": {
+            "error": {
+              "class": "ValueError",
+              "message": "Invalid IPv6 URL"
+            }
+          },
+          "data_url_descriptor": {
+            "error": {
+              "class": "ValueError",
+              "message": "Invalid IPv6 URL"
+            }
+          },
+          "is_protected_url": {
+            "error": {
+              "class": "ValueError",
+              "message": "Invalid IPv6 URL"
+            }
+          },
+          "strip_fragment": "https://[::1/data/x.json"
+        },
+        {
+          "url": "",
+          "fragment_descriptor": {
+            "ok": null
+          },
+          "data_url_descriptor": {
+            "ok": null
+          },
+          "is_protected_url": {
+            "ok": false
+          },
+          "strip_fragment": ""
+        }
+      ]
+    },
+    {
+      "decrypt_for_url": [
+        {
+          "name": "raw codec via the fragment",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773ecbbfcc0e16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d702d54dfa8d095a76f43364111261425d",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "gzip codec via the fragment",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fcbbfcc0e916e2b1a9bafc85eeccd0622a70c4928838a3120f10ffa8e4485a143b48dd86d5d31368281beed09ee78ed447743c92a39e15b4eedeea1b4625de686f40b7dfe5008f81fd58f39e3973cf4d6427c1f83064f32ffa9d2e2abaafc8df79331b83331abe3da",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "gzip with name, comment and header crc",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fcbbfcc0e916e2b1a9bafc85eeccd0622a70c4928838a3120f10ffa8e4485a143b48dd86d5d31368281beed09ee78ed447743c92a39e15b4eedeea1b4625de686f40b7dfe5008f81fd58f39e3973c3e8f42086d1cf3e01e3b8541b4760ef9f970df241f0d114b3cb85feb622204ae5c0d0bf965e06ab319cc169a16b8",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "derived data descriptor",
+          "url": "https://static.l2d.su/al/data/ships/CN/10117.json",
+          "content_hex": "415a5032000102030405060708090a0bae67b7944bd310d4b0d29d8e35e6cf13615966a822b4cf69f14a6ba1a5b5373bea176d150f073a5f5addf0aed1e45de1c511494a793a84b35b8a05cb2c98120348cb72c57fb3bc19986c2b864b2bc43bdda904d93983eafc2bce33a9e0e0b1139bb3294283c44ddc58229d67c82630250a493512d47fe6c04da5c71c6af20bf41dbd321689b3dadcf5f78c8abd18d5570dbb0fee5d7f7fca871429051fc0b7e62cd5b0fe287479b52d54b4dfbf9ce9760baea6df29cae13379cde9a3760365a821cd2537654e6f64556f846e816180cff5d4deaa6fe219004b638bc70265aef9f3d5350e386f7126907574de1016c1acdab052e4c5754ff62f12b1a05e8c0d15ec64d1e9ac7dc8082e1a1d42c364680610648ce29e4b8d0c235cefb0f08d2ee7d7",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "derived data descriptor, gzip",
+          "url": "https://static.l2d.su/al/data/ships/CN/10117.json",
+          "content_hex": "415a5032000102030405060708090a0bae67b7944ad310d4b055fb3ac5365aeed637f9a5000b87d4b0eae4c4764a54e1d997ed758a070fee1c1b14198854636cbe5b25f71942809938ebeefc4176cc6ade2276a41716fe0e7c3f9737ffd64f92359795f8b77b8da849ee5f97e754677ed090a066c590b9795e98c13a4c",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "empty body",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773ec3becc0ede832719160b8fac897f76f9cf0a0336",
+          "result": {
+            "ok": ""
+          }
+        },
+        {
+          "name": "seed zero",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b4da12d653ecbbfcc0e49ef4302c37728b069a30338b85132d051989b674faa345e1e5459ff303d63c7228c5dd05d1ac6609222bb313073a5a0f74a8923d621cc5a990f26d209d0f29118fb4d0e4597c3accd2b53fcfe10419cea56a83fa1c574f65885498d724d15def171b590dac61c73cd67582b2f24df820f07ae6e0d1c7ae192e90791faffff7c231b05ba7c7e7dab6835850d7fd6f9c4916f9b97015ce9204ee5ff94aecd975d8b549d228aad9312db8cd2915b83d74b96e3a1b01dbc198dac229d214d68b3c12ec9f188b60152c29faf274a1667ad28fe9cfd734d6fe28fe6f70a8025cfc4b073fce6dde39937142d472b4c2d636570188c7c335b2ca344172fcf3d403f7ab7ec16d33478090c47ffa613aa3fef828cda6e4922d051f006",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "seed all ones",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0bb25ed29a3ecbbfcc0ea8ec1e28525bd8bf5f541c3c64b9104dccc68787a74495650ec91eebab27909d93729b11527e2a7807cc3856ebef59b76785308d89e0487cab8e1154c28894273abe5e36ea9d63324487d0bc3f6753e5ce7ccb7b6f1b9839024d74bdab78b4976fef2039b1525e8a522ec79051cbff20d21b160d28ebdeb9b61c95a8607d8be0c5ef029230f847e75f9128ae0548c5eae2b4940316c692e54a7cf5f703f5da9c100fb3a5e346c14df2db55a92ffaeaacc5b2e95b9ffc84c98c67a2f6a5b907976cf0cae89c5dc2cb050c3fd4b207094e315f2ada44fed7376924be0e025b65354b40bd2865f0635d295c92dc2915fabb9081532b139602ad0cc37ffd555a09e4f1c9b38bc368778744cee74cf0411f34ab3b2fd3b66ff0f5",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "clear text where a fragment promises an envelope",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Expected an AZP2 envelope from https://static.l2d.su/al/assets/a1/b2.model3.json"
+            }
+          }
+        },
+        {
+          "name": "clear text from data passes through",
+          "url": "https://static.l2d.su/al/data/ships/CN/10117.json",
+          "content_hex": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d",
+          "result": {
+            "ok": "7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d7b2256657273696f6e223a20332c202246696c655265666572656e636573223a207b224d6f63223a2022612e6d6f6333227d2c202254657874223a2022e4b8ad227d"
+          }
+        },
+        {
+          "name": "an unprotected URL passes anything through",
+          "url": "https://static.l2d.su/al/assets/a1/b2.webp",
+          "content_hex": "415a5032000102030405060708090a0b35f719773ecbbfcc0e16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d702d54dfa8d095a76f43364111261425d",
+          "result": {
+            "ok": "415a5032000102030405060708090a0b35f719773ecbbfcc0e16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d702d54dfa8d095a76f43364111261425d"
+          }
+        },
+        {
+          "name": "wrong identity",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773ecbbfcc0e16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d7c73b53a81bf7f11afe6c94f1d3297dfd",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "AZP2 envelope failed authentication: MAC check failed"
+            }
+          }
+        },
+        {
+          "name": "wrong data descriptor",
+          "url": "https://static.l2d.su/al/data/ships/CN/10117.json",
+          "content_hex": "415a5032000102030405060708090a0b0f90685c2849110c0136a7696904ca34492a297bac5aafc5db2378be0b8881c53380520ffa65d691d7308349d01025f1c37578b4e3f89accc82998a7bb58f6770236699e30b52e358b4ff68cb92db0a650f48fb08061ee7cdba9f2004eccb6f81508e518dabfd94e9da7cb15d9e512e8e3c5f81d16ca046618d775bc4a1c32db2387e4f250086bb037022d3594097b5b951397df277b0fffa0cb0da5a5b72eecfc326016df388b82736bfa16f34ebcb905182c3152a2d4561747fe0ae51097a7ed21d96782795bbfc4f5a87b4acc21b7e4b2421cdcaa01bdd8b17b17b8a89e880c38393bfda18d946a81f043b8438db85c1d5fd55ecf4a26ae14916140c3d540b31bdc3495b1a68e379c56dfc6943c8ed2a6275a1756ecbf52197da98b97b62b1e",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "AZP2 envelope failed authentication: MAC check failed"
+            }
+          }
+        },
+        {
+          "name": "too short",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000000000000000000000000000000000000000000000000000000000000000000000000",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 envelope"
+            }
+          }
+        },
+        {
+          "name": "magic only",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 envelope"
+            }
+          }
+        },
+        {
+          "name": "tampered tag",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773ecbbfcc0e16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d702d54dfa8d095a76f433641112614200",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "AZP2 envelope failed authentication: MAC check failed"
+            }
+          }
+        },
+        {
+          "name": "header cut short",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b4ca32e613ec267a2b8878796c80127dbaa87b7a40d19",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 envelope"
+            }
+          }
+        },
+        {
+          "name": "length over the limit",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773ec2becc0a16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d73ad00ae3448a8f8a517045bf834c53e8",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 resource length"
+            }
+          }
+        },
+        {
+          "name": "raw length mismatch",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773ecabfcc0e16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d766442f571be76d2fd90306e0201c7138",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 resource length"
+            }
+          }
+        },
+        {
+          "name": "unknown codec",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f7197739cbbfcc0e16089fea4b3a35e982520b001844f469230554f30e6c20bdc405c1c6b4b8692b9bd581db31806072a41450240f47e349580a6c230330c8228b5987ee51496a1a03b449ab2804900ba9add558ba1b4be126230cf8d87ab47c4ab4243d3890bf984669a3983fcd9a6c6dbcade927ff64bd0e48d4c3e345233ab8c8eb2e8fdcc49ee08057fbf46a1069960c1ddf1796ec290fec8c32e5ae04650c53ea5376ce8c07b5a175840656826334c01e5321f4038bcad279fe534355d8d9b33ebe5af58b5f39a4d9dc130e79d27b9d18d670a046deda47a639ef366a89e59b6a76e7e8be5d5fee2037b534ceb38cf8053517d91c91ca0acd6df7c59b2400500e50549bad8ed066461c12f383d7d4f80d1a078dd5b5651fb38e61f978cd",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Unsupported AZP2 codec 7"
+            }
+          }
+        },
+        {
+          "name": "gzip size trailer mismatch",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fc4bfcc0e916e2b1a9bafc85eeccd0622a70c4928838a3120f10ffa8e4485a143b48dd86d5d31368281beed09ee78ed447743c92a39e15b4eedeea1b4625de686f40b7dfe5008f81fd58f39e3973cf4d6427c1f83064f32ffda6c0ad2df4cafade35d684d92c04053",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 compressed resource"
+            }
+          }
+        },
+        {
+          "name": "gzip body too short",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fc3becc0e916e2a22af1815a3ecc683a54c6e4374cfb94ae060a7c3ef3acb87b1da8c3e7d",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 compressed resource"
+            }
+          }
+        },
+        {
+          "name": "not a gzip member",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fcbbfcc0e916e2b1aaf1815a3ecc683a54c66d495be2761902a49b2c57ff1ec31461243628a0d2fb30b4a",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 compressed resource: Not a gzipped file (b'PK')"
+            }
+          }
+        },
+        {
+          "name": "unknown gzip method",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fcbbfcc0e916e2b1aaf1815a3ecc683a54c66d495be27619f6a9a8e69b4d82bccbafed4e0f5bcb9ab17e8",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 compressed resource: Unknown compression method"
+            }
+          }
+        },
+        {
+          "name": "gzip crc mismatch",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fcbbfcc0e916e2b1a9bafc8f7eccd0622a70c4928838a3120f10ffa8e4485a143b48dd86d5d31368281beed09ee78ed447743c92a39e15b4eedeea1b4625de686f40b7dfe5008f81fd58f39e3973cf4d6427c1f83064f32ff67d7d2b35d00653ee54d6eedcd3da7e4",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 compressed resource: CRC check failed"
+            }
+          }
+        },
+        {
+          "name": "two gzip members with padding",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fc5becc0e916e2a2419392618ecc5389a82110668b92561909ff916165d040b24d729d44914d9fa7386e5c751ebac8b8f153600d5c3cc0e032f68cf01f7b1eac8f7b07850d7973b509f69a0",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 compressed resource length"
+            }
+          }
+        },
+        {
+          "name": "gzip member cut before its trailer",
+          "url": "https://static.l2d.su/al/assets/a1/b2.model3.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "content_hex": "415a5032000102030405060708090a0b35f719773fcbbfcc0e916e2b1a14e2ba1e8f73b3d55eec880518878b3d026512c2afe16ebfd4f0ce402b03d1fff79708d5cfafaa0d6a00c729b63e5e52590dbadadaf862019804745657e4cf4bfb5cf4edc99b7cf3038743363cab849f62a9aa3ff858b28b",
+          "result": {
+            "error": {
+              "class": "ProtectedResourceError",
+              "message": "Invalid AZP2 compressed resource: Compressed file ended before the end-of-stream marker was reached"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -10,12 +10,14 @@
 //! for headers across hops.
 
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Method, StatusCode};
 use url::Url;
 
+use crate::connect_to::{ConnectTo, Route, RouteOptions, RouteResponse};
 use crate::{ErrorClass, client_builder};
 
 /// httpx's `User-Agent` when a client sets none (`python-httpx/<version>`).
@@ -40,6 +42,9 @@ pub struct ClientOptions {
     pub proxy: Option<String>,
     /// `limits=httpx.Limits(max_keepalive_connections=...)`.
     pub max_keepalive_connections: usize,
+    /// `transport=ConnectToTransport(...)`: requests for one host go to another while the
+    /// host does not resolve ([`crate::connect_to`]).
+    pub connect_to: Option<ConnectTo>,
 }
 
 impl Default for ClientOptions {
@@ -52,6 +57,7 @@ impl Default for ClientOptions {
             follow_redirects: false,
             proxy: None,
             max_keepalive_connections: 20,
+            connect_to: None,
         }
     }
 }
@@ -66,6 +72,7 @@ impl fmt::Debug for ClientOptions {
             .field("follow_redirects", &self.follow_redirects)
             .field("proxy", &self.proxy.as_ref().map(|_| "<redacted>"))
             .field("max_keepalive_connections", &self.max_keepalive_connections)
+            .field("connect_to", &self.connect_to)
             .finish()
     }
 }
@@ -79,6 +86,12 @@ pub enum BuildError {
     Proxy(#[source] reqwest::Error),
     #[error("Could not build the HTTP client")]
     Client(#[source] reqwest::Error),
+    /// A proxy URL the connect-to route cannot use (not kept: it can carry credentials).
+    #[error("Invalid proxy URL")]
+    ProxyUrl,
+    /// The connect-to route's trust roots or server name.
+    #[error("TLS setup failed: {0}")]
+    Tls(String),
 }
 
 /// One request. Header names are matched case-insensitively against the defaults.
@@ -186,10 +199,47 @@ pub struct Redirect {
     pub headers: HeaderMap,
 }
 
+/// Where a response came from: reqwest, or the connect-to route.
+#[derive(Debug)]
+enum Inner {
+    Reqwest(reqwest::Response),
+    Route(RouteResponse),
+}
+
+impl Inner {
+    fn status(&self) -> StatusCode {
+        match self {
+            Self::Reqwest(response) => response.status(),
+            Self::Route(response) => response.status,
+        }
+    }
+
+    fn headers(&self) -> &HeaderMap {
+        match self {
+            Self::Reqwest(response) => response.headers(),
+            Self::Route(response) => &response.headers,
+        }
+    }
+
+    fn extensions(&self) -> &http::Extensions {
+        match self {
+            Self::Reqwest(response) => response.extensions(),
+            Self::Route(response) => &response.extensions,
+        }
+    }
+
+    async fn bytes(self, url: &Url) -> Result<bytes::Bytes, TransportError> {
+        match self {
+            Self::Reqwest(response) => response.bytes().await.map_err(|error| TransportError::from_reqwest(&error, url)),
+            Self::Route(response) => response.bytes().await,
+        }
+    }
+}
+
 /// A response whose body has not been read yet.
 #[derive(Debug)]
 pub struct Response {
-    inner: reqwest::Response,
+    inner: Inner,
     url: Url,
     history: Vec<Redirect>,
 }
@@ -241,14 +291,18 @@ impl Response {
 
     /// The next chunk of the (decoded) body; `None` at the end.
     pub async fn chunk(&mut self) -> Result<Option<bytes::Bytes>, TransportError> {
-        let url = self.url.clone();
-        self.inner.chunk().await.map_err(|error| TransportError::from_reqwest(&error, &url))
+        match &mut self.inner {
+            Inner::Reqwest(response) => {
+                let url = self.url.clone();
+                response.chunk().await.map_err(|error| TransportError::from_reqwest(&error, &url))
+            }
+            Inner::Route(response) => response.chunk().await,
+        }
     }
 
     /// The whole (decoded) body.
     pub async fn bytes(self) -> Result<bytes::Bytes, TransportError> {
-        let url = self.url;
-        self.inner.bytes().await.map_err(|error| TransportError::from_reqwest(&error, &url))
+        self.inner.bytes(&self.url).await
     }
 }
 
@@ -320,6 +374,9 @@ pub struct HttpClient {
     client: reqwest::Client,
     headers: HeaderMap,
     follow_redirects: bool,
+    /// The cookie jar, shared by reqwest and the connect-to route.
+    jar: Arc<reqwest::cookie::Jar>,
+    connect_to: Option<Arc<Route>>,
 }
 
 fn header_pair(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), BuildError> {
@@ -336,9 +393,10 @@ impl HttpClient {
             let (name, value) = header_pair(name, value)?;
             headers.insert(name, value);
         }
+        let jar = Arc::new(reqwest::cookie::Jar::default());
         let mut builder = client_builder()
             .http1_only()
-            .cookie_store(true)
+            .cookie_provider(Arc::clone(&jar))
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(options.connect_timeout.unwrap_or(options.timeout))
             .read_timeout(options.timeout)
@@ -346,10 +404,28 @@ impl HttpClient {
         if let Some(proxy) = options.proxy.as_deref().filter(|proxy| !proxy.is_empty()) {
             builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(BuildError::Proxy)?);
         }
+        let connect_to = options
+            .connect_to
+            .as_ref()
+            .map(|config| {
+                Route::new(
+                    config,
+                    &RouteOptions {
+                        proxy: options.proxy.as_deref(),
+                        connect_timeout: options.connect_timeout.unwrap_or(options.timeout),
+                        read_timeout: options.timeout,
+                        max_keepalive_connections: options.max_keepalive_connections,
+                    },
+                )
+            })
+            .transpose()?
+            .map(Arc::new);
         Ok(Self {
             client: builder.build().map_err(BuildError::Client)?,
             headers,
             follow_redirects: options.follow_redirects,
+            jar,
+            connect_to,
         })
     }
 
@@ -378,11 +454,18 @@ impl HttpClient {
                     "Exceeded maximum allowed redirects.",
                 ));
             }
-            let mut builder = self.client.request(method.clone(), url.clone()).headers(headers.clone());
-            if let Some(bytes) = &body {
-                builder = builder.body(bytes.clone());
-            }
-            let response = builder.send().await.map_err(|error| TransportError::from_reqwest(&error, &url))?;
+            let response = match &self.connect_to {
+                Some(route) if route.applies(&url).await => {
+                    Inner::Route(route.send(method.clone(), &url, &headers, body.clone(), &self.jar).await?)
+                }
+                _ => {
+                    let mut builder = self.client.request(method.clone(), url.clone()).headers(headers.clone());
+                    if let Some(bytes) = &body {
+                        builder = builder.body(bytes.clone());
+                    }
+                    Inner::Reqwest(builder.send().await.map_err(|error| TransportError::from_reqwest(&error, &url))?)
+                }
+            };
             let status = response.status();
             if !self.follow_redirects || !has_redirect_location(status, response.headers()) {
                 return Ok(Response {
@@ -404,7 +487,7 @@ impl HttpClient {
             });
             // The redirect's own body is read and dropped, as httpx does (`aread()`); a
             // failure reading it ends the request.
-            response.bytes().await.map_err(|error| TransportError::from_reqwest(&error, &url))?;
+            response.bytes(&url).await?;
             url = next_url;
             method = next_method;
         }
