@@ -179,7 +179,7 @@ fn hard_link(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// `shutil.copy2`: contents and times.
-fn copy2(src: &Path, dst: &Path) -> std::io::Result<()> {
+pub(crate) fn copy2(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::copy(src, dst)?;
     let metadata = std::fs::metadata(src)?;
     let times = std::fs::FileTimes::new()

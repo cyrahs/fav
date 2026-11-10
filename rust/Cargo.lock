@@ -1015,6 +1015,9 @@ dependencies = [
  "fav-net",
  "fav-runtime",
  "fav-sources",
+ "futures-util",
+ "serde_json",
+ "tempfile",
  "tokio",
 ]
 

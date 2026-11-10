@@ -30,6 +30,7 @@ use crate::nikke_layer_metadata::{json_dumps, normalize_layer_url, sha256_hex, s
 use crate::pydecode::PyError;
 
 pub mod crawl;
+pub mod layer_tool;
 pub mod runtime;
 
 pub use crawl::{Nikke, register};

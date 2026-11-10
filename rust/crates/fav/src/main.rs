@@ -2,7 +2,8 @@
 //!
 //! Commands arrive with their work packages (`rust/docs/PLAN.md`): `worker` and
 //! `trigger` in WP2 (`python run.py` and `python run.py --trigger <target>`), `api`
-//! (`python -m src.api`) and `serve` (`python -m src.service`, the default) in WP3.
+//! (`python -m src.api`) and `serve` (`python -m src.service`, the default) in WP3;
+//! `nikke-layers` (`python script/nikke_layer_metadata.py`) in WP9.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -18,6 +19,8 @@ use fav_db::{Db, SettingsStore};
 use fav_runtime::telegram_bot::BotClient;
 use fav_runtime::worker::{self, WorkerError, WorkerOptions};
 use fav_runtime::{StopHandle, StopSignal};
+
+mod nikke_layers;
 
 static VERSION: LazyLock<String> = LazyLock::new(version);
 
@@ -45,6 +48,11 @@ enum Command {
         /// A job key, or "all" for every enabled job.
         target: String,
     },
+    /// Merge, validate, or strip NIKKE GameKee Live2D layer metadata.
+    NikkeLayers {
+        #[command(subcommand)]
+        command: nikke_layers::NikkeLayers,
+    },
 }
 
 fn version() -> String {
@@ -66,7 +74,14 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    runtime.block_on(run(cli.command.unwrap_or(Command::Serve)))
+    match cli.command.unwrap_or(Command::Serve) {
+        Command::NikkeLayers { command } => {
+            let tool = nikke_layers::production_tool();
+            let status = runtime.block_on(nikke_layers::run(command, &tool, &mut std::io::stdout(), &mut std::io::stderr()));
+            ExitCode::from(status)
+        }
+        command => runtime.block_on(run(command)),
+    }
 }
 
 /// What every command shares, from the environment.
@@ -195,6 +210,7 @@ async fn run(command: Command) -> ExitCode {
         },
         Command::Worker => worker::run_worker(base.worker_options(), stop).await,
         Command::Trigger { target } => worker::run_trigger(base.worker_options(), &target, signal).await,
+        Command::NikkeLayers { .. } => unreachable!("main runs nikke-layers without the environment"),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
