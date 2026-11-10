@@ -382,7 +382,8 @@ impl fmt::Display for StatusError {
 #[derive(Clone)]
 pub struct HttpClient {
     client: reqwest::Client,
-    headers: HeaderMap,
+    /// `client.headers`, in httpx's order ([`Headers`]).
+    headers: Headers,
     follow_redirects: bool,
     /// The cookie jar, shared by reqwest and the connect-to route.
     jar: Arc<reqwest::cookie::Jar>,
@@ -393,7 +394,7 @@ impl fmt::Debug for HttpClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Header values (a bearer token, a cookie) and reqwest's proxy URLs can carry credentials.
         f.debug_struct("HttpClient")
-            .field("headers", &self.headers.keys().map(HeaderName::as_str).collect::<Vec<_>>())
+            .field("headers", &self.headers.names())
             .field("follow_redirects", &self.follow_redirects)
             .field("connect_to", &self.connect_to.is_some())
             .finish_non_exhaustive()
@@ -408,15 +409,20 @@ fn header_pair(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), Bui
 
 impl HttpClient {
     pub fn new(options: &ClientOptions) -> Result<Self, BuildError> {
-        let mut headers = HeaderMap::new();
-        headers.insert(reqwest::header::USER_AGENT, HeaderValue::from_static(HTTPX_USER_AGENT));
-        for (name, value) in &options.headers {
-            let (name, value) = header_pair(name, value)?;
-            headers.insert(name, value);
-        }
+        // httpx's client defaults, then `headers=` (`Headers.update`).
+        let mut headers = Headers::httpx_defaults();
+        headers.update(
+            options
+                .headers
+                .iter()
+                .map(|(name, value)| header_pair(name, value))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
         let jar = Arc::new(reqwest::cookie::Jar::default());
         let mut builder = client_builder()
             .http1_only()
+            // h11 writes names as given; the sources give them title-cased (D182).
+            .http1_title_case_headers()
             .cookie_provider(Arc::clone(&jar))
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(options.connect_timeout.unwrap_or(options.timeout))
@@ -469,12 +475,23 @@ impl HttpClient {
     pub async fn send(&self, request: Request) -> Result<Response, TransportError> {
         let mut url = parse_url(&request.url)?;
         let mut method = request.method.clone();
+        // `_merge_headers`, then `Request._prepare` puts `Host` first.
         let mut headers = self.headers.clone();
-        for (name, value) in &request.headers {
-            let (name, value) =
-                header_pair(name, value).map_err(|error| TransportError::new(ErrorClass::LocalProtocolError, &url, error.to_string()))?;
-            headers.insert(name, value);
-        }
+        headers.update(
+            request
+                .headers
+                .iter()
+                .map(|(name, value)| header_pair(name, value))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| TransportError::new(ErrorClass::LocalProtocolError, &url, error.to_string()))?,
+        );
+        // h11 writes `Host` first even when the caller set it further down.
+        let host = match headers.get(&reqwest::header::HOST) {
+            Some(value) => value,
+            None => netloc(&url)?,
+        };
+        headers.remove(&reqwest::header::HOST);
+        headers.prepend(reqwest::header::HOST, host);
         let mut body = request.body.clone();
         let mut history: Vec<Redirect> = Vec::new();
         loop {
@@ -487,10 +504,10 @@ impl HttpClient {
             }
             let response = match &self.connect_to {
                 Some(route) if route.applies(&url).await => {
-                    Inner::Route(route.send(method.clone(), &url, &headers, body.clone(), &self.jar).await?)
+                    Inner::Route(route.send(method.clone(), &url, &headers.to_map(), body.clone(), &self.jar).await?)
                 }
                 _ => {
-                    let mut builder = self.client.request(method.clone(), url.clone()).headers(headers.clone());
+                    let mut builder = self.client.request(method.clone(), url.clone()).headers(headers.to_map());
                     if let Some(bytes) = &body {
                         builder = builder.body(bytes.clone());
                     }
@@ -507,7 +524,7 @@ impl HttpClient {
             }
             let next_url = redirect_url(&url, &header_text(response.headers(), "location").unwrap_or_default())?;
             let next_method = redirect_method(&method, status.as_u16());
-            redirect_headers(&mut headers, &url, &next_url, next_method != method);
+            redirect_headers(&mut headers, &url, &next_url, next_method != method)?;
             if next_method != method {
                 body = None;
             }
@@ -569,9 +586,9 @@ fn redirect_method(method: &Method, status: u16) -> Method {
 }
 
 /// `_redirect_headers`: no `Authorization` to another origin (unless it is the same host
-/// upgraded to https), no body headers once the body is dropped. The cookie jar adds the
-/// next hop's cookies itself.
-fn redirect_headers(headers: &mut HeaderMap, current: &Url, next: &Url, method_changed: bool) {
+/// upgraded to https), whose `Host` is set in place; no body headers once the body is
+/// dropped. The cookie jar adds the next hop's cookies itself.
+fn redirect_headers(headers: &mut Headers, current: &Url, next: &Url, method_changed: bool) -> Result<(), TransportError> {
     let same_origin = current.scheme() == next.scheme()
         && current.host_str() == next.host_str()
         && current.port_or_known_default() == next.port_or_known_default();
@@ -580,14 +597,107 @@ fn redirect_headers(headers: &mut HeaderMap, current: &Url, next: &Url, method_c
         && current.host_str() == next.host_str()
         && current.port_or_known_default() == Some(80)
         && next.port_or_known_default() == Some(443);
-    if !same_origin && !https_upgrade {
-        headers.remove(reqwest::header::AUTHORIZATION);
+    if !same_origin {
+        if !https_upgrade {
+            headers.remove(&reqwest::header::AUTHORIZATION);
+        }
+        headers.set(reqwest::header::HOST, netloc(next)?);
     }
     if method_changed {
-        headers.remove(reqwest::header::CONTENT_LENGTH);
-        headers.remove(reqwest::header::TRANSFER_ENCODING);
+        headers.remove(&reqwest::header::CONTENT_LENGTH);
+        headers.remove(&reqwest::header::TRANSFER_ENCODING);
     }
-    headers.remove(reqwest::header::COOKIE);
+    headers.remove(&reqwest::header::COOKIE);
+    Ok(())
+}
+
+/// httpx's `Accept-Encoding` with `brotli` installed (`uv.lock`) and no `zstandard`.
+const HTTPX_ACCEPT_ENCODING: &str = "gzip, deflate, br";
+
+/// `httpx.Headers`: names in the order httpx writes them on the wire.
+///
+/// Cloudflare-fronted sites (Hanime1) refuse a request whose header order and name case do
+/// not look like the client it claims to be, so the order is httpx's, not reqwest's and
+/// hyper's (D182): `Host` first, then the client defaults (`Accept`, `Accept-Encoding`,
+/// `Connection`, `User-Agent`), with every name a later `update` sets moved to the end.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Headers(Vec<(HeaderName, HeaderValue)>);
+
+impl Headers {
+    /// `Client._headers` before `headers=`: httpx's `Accept`, `Accept-Encoding`,
+    /// `Connection` and `User-Agent`.
+    fn httpx_defaults() -> Self {
+        Self(vec![
+            (reqwest::header::ACCEPT, HeaderValue::from_static("*/*")),
+            (reqwest::header::ACCEPT_ENCODING, HeaderValue::from_static(HTTPX_ACCEPT_ENCODING)),
+            (reqwest::header::CONNECTION, HeaderValue::from_static("keep-alive")),
+            (reqwest::header::USER_AGENT, HeaderValue::from_static(HTTPX_USER_AGENT)),
+        ])
+    }
+
+    /// `Headers.update`: every name the update carries is removed, then its pairs appended.
+    fn update(&mut self, pairs: Vec<(HeaderName, HeaderValue)>) {
+        self.0.retain(|(name, _)| !pairs.iter().any(|(new, _)| new == name));
+        self.0.extend(pairs);
+    }
+
+    /// `headers[name] = value`: the first pair of that name takes the value in place, the
+    /// others go; a new name is appended.
+    fn set(&mut self, name: HeaderName, value: HeaderValue) {
+        match self.0.iter().position(|(have, _)| *have == name) {
+            Some(index) => {
+                self.0[index].1 = value;
+                let mut seen = 0usize;
+                self.0.retain(|(have, _)| {
+                    if *have == name {
+                        seen += 1;
+                        seen == 1
+                    } else {
+                        true
+                    }
+                });
+            }
+            None => self.0.push((name, value)),
+        }
+    }
+
+    fn prepend(&mut self, name: HeaderName, value: HeaderValue) {
+        self.0.insert(0, (name, value));
+    }
+
+    fn remove(&mut self, name: &HeaderName) {
+        self.0.retain(|(have, _)| have != name);
+    }
+
+    fn get(&self, name: &HeaderName) -> Option<HeaderValue> {
+        self.0.iter().find(|(have, _)| have == name).map(|(_, value)| value.clone())
+    }
+
+    fn names(&self) -> Vec<&str> {
+        self.0.iter().map(|(name, _)| name.as_str()).collect()
+    }
+
+    /// The map handed to reqwest or the connect-to route. A `HeaderMap` iterates names in
+    /// the order they were first appended, and hyper writes them in that order (a name
+    /// given twice is grouped at its first place, where httpx keeps the pairs apart).
+    fn to_map(&self) -> HeaderMap {
+        let mut map = HeaderMap::with_capacity(self.0.len());
+        for (name, value) in &self.0 {
+            map.append(name.clone(), value.clone());
+        }
+        map
+    }
+}
+
+/// `url.netloc`, the `Host` httpx sends: the host, and the port when it is not the
+/// scheme's default.
+fn netloc(url: &Url) -> Result<HeaderValue, TransportError> {
+    let host = url.host_str().unwrap_or_default();
+    let authority = match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_owned(),
+    };
+    HeaderValue::from_str(&authority).map_err(|error| TransportError::new(ErrorClass::LocalProtocolError, url, error.to_string()))
 }
 
 #[cfg(test)]
