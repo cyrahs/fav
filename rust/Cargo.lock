@@ -137,7 +137,6 @@ name = "api-coverage"
 version = "0.1.0"
 dependencies = [
  "axum",
- "grammers-client",
  "http",
  "http-body-util",
  "rmcp",
