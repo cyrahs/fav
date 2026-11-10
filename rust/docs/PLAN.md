@@ -137,7 +137,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP7 | 3 HTTP sources | Bilibili, X, with the yt-dlp and gallery-dl subprocess wrappers | 1,500 | done |
 | WP8 | 3 HTTP sources | Hanime1 with series, author subscriptions, ranking discovery and its endpoints | 2,600 | done |
 | WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | done |
-| WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | pending |
+| WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | done |
 | WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | pending |
 | WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | pending |
 | WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | pending |
@@ -214,15 +214,22 @@ Shared pieces that parallel work packages built twice, to fold together once bot
 - WP8 (`fav-sources/src/pyre.rs`): Python `re` translation (`\s`, `fancy-regex` for back-references) and
   small `int()`/`parse_qs` helpers, local to `fav-sources`; move to `fav-core` if a later source needs them.
 - WP9 (`fav-api/src/summary_cache.rs`, `fav-api/src/spine.rs`): the summary cache (version 1 only) and the
-  Spine version probe are crate-level in `fav-api`; WP10 (BD2), built in parallel, may keep private copies.
-  Fold BD2 onto these, and add version 2 (`read_summary_records`) here for WP12. `fav-sources`'
-  `content_discovery` (newly archived characters and cosmetic items) is likewise WP9's for WP10 to reuse.
-- WP9 (`fav-api/src/nikke/schema.rs`): `LIVE2D_VECTOR2` and `LIVE2D_VIEW_OVERRIDE_VALUE` are declared there
-  for the OpenAPI components; WP10's override store owns them. Keep one declaration. The Nikke detail's
-  `model_id` (`assign_live2d_model_ids`) and `view_overrides`, and the `/nikke/characters/{id}/live2d/
-  view-overrides/{profile}` routes (still `PENDING` in `openapi.rs`), are wired by whichever of WP9 and WP10
-  merges second; until then `model_id` is `""` and `view_overrides` `{}`, and
-  `test_nikke_live2d_view_override_save_and_detail_overlay` is in WP10's scope.
+  Spine version probe are crate-level in `fav-api`, and WP10 folded BD2 onto them (and onto `fav-sources`'
+  `content_discovery`). Add version 2 (`read_summary_records`) here for WP12.
+- WP10 (`fav-api/src/live2d_overrides.rs`): the view-override store, model ids, overlay and routes serve both
+  games (`Live2DSource::{Bd2, Nikke}`); `Live2DVector2`, `Live2DViewOverrideValue` and the request and
+  response models are declared once there (`nikke::schema` refers to `Live2DViewOverrideValue` through
+  `Ty::External`).
+- WP10 (`fav-api/src/response_models.rs`): BD2's response models are validated by small closures and their
+  OpenAPI components written by hand in `openapi.rs`, while NIKKE's come from one field table
+  (`nikke::schema`) that drives both. Move that table to crate level and put BD2's and the Live2D models on it
+  when a later package (Azur Lane, WP12) adds models of the same kind.
+- WP10 (`fav-sources/src/bd2/gamekee.rs`): BD2's copy of the GameKee helpers Python imports from
+  `src/web/nikke.py` (`Asset`, `add_asset`, `normalize_url`, `asset_headers`, `parse_spine_atlas_textures`,
+  `original_filename_from_url`, `context_hash`, `materialize_blob`, `write_json`, ...), built while WP9 ported
+  the same functions in `fav-sources/src/nikke.rs`. Fold both onto one GameKee module, keeping each side's
+  golden tests (their signatures differ slightly: NIKKE's `context_hash` cannot fail, BD2's returns the JSON
+  error Python would raise).
 - WP9 (`fav-api/src/openapi.rs`): `Op` gained `bare_responses` (responses without a JSON body, the sidebar's
   304); `mcp::fromisoformat` is re-exported for the sidebar sort key. Move `fromisoformat` to `fav-core` if a
   third caller appears.

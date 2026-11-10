@@ -5,7 +5,7 @@
 //! the `*_live2d_view_override` methods of `FavApiService` in `src/api/service.py`, the
 //! `Live2D*` models of `src/api/schemas.py` and the view-override routes of
 //! `src/api/routes.py`. The table is created by `fav-db`'s schema, not on first use (D96).
-//! Only BD2 is wired here; NIKKE (WP9) adds its source to [`Live2DSource`] and its routes.
+//! Both games' detail routes and view-override routes use it ([`Live2DSource`]).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};

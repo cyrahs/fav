@@ -106,7 +106,7 @@ impl Harness {
             hanime1_authors: Arc::new(FakeAuthors::default()),
             readiness: crate::hanime1::Readiness::default(),
             nikke: crate::nikke::NikkeLibraries::default(),
-            bd2: tokio::sync::OnceCell::new(),
+            bd2: crate::bd2::Bd2Libraries::default(),
             live2d_overrides: crate::live2d_overrides::postgres_store(database.db().clone()),
         };
         Self { database, state }

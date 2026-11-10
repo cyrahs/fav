@@ -540,7 +540,7 @@ def _scenarios() -> list[dict[str, Any]]:
 
 
 def _service(root: Path) -> service_module.FavApiService:
-    service = service_module.FavApiService(
+    return service_module.FavApiService(
         dsn='postgresql://goldens@127.0.0.1:1/never-connected',
         token=TOKEN,
         hanime1_video_fetcher=lambda _dsn: [],
@@ -550,7 +550,6 @@ def _service(root: Path) -> service_module.FavApiService:
         nikke_library=NikkeLibrary(root),
         live2d_view_override_store=_NoOverrides(),
     )
-    return service
 
 
 def _replay(scenario: dict[str, Any]) -> list[dict[str, Any]]:

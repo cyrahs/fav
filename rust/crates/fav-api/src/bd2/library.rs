@@ -853,6 +853,11 @@ impl Bd2Library {
         }
     }
 
+    /// The collection root it reads.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, CacheState> {
         self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }

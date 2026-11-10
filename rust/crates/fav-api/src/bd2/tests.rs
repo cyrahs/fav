@@ -103,7 +103,8 @@ fn utc(year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32) -> 
 
 async fn harness(root: &Path, store: FakeStore) -> Harness {
     let mut harness = Harness::new().await;
-    harness.state.bd2 = tokio::sync::OnceCell::new_with(Some(Arc::new(Bd2Library::new(root))));
+    let settings = fav_core::pyjson::loads(&serde_json::json!({"path": root.to_str().expect("UTF-8 path")}).to_string()).expect("JSON");
+    harness.store_settings("web.bd2", &settings).await;
     harness.state.live2d_overrides = Arc::new(store);
     harness
 }
@@ -891,5 +892,23 @@ async fn the_postgres_store_keeps_created_at_and_round_trips_positions() {
     assert!(store.delete(&key).await.unwrap());
     assert!(!store.delete(&key).await.unwrap());
     assert!(store.list_for_character("nikke", 101).await.unwrap().is_empty());
+    harness.finish().await;
+}
+
+// D95: the library follows `web.bd2.path` without a restart.
+#[tokio::test]
+async fn a_changed_collection_path_applies_at_once() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let first = tmp.path().join("first");
+    let harness = fixture_harness(&first).await;
+    let total = |answer: &Answer| answer.json().as_dict().and_then(|payload| payload.get("total").cloned());
+    assert_eq!(total(&get(&harness, "/api/v2/bd2/characters").await), Some(Value::Int(1)));
+
+    let missing =
+        fav_core::pyjson::loads(&serde_json::json!({"path": tmp.path().join("missing").to_str().expect("UTF-8 path")}).to_string())
+            .expect("JSON");
+    harness.store_settings("web.bd2", &missing).await;
+    assert_eq!(total(&get(&harness, "/api/v2/bd2/characters").await), Some(Value::Int(0)));
+    assert_eq!(get(&harness, "/api/v2/bd2/characters/101").await.status, 404);
     harness.finish().await;
 }

@@ -4,8 +4,9 @@
 //! sidebar payload, sort key and `ETag`), the `*_bd2_*` methods of `FavApiService` in
 //! `src/api/service.py` and the `BD2*` models of `src/api/schemas.py`. The library itself is
 //! [`library`]; the view-override routes under a character are
-//! [`crate::live2d_overrides`]. The library is made from `web.bd2.path` on first use, where
-//! Python makes it when the service starts; both keep it for the life of the process.
+//! [`crate::live2d_overrides`]. Python makes the library once, with the `web.bd2.path` the
+//! settings held when the API started; here the path is read at each request and the
+//! library (with its cache) is rebuilt when it changes, as for NIKKE (DIVERGENCES.md D95).
 
 mod library;
 #[cfg(test)]
@@ -36,14 +37,29 @@ const SIDEBAR_CACHE_CONTROL: &str = "public, max-age=300";
 
 /// The library, made from the settings on first use.
 async fn library(state: &ApiState) -> Result<Arc<Bd2Library>, ApiError> {
-    state
-        .bd2
-        .get_or_try_init(|| async {
-            let settings = state.settings.load().await.map_err(|error| unhandled(&error))?;
-            Ok(Arc::new(Bd2Library::new(settings.web.bd2.path.as_path())))
-        })
-        .await
-        .cloned()
+    let settings = state.settings.load().await.map_err(|error| unhandled(&error))?;
+    Ok(state.bd2.for_root(settings.web.bd2.path.as_path()))
+}
+
+/// The library of the configured root, rebuilt (with its cache) when the setting changes.
+#[derive(Debug, Default)]
+pub struct Bd2Libraries {
+    current: std::sync::Mutex<Option<Arc<Bd2Library>>>,
+}
+
+impl Bd2Libraries {
+    /// The library for `root`: the current one, or a new one when the root changed.
+    pub fn for_root(&self, root: &std::path::Path) -> Arc<Bd2Library> {
+        let mut current = self.current.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match current.as_ref() {
+            Some(library) if library.root() == root => Arc::clone(library),
+            _ => {
+                let library = Arc::new(Bd2Library::new(root));
+                *current = Some(Arc::clone(&library));
+                library
+            }
+        }
+    }
 }
 
 /// Run a library call off the async workers: it reads files.

@@ -89,8 +89,8 @@ pub struct ApiState {
     pub readiness: hanime1::Readiness,
     /// The Nikke collection under `web.nikke.path`, with its summary cache.
     pub nikke: nikke::NikkeLibraries,
-    /// The BD2 library (`/api/v2/bd2/*`), made from `web.bd2.path` on first use unless set.
-    pub bd2: tokio::sync::OnceCell<Arc<bd2::Bd2Library>>,
+    /// The BD2 collection under `web.bd2.path`, with its summary cache.
+    pub bd2: bd2::Bd2Libraries,
     /// The saved Live2D view overrides.
     pub live2d_overrides: Arc<dyn live2d_overrides::Live2DViewOverrideStore>,
 }
@@ -135,7 +135,7 @@ impl ApiState {
             hanime1_authors,
             readiness: hanime1::Readiness::default(),
             nikke: nikke::NikkeLibraries::default(),
-            bd2: tokio::sync::OnceCell::new(),
+            bd2: bd2::Bd2Libraries::default(),
             live2d_overrides: live2d_overrides::postgres_store(db_for_overrides),
             settings,
         })
