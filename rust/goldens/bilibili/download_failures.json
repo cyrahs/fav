@@ -1,0 +1,68 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "ERROR: [BiliBili] BV1: Unable to download\n",
+      "debug": [
+        "Retrying download for BV1x (1/3), next wait 5.0s: https://www.bilibili.com/video/BV1x: ERROR: [BiliBili] BV1: Unable to download",
+        "Retrying download for BV1x (2/3), next wait 10.0s: https://www.bilibili.com/video/BV1x: ERROR: [BiliBili] BV1: Unable to download"
+      ],
+      "error_class": "DownloadError",
+      "error": "https://www.bilibili.com/video/BV1x: ERROR: [BiliBili] BV1: Unable to download",
+      "dedupe_key": "bilibili:download:BV1x"
+    },
+    {
+      "returncode": 2,
+      "stdout": "stdout only\n",
+      "stderr": "",
+      "debug": [
+        "Retrying download for BV1x (1/3), next wait 5.0s: https://www.bilibili.com/video/BV1x: stdout only",
+        "Retrying download for BV1x (2/3), next wait 10.0s: https://www.bilibili.com/video/BV1x: stdout only"
+      ],
+      "error_class": "DownloadError",
+      "error": "https://www.bilibili.com/video/BV1x: stdout only",
+      "dedupe_key": "bilibili:download:BV1x"
+    },
+    {
+      "returncode": 3,
+      "stdout": "",
+      "stderr": "",
+      "debug": [
+        "Retrying download for BV1x (1/3), next wait 5.0s: https://www.bilibili.com/video/BV1x: yt-dlp exited with code 3",
+        "Retrying download for BV1x (2/3), next wait 10.0s: https://www.bilibili.com/video/BV1x: yt-dlp exited with code 3"
+      ],
+      "error_class": "DownloadError",
+      "error": "https://www.bilibili.com/video/BV1x: yt-dlp exited with code 3",
+      "dedupe_key": "bilibili:download:BV1x"
+    },
+    {
+      "returncode": -9,
+      "stdout": "",
+      "stderr": "   ",
+      "debug": [
+        "Retrying download for BV1x (1/3), next wait 5.0s: https://www.bilibili.com/video/BV1x: yt-dlp exited with code -9",
+        "Retrying download for BV1x (2/3), next wait 10.0s: https://www.bilibili.com/video/BV1x: yt-dlp exited with code -9"
+      ],
+      "error_class": "DownloadError",
+      "error": "https://www.bilibili.com/video/BV1x: yt-dlp exited with code -9",
+      "dedupe_key": "bilibili:download:BV1x"
+    },
+    {
+      "returncode": 1,
+      "stdout": "out",
+      "stderr": "err\r\nmore\r",
+      "debug": [
+        "Retrying download for BV1x (1/3), next wait 5.0s: https://www.bilibili.com/video/BV1x: err\r\nmore",
+        "Retrying download for BV1x (2/3), next wait 10.0s: https://www.bilibili.com/video/BV1x: err\r\nmore"
+      ],
+      "error_class": "DownloadError",
+      "error": "https://www.bilibili.com/video/BV1x: err\r\nmore",
+      "dedupe_key": "bilibili:download:BV1x"
+    }
+  ]
+}

@@ -1,0 +1,1120 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "case": "not due",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "result": null
+    },
+    {
+      "case": "due, refreshed and confirmed",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=rcsrf&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "rcsrf"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=new-sess; bili_jct=new-jct; buvid3=b3; DedeUserID=42; sid=new-sid",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=new-jct&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "new-jct"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [
+        {
+          "after_requests": 3,
+          "cookies": [
+            {
+              "name": "SESSDATA",
+              "value": "new-sess",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "bili_jct",
+              "value": "new-jct",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "buvid3",
+              "value": "b3",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "DedeUserID",
+              "value": "42",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "sid",
+              "value": "new-sid",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            }
+          ],
+          "refresh_token": "rt-new"
+        }
+      ],
+      "warnings": [],
+      "result": {
+        "cookies": [
+          {
+            "name": "SESSDATA",
+            "value": "new-sess",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "bili_jct",
+            "value": "new-jct",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "buvid3",
+            "value": "b3",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "DedeUserID",
+            "value": "42",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "sid",
+            "value": "new-sid",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          }
+        ],
+        "refresh_token": "rt-new",
+        "renewed": [
+          "SESSDATA"
+        ]
+      }
+    },
+    {
+      "case": "info refused",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "error_class": "RenewalError",
+      "error": "cookie/info: HTTP 200, code -101"
+    },
+    {
+      "case": "info not json",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "error_class": "RenewalError",
+      "error": "cookie/info: HTTP 200, not JSON"
+    },
+    {
+      "case": "info refresh is a string",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=rcsrf&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "rcsrf"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=new-sess; bili_jct=new-jct; buvid3=b3; DedeUserID=42; sid=new-sid",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=new-jct&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "new-jct"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [
+        {
+          "after_requests": 3,
+          "cookies": [
+            {
+              "name": "SESSDATA",
+              "value": "new-sess",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "bili_jct",
+              "value": "new-jct",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "buvid3",
+              "value": "b3",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "DedeUserID",
+              "value": "42",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "sid",
+              "value": "new-sid",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            }
+          ],
+          "refresh_token": "rt-new"
+        }
+      ],
+      "warnings": [],
+      "result": {
+        "cookies": [
+          {
+            "name": "SESSDATA",
+            "value": "new-sess",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "bili_jct",
+            "value": "new-jct",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "buvid3",
+            "value": "b3",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "DedeUserID",
+            "value": "42",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "sid",
+            "value": "new-sid",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          }
+        ],
+        "refresh_token": "rt-new",
+        "renewed": [
+          "SESSDATA"
+        ]
+      }
+    },
+    {
+      "case": "correspond 404",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "error_class": "RenewalError",
+      "error": "correspond: HTTP 404, no refresh_csrf"
+    },
+    {
+      "case": "correspond without csrf",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "error_class": "RenewalError",
+      "error": "correspond: HTTP 200, no refresh_csrf"
+    },
+    {
+      "case": "correspond csrf spans lines",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=c&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "c"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=new-sess; bili_jct=new-jct; buvid3=b3; DedeUserID=42; sid=new-sid",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=new-jct&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "new-jct"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [
+        {
+          "after_requests": 3,
+          "cookies": [
+            {
+              "name": "SESSDATA",
+              "value": "new-sess",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "bili_jct",
+              "value": "new-jct",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "buvid3",
+              "value": "b3",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "DedeUserID",
+              "value": "42",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "sid",
+              "value": "new-sid",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            }
+          ],
+          "refresh_token": "rt-new"
+        }
+      ],
+      "warnings": [],
+      "result": {
+        "cookies": [
+          {
+            "name": "SESSDATA",
+            "value": "new-sess",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "bili_jct",
+            "value": "new-jct",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "buvid3",
+            "value": "b3",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "DedeUserID",
+            "value": "42",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "sid",
+            "value": "new-sid",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          }
+        ],
+        "refresh_token": "rt-new",
+        "renewed": [
+          "SESSDATA"
+        ]
+      }
+    },
+    {
+      "case": "refresh refused",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=rcsrf&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "rcsrf"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "error_class": "RenewalError",
+      "error": "cookie/refresh: HTTP 200, code -111"
+    },
+    {
+      "case": "refresh without a token",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=rcsrf&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "rcsrf"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "error_class": "RenewalError",
+      "error": "cookie/refresh: no new SESSDATA or refresh token in the answer"
+    },
+    {
+      "case": "refresh without SESSDATA",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=rcsrf&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "rcsrf"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [],
+      "warnings": [],
+      "error_class": "RenewalError",
+      "error": "cookie/refresh: no new SESSDATA or refresh token in the answer"
+    },
+    {
+      "case": "confirm refused",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=rcsrf&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "rcsrf"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=new-sess; bili_jct=new-jct; buvid3=b3; DedeUserID=42; sid=new-sid",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=new-jct&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "new-jct"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [
+        {
+          "after_requests": 3,
+          "cookies": [
+            {
+              "name": "SESSDATA",
+              "value": "new-sess",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "bili_jct",
+              "value": "new-jct",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "buvid3",
+              "value": "b3",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "DedeUserID",
+              "value": "42",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "sid",
+              "value": "new-sid",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            }
+          ],
+          "refresh_token": "rt-new"
+        }
+      ],
+      "warnings": [
+        "Bilibili accepted the refresh but not its confirmation: confirm/refresh: HTTP 200, code -101"
+      ],
+      "result": {
+        "cookies": [
+          {
+            "name": "SESSDATA",
+            "value": "new-sess",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "bili_jct",
+            "value": "new-jct",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "buvid3",
+            "value": "b3",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "DedeUserID",
+            "value": "42",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "sid",
+            "value": "new-sid",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          }
+        ],
+        "refresh_token": "rt-new",
+        "renewed": [
+          "SESSDATA"
+        ]
+      }
+    },
+    {
+      "case": "confirm not json",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/info?csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "GET",
+          "url": "https://www.bilibili.com/correspond/1/path-for-1800000000000",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": "",
+          "form": []
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/cookie/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=old-jct&refresh_csrf=rcsrf&source=main_web&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "old-jct"
+            ],
+            [
+              "refresh_csrf",
+              "rcsrf"
+            ],
+            [
+              "source",
+              "main_web"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        },
+        {
+          "method": "POST",
+          "url": "https://passport.bilibili.com/x/passport-login/web/confirm/refresh",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=new-sess; bili_jct=new-jct; buvid3=b3; DedeUserID=42; sid=new-sid",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=new-jct&refresh_token=rt-old",
+          "form": [
+            [
+              "csrf",
+              "new-jct"
+            ],
+            [
+              "refresh_token",
+              "rt-old"
+            ]
+          ]
+        }
+      ],
+      "saved": [
+        {
+          "after_requests": 3,
+          "cookies": [
+            {
+              "name": "SESSDATA",
+              "value": "new-sess",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "bili_jct",
+              "value": "new-jct",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": 1924992000.0
+            },
+            {
+              "name": "buvid3",
+              "value": "b3",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "DedeUserID",
+              "value": "42",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            },
+            {
+              "name": "sid",
+              "value": "new-sid",
+              "domain": ".bilibili.com",
+              "path": "/",
+              "expires": null
+            }
+          ],
+          "refresh_token": "rt-new"
+        }
+      ],
+      "warnings": [
+        "Bilibili accepted the refresh but not its confirmation: confirm/refresh: HTTP 502, not JSON"
+      ],
+      "result": {
+        "cookies": [
+          {
+            "name": "SESSDATA",
+            "value": "new-sess",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "bili_jct",
+            "value": "new-jct",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": 1924992000.0
+          },
+          {
+            "name": "buvid3",
+            "value": "b3",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "DedeUserID",
+            "value": "42",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          },
+          {
+            "name": "sid",
+            "value": "new-sid",
+            "domain": ".bilibili.com",
+            "path": "/",
+            "expires": null
+          }
+        ],
+        "refresh_token": "rt-new",
+        "renewed": [
+          "SESSDATA"
+        ]
+      }
+    }
+  ]
+}

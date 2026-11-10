@@ -1,0 +1,39 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "name": "session_site",
+      "input": "main",
+      "output": "bilibili-main"
+    },
+    {
+      "name": "relogin_hint",
+      "input": "main",
+      "output": "Sign in to Bilibili account main again on fav's 登录态 page."
+    },
+    {
+      "name": "download_failure_key",
+      "input": "BV1x",
+      "output": "bilibili:download:BV1x"
+    },
+    {
+      "name": "download_failure_notification_key",
+      "input": "BV1x",
+      "output": "job_failed:bilibili:bilibili:download:BV1x"
+    },
+    {
+      "name": "missing_cookies",
+      "input": [
+        "SESSDATA",
+        "buvid3"
+      ],
+      "output": [
+        "bili_jct",
+        "DedeUserID"
+      ]
+    }
+  ]
+}

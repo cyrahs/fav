@@ -1,0 +1,28 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "ts": 0,
+      "hexsign": "327a306250398c2b527fea0bab19f76c30baaeb93ab30c69c429445f7b9e5534"
+    },
+    {
+      "ts": 1,
+      "hexsign": "63216f0c9b503aeaa3a8b876a6da080ca900d883eba4a42e8ebe6d6a3368a7ed"
+    },
+    {
+      "ts": 1700000000,
+      "hexsign": "bb79f0d980ffbb51597aa1a3e8b55603025cc1322ac766f4c1a98852e6182514"
+    },
+    {
+      "ts": 1800000000,
+      "hexsign": "666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916"
+    },
+    {
+      "ts": 4102444800,
+      "hexsign": "12c1b0dfe33d11f227c67c954a3896aafbba24bb3437c45dd0fb3d5d36cb1605"
+    }
+  ]
+}

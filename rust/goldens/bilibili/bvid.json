@@ -1,0 +1,86 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "bvid": "BV1xx411c7mD",
+      "aid": 2
+    },
+    {
+      "bvid": "BV1GJ411x7h7",
+      "aid": 80433022
+    },
+    {
+      "bvid": "BV17x411w7KC",
+      "aid": 170001
+    },
+    {
+      "bvid": "BV1Q541167Qg",
+      "aid": 455017605
+    },
+    {
+      "bvid": "BV1mK4y1C7Bz",
+      "aid": 882584971
+    },
+    {
+      "bvid": "BV1wM4m1S7oo",
+      "aid": 1305589742
+    },
+    {
+      "bvid": "BV1TEST1",
+      "error_class": "ArgsException",
+      "error": "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+    },
+    {
+      "bvid": "BVEXIST",
+      "error_class": "ArgsException",
+      "error": "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+    },
+    {
+      "bvid": "av170001",
+      "error_class": "ArgsException",
+      "error": "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+    },
+    {
+      "bvid": "bv1xx411c7mD",
+      "error_class": "ArgsException",
+      "error": "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+    },
+    {
+      "bvid": "BV1xx411c7m",
+      "error_class": "ArgsException",
+      "error": "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+    },
+    {
+      "bvid": "BV1xx411c7mDD",
+      "error_class": "ArgsException",
+      "error": "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+    },
+    {
+      "bvid": "BV1xx411c7m!",
+      "error_class": "ArgsException",
+      "error": "bvid 提供错误，必须是以 BV 开头的纯字母和数字组成的 12 位字符串（大小写敏感）。"
+    },
+    {
+      "bvid": "BV1Ox411c7mD",
+      "error_class": "ValueError",
+      "error": "b'O' is not in list"
+    },
+    {
+      "bvid": "BV10x411c7mD",
+      "error_class": "ValueError",
+      "error": "b'0' is not in list"
+    },
+    {
+      "bvid": "BVzzzzzzzzzz",
+      "aid": 425297679346289
+    },
+    {
+      "bvid": "BV1xx411c7mD\n",
+      "error_class": "ValueError",
+      "error": "b'\\n' is not in list"
+    }
+  ]
+}

@@ -1,0 +1,194 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "call": "toview_list",
+      "result": {
+        "count": 1,
+        "list": [
+          {
+            "bvid": "BV1xx411c7mD"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/v2/history/toview",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=sess%2Cdata; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    },
+    {
+      "call": "toview_clear",
+      "result": {
+        "count": 1,
+        "list": [
+          {
+            "bvid": "BV1xx411c7mD"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/x/v2/history/toview/clear",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=sess%2Cdata; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": "application/x-www-form-urlencoded",
+          "body": "csrf=jct&csrf_token=jct"
+        }
+      ]
+    },
+    {
+      "call": "fav_content_page_1",
+      "result": {
+        "count": 1,
+        "list": [
+          {
+            "bvid": "BV1xx411c7mD"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/v3/fav/resource/list?media_id=123&pn=1&ps=20&order=mtime&tid=0&type=0",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=sess%2Cdata; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    },
+    {
+      "call": "fav_content_page_3",
+      "result": {
+        "count": 1,
+        "list": [
+          {
+            "bvid": "BV1xx411c7mD"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/v3/fav/resource/list?media_id=9876543210&pn=3&ps=20&order=mtime&tid=0&type=0",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=sess%2Cdata; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    },
+    {
+      "call": "video_info",
+      "result": {
+        "count": 1,
+        "list": [
+          {
+            "bvid": "BV1xx411c7mD"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/view?bvid=BV1xx411c7mD&aid=2",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=sess%2Cdata; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    },
+    {
+      "call": "video_detail",
+      "result": {
+        "count": 1,
+        "list": [
+          {
+            "bvid": "BV1xx411c7mD"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/wbi/view/detail?bvid=BV1GJ411x7h7&aid=80433022&need_operation_card=0&need_elec=0",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=sess%2Cdata; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    },
+    {
+      "call": "toview_list",
+      "sessdata": "a b/c,d",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/v2/history/toview",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=a%20b/c%2Cd; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    },
+    {
+      "call": "toview_list",
+      "sessdata": "already%2Cquoted",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/v2/history/toview",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=already%2Cquoted; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    },
+    {
+      "call": "toview_list",
+      "sessdata": "值",
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/v2/history/toview",
+          "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+          "referer": "https://www.bilibili.com",
+          "origin": null,
+          "cookie": "SESSDATA=%E5%80%BC; buvid3=b3; bili_jct=jct; ac_time_value=; DedeUserID=42; opus-goback=1",
+          "content_type": null,
+          "body": ""
+        }
+      ]
+    }
+  ]
+}

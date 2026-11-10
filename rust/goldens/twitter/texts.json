@@ -1,0 +1,40 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "twitter",
+  "cases": [
+    {
+      "name": "FILENAME_FORMAT",
+      "value": "[{author[name]}] {date:%Y-%m-%d} [{tweet_id}_{num}].{extension}"
+    },
+    {
+      "name": "DIRECTORY_FORMAT",
+      "value": [
+        "{author[name]}"
+      ]
+    },
+    {
+      "name": "ARCHIVE_FILENAME",
+      "value": ".gallery-dl-archive.db"
+    },
+    {
+      "name": "COOKIE_FILENAME",
+      "value": "twitter-cookies.txt"
+    },
+    {
+      "name": "USER_LOOKUP_ERROR",
+      "value": "[twitter][error] NotFoundError: Requested user could not be found"
+    },
+    {
+      "name": "LOGIN_URL",
+      "value": "https://x.com/i/flow/login"
+    },
+    {
+      "name": "SESSION_COOKIE_URLS",
+      "value": [
+        "https://x.com/"
+      ]
+    }
+  ]
+}

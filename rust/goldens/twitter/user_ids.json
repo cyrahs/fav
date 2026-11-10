@@ -1,0 +1,52 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "twitter",
+  "cases": [
+    {
+      "twid": null,
+      "user_id": ""
+    },
+    {
+      "twid": "u%3D4242",
+      "user_id": "4242"
+    },
+    {
+      "twid": "\"u=77\"",
+      "user_id": "77"
+    },
+    {
+      "twid": "garbage",
+      "user_id": ""
+    },
+    {
+      "twid": "u=",
+      "user_id": ""
+    },
+    {
+      "twid": "u=12a",
+      "user_id": ""
+    },
+    {
+      "twid": "u%253D5",
+      "user_id": ""
+    },
+    {
+      "twid": "\"u%3D9\"",
+      "user_id": "9"
+    },
+    {
+      "twid": "u=٣",
+      "user_id": "٣"
+    },
+    {
+      "twid": "U=1",
+      "user_id": ""
+    },
+    {
+      "twid": " u=1",
+      "user_id": ""
+    }
+  ]
+}
