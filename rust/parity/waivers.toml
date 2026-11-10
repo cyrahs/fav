@@ -39,3 +39,14 @@ reason = "search_video_ids has no caller in the baseline (keyword seeds were rem
 [[waiver]]
 test = "tests/test_hanime1.py::test_search_video_ids_returns_partial_results_when_a_genre_fails"
 reason = "search_video_ids has no caller in the baseline (keyword seeds were removed), so the Rust port does not carry it"
+
+# WP11. Live smoke tests against l2d.su and nagami, skipped in Python unless
+# FAV_RUN_LIVE_AZURLANE_SOURCE_SMOKE=1. The rewrite runs Azur Lane replay-only: the origin is
+# reachable only from nas-us-1, and no test or CI job of the Rust build calls it.
+[[waiver]]
+test = "tests/test_azurlane_l2d_sources.py::test_fetch_source_snapshots_live_counts_close_to_plan_baseline"
+reason = "live network smoke against l2d.su and nagami (opt-in in Python); the rewrite is replay-only for Azur Lane and never calls the origin from tests"
+
+[[waiver]]
+test = "tests/test_azurlane_l2d_sources.py::test_build_azurlane_model_catalog_live_counts_and_source_merges"
+reason = "live network smoke against l2d.su and nagami (opt-in in Python); the rewrite is replay-only for Azur Lane and never calls the origin from tests"

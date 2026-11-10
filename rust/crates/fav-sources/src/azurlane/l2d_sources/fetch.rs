@@ -16,9 +16,10 @@ use fav_net::reqwest::Method;
 use fav_net::{ClientOptions, ErrorClass, HttpClient, Request, TransportError};
 use fav_runtime::BoxFuture;
 
-use super::catalog::{l2d_su_primary_ship_index_url, l2d_su_ship_index_url};
+use super::catalog::{build_azurlane_model_catalog, l2d_su_primary_ship_index_url, l2d_su_ship_index_url};
+use super::health::build_azurlane_l2d_health_report;
 use super::model::{
-    AssetKind, AvailabilityState, AzurLaneModelCatalog, AzurLaneResourceValidationReport, AzurLaneSourceSnapshots, HTTP_ERROR_MIN,
+    AssetKind, AvailabilityState, AzurLaneL2DHealthReport, AzurLaneModelCatalog, AzurLaneResourceValidationReport, AzurLaneSourceSnapshots, HTTP_ERROR_MIN,
     L2DSuIndexData, L2DSuOriginProbe, L2DSuSourceSnapshot, ModelAvailability, ModelEntry, ModelKind, ModelResourceSummary,
     NagamiSourceSnapshot, ResourceCandidateValidation, ResourceCheck, ResourceValidationEntry, SourceErrorKind, SourceFetchMetadata,
     SourceSnapshotError, SpineResourceManifest, ValidationSource, ValidationStatus,
@@ -378,9 +379,14 @@ pub async fn probe_l2d_su_origin(proxy: &str, connect_host: &str) -> Result<L2DS
     if py_strip(proxy).is_empty() {
         return Ok(probe(false, "incomplete", "No proxy configured.".to_owned(), String::new()));
     }
-    let options = l2d_su_origin_client_options(py_strip(proxy), py_strip(connect_host), Duration::from_secs(45), 0);
-    let client = HttpClient::new(&options)?;
+    let client = HttpClient::new(&origin_probe_client_options(proxy, connect_host))?;
     Ok(run_origin_probe(&client, &l2d_su_primary_ship_index_url()).await)
+}
+
+/// The probe's client: the crawler's own route (proxy, and `connect_host` while l2d.su has
+/// no DNS record), so the settings page never reports a dead origin the crawler gets past.
+pub(crate) fn origin_probe_client_options(proxy: &str, connect_host: &str) -> ClientOptions {
+    l2d_su_origin_client_options(py_strip(proxy), py_strip(connect_host), Duration::from_secs(45), 0)
 }
 
 /// `_run_origin_probe`.
@@ -417,6 +423,45 @@ async fn probe_exit_ip(client: &dyn Fetch) -> String {
         Ok(response) if i128::from(response.status) < HTTP_ERROR_MIN => py_strip(&response.text()).to_owned(),
         _ => String::new(),
     }
+}
+
+// ---------- the health report ----------
+
+/// `validate_entry_ids` of `fetch_azurlane_l2d_health_report`.
+#[derive(Debug, Clone, Copy)]
+pub enum HealthValidation<'a> {
+    /// `None`: no resource validation.
+    Skip,
+    /// `'all'`.
+    All,
+    /// Only these entries; the rest are reported unchecked.
+    Only(&'a HashSet<String>),
+}
+
+/// `fetch_azurlane_l2d_health_report`: fetch both sources, build the catalog, validate the
+/// entries `validation` names, and report against `previous_report`.
+pub async fn fetch_azurlane_l2d_health_report(
+    client: &dyn Fetch,
+    validation: HealthValidation<'_>,
+    previous_report: Option<&AzurLaneL2DHealthReport>,
+    clock: Clock<'_>,
+) -> Result<AzurLaneL2DHealthReport, PyError> {
+    let snapshots = fetch_source_snapshots(client, None, None, clock).await?;
+    let mut catalog = build_azurlane_model_catalog(&snapshots)?;
+    let entry_ids = match validation {
+        HealthValidation::Skip => None,
+        HealthValidation::All => Some(None),
+        HealthValidation::Only(ids) => Some(Some(ids)),
+    };
+    let resource_validation = match entry_ids {
+        None => None,
+        Some(entry_ids) => {
+            let report = validate_azurlane_model_catalog_resources(&catalog, client, entry_ids, clock()).await?;
+            catalog = report.catalog.clone();
+            Some(report)
+        }
+    };
+    build_azurlane_l2d_health_report(&snapshots, Some(&catalog), resource_validation.as_ref(), previous_report, clock())
 }
 
 // ---------- resource validation ----------
