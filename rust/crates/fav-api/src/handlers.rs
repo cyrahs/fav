@@ -23,7 +23,7 @@ use regex::Regex;
 use crate::error::ApiError;
 use crate::params::{self, BigInt, Body, Errors, IntBounds, Source, StrRules};
 use crate::router::{Endpoint, PathParams, Request, json_response};
-use crate::{ApiState, archive, credentials, hanime1, json, masking, openapi, site_logins, web};
+use crate::{ApiState, archive, credentials, hanime1, json, masking, nikke, openapi, site_logins, web};
 
 const AUTH_PREFIX: &str = "Bearer ";
 
@@ -142,6 +142,9 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::ListHanime1Authors => hanime1::list_authors(state).await,
         Endpoint::DeleteHanime1Author => hanime1::delete_author(state, path("author_id")).await,
         Endpoint::ResolveKemonoCreator => resolve_kemono_creator(state, &body).await,
+        Endpoint::ListNikkeCharacters => nikke::list_characters(state, request).await,
+        Endpoint::ListNikkeSidebarCharacters => nikke::list_sidebar_characters(state, request).await,
+        Endpoint::GetNikkeCharacter => nikke::get_character(state, path("content_id")).await,
         Endpoint::ListSiteSessions => list_site_sessions(state).await,
         Endpoint::GetSiteCredential => get_site_credential(state, path("site"), request).await,
         Endpoint::Mcp => Ok(crate::mcp::handle(state, request).await),

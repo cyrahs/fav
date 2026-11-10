@@ -341,8 +341,8 @@ async fn backfill_runtime_layers_force_refresh_captures_even_when_previous_captu
         .await
         .expect("report");
 
-    let captured: Vec<i128> = capturer.requests().iter().map(|request| request.content_id).collect();
-    assert_eq!(captured, [CONTENT_ID]);
+    let content_ids: Vec<i128> = capturer.requests().iter().map(|request| request.content_id).collect();
+    assert_eq!(content_ids, [CONTENT_ID]);
     assert_eq!(get(&report, "failed_count"), &Value::Int(0));
     let result = results(&report)[0];
     assert_eq!(get(result, "action"), &s("captured"));

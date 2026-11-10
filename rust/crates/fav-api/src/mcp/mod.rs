@@ -31,6 +31,9 @@ mod ops;
 mod pydantic;
 mod tools;
 
+/// `datetime.fromisoformat`, which the Nikke sidebar sorts with too.
+pub(crate) use isoformat::{Parsed, fromisoformat};
+
 pub use ops::{WorkerProcess, local_timezone};
 
 #[cfg(test)]

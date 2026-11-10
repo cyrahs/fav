@@ -2,7 +2,7 @@
 //!
 //! `capture_gamekee_runtime_layers` opens a character page in headless Chromium and reads
 //! the stacking order of its Live2D players. WP17 ports it; until then the production
-//! capturer reports it unavailable (DIVERGENCES.md D90). The scheduled crawl never asks
+//! capturer reports it unavailable (DIVERGENCES.md D85). The scheduled crawl never asks
 //! for a capture (`allow_runtime_capture=False`), so only `download_character` and the
 //! `nikke-layers` command's capture modes meet that error.
 

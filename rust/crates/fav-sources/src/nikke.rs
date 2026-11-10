@@ -10,7 +10,7 @@
 //! This file holds the page parsing and the pure helpers; [`crawl`] has the job itself.
 //! The runtime layer capture (`nikke_runtime.py`, a headless browser) is WP17's: until then
 //! [`runtime::RuntimeCapturer`]'s production implementation reports it unavailable, which the
-//! scheduled job never asks for (DIVERGENCES.md D90).
+//! scheduled job never asks for (DIVERGENCES.md D85).
 
 use std::collections::HashMap;
 

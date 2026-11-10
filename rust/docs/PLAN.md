@@ -136,7 +136,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP6 | 3 HTTP sources | Stella Sora, Pixiv | 1,700 | done |
 | WP7 | 3 HTTP sources | Bilibili, X, with the yt-dlp and gallery-dl subprocess wrappers | 1,500 | done |
 | WP8 | 3 HTTP sources | Hanime1 with series, author subscriptions, ranking discovery and its endpoints | 2,600 | done |
-| WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | pending |
+| WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | done |
 | WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | pending |
 | WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | pending |
 | WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | pending |
@@ -213,6 +213,19 @@ Shared pieces that parallel work packages built twice, to fold together once bot
   universal-newline test (`command_output_is_read_with_universal_newlines`) on whichever survives.
 - WP8 (`fav-sources/src/pyre.rs`): Python `re` translation (`\s`, `fancy-regex` for back-references) and
   small `int()`/`parse_qs` helpers, local to `fav-sources`; move to `fav-core` if a later source needs them.
+- WP9 (`fav-api/src/summary_cache.rs`, `fav-api/src/spine.rs`): the summary cache (version 1 only) and the
+  Spine version probe are crate-level in `fav-api`; WP10 (BD2), built in parallel, may keep private copies.
+  Fold BD2 onto these, and add version 2 (`read_summary_records`) here for WP12. `fav-sources`'
+  `content_discovery` (newly archived characters and cosmetic items) is likewise WP9's for WP10 to reuse.
+- WP9 (`fav-api/src/nikke/schema.rs`): `LIVE2D_VECTOR2` and `LIVE2D_VIEW_OVERRIDE_VALUE` are declared there
+  for the OpenAPI components; WP10's override store owns them. Keep one declaration. The Nikke detail's
+  `model_id` (`assign_live2d_model_ids`) and `view_overrides`, and the `/nikke/characters/{id}/live2d/
+  view-overrides/{profile}` routes (still `PENDING` in `openapi.rs`), are wired by whichever of WP9 and WP10
+  merges second; until then `model_id` is `""` and `view_overrides` `{}`, and
+  `test_nikke_live2d_view_override_save_and_detail_overlay` is in WP10's scope.
+- WP9 (`fav-api/src/openapi.rs`): `Op` gained `bare_responses` (responses without a JSON body, the sidebar's
+  304); `mcp::fromisoformat` is re-exported for the sidebar sort key. Move `fromisoformat` to `fav-core` if a
+  third caller appears.
 
 ## Experiment log
 

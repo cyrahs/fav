@@ -45,12 +45,11 @@ pub const PENDING: &[(&str, &str)] = &[
         "/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}",
         "WP10",
     ),
-    ("/api/v2/nikke/characters", "WP9"),
-    ("/api/v2/nikke/sidebar/characters", "WP9"),
-    ("/api/v2/nikke/characters/{content_id}", "WP9"),
+    // The Nikke view overrides need WP10's override store; whichever of WP9 and WP10
+    // merges second serves them.
     (
         "/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}",
-        "WP9",
+        "WP10",
     ),
     ("/api/v2/site-sessions/{site}/login", "WP16"),
     ("/api/v2/site-sessions/login", "WP16"),
@@ -166,7 +165,9 @@ fn create_model(name: &str, field: &'static str, title: &str) -> RefOr<Schema> {
 
 /// The components, alphabetically, as FastAPI lists them.
 fn schemas() -> Vec<(&'static str, RefOr<Schema>)> {
-    [schemas_a(), schemas_hanime1(), schemas_b(), schemas_c(), schemas_c2(), schemas_d()].concat()
+    let mut schemas = [schemas_a(), schemas_hanime1(), schemas_b(), schemas_c(), schemas_c2(), schemas_d()].concat();
+    schemas.extend(crate::nikke::schema::components());
+    schemas
 }
 
 fn schemas_a() -> Vec<(&'static str, RefOr<Schema>)> {
@@ -658,6 +659,8 @@ struct Op {
     response: &'static str,
     /// Further responses with the same model (`responses={503: ...}`): status, description.
     extra_responses: Vec<(&'static str, &'static str)>,
+    /// Further responses without a body (`responses={304: {'description': ...}}`).
+    bare_responses: Vec<(&'static str, &'static str)>,
     parameters: Vec<utoipa::openapi::path::Parameter>,
     body: Option<RefOr<Schema>>,
 }
@@ -672,6 +675,7 @@ impl Op {
             status: "200",
             response,
             extra_responses: Vec::new(),
+            bare_responses: Vec::new(),
             parameters: Vec::new(),
             body: None,
         }
@@ -699,6 +703,9 @@ impl Op {
                     .description(description)
                     .content("application/json", json_content(reference(self.response))),
             );
+        }
+        for (status, description) in self.bare_responses {
+            builder = builder.response(status, ResponseBuilder::new().description(description));
         }
         if validates {
             builder = builder.response(
@@ -758,6 +765,8 @@ fn paths() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     let mut paths = paths_a();
     paths.extend(paths_b());
     paths.extend(paths_hanime1());
+    paths.extend(paths_kemono());
+    paths.extend(paths_nikke());
     paths.extend(paths_c());
     paths
 }
@@ -989,18 +998,90 @@ fn paths_hanime1() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     ]
 }
 
-fn paths_c() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
+fn paths_kemono() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
+    vec![(
+        "/api/v2/kemono/creators/resolve",
+        vec![(
+            HttpMethod::Post,
+            Op {
+                body: Some(reference("KemonoCreatorResolveRequest")),
+                ..Op::new("kemono", "Resolve Kemono Creator", "resolveKemonoCreator", "KemonoCreatorResolved")
+            },
+        )],
+    )]
+}
+
+/// The `q` parameter of the Nikke lists (`NikkeSearchQuery`).
+fn nikke_query_parameter() -> utoipa::openapi::path::Parameter {
+    parameter(
+        "q",
+        ParameterIn::Query,
+        false,
+        AnyOfBuilder::new()
+            .item(ObjectBuilder::new().schema_type(Type::String).min_length(Some(1)))
+            .item(ObjectBuilder::new().schema_type(Type::Null))
+            .extensions(Some(extensions(&[("title", json!("Q"))])))
+            .into(),
+    )
+}
+
+fn paths_nikke() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     vec![
         (
-            "/api/v2/kemono/creators/resolve",
+            "/api/v2/nikke/characters",
             vec![(
-                HttpMethod::Post,
+                HttpMethod::Get,
                 Op {
-                    body: Some(reference("KemonoCreatorResolveRequest")),
-                    ..Op::new("kemono", "Resolve Kemono Creator", "resolveKemonoCreator", "KemonoCreatorResolved")
+                    parameters: vec![
+                        nikke_query_parameter(),
+                        parameter("limit", ParameterIn::Query, false, bounded_int("Limit", Some(1), Some(500), 200)),
+                        parameter("offset", ParameterIn::Query, false, bounded_int("Offset", Some(0), None, 0)),
+                    ],
+                    ..Op::new(
+                        "nikke",
+                        "List Nikke Characters",
+                        "listNikkeCharacters",
+                        "NikkeCharacterListResponse",
+                    )
                 },
             )],
         ),
+        (
+            "/api/v2/nikke/sidebar/characters",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![nikke_query_parameter()],
+                    bare_responses: vec![("304", "Not modified")],
+                    ..Op::new(
+                        "nikke",
+                        "List Nikke Sidebar Characters",
+                        "listNikkeSidebarCharacters",
+                        "NikkeSidebarCharacterListResponse",
+                    )
+                },
+            )],
+        ),
+        (
+            "/api/v2/nikke/characters/{content_id}",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![parameter(
+                        "content_id",
+                        ParameterIn::Path,
+                        true,
+                        typed(Type::Integer, "Content Id").exclusive_minimum(Some(0)).into(),
+                    )],
+                    ..Op::new("nikke", "Get Nikke Character", "getNikkeCharacter", "NikkeCharacterDetail")
+                },
+            )],
+        ),
+    ]
+}
+
+fn paths_c() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
+    vec![
         (
             "/api/v2/site-sessions",
             vec![(

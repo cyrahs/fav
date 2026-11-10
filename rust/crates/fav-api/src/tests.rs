@@ -105,6 +105,7 @@ impl Harness {
             hanime1_series: Arc::new(FakeSeries::default()),
             hanime1_authors: Arc::new(FakeAuthors::default()),
             readiness: crate::hanime1::Readiness::default(),
+            nikke: crate::nikke::NikkeLibraries::default(),
         };
         Self { database, state }
     }
