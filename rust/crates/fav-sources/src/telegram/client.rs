@@ -326,8 +326,15 @@ pub trait TgClient: Send + Sync {
     /// message that is empty, deleted or of another channel.
     fn get_messages<'a>(&'a self, channel_id: i64, ids: &'a [i64]) -> BoxFuture<'a, Result<Vec<Option<TgMessage>>, TgError>>;
 
-    /// Download `location` (of `size` bytes, if known) into `path`.
-    fn download<'a>(&'a self, location: &'a Location, path: &'a Path, size: Option<i64>) -> BoxFuture<'a, Result<(), TgError>>;
+    /// Download `location` (of `size` bytes, if known) into `path`. `msg_data` is the
+    /// `(channel id, message id)` the media came from, to refresh an expired document.
+    fn download<'a>(
+        &'a self,
+        location: &'a Location,
+        path: &'a Path,
+        size: Option<i64>,
+        msg_data: (i64, i64),
+    ) -> BoxFuture<'a, Result<(), TgError>>;
 
     /// `disconnect()`: never fails.
     fn disconnect(&self) -> BoxFuture<'_, ()>;

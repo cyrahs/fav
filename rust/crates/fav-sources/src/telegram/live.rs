@@ -428,6 +428,36 @@ impl GrammersClient {
         self.retries.final_error(error)
     }
 
+    /// `_DirectDownloadIter._request`: a document whose file reference expired mid-download
+    /// is fetched again (`get_messages(chat, ids=msg_id)`) and the download resumes with the
+    /// new reference, unless the message no longer holds that document. `None` raises the
+    /// download's error.
+    async fn refreshed_reference(
+        &self,
+        error: &TgError,
+        document_id: Option<i64>,
+        (channel_id, message_id): (i64, i64),
+    ) -> Result<Option<Vec<u8>>, TgError> {
+        let Some(document_id) = document_id else {
+            return Ok(None);
+        };
+        if !matches!(error.class.as_str(), "FileReferenceExpiredError" | "FilerefUpgradeNeededError") {
+            return Ok(None);
+        }
+        let message = self.get_messages(channel_id, &[message_id]).await?.into_iter().next().flatten();
+        let Some(message) = message else {
+            return Err(TgError::new(
+                "AttributeError",
+                "'NoneType' object has no attribute 'media'",
+                ErrorKind::Other,
+            ));
+        };
+        Ok(match message.media {
+            Some(Media::Document(Some(document))) if document.id == document_id => Some(document.file_reference),
+            _ => None,
+        })
+    }
+
     /// `await self(request)`: `_call`'s flood-wait check, then the request with its retries.
     async fn call<R: tl::RemoteCall + tl::Identifiable>(&self, request: &R) -> Result<R::Return, TgError> {
         self.retries.before(R::CONSTRUCTOR_ID).await?;
@@ -573,7 +603,15 @@ impl TgClient for GrammersClient {
                     })
                     .collect(),
             };
-            let answer = self.call(&call).await?;
+            let answer = match self.call(&call).await {
+                // "All IDs were invalid, use a dummy result" (`_IDsIter`).
+                Err(error) if error.class == "MessageIdsEmptyError" => {
+                    tl::enums::messages::Messages::NotModified(tl::types::messages::MessagesNotModified {
+                        count: i32::try_from(ids.len()).unwrap_or(i32::MAX),
+                    })
+                }
+                other => other?,
+            };
             let (messages, chats) = match answer {
                 tl::enums::messages::Messages::Messages(all) => (all.messages, all.chats),
                 tl::enums::messages::Messages::Slice(slice) => (slice.messages, slice.chats),
@@ -593,8 +631,18 @@ impl TgClient for GrammersClient {
         })
     }
 
-    fn download<'a>(&'a self, location: &'a Location, path: &'a Path, size: Option<i64>) -> BoxFuture<'a, Result<(), TgError>> {
+    fn download<'a>(
+        &'a self,
+        location: &'a Location,
+        path: &'a Path,
+        size: Option<i64>,
+        msg_data: (i64, i64),
+    ) -> BoxFuture<'a, Result<(), TgError>> {
         Box::pin(async move {
+            let document_id = match location {
+                Location::Document { document } => Some(document.id),
+                _ => None,
+            };
             let (location, dc_id) = match location {
                 Location::Photo { photo, thumb_size } => (
                     tl::enums::InputFileLocation::InputPhotoFileLocation(tl::types::InputPhotoFileLocation {
@@ -618,21 +666,38 @@ impl TgClient for GrammersClient {
                     return tokio::fs::write(path, bytes).await.map_err(|error| TgError::io(&error));
                 }
             };
-            let target = FileLocation {
+            let mut target = FileLocation {
                 location,
                 size: size.and_then(|size| usize::try_from(size).ok()),
                 dc_id,
             };
             let mut file = tokio::fs::File::create(path).await.map_err(|error| TgError::io(&error))?;
-            let mut download = self.client.iter_download(&target);
-            loop {
-                self.retries
-                    .before(<tl::functions::upload::GetFile as tl::Identifiable>::CONSTRUCTOR_ID)
-                    .await?;
-                let Some(chunk) = download.next().await.map_err(|error| self.invoke_error(&error))? else {
-                    break;
-                };
-                file.write_all(&chunk).await.map_err(|error| TgError::io(&error))?;
+            // Every chunk but the last is whole, so a new iterator resumes after `chunks`.
+            let mut chunks = 0_i32;
+            'resume: loop {
+                let mut download = self.client.iter_download(&target).skip_chunks(chunks);
+                loop {
+                    self.retries
+                        .before(<tl::functions::upload::GetFile as tl::Identifiable>::CONSTRUCTOR_ID)
+                        .await?;
+                    match download.next().await {
+                        Ok(Some(chunk)) => {
+                            file.write_all(&chunk).await.map_err(|error| TgError::io(&error))?;
+                            chunks = chunks.saturating_add(1);
+                        }
+                        Ok(None) => break 'resume,
+                        Err(error) => {
+                            let error = self.invoke_error(&error);
+                            if let Some(reference) = self.refreshed_reference(&error, document_id, msg_data).await? {
+                                if let tl::enums::InputFileLocation::InputDocumentFileLocation(location) = &mut target.location {
+                                    location.file_reference = reference;
+                                }
+                                continue 'resume;
+                            }
+                            return Err(error);
+                        }
+                    }
+                }
             }
             file.flush().await.map_err(|error| TgError::io(&error))?;
             Ok(())
@@ -737,35 +802,35 @@ impl Connector for GrammersConnector {
     }
 }
 
-/// Forward new messages until the stream fails, saving the update state every minute and
-/// at the end; the failure ends the connection (`client.disconnected`).
+/// Forward new messages until the stream fails; the failure ends the connection
+/// (`client.disconnected`). The update state is written at most once a minute, after an
+/// update, and at the end. `next_raw` is never raced against a timer: it takes a batch of
+/// updates before it awaits the session, so dropping it mid-way would lose that batch.
 async fn pump_updates(
     mut stream: grammers_client::client::UpdateStream,
     tx: mpsc::Sender<TgMessage>,
     done: oneshot::Sender<Result<(), TgError>>,
 ) {
-    let mut save = tokio::time::interval(STATE_SAVE_INTERVAL);
-    save.tick().await;
+    let mut saved = tokio::time::Instant::now();
     let outcome = loop {
-        tokio::select! {
-            next = stream.next_raw() => match next {
-                Ok((update, _state, _peers)) => {
-                    let raw = match &update {
-                        tl::enums::Update::NewChannelMessage(update) => Some(&update.message),
-                        tl::enums::Update::NewMessage(update) => Some(&update.message),
-                        _ => None,
-                    };
-                    if let Some(message) = raw.and_then(message)
-                        && tx.send(message).await.is_err()
-                    {
-                        break Ok(());
-                    }
+        match stream.next_raw().await {
+            Ok((update, _state, _peers)) => {
+                let raw = match &update {
+                    tl::enums::Update::NewChannelMessage(update) => Some(&update.message),
+                    tl::enums::Update::NewMessage(update) => Some(&update.message),
+                    _ => None,
+                };
+                if let Some(message) = raw.and_then(message)
+                    && tx.send(message).await.is_err()
+                {
+                    break Ok(());
                 }
-                Err(error) => break Err(invocation_error(&error)),
-            },
-            _ = save.tick() => {
-                let _ = stream.sync_update_state().await;
+                if saved.elapsed() >= STATE_SAVE_INTERVAL {
+                    let _ = stream.sync_update_state().await;
+                    saved = tokio::time::Instant::now();
+                }
             }
+            Err(error) => break Err(invocation_error(&error)),
         }
     };
     let _ = stream.sync_update_state().await;

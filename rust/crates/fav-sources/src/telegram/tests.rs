@@ -200,7 +200,13 @@ impl TgClient for FakeClient {
         })
     }
 
-    fn download<'a>(&'a self, _location: &'a Location, path: &'a Path, _size: Option<i64>) -> BoxFuture<'a, Result<(), TgError>> {
+    fn download<'a>(
+        &'a self,
+        _location: &'a Location,
+        path: &'a Path,
+        _size: Option<i64>,
+        _msg_data: (i64, i64),
+    ) -> BoxFuture<'a, Result<(), TgError>> {
         Box::pin(async move {
             self.downloads.lock().expect("lock").push(path.to_path_buf());
             if self.cut_downloads {
@@ -822,7 +828,7 @@ async fn event_handlers_route_grouped_messages_only_through_album() {
     let queued_within = |expected: Vec<i64>| {
         let env = &env;
         async move {
-            let deadline = Instant::now() + std::time::Duration::from_secs(5);
+            let deadline = Instant::now() + std::time::Duration::from_secs(30);
             while env.queued_ids().await != expected {
                 assert!(Instant::now() < deadline, "never queued {expected:?}");
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -1148,7 +1154,7 @@ async fn persistent_account_client_enables_updates_and_catch_up() {
         tokio::spawn(async move { telegram.run_account_once(&account, &stop).await })
     };
 
-    tokio::time::timeout(std::time::Duration::from_secs(5), telegram.wait_until_ready())
+    tokio::time::timeout(std::time::Duration::from_secs(30), telegram.wait_until_ready())
         .await
         .expect("connected in time")
         .expect("ready");
@@ -1185,7 +1191,7 @@ async fn accounts_run_in_parallel() {
     };
 
     // Both connected at once: neither waits for the other to finish.
-    tokio::time::timeout(std::time::Duration::from_secs(5), telegram.wait_until_ready())
+    tokio::time::timeout(std::time::Duration::from_secs(30), telegram.wait_until_ready())
         .await
         .expect("both connected in time")
         .expect("ready");

@@ -1243,7 +1243,10 @@ impl Telegram {
         };
         let written = match &plan.location {
             Location::Inline(bytes) => tokio::fs::write(&plan.path, bytes).await.map_err(|error| TgError::io(&error)),
-            location => client.download(location, &plan.path, plan.size).await,
+            location => {
+                let msg_data = (message.channel_id.unwrap_or(channel_id), message.id);
+                client.download(location, &plan.path, plan.size, msg_data).await
+            }
         };
         if let Err(error) = written {
             // Telethon leaves the partial file in its temporary folder (D152).
