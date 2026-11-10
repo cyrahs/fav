@@ -17,6 +17,7 @@ use std::sync::Once;
 pub use reqwest;
 
 pub mod client;
+pub mod connect_to;
 pub mod download;
 pub mod retry;
 pub mod subprocess;
@@ -55,6 +56,9 @@ pub enum ErrorClass {
     TooManyRedirects,
     DecodingError,
     InvalidUrl,
+    /// The proxy refused a tunnel (`httpx.ProxyError`): CONNECT answered outside 2xx, or a
+    /// SOCKS failure.
+    ProxyError,
 }
 
 impl ErrorClass {
@@ -67,6 +71,9 @@ impl ErrorClass {
     /// decode content stays `DecodingError`. reqwest has no write timeout, so the mapping
     /// is approximate (DIVERGENCES.md D18).
     pub fn of(error: &reqwest::Error) -> Self {
+        if refused_tunnel(error) {
+            return Self::ProxyError;
+        }
         if error.is_timeout() {
             return if error.is_connect() {
                 Self::ConnectTimeout
@@ -134,6 +141,7 @@ impl ErrorClass {
             Self::TooManyRedirects => "TooManyRedirects",
             Self::DecodingError => "DecodingError",
             Self::InvalidUrl => "InvalidURL",
+            Self::ProxyError => "ProxyError",
         }
     }
 
@@ -157,6 +165,20 @@ impl ErrorClass {
     pub fn is_transport(self) -> bool {
         !matches!(self, Self::TooManyRedirects | Self::DecodingError | Self::InvalidUrl)
     }
+}
+
+/// Whether reqwest failed because the proxy answered its CONNECT with something other than
+/// 200 (hyper-util's tunnel errors are not exported, so they are known by their text).
+fn refused_tunnel(error: &reqwest::Error) -> bool {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(error);
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if text == "tunnel error: unsuccessful" || text == "tunnel error: proxy authorization required" {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
 }
 
 /// The httpx exception class name a reqwest transport error stands in for.
