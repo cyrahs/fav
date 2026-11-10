@@ -1,35 +1,11 @@
 //! `int(text)`: Python's parsing of a base-10 integer from a string.
 //!
 //! Python accepts surrounding whitespace, a sign, any Unicode decimal digit (category
-//! `Nd`, so `'٣'` is 3) and single underscores between digits. Its integers are unbounded;
+//! `Nd`, so `'٣'` is 3, read with [`crate::pytext::py_decimal_value`]) and single
+//! underscores between digits. Its integers are unbounded;
 //! this model keeps 128 bits and says when a number does not fit.
 
-use crate::pytext::py_strip;
-
-/// The code points of the `0` of every run of ten Unicode decimal digits (Python 3.12,
-/// Unicode 15.0): each `Nd` character is `zero + value` for one of these.
-const DECIMAL_ZEROS: [u32; 68] = [
-    0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20, 0x1040, 0x1090,
-    0x17e0, 0x1810, 0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620, 0xa8d0, 0xa900, 0xa9d0, 0xa9f0, 0xaa50, 0xabf0,
-    0xff10, 0x104a0, 0x10d30, 0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650, 0x116c0, 0x11730, 0x118e0, 0x11950,
-    0x11c50, 0x11d50, 0x11da0, 0x11f50, 0x16a60, 0x16ac0, 0x16b50, 0x1d7ce, 0x1d7d8, 0x1d7e2, 0x1d7ec, 0x1d7f6, 0x1e140, 0x1e2f0, 0x1e4f0,
-    0x1e950, 0x1fbf0,
-];
-
-/// `unicodedata.decimal(ch)`: the value of a decimal digit, `None` for anything else
-/// (superscripts and circled digits are digits to `str.isdigit()` but not decimals).
-pub fn decimal_value(ch: char) -> Option<u32> {
-    let code = u32::from(ch);
-    let index = DECIMAL_ZEROS.partition_point(|&zero| zero <= code);
-    let zero = *DECIMAL_ZEROS.get(index.checked_sub(1)?)?;
-    let value = code - zero;
-    (value < 10).then_some(value)
-}
-
-/// `str.isdecimal()`.
-pub fn py_isdecimal(text: &str) -> bool {
-    !text.is_empty() && text.chars().all(|ch| decimal_value(ch).is_some())
-}
+use crate::pytext::{py_decimal_value as decimal_value, py_strip};
 
 /// Why `int(text)` gave no `i128`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,19 +60,7 @@ pub fn decimal_digits_to_float(text: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{IntError, decimal_digits_to_float, decimal_value, parse_int, py_isdecimal};
-
-    #[test]
-    fn decimals_are_category_nd_only() {
-        assert_eq!(decimal_value('7'), Some(7));
-        assert_eq!(decimal_value('٣'), Some(3));
-        assert_eq!(decimal_value('९'), Some(9));
-        assert_eq!(decimal_value('\u{1d7d8}'), Some(0));
-        assert_eq!(decimal_value('²'), None);
-        assert_eq!(decimal_value('a'), None);
-        assert!(py_isdecimal("१८००"));
-        assert!(!py_isdecimal(""));
-    }
+    use super::{IntError, decimal_digits_to_float, parse_int};
 
     #[test]
     fn int_reads_like_python() {

@@ -517,4 +517,25 @@ mod tests {
     fn api_job_enum_includes_pixiv() {
         assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"pixiv"));
     }
+
+    // py: tests/test_twitter.py::test_the_archive_links_a_row_to_the_tweet_without_needing_the_handle
+    #[test]
+    fn the_archive_links_a_twitter_row_to_the_tweet_without_needing_the_handle() {
+        let source = source("twitter").expect("twitter is archived");
+        let row: Row = vec![
+            ("tweet_id".to_owned(), Value::from(1234_i64)),
+            ("num".to_owned(), Value::from(1_i64)),
+        ];
+        let settings = fav_db::settings_store::default_settings();
+        assert_eq!(
+            external_url(source, &row, &settings).as_deref(),
+            Some("https://x.com/i/status/1234")
+        );
+    }
+
+    // py: tests/test_twitter.py::test_api_job_enum_includes_twitter
+    #[test]
+    fn api_job_enum_includes_twitter() {
+        assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"twitter"));
+    }
 }

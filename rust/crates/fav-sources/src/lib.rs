@@ -25,6 +25,7 @@ pub mod stellasora;
 mod testkit;
 #[cfg(test)]
 mod testutil;
+pub mod twitter;
 
 pub use kit::{HttpError, Notifier, OutboxNotifier};
 pub use pydecode::PyError;
@@ -46,6 +47,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     bilibili::register(&mut registry, ctx);
     stellasora::register(&mut registry, ctx);
     pixiv::register(&mut registry, ctx);
+    twitter::register(&mut registry, ctx);
     jandan::register(&mut registry, ctx);
     kemono::register(&mut registry, ctx);
     registry
