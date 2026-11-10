@@ -26,7 +26,6 @@ from urllib.parse import parse_qsl
 import bilibili_api as api
 import httpx
 from bilibili_api.utils import network
-
 from src.core import settings
 from src.tool.site_sessions import StoredCookie
 from src.web import bilibili, bilibili_session
@@ -34,6 +33,8 @@ from src.web import bilibili, bilibili_session
 NOW = 1_800_000_000.0
 
 _CREDENTIAL = {'sessdata': 'sess,data', 'bili_jct': 'jct', 'buvid3': 'b3', 'dedeuserid': '42'}
+# Floats from here up are recorded as their repr; the Rust test turns them back into floats.
+_BIG_FLOAT = 1e20
 
 
 def _exc(exc: BaseException) -> dict[str, str]:
@@ -99,7 +100,7 @@ def _api_requests() -> list[dict[str, Any]]:
         async def main(credential: dict[str, str] = credential) -> list[httpx.Request]:
             seen: list[httpx.Request] = []
             network.get_client()
-            api.set_session(httpx.AsyncClient(transport=httpx.MockTransport(lambda r: seen.append(r) or _OK_LIST)))
+            api.set_session(httpx.AsyncClient(transport=httpx.MockTransport(lambda r: seen.append(r) or _OK_LIST)))  # noqa: B023 - the closure runs within this iteration
             await api.user.get_toview_list(credential=api.Credential(**credential))
             return seen
 
@@ -316,7 +317,16 @@ _SET_COOKIES: list[tuple[str, list[str]]] = [
     ('https://passport.bilibili.com/x', ['keep=1', 'broken=2; Max-Age', 'after=3']),
     ('https://passport.bilibili.com:8443/x', ['p1=1; Port="8443"', 'p2=2; Port=80, 443', 'p3=3; Port', 'p4=4; Port=x', 'p5=5; Port=443']),
     ('https://passport.bilibili.com/a%7eb/c d', ['esc=1', 'pathesc=2; Path=/%c3%bc/%7e x[y]']),
-    ('https://passport.bilibili.com/x', ['v=1; Version="1"; Path=/', 'w="quoted value"; secure; HttpOnly; SameSite=Lax', 'age=1; Max-Age=+60', 'neg=1; Max-Age=-1', 'u=1; Max-Age=1_0']),
+    (
+        'https://passport.bilibili.com/x',
+        [
+            'v=1; Version="1"; Path=/',
+            'w="quoted value"; secure; HttpOnly; SameSite=Lax',
+            'age=1; Max-Age=+60',
+            'neg=1; Max-Age=-1',
+            'u=1; Max-Age=1_0',
+        ],
+    ),
 ]
 
 
@@ -361,7 +371,7 @@ def _renew_ticket_cases() -> list[dict[str, Any]]:
         seen: list[httpx.Request] = []
 
         def handler(request: httpx.Request, answer: httpx.Response = answer) -> httpx.Response:
-            seen.append(request)
+            seen.append(request)  # noqa: B023 - the closure runs within this iteration
             return answer
 
         try:
@@ -370,7 +380,9 @@ def _renew_ticket_cases() -> list[dict[str, Any]]:
             outcome: dict[str, Any] = {'renewed': None if renewed is None else _dump_cookies(renewed)}
         except Exception as exc:  # noqa: BLE001
             outcome = _exc(exc)
-        cases.append({'cookies': _dump_cookies(cookies), 'answer': _response_dump(answer), 'requests': [_request(r) for r in seen], **outcome})
+        cases.append(
+            {'cookies': _dump_cookies(cookies), 'answer': _response_dump(answer), 'requests': [_request(r) for r in seen], **outcome}
+        )
     return cases
 
 
@@ -443,7 +455,7 @@ def _refresh_cases() -> list[dict[str, Any]]:
         saved: list[dict[str, Any]] = []
 
         def handler(request: httpx.Request, answers: dict[str, httpx.Response] = answers) -> httpx.Response:
-            seen.append(request)
+            seen.append(request)  # noqa: B023 - the closure runs within this iteration
             path = request.url.path
             if path.endswith('/cookie/info'):
                 return answers['info']
@@ -462,7 +474,7 @@ def _refresh_cases() -> list[dict[str, Any]]:
                 mock.patch.object(bilibili_session.time, 'time', return_value=NOW),
                 mock.patch.object(http.cookiejar.time, 'time', return_value=NOW),
                 mock.patch.object(bilibili_session, 'correspond_path', lambda ts: f'path-for-{ts}'),
-                mock.patch.object(bilibili_session.log, 'warning', lambda msg, *args: logged.append(msg % args)),
+                mock.patch.object(bilibili_session.log, 'warning', lambda msg, *args: logged.append(msg % args)),  # noqa: B023 - the closure runs within this iteration
             ):
                 result = asyncio.run(bilibili_session.refresh_session(_jar(), 'rt-old', save=save, transport=httpx.MockTransport(handler)))
             outcome: dict[str, Any] = {
@@ -499,7 +511,10 @@ def _verify_cases() -> list[dict[str, Any]]:
     scripts: list[tuple[tuple[StoredCookie, ...], Any]] = [
         (_stored(('SESSDATA', 'bili_jct', 'DedeUserID')), None),
         (_stored(()), None),
-        ((_cookie('sessdata', 'x'), _cookie('BILI_JCT', 'y'), _cookie('Buvid3', 'z'), _cookie('dedeuserid', '1')), (200, {'code': 0, 'data': {'isLogin': True, 'uname': 'u', 'mid': 1}})),
+        (
+            (_cookie('sessdata', 'x'), _cookie('BILI_JCT', 'y'), _cookie('Buvid3', 'z'), _cookie('dedeuserid', '1')),
+            (200, {'code': 0, 'data': {'isLogin': True, 'uname': 'u', 'mid': 1}}),
+        ),
         (_stored(), (200, {'code': 0, 'data': {'isLogin': True, 'uname': '某人', 'mid': 42}})),
         (_stored(), (200, {'code': 0, 'data': {'isLogin': True, 'uname': '', 'mid': 42}})),
         (_stored(), (200, {'code': 0, 'data': {'isLogin': True, 'uname': 'only', 'mid': 0}})),
@@ -516,14 +531,14 @@ def _verify_cases() -> list[dict[str, Any]]:
         (_stored(), (200, 'text')),
         (_stored(), (200, b'<html>')),
         (_stored(), (200, b'\xff\xfe')),
-        (_stored() + (_cookie('extra', ''), _cookie('more', 'm')), (200, {'code': 0, 'data': {'isLogin': True, 'uname': 'u', 'mid': 1}})),
+        ((*_stored(), _cookie('extra', ''), _cookie('more', 'm')), (200, {'code': 0, 'data': {'isLogin': True, 'uname': 'u', 'mid': 1}})),
     ]
     cases = []
     for cookies, answer in scripts:
         seen: list[httpx.Request] = []
 
         def handler(request: httpx.Request, answer: Any = answer) -> httpx.Response:
-            seen.append(request)
+            seen.append(request)  # noqa: B023 - the closure runs within this iteration
             status, payload = answer
             if isinstance(payload, bytes):
                 return httpx.Response(status, content=payload)
@@ -573,15 +588,22 @@ def _helpers() -> list[dict[str, Any]]:
         '////x',
         'not a url',
     ]
-    cases: list[dict[str, Any]] = []
-    for size in sizes:
-        cases.append({'helper': 'format_file_size', 'input': size, 'output': bilibili.Bilibili._format_file_size(size)})  # noqa: SLF001
+    cases: list[dict[str, Any]] = [
+        {'helper': 'format_file_size', 'input': size, 'output': bilibili.Bilibili._format_file_size(size)}  # noqa: SLF001
+        for size in sizes
+    ]
     for value in ints:
         try:
             output: Any = bilibili.Bilibili._to_positive_int(value)  # noqa: SLF001
         except Exception as exc:  # noqa: BLE001
             output = _exc(exc)
-        cases.append({'helper': 'to_positive_int', 'input': value if not isinstance(value, float) or value < 1e20 else str(value), 'output': output})
+        cases.append(
+            {
+                'helper': 'to_positive_int',
+                'input': value if not isinstance(value, float) or value < _BIG_FLOAT else str(value),
+                'output': output,
+            }
+        )
     for detail in views:
         try:
             resolution: Any = bilibili.Bilibili._extract_resolution_label(detail)  # noqa: SLF001
@@ -608,12 +630,35 @@ def _helpers() -> list[dict[str, Any]]:
 def _notifications() -> list[dict[str, Any]]:
     """`_notify_download` / `_resolve_download_failure_notification`: the exact calls."""
     combos: list[dict[str, Any]] = [
-        {'bvid': 'BV1wM4m1S7oo', 'title': '让你说话了吗?笨蛋', 'upper': '孟程程_', 'fav_id': 123, 'resolution': '720p',
-         'file_size_bytes': 20 * 1024 * 1024, 'release_date': '2024-01-01', 'cover_url': 'https://example.com/cover.jpg'},
+        {
+            'bvid': 'BV1wM4m1S7oo',
+            'title': '让你说话了吗?笨蛋',
+            'upper': '孟程程_',
+            'fav_id': 123,
+            'resolution': '720p',
+            'file_size_bytes': 20 * 1024 * 1024,
+            'release_date': '2024-01-01',
+            'cover_url': 'https://example.com/cover.jpg',
+        },
         {'bvid': 'BV1xx411c7mD', 'title': 't', 'upper': 'u', 'fav_id': -1},
-        {'bvid': 'BV1xx411c7mD', 'title': 't', 'upper': 'u', 'fav_id': -1, 'resolution': '', 'file_size_bytes': 0,
-         'release_date': '   ', 'cover_url': ''},
-        {'bvid': 'BV1xx411c7mD', 'title': 'multi\nline', 'upper': 'u', 'fav_id': 7, 'file_size_bytes': 1023, 'release_date': ' 2020-02-02 '},
+        {
+            'bvid': 'BV1xx411c7mD',
+            'title': 't',
+            'upper': 'u',
+            'fav_id': -1,
+            'resolution': '',
+            'file_size_bytes': 0,
+            'release_date': '   ',
+            'cover_url': '',
+        },
+        {
+            'bvid': 'BV1xx411c7mD',
+            'title': 'multi\nline',
+            'upper': 'u',
+            'fav_id': 7,
+            'file_size_bytes': 1023,
+            'release_date': ' 2020-02-02 ',
+        },
     ]
     cases = []
     for combo in combos:
@@ -668,8 +713,8 @@ def _failures() -> list[dict[str, Any]]:
         crawler.cookie_path = Path('/c.txt')
         debug: list[str] = []
         with (
-            mock.patch.object(subprocess, 'run', lambda *_a, **_k: SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)),
-            mock.patch.object(bilibili.log, 'debug', lambda msg, *args: debug.append(msg % args)),
+            mock.patch.object(subprocess, 'run', lambda *_a, **_k: SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)),  # noqa: PT008, B023 - the closure runs within this iteration
+            mock.patch.object(bilibili.log, 'debug', lambda msg, *args: debug.append(msg % args)),  # noqa: B023 - the closure runs within this iteration
             mock.patch('time.sleep'),
         ):
             try:

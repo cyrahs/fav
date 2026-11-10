@@ -16,7 +16,6 @@ from unittest import mock
 import httpx
 from gallery_dl import config as gallery_dl_config
 from gallery_dl import option as gallery_dl_option
-
 from src.core import settings
 from src.tool.site_sessions import StoredCookie
 from src.web import twitter
@@ -63,7 +62,9 @@ def _commands() -> list[dict[str, Any]]:
     cases = []
     for updates, incremental in _CONFIGS:
         cfg = _cfg(**updates)
-        command = twitter.build_command(cfg, cookie_path=Path('/run/c.txt'), archive_path=cfg.path / twitter.ARCHIVE_FILENAME, incremental=incremental)
+        command = twitter.build_command(
+            cfg, cookie_path=Path('/run/c.txt'), archive_path=cfg.path / twitter.ARCHIVE_FILENAME, incremental=incremental
+        )
         cases.append({'settings': updates, 'incremental': incremental, 'command': command, 'gallery_dl': _resolve(command)})
     return cases
 
@@ -92,7 +93,7 @@ _SIDECARS: list[tuple[str, str, str]] = [
     (json.dumps(_sidecar(author='not a dict', content=None, date=None, type=None)), '/data/a/b.mp4', '/data'),
     (json.dumps(_sidecar(author={'id': 0, 'name': None, 'nick': 12.5}, content=['a', 'b'], date={'d': 1})), '/data/x', '/data'),
     (
-        json.dumps(_sidecar(content='多行\n"引号"\t</script>   \U0001f600', extra={'nested': [1, 2.0, True, None]}), ensure_ascii=False),
+        json.dumps(_sidecar(content='多行\n"引号"\t</script>   \U0001f600', extra={'nested': [1, 2.0, True, None]}), ensure_ascii=False),  # noqa: RUF001 - the line separator is part of the case
         'relative/a.jpg',
         'relative',
     ),
@@ -153,7 +154,7 @@ def _verify() -> list[dict[str, Any]]:
         seen: list[httpx.Request] = []
 
         def handler(request: httpx.Request, answer: Any = answer) -> httpx.Response:
-            seen.append(request)
+            seen.append(request)  # noqa: B023 - the closure runs within this iteration
             status, payload = answer
             if isinstance(payload, bytes):
                 return httpx.Response(status, content=payload)
@@ -162,7 +163,7 @@ def _verify() -> list[dict[str, Any]]:
             return httpx.Response(status, json=payload)
 
         warnings: list[str] = []
-        with mock.patch.object(twitter.log, 'warning', lambda msg, *args: warnings.append(msg % args)):
+        with mock.patch.object(twitter.log, 'warning', lambda msg, *args: warnings.append(msg % args)):  # noqa: B023 - the closure runs within this iteration
             check = asyncio.run(twitter.verify_session(cookies, username=username, transport=httpx.MockTransport(handler)))
         cases.append(
             {
@@ -209,7 +210,10 @@ _LOOKUPS: list[tuple[int, list[str]]] = [
 
 
 def _lookups() -> list[dict[str, Any]]:
-    return [{'returncode': code, 'errors': errors, 'transient': twitter.is_transient_user_lookup_failure(code, errors)} for code, errors in _LOOKUPS]
+    return [
+        {'returncode': code, 'errors': errors, 'transient': twitter.is_transient_user_lookup_failure(code, errors)}
+        for code, errors in _LOOKUPS
+    ]
 
 
 _DESTINATIONS: list[tuple[str, str | None, str, str]] = [
@@ -232,7 +236,7 @@ def _destinations() -> list[dict[str, Any]]:
         source = twitter.Twitter.__new__(twitter.Twitter)
         source.cfg = _cfg(path=path, video_path=video_path)
         warnings: list[str] = []
-        with mock.patch.object(twitter.log, 'warning', lambda msg, *args: warnings.append(msg % args)):
+        with mock.patch.object(twitter.log, 'warning', lambda msg, *args: warnings.append(msg % args)):  # noqa: B023 - the closure runs within this iteration
             root = source._destination_root(media_type)  # noqa: SLF001
             destination = source._destination_path(Path(media_path), root)  # noqa: SLF001
         cases.append(

@@ -65,7 +65,7 @@ tests = ["tests/test_stellasora.py", "tests/test_stellasora_notifications.py", "
 
 [WP7]
 title = "Bilibili, X, yt-dlp and gallery-dl wrappers"
-status = "pending"
+status = "done"
 tests = ["tests/test_bilibili.py", "tests/test_bilibili_session.py", "tests/test_twitter.py"]
 
 [WP8]

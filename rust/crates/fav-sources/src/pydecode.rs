@@ -169,7 +169,7 @@ pub(crate) fn py_int(value: &Value) -> Result<i128, PyError> {
             } else if float.is_infinite() {
                 Err(PyError::new("OverflowError", "cannot convert float infinity to integer"))
             } else {
-                #[allow(clippy::cast_possible_truncation)] // reason: `int(float)` truncates; past i128 it saturates (D61)
+                #[allow(clippy::cast_possible_truncation)] // reason: `int(float)` truncates; past i128 it saturates (D63)
                 Ok(float.trunc() as i128)
             }
         }

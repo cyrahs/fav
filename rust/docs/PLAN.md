@@ -134,7 +134,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP4 | 2 API and MCP | 18 MCP tools and ops queries | 900 | done |
 | WP5 | 3 HTTP sources | Jandan, Kemono | 1,700 | done |
 | WP6 | 3 HTTP sources | Stella Sora, Pixiv | 1,700 | done |
-| WP7 | 3 HTTP sources | Bilibili, X, with the yt-dlp and gallery-dl subprocess wrappers | 1,500 | pending |
+| WP7 | 3 HTTP sources | Bilibili, X, with the yt-dlp and gallery-dl subprocess wrappers | 1,500 | done |
 | WP8 | 3 HTTP sources | Hanime1 with series, author subscriptions, ranking discovery and its endpoints | 2,600 | pending |
 | WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | pending |
 | WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | pending |
@@ -202,6 +202,11 @@ Shared pieces that parallel work packages built twice, to fold together once bot
   `quote` and `SplitResult::hostname`) and uses `fav_core::pypath` for `name`/`suffix`/`stem`.
 - WP6 moved the `str.casefold` table from `fav-api/src/mcp/casefold.rs` to `fav_core::pycasefold`; nothing to
   fold, noted so a later search for the old path finds it.
+- WP7 folded its own Python decoding helpers into `fav-sources/src/pydecode.rs` (`PyError`, `decode_utf8`,
+  `json_loads` with the BOM check, `json_from_bytes` with `json.detect_encoding`); WP5's `pyerr` now delegates
+  to it, and `fav_core::pyint` reads its Unicode digits through `pytext` instead of a table of its own.
+  `fav-api`'s MCP still keeps a private copy of the byte-encoding detection; move it to one shared place when
+  a later package touches either.
 
 ## Experiment log
 
