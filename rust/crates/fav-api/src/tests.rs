@@ -350,7 +350,7 @@ async fn openapi_matches_python_for_every_ported_path() {
     let document = golden::load("api/openapi.json");
     let python: serde_json::Value =
         serde_json::from_str(&pyjson::dumps(&golden::cases(&document)[0], &DumpOptions::compact()).expect("dumpable")).expect("JSON");
-    let rust = serde_json::to_value(openapi::document()).expect("serializable");
+    let rust = openapi::document_json();
 
     assert_eq!(rust["openapi"], python["openapi"]);
     assert_eq!(rust["info"], python["info"]);
@@ -395,7 +395,47 @@ async fn openapi_matches_python_for_every_ported_path() {
     assert_eq!(answer.status, 200);
     let served: serde_json::Value = serde_json::from_slice(&answer.body).expect("JSON");
     assert_eq!(served, rust);
+
+    // `==` on JSON objects ignores key order; Swagger UI shows paths, operations,
+    // properties and responses in document order, so those orders must be Python's.
+    let mut python_orders = Vec::new();
+    name_orders(&python, "", false, &mut python_orders);
+    let python_orders: std::collections::BTreeMap<String, Vec<String>> = python_orders.into_iter().collect();
+    let mut served_orders = Vec::new();
+    name_orders(&served, "", false, &mut served_orders);
+    for (pointer, keys) in served_orders {
+        let expected: Vec<String> = python_orders[&pointer].iter().filter(|key| keys.contains(key)).cloned().collect();
+        assert_eq!(keys, expected, "key order at {pointer}");
+    }
     harness.finish().await;
+}
+
+/// The key order of every object whose keys are names rather than JSON Schema keywords
+/// (paths, a path's operations, properties, responses, media types, schemas).
+fn name_orders(value: &serde_json::Value, pointer: &str, names: bool, out: &mut Vec<(String, Vec<String>)>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if names {
+                out.push((pointer.to_owned(), map.keys().cloned().collect()));
+            }
+            for (key, item) in map {
+                // Under a name map the keys are names, so only a path's operations are
+                // another name map; elsewhere these keywords hold one.
+                let child_names = if names {
+                    pointer == "/paths"
+                } else {
+                    matches!(key.as_str(), "paths" | "properties" | "responses" | "content" | "schemas")
+                };
+                name_orders(item, &format!("{pointer}/{key}"), child_names, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                name_orders(item, &format!("{pointer}/{index}"), false, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[tokio::test]
@@ -1077,6 +1117,9 @@ async fn the_front_end_is_served_with_its_deep_links() {
         harness.request("GET", "/assets/%2E%2E/secret.txt", &[], None).await.text(),
         index.text()
     );
+    // Dot segments inside the directory are resolved, as `os.path.normpath` does.
+    let dotted = harness.request("GET", "/assets/x/../index-abc.js", &[], None).await;
+    assert_eq!((dotted.status, dotted.text()), (200, "console.log(1)".to_owned()));
     let posted = harness.request("POST", "/assets/index-abc.js", &[], None).await;
     assert_eq!(posted.status, 405);
     assert_eq!(posted.header("allow"), None);
@@ -1114,4 +1157,41 @@ async fn non_ascii_tokens_are_refused_not_crashed() {
         .await;
     assert_eq!(answer.status, 403);
     harness.finish().await;
+}
+
+// ---------- shutdown ----------
+
+#[tokio::test]
+async fn a_stalled_connection_cannot_hold_the_server_after_a_stop() {
+    use tokio::io::AsyncWriteExt as _;
+
+    let Harness { database, state } = Harness::new().await;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("a port");
+    let address = listener.local_addr().expect("an address");
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let grace = std::time::Duration::from_millis(300);
+    let server = tokio::spawn(crate::serve_listener(
+        listener,
+        Arc::new(state),
+        async move {
+            let _ = stopped.await;
+        },
+        grace,
+    ));
+
+    // A request whose headers never end keeps the connection busy forever.
+    let mut client = tokio::net::TcpStream::connect(address).await.expect("connected");
+    client.write_all(b"GET /healthz HTTP/1.1\r\nHost: x\r\n").await.expect("written");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let stopped_at = std::time::Instant::now();
+    stop.send(()).expect("the server is waiting");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .expect("the server stops within its grace period")
+        .expect("the task ran");
+    assert!(result.is_ok(), "{result:?}");
+    assert!(stopped_at.elapsed() >= grace, "it waited for the connection first");
+    drop(client);
+    database.drop_database().await;
 }

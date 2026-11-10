@@ -5,7 +5,7 @@
 //! `/docs/oauth2-redirect` and `/redoc` pages (their HTML is FastAPI's, byte for byte;
 //! `rust/goldens/api/docs.json` holds Python's).
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use axum::body::Body;
 use axum::http::{HeaderValue, Response, StatusCode, header};
@@ -68,23 +68,159 @@ pub(crate) fn is_backend_path(path: &str) -> bool {
         .any(|prefix| stripped == *prefix || stripped.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/')))
 }
 
-/// Python 3.12's built-in `mimetypes` entries for what a Vite build contains; the system
-/// `mime.types` files are consulted first, as Python reads them over its defaults.
-const WEB_TYPES: [(&str, &str); 14] = [
-    (".js", "text/javascript"),
-    (".mjs", "text/javascript"),
+/// Python 3.12's built-in `mimetypes` table (`MimeTypes().types_map[True]`, printed by
+/// Python 3.12.3). The system `mime.types` files are consulted first, as Python reads
+/// them over its defaults; the slim production image has none, so this table decides.
+const PYTHON_TYPES: [(&str, &str); 149] = [
+    (".3g2", "audio/3gpp2"),
+    (".3gp", "audio/3gpp"),
+    (".3gpp", "audio/3gpp"),
+    (".3gpp2", "audio/3gpp2"),
+    (".a", "application/octet-stream"),
+    (".aac", "audio/aac"),
+    (".adts", "audio/aac"),
+    (".ai", "application/postscript"),
+    (".aif", "audio/x-aiff"),
+    (".aifc", "audio/x-aiff"),
+    (".aiff", "audio/x-aiff"),
+    (".ass", "audio/aac"),
+    (".au", "audio/basic"),
+    (".avi", "video/x-msvideo"),
+    (".avif", "image/avif"),
+    (".bat", "text/plain"),
+    (".bcpio", "application/x-bcpio"),
+    (".bin", "application/octet-stream"),
+    (".bmp", "image/bmp"),
+    (".c", "text/plain"),
+    (".cdf", "application/x-netcdf"),
+    (".cpio", "application/x-cpio"),
+    (".csh", "application/x-csh"),
     (".css", "text/css"),
-    (".html", "text/html"),
+    (".csv", "text/csv"),
+    (".dll", "application/octet-stream"),
+    (".doc", "application/msword"),
+    (".dot", "application/msword"),
+    (".dvi", "application/x-dvi"),
+    (".eml", "message/rfc822"),
+    (".eps", "application/postscript"),
+    (".etx", "text/x-setext"),
+    (".exe", "application/octet-stream"),
+    (".gif", "image/gif"),
+    (".gtar", "application/x-gtar"),
+    (".h", "text/plain"),
+    (".h5", "application/x-hdf5"),
+    (".hdf", "application/x-hdf"),
+    (".heic", "image/heic"),
+    (".heif", "image/heif"),
     (".htm", "text/html"),
-    (".json", "application/json"),
-    (".svg", "image/svg+xml"),
+    (".html", "text/html"),
     (".ico", "image/vnd.microsoft.icon"),
+    (".ief", "image/ief"),
+    (".jpe", "image/jpeg"),
+    (".jpeg", "image/jpeg"),
+    (".jpg", "image/jpeg"),
+    (".js", "text/javascript"),
+    (".json", "application/json"),
+    (".ksh", "text/plain"),
+    (".latex", "application/x-latex"),
+    (".loas", "audio/aac"),
+    (".m1v", "video/mpeg"),
+    (".m3u", "application/vnd.apple.mpegurl"),
+    (".m3u8", "application/vnd.apple.mpegurl"),
+    (".man", "application/x-troff-man"),
+    (".me", "application/x-troff-me"),
+    (".mht", "message/rfc822"),
+    (".mhtml", "message/rfc822"),
+    (".mif", "application/x-mif"),
+    (".mjs", "text/javascript"),
+    (".mov", "video/quicktime"),
+    (".movie", "video/x-sgi-movie"),
+    (".mp2", "audio/mpeg"),
+    (".mp3", "audio/mpeg"),
+    (".mp4", "video/mp4"),
+    (".mpa", "video/mpeg"),
+    (".mpe", "video/mpeg"),
+    (".mpeg", "video/mpeg"),
+    (".mpg", "video/mpeg"),
+    (".ms", "application/x-troff-ms"),
+    (".n3", "text/n3"),
+    (".nc", "application/x-netcdf"),
+    (".nq", "application/n-quads"),
+    (".nt", "application/n-triples"),
+    (".nws", "message/rfc822"),
+    (".o", "application/octet-stream"),
+    (".obj", "application/octet-stream"),
+    (".oda", "application/oda"),
+    (".opus", "audio/opus"),
+    (".p12", "application/x-pkcs12"),
+    (".p7c", "application/pkcs7-mime"),
+    (".pbm", "image/x-portable-bitmap"),
+    (".pdf", "application/pdf"),
+    (".pfx", "application/x-pkcs12"),
+    (".pgm", "image/x-portable-graymap"),
+    (".pl", "text/plain"),
     (".png", "image/png"),
-    (".webp", "image/webp"),
-    (".woff", "font/woff"),
-    (".woff2", "font/woff2"),
+    (".pnm", "image/x-portable-anymap"),
+    (".pot", "application/vnd.ms-powerpoint"),
+    (".ppa", "application/vnd.ms-powerpoint"),
+    (".ppm", "image/x-portable-pixmap"),
+    (".pps", "application/vnd.ms-powerpoint"),
+    (".ppt", "application/vnd.ms-powerpoint"),
+    (".ps", "application/postscript"),
+    (".pwz", "application/vnd.ms-powerpoint"),
+    (".py", "text/x-python"),
+    (".pyc", "application/x-python-code"),
+    (".pyo", "application/x-python-code"),
+    (".qt", "video/quicktime"),
+    (".ra", "audio/x-pn-realaudio"),
+    (".ram", "application/x-pn-realaudio"),
+    (".ras", "image/x-cmu-raster"),
+    (".rdf", "application/xml"),
+    (".rgb", "image/x-rgb"),
+    (".roff", "application/x-troff"),
+    (".rtx", "text/richtext"),
+    (".sgm", "text/x-sgml"),
+    (".sgml", "text/x-sgml"),
+    (".sh", "application/x-sh"),
+    (".shar", "application/x-shar"),
+    (".snd", "audio/basic"),
+    (".so", "application/octet-stream"),
+    (".src", "application/x-wais-source"),
+    (".srt", "text/plain"),
+    (".sv4cpio", "application/x-sv4cpio"),
+    (".sv4crc", "application/x-sv4crc"),
+    (".svg", "image/svg+xml"),
+    (".swf", "application/x-shockwave-flash"),
+    (".t", "application/x-troff"),
+    (".tar", "application/x-tar"),
+    (".tcl", "application/x-tcl"),
+    (".tex", "application/x-tex"),
+    (".texi", "application/x-texinfo"),
+    (".texinfo", "application/x-texinfo"),
+    (".tif", "image/tiff"),
+    (".tiff", "image/tiff"),
+    (".tr", "application/x-troff"),
+    (".trig", "application/trig"),
+    (".tsv", "text/tab-separated-values"),
     (".txt", "text/plain"),
+    (".ustar", "application/x-ustar"),
+    (".vcf", "text/x-vcard"),
+    (".vtt", "text/vtt"),
+    (".wasm", "application/wasm"),
+    (".wav", "audio/x-wav"),
+    (".webm", "video/webm"),
     (".webmanifest", "application/manifest+json"),
+    (".wiz", "application/msword"),
+    (".wsdl", "application/xml"),
+    (".xbm", "image/x-xbitmap"),
+    (".xlb", "application/vnd.ms-excel"),
+    (".xls", "application/vnd.ms-excel"),
+    (".xml", "text/xml"),
+    (".xpdl", "application/xml"),
+    (".xpm", "image/x-xpixmap"),
+    (".xsl", "application/xml"),
+    (".xwd", "image/x-xwindowdump"),
+    (".zip", "application/zip"),
 ];
 
 /// `FileResponse`'s media type: `guess_type(path)[0] or 'text/plain'`, with a charset on
@@ -92,11 +228,15 @@ const WEB_TYPES: [(&str, &str); 14] = [
 fn media_type(path: &Path) -> String {
     let name = path.to_string_lossy();
     let guessed = fav_core::mimetypes::MimeTypes::system().guess_type(&name).or_else(|| {
-        let lower = name.to_lowercase();
-        WEB_TYPES
-            .iter()
-            .find(|(suffix, _)| lower.ends_with(suffix))
-            .map(|(_, kind)| (*kind).to_owned())
+        // `guess_type` tries the extension as written, then lowercased.
+        let extension = format!(".{}", path.extension()?.to_string_lossy());
+        let lookup = |extension: &str| {
+            PYTHON_TYPES
+                .iter()
+                .find(|(known, _)| *known == extension)
+                .map(|(_, kind)| (*kind).to_owned())
+        };
+        lookup(&extension).or_else(|| lookup(&extension.to_lowercase()))
     });
     let kind = guessed.unwrap_or_else(|| "text/plain".to_owned());
     if kind.starts_with("text/") && !kind.to_lowercase().contains("charset=") {
@@ -126,14 +266,24 @@ pub(crate) async fn asset(dist: &Path, method: &str, relative: &str) -> Result<R
         return Err(ApiError::new(405, "method_not_allowed", "Method Not Allowed"));
     }
     let directory = dist.join("assets");
-    let mut path = directory.clone();
+    // `os.path.normpath(os.path.join(directory, path))`, refused when it leaves the
+    // directory: `x/../a.js` is `a.js`, `../a.js` is a 404.
+    let mut parts: Vec<&str> = Vec::new();
     for part in relative.split('/') {
-        match Path::new(part).components().next() {
-            None | Some(Component::CurDir) => {}
-            Some(Component::Normal(_)) if !part.contains('\\') => path.push(part),
-            _ => return Err(ApiError::http(404)),
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err(ApiError::http(404));
+                }
+            }
+            // A backslash is an ordinary character on Linux, so no such file exists.
+            _ if part.contains('\\') => return Err(ApiError::http(404)),
+            _ => parts.push(part),
         }
     }
+    let mut path = directory.clone();
+    path.extend(parts);
     let (Ok(full), Ok(root)) = (tokio::fs::canonicalize(&path).await, tokio::fs::canonicalize(&directory).await) else {
         return Err(ApiError::http(404));
     };
@@ -165,5 +315,13 @@ mod tests {
         assert_eq!(media_type(Path::new("a/index.css")), "text/css; charset=utf-8");
         assert_eq!(media_type(Path::new("icon.svg")), "image/svg+xml");
         assert_eq!(media_type(Path::new("unknown.zzz")), "text/plain; charset=utf-8");
+        assert_eq!(media_type(Path::new("no-extension")), "text/plain; charset=utf-8");
+        assert_eq!(
+            super::PYTHON_TYPES
+                .iter()
+                .find(|(extension, _)| *extension == ".wasm")
+                .map(|(_, kind)| *kind),
+            Some("application/wasm")
+        );
     }
 }

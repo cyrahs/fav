@@ -104,7 +104,12 @@ pub fn system_clock() -> Clock {
     Arc::new(Utc::now)
 }
 
-/// Serve the API on `bind:port` until `shutdown` resolves (`uvicorn.run`).
+/// How long open connections may take to finish after a stop, as the Python launcher
+/// waits for its API process (`_SHUTDOWN_TIMEOUT_SECONDS`) before killing it.
+pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Serve the API on `bind:port` until `shutdown` resolves (`uvicorn.run`), then give
+/// open connections [`SHUTDOWN_GRACE`] to finish.
 pub async fn serve(
     state: Arc<ApiState>,
     bind: &str,
@@ -113,7 +118,37 @@ pub async fn serve(
 ) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind((bind, port)).await?;
     fav_core::logging::get("fav-api").info(format!("Starting fav API on {bind}:{port}"));
-    axum::serve(listener, app(state)).with_graceful_shutdown(shutdown).await
+    serve_listener(listener, state, shutdown, SHUTDOWN_GRACE).await
+}
+
+/// [`serve`] on a bound listener. A connection still open `grace` after the stop (a
+/// client that never finishes its request) is dropped instead of holding the process.
+pub(crate) async fn serve_listener(
+    listener: tokio::net::TcpListener,
+    state: Arc<ApiState>,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+    grace: std::time::Duration,
+) -> std::io::Result<()> {
+    let (stopped, mut stopped_rx) = tokio::sync::watch::channel(false);
+    let graceful = async move {
+        shutdown.await;
+        stopped.send_replace(true);
+    };
+    let server = axum::serve(listener, app(state)).with_graceful_shutdown(graceful).into_future();
+    let deadline = async move {
+        if stopped_rx.wait_for(|stopped| *stopped).await.is_err() {
+            // The server ended on its own; only its result matters.
+            std::future::pending::<()>().await;
+        }
+        tokio::time::sleep(grace).await;
+    };
+    tokio::select! {
+        result = server => result,
+        () = deadline => {
+            fav_core::logging::get("service").warning(format!("api did not stop in {}s, killing", grace.as_secs()));
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]

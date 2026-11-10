@@ -39,7 +39,7 @@ from playwright.sync_api import sync_playwright
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from playwright.sync_api import ConsoleMessage, Page, Response
+    from playwright.sync_api import ConsoleMessage, Page, Request, Response
 
 HERE = Path(__file__).resolve().parent
 RUST_DIR = HERE.parents[1]
@@ -182,9 +182,16 @@ class _Watcher:
         self.problems.append(f'{response.request.method} {response.url}: {response.status}')
 
     def console(self, message: ConsoleMessage) -> None:
-        # Failed requests are judged by `response`; anything else logged as an error is a bug.
+        # Failed requests are judged by `response` and `request_failed`; anything else logged as an error is a bug.
         if message.type == 'error' and not message.text.startswith('Failed to load resource'):
             self.problems.append(f'console error: {message.text}')
+
+    def request_failed(self, request: Request) -> None:
+        # A request that got no response at all. Leaving a page cancels its pending
+        # fetches (`net::ERR_ABORTED`); that is navigation, not a failure.
+        failure = request.failure or ''
+        if request.url.startswith(self.base) and 'ERR_ABORTED' not in failure:
+            self.problems.append(f'{request.method} {request.url}: {failure}')
 
     def page_error(self, error: Exception) -> None:
         self.problems.append(f'page error: {error}')
@@ -198,6 +205,7 @@ def _check_pages(base: str, chromium: str | None) -> list[str]:
         page.on('response', watcher.response)
         page.on('console', watcher.console)
         page.on('pageerror', watcher.page_error)
+        page.on('requestfailed', watcher.request_failed)
 
         page.goto(f'{base}/')
         page.fill('input[type=password]', TOKEN)

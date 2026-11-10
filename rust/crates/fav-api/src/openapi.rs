@@ -770,7 +770,44 @@ pub fn document() -> OpenApi {
 
 /// The document as a JSON value (what `/openapi.json` answers).
 pub fn document_value() -> Value {
-    serde_json::to_value(document()).map_or(Value::Null, |value| Value::from_serde(&value))
+    Value::from_serde(&document_json())
+}
+
+/// The document as JSON, with each path's operations in registration order: utoipa
+/// writes them in a fixed order (`get` before `post`), FastAPI in the order the routes
+/// were added (`POST /api/v2/job-requests` comes before its `GET`).
+pub fn document_json() -> serde_json::Value {
+    let mut value = serde_json::to_value(document()).unwrap_or(serde_json::Value::Null);
+    if let Some(served) = value.get_mut("paths").and_then(serde_json::Value::as_object_mut) {
+        for (path, operations) in paths() {
+            let Some(serde_json::Value::Object(item)) = served.get_mut(path) else {
+                continue;
+            };
+            let mut ordered = serde_json::Map::new();
+            for (method, _) in &operations {
+                let name = method_name(method);
+                if let Some(operation) = item.remove(name) {
+                    ordered.insert(name.to_owned(), operation);
+                }
+            }
+            ordered.append(item);
+            *item = ordered;
+        }
+    }
+    value
+}
+
+fn method_name(method: &HttpMethod) -> &'static str {
+    match method {
+        HttpMethod::Get => "get",
+        HttpMethod::Post => "post",
+        HttpMethod::Put => "put",
+        HttpMethod::Delete => "delete",
+        HttpMethod::Options => "options",
+        HttpMethod::Head => "head",
+        HttpMethod::Patch => "patch",
+        HttpMethod::Trace => "trace",
+    }
 }
 
 /// Schema names referenced anywhere under `value`.
