@@ -749,7 +749,9 @@ async fn the_contract_has_python_tools() {
     let listed = exchanges
         .iter()
         .find(|exchange| {
-            golden::get(golden::get(exchange, "request"), "body").as_str().is_some_and(|body| body.contains("\"tools/list\""))
+            golden::get(golden::get(exchange, "request"), "body")
+                .as_str()
+                .is_some_and(|body| body.contains("\"tools/list\""))
                 && golden::get(golden::get(exchange, "response"), "json").get("result").is_some()
         })
         .expect("a tools/list exchange");

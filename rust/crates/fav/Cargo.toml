@@ -19,6 +19,7 @@ fav-sources.workspace = true
 fav-browser.workspace = true
 fav-api.workspace = true
 clap.workspace = true
+tikv-jemallocator.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 
 [dev-dependencies]

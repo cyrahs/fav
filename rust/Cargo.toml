@@ -94,6 +94,10 @@ unicode-normalization = "0.1"
 url = "2"
 utoipa = "6"
 webpki-roots = "1"
+# The global allocator of the `fav` binary, chosen by the WP18 memory benchmark
+# (docs/REPORT.md): after a load it returns freed memory to the system, which glibc's
+# allocator (Python's `malloc_trim` call has no safe counterpart, D19) does not.
+tikv-jemallocator = "0.6"
 # Test certificates for the connect-to TLS tests (fav-net).
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 

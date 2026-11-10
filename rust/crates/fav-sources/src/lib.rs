@@ -54,12 +54,12 @@ mod pyerr;
 mod pyre;
 mod pyval;
 pub mod rednote;
+#[cfg(test)]
+mod registry_tests;
 pub mod runtime_config;
 pub mod stellasora;
 pub mod telegram;
 pub mod telegram_queue;
-#[cfg(test)]
-mod registry_tests;
 #[cfg(test)]
 mod testkit;
 #[cfg(test)]

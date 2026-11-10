@@ -94,7 +94,7 @@ what each later work package must do differently because of them, are in `API-CO
 - Settings: identical `app_settings` JSON shape, defaults, validation, secret masking round trip; edits apply
   without restart.
 - Memory rules: stream downloads to `.part`; stream large result sets with cursors; write manifests in batches;
-  never hold a full table in memory. Allocator chosen by measurement in WP18.
+  never hold a full table in memory. Allocator chosen by measurement in WP18: jemalloc (`tikv-jemallocator`), see docs/REPORT.md.
 - Code rules: no `unsafe`; clippy warnings are errors; no `todo!()`, `unimplemented!()` or ignored tests in merged code.
 - Repo rule from AGENTS.md still applies: code, comments and docs in English.
 

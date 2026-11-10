@@ -28,6 +28,12 @@ FROM rust:1.97-slim-trixie AS rust-builder
 
 WORKDIR /src/rust
 
+# The slim image has gcc but not make, which the jemalloc build (the binary's global
+# allocator, chosen by the WP18 memory benchmark) needs.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends make \
+    && rm -rf /var/lib/apt/lists/*
+
 # The toolchain and the lockfile first: the pinned toolchain and every crate are
 # downloaded in a layer that only a dependency change invalidates.
 COPY rust/rust-toolchain.toml rust/Cargo.toml rust/Cargo.lock ./

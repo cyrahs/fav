@@ -23,7 +23,10 @@ fn context() -> SourceContext {
 #[tokio::test]
 async fn the_registry_has_exactly_python_job_specs() {
     let specs = golden::load("jobs/job_specs.json");
-    let python: Vec<String> = golden::cases(&specs).iter().map(|case| golden::string(golden::get(case, "key"))).collect();
+    let python: Vec<String> = golden::cases(&specs)
+        .iter()
+        .map(|case| golden::string(golden::get(case, "key")))
+        .collect();
     assert_eq!(python.len(), 13);
     let mut sorted = python.clone();
     sorted.sort();
@@ -47,7 +50,12 @@ async fn every_registered_job_keeps_python_name_schedule_and_settings_section() 
         assert_eq!(job.name, golden::string(golden::get(case, "name")), "{}", job.key);
         assert_eq!(job.cron, golden::string(golden::get(case, "cron")), "{}", job.key);
         let spec = JOB_SPECS.iter().find(|spec| spec.key == job.key).expect("a spec");
-        assert_eq!(format!("web.{}", spec.attr), golden::string(golden::get(case, "section")), "{}", job.key);
+        assert_eq!(
+            format!("web.{}", spec.attr),
+            golden::string(golden::get(case, "section")),
+            "{}",
+            job.key
+        );
     }
 }
 

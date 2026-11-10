@@ -35,7 +35,17 @@ fn dependencies() -> Vec<String> {
 
 /// `dependency.split('[')[0].split('>')[0].split('=')[0].strip()`.
 fn name_of(dependency: &str) -> &str {
-    dependency.split('[').next().unwrap_or_default().split('>').next().unwrap_or_default().split('=').next().unwrap_or_default().trim()
+    dependency
+        .split('[')
+        .next()
+        .unwrap_or_default()
+        .split('>')
+        .next()
+        .unwrap_or_default()
+        .split('=')
+        .next()
+        .unwrap_or_default()
+        .trim()
 }
 
 fn requirement(name: &str) -> String {
