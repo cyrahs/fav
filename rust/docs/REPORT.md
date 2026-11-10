@@ -400,7 +400,7 @@ Rust copies). Full text in DIVERGENCES.md. Counts: 90 visible, 41 internal.
 | D94 | WP10 | dropped | visible | Not ported. What the crawler uses from the module is (the viewer's character list and tree, `compare_resources` and the pure helpers, with their tests) |
 | D95 | WP10 | python-bug | visible | The path is read at each request; when it changes, the library and its in-memory summary cache are rebuilt for the new root (as D86 for NIKKE) |
 | D96 | WP10 | mechanism | internal | `fav-db`'s `schema.sql` creates all five at startup (D6) |
-| D97 | WP10 | python-bug | internal | Copied in both: the same requests answer 500 (unit tests in `fav-api/src/bd2/library.rs`) and the same tree fails the crawl. |
+| D97 | WP10 | python-bug | visible | Rust fixes it as NIKKE does (D83, D87): a digit string `int()` or `float()` refuses is not a number. |
 | D98 | WP10 | observable | visible | Keeps the characters Rust's `char::is_alphanumeric()` accepts (`Alphabetic` or `Numeric`), which adds combining marks with `Other_Alphabetic` (for example Devanagari vowel signs), so such a label's `k... |
 | D99 | WP10 | observable | visible | An `offset` past `i64::MAX` is echoed exactly up to 128 bits and as the largest 128-bit integer beyond (the page is empty either way), as D87 for NIKKE |
 | D100 | WP10 | dropped | visible | Not ported |

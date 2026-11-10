@@ -221,7 +221,7 @@ fn call(name: &str, args: &[Value]) -> Option<Value> {
         "cdn_request_headers" => headers_value(extract::cdn_request_headers()),
         "asset_headers" => headers_value(gamekee::asset_headers()),
         "normalize_url" => Value::Str(gamekee::normalize_url(&arg_str(args, 0))),
-        "_to_int" => job(extract::to_int(&args[0]), |value| value.map_or(Value::Null, Value::Int)),
+        "_to_int" => extract::to_int(&args[0]).map_or(Value::Null, Value::Int),
         "content_json_from_cdn_payload" => Value::Dict(extract::content_json_from_cdn_payload(&arg_dict(args, 0))),
         "parse_content_json" => Value::Dict(extract::parse_content_json(&arg_dict(args, 0))),
         "cdn_json_url" => Value::Str(extract::cdn_json_url(&arg_dict(args, 0), &arg_str(args, 1))),
@@ -229,7 +229,7 @@ fn call(name: &str, args: &[Value]) -> Option<Value> {
         "reverse_bind_map" => Value::Dict(extract::reverse_bind_map(&arg_dict(args, 0))),
         "summarize_content" => Value::Dict(extract::summarize_content(&arg_dict(args, 0), &arg_dict(args, 1))),
         "base_info_from_summary" => Value::Dict(extract::base_info_from_summary(&arg_dict(args, 0))),
-        "filter_bd2_character_rows" => job(extract::filter_bd2_character_rows(&args[0]), models_value),
+        "filter_bd2_character_rows" => models_value(extract::filter_bd2_character_rows(&args[0])),
         "detail_name" => Value::Str(extract::detail_name(
             &arg_dict(args, 0),
             golden::int(&args[1]),
@@ -352,7 +352,18 @@ fn parsing_matches_the_baseline() {
     for case in golden::cases(&document) {
         let name = golden::string(golden::get(case, "fn"));
         let args = golden::list(golden::get(case, "args"));
-        let expected = golden::get(case, "result");
+        let mut expected = golden::get(case, "result");
+        // D97: Python's `_to_int` raises for a digit `int()` refuses; Rust reads it as no
+        // number. The golden keeps Python's answer, so the divergence is stated here.
+        let superscript = name == "_to_int" && matches!(args, [Value::Str(text)] if text == "¹");
+        if superscript {
+            assert_eq!(
+                golden::get(expected, "error"),
+                &Value::from("ValueError: invalid literal for int() with base 10: '¹'"),
+                "the golden case D97 departs from changed"
+            );
+            expected = &Value::Null;
+        }
         match call(&name, args) {
             None => {
                 unknown.insert(name);

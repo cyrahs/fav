@@ -191,20 +191,17 @@ pub(crate) fn url_error(error: &UrlError) -> PyError {
 }
 
 /// `_to_int(value)`: an `int` (not a `bool`) or a string `str.isdigit()` accepts. A digit
-/// `int()` refuses (a superscript) raises `ValueError`, as in Python.
-pub(crate) fn to_int(value: Option<&Value>) -> Result<Option<i128>, PyError> {
-    match value {
-        Some(Value::Int(int)) => Ok(Some(*int)),
-        Some(Value::Str(text)) => {
+/// `int()` refuses (a superscript) is `None` here, where Python raises `ValueError` (D97);
+/// the crawler's `_to_int` is the same function and follows the same rule.
+pub(crate) fn to_int(value: Option<&Value>) -> Option<i128> {
+    match value? {
+        Value::Int(int) => Some(*int),
+        Value::Str(text) => {
             let stripped = py_strip(text);
-            if !py_isdigit(stripped) {
-                return Ok(None);
-            }
-            // Beyond `i128` (Python has no limit) reads as the same `ValueError`; no
-            // GameKee field comes close.
-            py_int_decimal(stripped).map(Some).ok_or_else(|| invalid_int_literal(stripped))
+            // Beyond `i128` (Python has no limit) is `None` too; no GameKee field comes close.
+            if py_isdigit(stripped) { py_int_decimal(stripped) } else { None }
         }
-        _ => Ok(None),
+        _ => None,
     }
 }
 
@@ -358,7 +355,7 @@ pub fn viewer_resources_from_character_list(characters: &[(String, Dict)], asset
 
 /// `gamekee_resources_from_manifest(manifest, source_path=...)`.
 pub fn gamekee_resources_from_manifest(manifest: &Dict, source_path: &str) -> Result<Vec<GameKeeResource>, PyError> {
-    let content_id = to_int(manifest.get("content_id"))?.unwrap_or(0);
+    let content_id = to_int(manifest.get("content_id")).unwrap_or(0);
     let title = string_value(manifest.get("title"));
     let Some(Value::List(models)) = manifest.get("live2d_models") else {
         return Ok(Vec::new());
@@ -407,7 +404,7 @@ pub fn gamekee_resources_from_detail_payload(payload: &Dict, tree_row: Option<&D
         detail.get("id"),
         tree_row.and_then(|row| row.get("content_id")),
     ] {
-        if let Some(found) = to_int(value)?.filter(|found| *found != 0) {
+        if let Some(found) = to_int(value).filter(|found| *found != 0) {
             content_id = found;
             break;
         }

@@ -105,13 +105,15 @@ fn kind_order(kind: &str) -> usize {
         .unwrap_or(ASSET_KIND_ORDER.len())
 }
 
-fn to_int(value: Option<&Value>) -> Result<Option<i128>> {
-    Ok(bd2::to_int(value)?)
+/// `_to_int(value)`, a copy of BD2's in Python and the same function here: a superscript
+/// digit string is `None`, where Python raises (D97).
+fn to_int(value: Option<&Value>) -> Option<i128> {
+    bd2::to_int(value)
 }
 
 /// `_to_int(value) or 0`.
-fn int_or_zero(value: Option<&Value>) -> Result<i128> {
-    Ok(to_int(value)?.unwrap_or(0))
+fn int_or_zero(value: Option<&Value>) -> i128 {
+    to_int(value).unwrap_or(0)
 }
 
 fn optional_int(value: Option<i128>) -> Value {
@@ -196,12 +198,12 @@ fn manifest_character_key(manifest_path: &Path, manifest: &Dict) -> String {
 }
 
 /// `_record_freshness_key(manifest, mtime_ns=...)`.
-fn freshness(manifest: &Dict, mtime_ns: i128) -> Result<(f64, f64, i128)> {
-    Ok((
-        sort_timestamp(manifest.get("fetched_at"))?,
-        sort_timestamp(manifest.get("completed_at"))?,
+fn freshness(manifest: &Dict, mtime_ns: i128) -> (f64, f64, i128) {
+    (
+        sort_timestamp(manifest.get("fetched_at")),
+        sort_timestamp(manifest.get("completed_at")),
         mtime_ns,
-    ))
+    )
 }
 
 /// `_asset_sort_key(asset)`.
@@ -225,7 +227,7 @@ fn model_sort_key(model: &Dict) -> (String, String, String) {
 
 /// `_skin_update_entry(item)`: one skin of the update feed, `snake_case` whichever spelling
 /// the snapshot used.
-fn skin_update_entry(item: &Dict) -> Result<Value> {
+fn skin_update_entry(item: &Dict) -> Value {
     let either = |snake: &str, camel: &str| {
         if item.contains_key(snake) {
             item.get(snake)
@@ -236,18 +238,18 @@ fn skin_update_entry(item: &Dict) -> Result<Value> {
     let mut skin_ids = Vec::new();
     if let Some(Value::List(values)) = either("skin_ids", "skinIds") {
         for value in values {
-            if let Some(id) = to_int(Some(value))? {
+            if let Some(id) = to_int(Some(value)) {
                 skin_ids.push(Value::Int(id));
             }
         }
     }
     let mut entry = Dict::new();
-    entry.insert("ship_group_id", Value::Int(int_or_zero(either("ship_group_id", "shipGroupId"))?));
+    entry.insert("ship_group_id", Value::Int(int_or_zero(either("ship_group_id", "shipGroupId"))));
     entry.insert("ship_name", Value::Str(clean_text(either("ship_name", "shipName"))));
     entry.insert("skin_name", Value::Str(clean_text(either("skin_name", "skinName"))));
     entry.insert("skin_type", Value::Str(clean_text(either("skin_type", "skinType"))));
     entry.insert("skin_ids", Value::List(skin_ids));
-    Ok(Value::Dict(entry))
+    Value::Dict(entry)
 }
 
 // ---------- records ----------
@@ -363,8 +365,9 @@ impl AzurLaneLibrary {
     }
 
     /// `list_characters()`: every summary, by display name.
+    #[allow(clippy::unnecessary_wraps)] // reason: answers like `get_character` and BD2's library; nothing in it fails since D97
     pub(crate) fn list_characters(self: &Arc<Self>) -> Result<Vec<Dict>> {
-        self.ensure_summary_cache()?;
+        self.ensure_summary_cache();
         Ok(self.lock().summaries.clone())
     }
 
@@ -375,7 +378,7 @@ impl AzurLaneLibrary {
         models_in_order.sort_by_cached_key(|model| model_sort_key(model));
         let mut models = Vec::with_capacity(models_in_order.len());
         for model in models_in_order {
-            models.push(self.model_payload(&record, model)?);
+            models.push(self.model_payload(&record, model));
         }
         let of_type = |wanted: &str| -> Value {
             Value::List(
@@ -398,7 +401,7 @@ impl AzurLaneLibrary {
             })
             .flatten()
             .collect();
-        let mut payload = self.summary_payload(&record)?;
+        let mut payload = self.summary_payload(&record);
         payload.insert("active", Value::Bool(record.manifest.get("active").is_none_or(Value::is_truthy)));
         payload.insert("models", Value::List(models.into_iter().map(Value::Dict).collect()));
         payload.insert("live2d_models", live2d);
@@ -428,13 +431,13 @@ impl AzurLaneLibrary {
         let snapshot = read_json_object(&snapshot_path).map_err(|_| LibraryError::AssetNotFound)?;
         let mut new_skins = Vec::new();
         for item in dicts(snapshot.get("new_skins")) {
-            new_skins.push(skin_update_entry(item)?);
+            new_skins.push(skin_update_entry(item));
         }
         let mut history = Vec::new();
         for entry in dicts(snapshot.get("skin_update_history")) {
             let mut skins = Vec::new();
             for item in dicts(entry.get("skins")) {
-                skins.push(skin_update_entry(item)?);
+                skins.push(skin_update_entry(item));
             }
             let mut item = Dict::new();
             item.insert("date", Value::Str(clean_text(entry.get("date"))));
@@ -508,12 +511,12 @@ impl AzurLaneLibrary {
     /// `_ensure_summary_cache()`: install the disk cache on first use, then serve what is
     /// installed while a background refresh catches up with changed manifests; build
     /// before answering only when nothing is installed yet.
-    fn ensure_summary_cache(self: &Arc<Self>) -> Result<()> {
+    fn ensure_summary_cache(self: &Arc<Self>) {
         let entries = self.manifest_entries();
         let signature = manifest_signature(&entries);
         let mut cache = self.lock();
         if cache.signature.as_ref() == Some(&signature) {
-            return Ok(());
+            return;
         }
         if !cache.disk_cache_loaded {
             cache.disk_cache_loaded = true;
@@ -521,7 +524,7 @@ impl AzurLaneLibrary {
                 let matches = cached.signature == signature;
                 cache.install(cached.signature, cached.records);
                 if matches {
-                    return Ok(());
+                    return;
                 }
             }
         }
@@ -531,12 +534,11 @@ impl AzurLaneLibrary {
             // collection, which must not block requests.
             drop(cache);
             self.spawn_refresh();
-            return Ok(());
+            return;
         }
-        let records = self.build_records(&entries, None)?;
+        let records = self.build_records(&entries, None);
         cache.install(signature, records);
         self.write_summary_cache(&cache);
-        Ok(())
     }
 
     /// `_spawn_refresh_locked()`: one refresh at a time.
@@ -570,15 +572,10 @@ impl AzurLaneLibrary {
                 records: cache.records.clone(),
             }
         };
-        match self.build_records(&entries, Some(&previous)) {
-            Ok(records) => {
-                let mut cache = self.lock();
-                cache.install(signature, records);
-                self.write_summary_cache(&cache);
-            }
-            Err(LibraryError::Failed(error)) => log().error(format!("Azur Lane summary cache refresh failed\n{error}")),
-            Err(other) => log().error(format!("Azur Lane summary cache refresh failed\n{other:?}")),
-        }
+        let records = self.build_records(&entries, Some(&previous));
+        let mut cache = self.lock();
+        cache.install(signature, records);
+        self.write_summary_cache(&cache);
     }
 
     /// Wait for the background refresh, if one runs (the tests' `_join_refresh_thread`).
@@ -590,7 +587,7 @@ impl AzurLaneLibrary {
 
     /// `_build_records(entries, previous)`: one record per character key, the freshest
     /// manifest winning; a manifest whose `(mtime, size)` is unchanged keeps its record.
-    fn build_records(&self, entries: &[ManifestEntry], previous: Option<&SummaryRecordsData>) -> Result<Vec<SummaryRecord>> {
+    fn build_records(&self, entries: &[ManifestEntry], previous: Option<&SummaryRecordsData>) -> Vec<SummaryRecord> {
         #[cfg(test)]
         if let Some(hook) = self
             .hooks
@@ -621,7 +618,7 @@ impl AzurLaneLibrary {
             let path = entry.path.to_string_lossy().into_owned();
             let record = match previous_records.get(path.as_str()) {
                 Some(reusable) if previous_stats.get(path.as_str()) == Some(&(entry.mtime_ns, entry.size)) => (*reusable).clone(),
-                _ => match self.read_summary_record(&entry.path, entry.mtime_ns)? {
+                _ => match self.read_summary_record(&entry.path, entry.mtime_ns) {
                     Some(record) => record,
                     None => continue,
                 },
@@ -646,7 +643,7 @@ impl AzurLaneLibrary {
             }
             winners.insert(record.key.clone(), record);
         }
-        Ok(order.into_iter().filter_map(|key| winners.remove(&key)).collect())
+        order.into_iter().filter_map(|key| winners.remove(&key)).collect()
     }
 
     #[cfg_attr(not(test), allow(clippy::unused_self))] // The tests record the reads through `self`.
@@ -661,7 +658,7 @@ impl AzurLaneLibrary {
     }
 
     /// `_read_summary_record(manifest_path, mtime_ns=...)`.
-    fn read_summary_record(&self, manifest_path: &Path, mtime_ns: i128) -> Result<Option<SummaryRecord>> {
+    fn read_summary_record(&self, manifest_path: &Path, mtime_ns: i128) -> Option<SummaryRecord> {
         let manifest = match self.read_manifest(manifest_path) {
             Ok(manifest) => manifest,
             Err(error) => {
@@ -669,7 +666,7 @@ impl AzurLaneLibrary {
                     "Skipping unreadable Azur Lane manifest {}: {error}",
                     manifest_path.display()
                 ));
-                return Ok(None);
+                return None;
             }
         };
         let character_key = manifest_character_key(manifest_path, &manifest);
@@ -678,7 +675,7 @@ impl AzurLaneLibrary {
                 "Skipping Azur Lane manifest without character key: {}",
                 manifest_path.display()
             ));
-            return Ok(None);
+            return None;
         }
         let entry = RecordEntry::new(&character_key, manifest_path);
         let record = Record {
@@ -688,12 +685,12 @@ impl AzurLaneLibrary {
             directory_name: entry.directory_name,
             manifest,
         };
-        Ok(Some(SummaryRecord {
+        Some(SummaryRecord {
             key: character_key,
             manifest_path: manifest_path.to_string_lossy().into_owned(),
-            freshness: freshness(&record.manifest, mtime_ns)?,
-            summary: self.summary_payload(&record)?,
-        }))
+            freshness: freshness(&record.manifest, mtime_ns),
+            summary: self.summary_payload(&record),
+        })
     }
 
     fn summary_cache_path(&self) -> PathBuf {
@@ -720,7 +717,7 @@ impl AzurLaneLibrary {
 
     /// `_get_record(character_key)`: the entry with its manifest read again.
     fn get_record(self: &Arc<Self>, character_key: &str) -> Result<Record> {
-        self.ensure_summary_cache()?;
+        self.ensure_summary_cache();
         let key = clean_text(Some(&Value::Str(character_key.to_owned())));
         let entry = self
             .lock()
@@ -745,7 +742,7 @@ impl AzurLaneLibrary {
     }
 
     /// `_summary_payload(record)`.
-    fn summary_payload(&self, record: &Record) -> Result<Dict> {
+    fn summary_payload(&self, record: &Record) -> Dict {
         let manifest = &record.manifest;
         let models = models_of(manifest);
         let source_counts = status_counts(models.iter().map(|model| clean_text(model.get("source"))));
@@ -768,7 +765,7 @@ impl AzurLaneLibrary {
                     .map(|asset| clean_text(asset.get("kind"))),
             ));
         }
-        let model_count = match to_int(counts.get("total"))? {
+        let model_count = match to_int(counts.get("total")) {
             Some(total) if total != 0 => total,
             _ => i128::try_from(models.len()).unwrap_or(i128::MAX),
         };
@@ -778,10 +775,10 @@ impl AzurLaneLibrary {
         tags.insert("model_types", Value::Str(model_types.into_iter().collect::<Vec<_>>().join(", ")));
         tags.insert("sources", Value::Str(source_names.join(", ")));
         let mut payload = Dict::new();
-        payload.insert("schema_version", Value::Int(int_or_zero(manifest.get("schema_version"))?));
+        payload.insert("schema_version", Value::Int(int_or_zero(manifest.get("schema_version"))));
         payload.insert("source", Value::Str(if source.is_empty() { "azurlane".to_owned() } else { source }));
         payload.insert("character_key", Value::Str(record.character_key.clone()));
-        payload.insert("source_id", optional_int(to_int(manifest.get("source_id"))?));
+        payload.insert("source_id", optional_int(to_int(manifest.get("source_id"))));
         payload.insert("title", Value::Str(display_name.clone()));
         payload.insert("display_name", Value::Str(display_name));
         payload.insert("name_zh", Value::Str(clean_text(manifest.get("name_zh"))));
@@ -794,57 +791,57 @@ impl AzurLaneLibrary {
         payload.insert("asset_counts", Value::Dict(asset_counts));
         payload.insert("source_counts", Value::Dict(counts_dict(source_counts)));
         payload.insert("tags", Value::Dict(tags));
-        payload.insert("representative_asset", self.pick_representative_asset(record)?);
-        payload.insert("icon", self.pick_icon_asset(record, &models)?);
+        payload.insert("representative_asset", self.pick_representative_asset(record));
+        payload.insert("icon", self.pick_icon_asset(record, &models));
         payload.insert("model_count", Value::Int(model_count));
-        Ok(payload)
+        payload
     }
 
     /// `_pick_icon_asset(record, models)`: the default skin's square icon, else any
     /// downloaded one, else the first.
-    fn pick_icon_asset(&self, record: &Record, models: &[&Dict]) -> Result<Value> {
-        let default_skin_id = to_int(json_object(record.manifest.get("source_metadata")).get("default_skin_id"))?;
+    fn pick_icon_asset(&self, record: &Record, models: &[&Dict]) -> Value {
+        let default_skin_id = to_int(json_object(record.manifest.get("source_metadata")).get("default_skin_id"));
         let mut refs: Vec<(bool, Dict)> = Vec::new();
         for model in models {
             if clean_text(model.get("type")) != "painting" {
                 continue;
             }
-            let costume_id = to_int(json_object(model.get("costume")).get("id"))?;
+            let costume_id = to_int(json_object(model.get("costume")).get("id"));
             let is_default = costume_id.is_some() && costume_id == default_skin_id;
             for asset in assets_of(model) {
                 if clean_text(asset.get("kind")) == "icon.square" {
-                    refs.push((is_default, self.asset_ref(record, asset)?));
+                    refs.push((is_default, self.asset_ref(record, asset)));
                 }
             }
         }
         if refs.is_empty() {
-            return Ok(Value::Null);
+            return Value::Null;
         }
         for wanted_default in [true, false] {
             if let Some((_, found)) = refs
                 .iter()
                 .find(|(is_default, item)| *is_default == wanted_default && item.get("available") == Some(&Value::Bool(true)))
             {
-                return Ok(Value::Dict(found.clone()));
+                return Value::Dict(found.clone());
             }
         }
-        Ok(Value::Dict(refs.swap_remove(0).1))
+        Value::Dict(refs.swap_remove(0).1)
     }
 
     /// `_model_payload(record, model)`.
-    fn model_payload(&self, record: &Record, model: &Dict) -> Result<Dict> {
+    fn model_payload(&self, record: &Record, model: &Dict) -> Dict {
         let mut sorted = assets_of(model);
         sorted.sort_by_cached_key(|asset| asset_sort_key(asset));
         let mut assets = Vec::with_capacity(sorted.len());
         for asset in sorted {
-            assets.push(self.asset_ref(record, asset)?);
+            assets.push(self.asset_ref(record, asset));
         }
         let model_type = clean_text(model.get("type"));
         let character_key = clean_text(model.get("character_key"));
         let costume = json_object(model.get("costume"));
         let mut costume_payload = Dict::new();
         costume_payload.insert("key", Value::Str(clean_text(costume.get("key"))));
-        costume_payload.insert("id", optional_int(to_int(costume.get("id"))?));
+        costume_payload.insert("id", optional_int(to_int(costume.get("id"))));
         costume_payload.insert("name_zh", Value::Str(clean_text(costume.get("name_zh"))));
         costume_payload.insert("name_en", Value::Str(clean_text(costume.get("name_en"))));
         let mut asset_counts = json_object(model.get("asset_counts"));
@@ -872,16 +869,16 @@ impl AzurLaneLibrary {
         payload.insert("asset_counts", Value::Dict(asset_counts));
         payload.insert("files", Value::Dict(model_files(&model_type, &assets)));
         payload.insert("assets", Value::List(assets.into_iter().map(Value::Dict).collect()));
-        Ok(payload)
+        payload
     }
 
     /// `_pick_representative_asset(record)`: the first available texture or painting by
     /// kind and path, else the first available asset, else the first asset.
-    fn pick_representative_asset(&self, record: &Record) -> Result<Value> {
+    fn pick_representative_asset(&self, record: &Record) -> Value {
         let mut candidates = Vec::new();
         for model in models_of(&record.manifest) {
             for asset in assets_of(model) {
-                candidates.push(self.asset_ref(record, asset)?);
+                candidates.push(self.asset_ref(record, asset));
             }
         }
         let first_by_kind = |items: Vec<&Dict>| {
@@ -905,11 +902,11 @@ impl AzurLaneLibrary {
         let picked = first_by_kind(representative)
             .or_else(|| first_by_kind(available))
             .or_else(|| candidates.first().cloned());
-        Ok(picked.map_or(Value::Null, Value::Dict))
+        picked.map_or(Value::Null, Value::Dict)
     }
 
     /// `_asset_ref(record, asset)`: the asset as the API serves it.
-    fn asset_ref(&self, record: &Record, asset: &Dict) -> Result<Dict> {
+    fn asset_ref(&self, record: &Record, asset: &Dict) -> Dict {
         let local_path = clean_text(asset.get("local_path"));
         let mut normalized_path = String::new();
         let mut available = false;
@@ -963,11 +960,11 @@ impl AzurLaneLibrary {
         payload.insert("source_urls", Value::Dict(source_urls));
         payload.insert("original_filename", Value::Str(clean_text(asset.get("original_filename"))));
         payload.insert("content_type", Value::Str(clean_text(asset.get("content_type"))));
-        payload.insert("size", Value::Int(int_or_zero(asset.get("size"))?));
+        payload.insert("size", Value::Int(int_or_zero(asset.get("size"))));
         payload.insert("sha256", Value::Str(sha256));
         payload.insert("status", Value::Str(clean_text(asset.get("status"))));
         payload.insert("available", Value::Bool(available));
-        payload.insert("failed_count", Value::Int(int_or_zero(asset.get("failed_count"))?));
+        payload.insert("failed_count", Value::Int(int_or_zero(asset.get("failed_count"))));
         payload.insert("error", Value::Str(clean_text(asset.get("error"))));
         payload.insert("last_attempt_at", text_or_null(asset.get("last_attempt_at")));
         payload.insert("next_retry_at", text_or_null(asset.get("next_retry_at")));
@@ -980,7 +977,7 @@ impl AzurLaneLibrary {
         payload.insert("catalog_source", Value::Str(context("catalog_source")));
         payload.insert("context_hashes", Value::List(context_hashes));
         payload.insert("contexts", Value::List(contexts));
-        Ok(payload)
+        payload
     }
 
     /// `_resolved_asset_path(record, normalized_path)`: the target with every symlink

@@ -292,18 +292,13 @@ fn sidebar_payload(character: &Dict) -> Value {
 }
 
 /// `_azurlane_sidebar_sort_key(item)`.
-fn sidebar_sort_key(item: &Value) -> Result<(f64, f64, String), ApiError> {
-    let timestamp = |name: &str| {
-        crate::bd2::library::route_sort_timestamp(&item.get(name).cloned().unwrap_or(Value::Null)).map_err(|error| match error {
-            crate::bd2::library::LibraryError::Failed(message) => unhandled(&message),
-            crate::bd2::library::LibraryError::NotFound => ApiError::internal(),
-        })
-    };
+fn sidebar_sort_key(item: &Value) -> (f64, f64, String) {
+    let timestamp = |name: &str| crate::bd2::library::route_sort_timestamp(&item.get(name).cloned().unwrap_or(Value::Null));
     let key = match item.get("character_key") {
         Some(Value::Str(key)) => key.clone(),
         _ => String::new(),
     };
-    Ok((timestamp("completed_at")?, timestamp("fetched_at")?, key))
+    (timestamp("completed_at"), timestamp("fetched_at"), key)
 }
 
 /// `GET /api/v2/azurlane/sidebar/characters`: every character, newest first, with an
@@ -319,7 +314,7 @@ pub(crate) async fn sidebar(state: &ApiState, request: &Request) -> Result<Respo
     let mut keyed = Vec::with_capacity(characters.len());
     for character in &characters {
         let item = schema::validate(&models::AZURLANE_SIDEBAR_CHARACTER, &sidebar_payload(character)).map_err(|error| invalid(&error))?;
-        keyed.push((sidebar_sort_key(&item)?, item));
+        keyed.push((sidebar_sort_key(&item), item));
     }
     // `sorted(reverse=True)` keeps equal keys in their order.
     keyed.sort_by(|left, right| right.0.partial_cmp(&left.0).unwrap_or(std::cmp::Ordering::Equal));
