@@ -24,8 +24,7 @@ pub const RUNTIME_CLICK_MATCH_METHOD: &str = "gamekee-runtime-player-event";
 pub const DEFAULT_SKIN_TITLE: &str = "基础时装";
 const MATCH_CONFIDENCES: [&str; 3] = ["high", "medium", "low"];
 
-static LIVE2D_KEY_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"/live2d/[^/]+/([^/?#]+)/").expect("a valid pattern"));
+static LIVE2D_KEY_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"/live2d/[^/]+/([^/?#]+)/").expect("a valid pattern"));
 
 // ---------- Python value helpers ----------
 
@@ -67,7 +66,11 @@ pub fn to_float(value: Option<&Value>) -> Option<f64> {
 
 /// `data.get(first, data.get(second))`: the second key only when the first is missing.
 fn get_either<'a>(data: &'a Dict, first: &str, second: &str) -> Option<&'a Value> {
-    if data.contains_key(first) { data.get(first) } else { data.get(second) }
+    if data.contains_key(first) {
+        data.get(first)
+    } else {
+        data.get(second)
+    }
 }
 
 /// `isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray)`.
@@ -453,12 +456,11 @@ fn group_models_by_skin_and_kind(models: &[Dict]) -> Vec<Vec<Dict>> {
     let mut groups: Vec<Vec<Dict>> = Vec::new();
     for model in models {
         let key = (model_skin_index(model), infer_live2d_model_kind(model));
-        match keys.iter().position(|existing| *existing == key) {
-            Some(index) => groups[index].push(model.clone()),
-            None => {
-                keys.push(key);
-                groups.push(vec![model.clone()]);
-            }
+        if let Some(index) = keys.iter().position(|existing| *existing == key) {
+            groups[index].push(model.clone());
+        } else {
+            keys.push(key);
+            groups.push(vec![model.clone()]);
         }
     }
     groups
@@ -715,6 +717,7 @@ pub fn default_source_url(content_id: i128) -> String {
 
 /// `build_layer_capture_payload`: one skin's layers, matched to its models by runtime key
 /// and ordered by the containers' `z-index`. `utc_now` stands in for `_utc_now_iso`.
+#[allow(clippy::too_many_lines)] // reason: one Python function, its dict built key by key in Python's order
 pub fn build_layer_capture_payload(capture: &LayerCaptureBuildInput, utc_now: &(dyn Fn() -> String + Sync)) -> Dict {
     let captured_at = if capture.captured_at.is_empty() {
         utc_now()
@@ -748,7 +751,12 @@ pub fn build_layer_capture_payload(capture: &LayerCaptureBuildInput, utc_now: &(
             None => model_by_runtime_key.push((key, model)),
         }
     }
-    let model_for = |key: &str| model_by_runtime_key.iter().find(|(existing, _)| existing == key).map(|(_, model)| *model);
+    let model_for = |key: &str| {
+        model_by_runtime_key
+            .iter()
+            .find(|(existing, _)| existing == key)
+            .map(|(_, model)| *model)
+    };
     let matched: Vec<String> = requested.iter().filter(|key| model_for(key).is_some()).cloned().collect();
     let mut warnings = Vec::new();
     if matched.len() < containers.len() {
@@ -824,7 +832,10 @@ pub fn build_layer_capture_payload(capture: &LayerCaptureBuildInput, utc_now: &(
                 ("container_count", Value::Int(i128::try_from(containers.len()).unwrap_or(i128::MAX))),
             ])),
         ),
-        ("fingerprint", Value::Str(layer_capture_fingerprint(capture.content_id, &model_group))),
+        (
+            "fingerprint",
+            Value::Str(layer_capture_fingerprint(capture.content_id, &model_group)),
+        ),
         ("warnings", str_list(&warnings)),
         ("layers", Value::List(layers.into_iter().map(Value::Dict).collect())),
     ])
@@ -840,7 +851,11 @@ pub struct PayloadRequest<'a> {
 }
 
 /// `_build_multi_group_layer_capture_payload`: every skin's layers in one payload.
-pub fn build_multi_group_layer_capture_payload(request: &PayloadRequest<'_>, groups: &[RuntimeGroupCapture], utc_now: &(dyn Fn() -> String + Sync)) -> Dict {
+pub fn build_multi_group_layer_capture_payload(
+    request: &PayloadRequest<'_>,
+    groups: &[RuntimeGroupCapture],
+    utc_now: &(dyn Fn() -> String + Sync),
+) -> Dict {
     let captured_at = utc_now();
     let source_url = if request.source_url.is_empty() {
         default_source_url(request.content_id)
@@ -898,7 +913,10 @@ pub fn build_multi_group_layer_capture_payload(request: &PayloadRequest<'_>, gro
                     "requested_live2d_keys",
                     str_list(&unique_in_order(requested.iter().map(String::as_str))),
                 ),
-                ("matched_live2d_keys", str_list(&unique_in_order(matched.iter().map(String::as_str)))),
+                (
+                    "matched_live2d_keys",
+                    str_list(&unique_in_order(matched.iter().map(String::as_str))),
+                ),
                 ("container_count", Value::Int(container_count)),
             ])),
         ),

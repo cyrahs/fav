@@ -172,7 +172,7 @@ tests = [
 
 [WP17]
 title = "RedNote, Nikke runtime capture"
-status = "pending"
+status = "done"
 tests = ["tests/test_rednote.py", "tests/test_rednote_missing_db.py", "tests/test_nikke_runtime.py"]
 
 [WP18]

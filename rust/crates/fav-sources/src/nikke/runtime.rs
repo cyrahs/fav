@@ -24,11 +24,11 @@ use futures_util::StreamExt as _;
 use futures_util::future::BoxFuture;
 use serde_json::json;
 
-pub use self::payload::{RuntimeGroupCapture, live2d_key_from_url, unique_live2d_keys};
 use self::payload::{
     DEFAULT_SKIN_TITLE, PayloadRequest, RuntimeContainerSnapshot, RuntimePlayerSnapshot, capture_payload, containers_from_raw,
     default_source_url, first_skin_model_group, model_skin_title, multi_full_model_groups, players_from_raw, to_float, to_int,
 };
+pub use self::payload::{RuntimeGroupCapture, live2d_key_from_url, unique_live2d_keys};
 use crate::pydecode::PyError;
 
 pub const DEFAULT_RUNTIME_TIMEOUT_MS: i64 = 60_000;
@@ -138,7 +138,12 @@ pub trait CapturePage: Send + Sync {
     /// `page.get_by_text(text, exact=True).last.click(timeout=timeout_ms)`.
     fn click_last_exact_text<'a>(&'a self, text: &'a str, timeout_ms: u64) -> BoxFuture<'a, Result<(), DriverError>>;
     /// `page.wait_for_function(function, arg=arg, timeout=timeout_ms)`.
-    fn wait_for_function<'a>(&'a self, function: &'a str, arg: serde_json::Value, timeout_ms: i64) -> BoxFuture<'a, Result<(), DriverError>>;
+    fn wait_for_function<'a>(
+        &'a self,
+        function: &'a str,
+        arg: serde_json::Value,
+        timeout_ms: i64,
+    ) -> BoxFuture<'a, Result<(), DriverError>>;
     /// `page.wait_for_timeout(ms)`.
     fn wait_for_timeout(&self, ms: u64) -> BoxFuture<'_, ()>;
     /// `page.evaluate(script)`.
@@ -176,8 +181,8 @@ async fn select_runtime_skin(page: &dyn CapturePage, skin_title: &str) -> Result
     Ok(())
 }
 
-fn evaluated_list(value: serde_json::Value) -> Vec<Value> {
-    match Value::from_serde(&value) {
+fn evaluated_list(value: &serde_json::Value) -> Vec<Value> {
+    match Value::from_serde(value) {
         Value::List(items) => items,
         _ => Vec::new(),
     }
@@ -185,7 +190,7 @@ fn evaluated_list(value: serde_json::Value) -> Vec<Value> {
 
 /// `_read_runtime_containers`.
 async fn read_runtime_containers(page: &dyn CapturePage) -> Result<Vec<RuntimeContainerSnapshot>, DriverError> {
-    Ok(containers_from_raw(&evaluated_list(page.evaluate(CONTAINERS_SCRIPT).await?)))
+    Ok(containers_from_raw(&evaluated_list(&page.evaluate(CONTAINERS_SCRIPT).await?)))
 }
 
 /// `_runtime_event_count`.
@@ -196,7 +201,7 @@ async fn runtime_event_count(page: &dyn CapturePage) -> Result<i128, DriverError
 
 /// `_read_runtime_players`.
 async fn read_runtime_players(page: &dyn CapturePage) -> Result<Vec<RuntimePlayerSnapshot>, DriverError> {
-    Ok(players_from_raw(&evaluated_list(page.evaluate(PLAYERS_SCRIPT).await?)))
+    Ok(players_from_raw(&evaluated_list(&page.evaluate(PLAYERS_SCRIPT).await?)))
 }
 
 /// `_click_runtime_stage`: click the middle of the stage, if there is one.
@@ -211,7 +216,10 @@ async fn click_runtime_stage(page: &dyn CapturePage) -> Result<(), DriverError> 
 }
 
 /// `_capture_runtime_groups`: one pass over the page per stacked skin (or the first skin).
-pub async fn capture_runtime_groups(launcher: &dyn CaptureLauncher, request: &RuntimeCaptureRequest) -> Result<Vec<RuntimeGroupCapture>, PyError> {
+pub async fn capture_runtime_groups(
+    launcher: &dyn CaptureLauncher,
+    request: &RuntimeCaptureRequest,
+) -> Result<Vec<RuntimeGroupCapture>, PyError> {
     let source_url = if request.source_url.is_empty() {
         default_source_url(request.content_id)
     } else {
@@ -248,7 +256,8 @@ async fn capture_on(
         let expected = request
             .expected_layer_count
             .unwrap_or_else(|| i64::try_from(group.len()).unwrap_or(i64::MAX));
-        page.wait_for_function(CANVAS_COUNT_SCRIPT, json!(expected), request.timeout_ms).await?;
+        page.wait_for_function(CANVAS_COUNT_SCRIPT, json!(expected), request.timeout_ms)
+            .await?;
         page.wait_for_timeout(PLAYER_SETTLE_MS).await;
         let click_start_sequence = runtime_event_count(&*page).await?;
         click_runtime_stage(&*page).await?;
@@ -311,11 +320,13 @@ struct ChromiumBrowser {
 impl CaptureBrowser for ChromiumBrowser {
     fn new_page(&self, viewport: (u32, u32)) -> BoxFuture<'_, Result<Box<dyn CapturePage>, DriverError>> {
         Box::pin(async move {
-            let page = self.context.new_page_with(&ContextOptions {
-                viewport: Some(viewport),
-                ..ContextOptions::default()
-            })
-            .await?;
+            let page = self
+                .context
+                .new_page_with(&ContextOptions {
+                    viewport: Some(viewport),
+                    ..ContextOptions::default()
+                })
+                .await?;
             Ok(Box::new(ChromiumPage {
                 page,
                 urls: Arc::default(),
@@ -380,7 +391,12 @@ impl CapturePage for ChromiumPage {
         Box::pin(self.page.click_last_with_exact_text(text, Duration::from_millis(timeout_ms)))
     }
 
-    fn wait_for_function<'a>(&'a self, function: &'a str, arg: serde_json::Value, timeout_ms: i64) -> BoxFuture<'a, Result<(), DriverError>> {
+    fn wait_for_function<'a>(
+        &'a self,
+        function: &'a str,
+        arg: serde_json::Value,
+        timeout_ms: i64,
+    ) -> BoxFuture<'a, Result<(), DriverError>> {
         Box::pin(async move {
             self.page
                 .wait_for_function_with_arg(function, arg, playwright_timeout(timeout_ms), WAIT_POLL)

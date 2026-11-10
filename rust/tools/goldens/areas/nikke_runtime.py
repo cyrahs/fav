@@ -52,7 +52,7 @@ _INT_VALUES: list[Any] = [
     [],
     {},
 ]
-_FLOAT_VALUES: list[Any] = [None, True, 3, -2, 2.5, '2.5', ' 1e3 ', 'inf', 'nan', 'x', '', [], {}, '1_0', '１２']
+_FLOAT_VALUES: list[Any] = [None, True, 3, -2, 2.5, '2.5', ' 1e3 ', 'inf', 'nan', 'x', '', [], {}, '1_0', '\uff11\uff12']
 
 
 def _model(skin_index: Any, stable_id: str, live2d_key: str, **extra: Any) -> dict[str, Any]:
@@ -72,7 +72,13 @@ def _model(skin_index: Any, stable_id: str, live2d_key: str, **extra: Any) -> di
 
 def _runtime_animations(prefix: str) -> dict[str, Any]:
     return {
-        'idle': {'animation': f'{prefix}-idle', 'enabled': True, 'loop': True, 'match_method': 'gamekee-runtime-player', 'match_confidence': 'high'},
+        'idle': {
+            'animation': f'{prefix}-idle',
+            'enabled': True,
+            'loop': True,
+            'match_method': 'gamekee-runtime-player',
+            'match_confidence': 'high',
+        },
         'click': {
             'animation': f'{prefix}-click',
             'enabled': True,
@@ -107,12 +113,27 @@ _PLAYERS: list[dict[str, Any]] = [
         'currentAnimation': 'idle',
         'animationDurationsMs': {'action': 1200, 'bad': -1, 'idle': '300', 'x': None},
         'events': [
-            {'sequence': 1, 'timeMs': 10, 'type': 'animationState', 'method': 'setAnimation', 'trackIndex': 0, 'animation': 'idle', 'loop': True},
+            {
+                'sequence': 1,
+                'timeMs': 10,
+                'type': 'animationState',
+                'method': 'setAnimation',
+                'trackIndex': 0,
+                'animation': 'idle',
+                'loop': True,
+            },
             {'seq': '2', 'type': 'playerMethod', 'method': 'play', 'playerIndex': 0, 'delayMs': 250, 'loop': 1},
             'not an event',
         ],
     },
-    {'player_index': 2, 'container_index': 5, 'atlas_url': 'https://x/live2d/g/k/a.atlas', 'animation': 'fallback', 'current': 'now', 'events': 'nope'},
+    {
+        'player_index': 2,
+        'container_index': 5,
+        'atlas_url': 'https://x/live2d/g/k/a.atlas',
+        'animation': 'fallback',
+        'current': 'now',
+        'events': 'nope',
+    },
     {'playerIndex': 4, 'containerIndex': -1, 'skelUrl': 'https://x/other/model.skel', 'events': [{}]},
 ]
 
@@ -175,24 +196,34 @@ def _helpers() -> list[dict[str, Any]]:
                     'events': [event.to_payload() for event in player.events],
                 }
             )
-    for models in _model_groups():
-        cases.append(
-            {
-                'fn': 'groups',
-                'models': models,
-                'multi': [[model['stable_id'] for model in group] for group in runtime.multi_full_model_groups(models)],
-                'first': [model['stable_id'] for model in runtime.first_skin_model_group(models)],
-                'select': [
-                    {'keys': keys, 'result': [model['stable_id'] for model in runtime.select_model_group(models, keys)]}
-                    for keys in _RUNTIME_KEY_SETS
-                ],
-            }
-        )
+    cases.extend(
+        {
+            'fn': 'groups',
+            'models': models,
+            'multi': [[model['stable_id'] for model in group] for group in runtime.multi_full_model_groups(models)],
+            'first': [model['stable_id'] for model in runtime.first_skin_model_group(models)],
+            'select': [
+                {'keys': keys, 'result': [model['stable_id'] for model in runtime.select_model_group(models, keys)]}
+                for keys in _RUNTIME_KEY_SETS
+            ],
+        }
+        for models in _model_groups()
+    )
     return cases
 
 
-def _event(sequence: Any, animation: str, *, loop: Any = True, track: Any = 0, kind: str = 'animationState', **extra: Any) -> dict[str, Any]:
-    return {'sequence': sequence, 'type': kind, 'method': 'setAnimationWith', 'trackIndex': track, 'animation': animation, 'loop': loop, **extra}
+def _event(
+    sequence: Any, animation: str, *, loop: Any = True, track: Any = 0, kind: str = 'animationState', **extra: Any
+) -> dict[str, Any]:
+    return {
+        'sequence': sequence,
+        'type': kind,
+        'method': 'setAnimationWith',
+        'trackIndex': track,
+        'animation': animation,
+        'loop': loop,
+        **extra,
+    }
 
 
 def _player(index: int, key: str, events: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -218,9 +249,20 @@ def _build_inputs() -> list[dict[str, Any]]:
         {'index': 2, 'zIndex': 8, 'rawZIndex': '8', 'canvasCount': 1},
     ]
     return [
-        {'content_id': 711133, 'title': 'Test', 'models': [*others, *three], 'containers': z_containers, 'requested_live2d_keys': ['main', 'front', 'back']},
+        {
+            'content_id': 711133,
+            'title': 'Test',
+            'models': [*others, *three],
+            'containers': z_containers,
+            'requested_live2d_keys': ['main', 'front', 'back'],
+        },
         {'content_id': 1, 'models': [], 'containers': [], 'requested_live2d_keys': []},
-        {'content_id': 2, 'models': three, 'containers': [{'index': 0, 'zIndex': 5}], 'requested_live2d_keys': [' main ', 'main', '', 'zzz']},
+        {
+            'content_id': 2,
+            'models': three,
+            'containers': [{'index': 0, 'zIndex': 5}],
+            'requested_live2d_keys': [' main ', 'main', '', 'zzz'],
+        },
         {
             'content_id': 3,
             'models': three[:2],
@@ -230,10 +272,18 @@ def _build_inputs() -> list[dict[str, Any]]:
         {
             'content_id': 4,
             'models': [
-                {**_model(0, 'stable-main', 'main'), 'runtime_animations': _runtime_animations('main'), 'runtime_animation_match_method': 'm', 'runtime_animation_match_confidence': 'high'},
+                {
+                    **_model(0, 'stable-main', 'main'),
+                    'runtime_animations': _runtime_animations('main'),
+                    'runtime_animation_match_method': 'm',
+                    'runtime_animation_match_confidence': 'high',
+                },
                 {
                     **_model(0, 'stable-front', 'front'),
-                    'runtimeAnimations': {'idle': {'animation': ' i ', 'enabled': 1, 'loop': False, 'matchConfidence': 'odd', 'durationMs': '5'}, 'click': {}},
+                    'runtimeAnimations': {
+                        'idle': {'animation': ' i ', 'enabled': 1, 'loop': False, 'matchConfidence': 'odd', 'durationMs': '5'},
+                        'click': {},
+                    },
                     'runtimeAnimationMatchConfidence': 'medium',
                 },
             ],
@@ -247,7 +297,9 @@ def _build_inputs() -> list[dict[str, Any]]:
             'containers': z_containers,
             'runtime_players': [
                 _player(0, 'main', [_event(1, 'idle'), _event(5, 'action', loop=False)], animationDurationsMs={'action': 1333}),
-                _player(1, 'front', [_event(2, 'bg_idle'), _event(6, 'action', loop=None, delayMs=250)], animationDurationsMs={'action': 900}),
+                _player(
+                    1, 'front', [_event(2, 'bg_idle'), _event(6, 'action', loop=None, delayMs=250)], animationDurationsMs={'action': 900}
+                ),
                 _player(2, 'back', [_event(3, 'bg_idle')]),
             ],
             'runtime_click_start_sequence': 4,
@@ -263,11 +315,21 @@ def _build_inputs() -> list[dict[str, Any]]:
         },
         {
             'content_id': 7,
-            'models': [_model(0, 'stable-main', 'main'), {'stable_id': 'bare', 'resource_urls': {'atlas': '/live2d/nikke/x/m.atlas', 'list': ['//a/b', 3, ' ']}}],
+            'models': [
+                _model(0, 'stable-main', 'main'),
+                {'stable_id': 'bare', 'resource_urls': {'atlas': '/live2d/nikke/x/m.atlas', 'list': ['//a/b', 3, ' ']}},
+            ],
             'containers': [{'index': 0, 'zIndex': 1}, {'index': 1, 'zIndex': 1}, {'index': 2}],
             'runtime_players': [
-                _player(0, 'main', [_event(3, 'a'), _event(3, 'b'), _event(1, 'c', track=1), _event(2, 'd', kind='playerMethod'), _event(4, '')]),
-                {**_player(1, 'x', []), 'atlasUrl': 'https://h/no-key/model.atlas', 'skelUrl': '/live2d/nikke/x/m.atlas', 'configuredAnimation': ''},
+                _player(
+                    0, 'main', [_event(3, 'a'), _event(3, 'b'), _event(1, 'c', track=1), _event(2, 'd', kind='playerMethod'), _event(4, '')]
+                ),
+                {
+                    **_player(1, 'x', []),
+                    'atlasUrl': 'https://h/no-key/model.atlas',
+                    'skelUrl': '/live2d/nikke/x/m.atlas',
+                    'configuredAnimation': '',
+                },
                 {**_player(1, 'dup', [_event(9, 'late')]), 'containerIndex': 1},
             ],
             'runtime_click_start_sequence': None,
@@ -277,7 +339,9 @@ def _build_inputs() -> list[dict[str, Any]]:
             'content_id': 8,
             'models': [_model(0, 'm', 'main')],
             'containers': [{'index': 0, 'zIndex': 2}],
-            'runtime_players': [_player(0, 'main', [_event(7, 'after', loop=None), _event(6, 'first-after')], animationDurationsMs={'after': 10})],
+            'runtime_players': [
+                _player(0, 'main', [_event(7, 'after', loop=None), _event(6, 'first-after')], animationDurationsMs={'after': 10})
+            ],
             'runtime_click_start_sequence': 0,
             'requested_live2d_keys': ['main'],
             'captured_at': '2020-01-01T00:00:00+00:00',
@@ -315,7 +379,9 @@ def _capture_scenarios() -> list[dict[str, Any]]:
                     'requested_live2d_keys': ['first-main', 'first-back'],
                     'runtime_click_start_sequence': 3,
                     'runtime_players': [
-                        _player(0, 'first-main', [_event(1, 'idle'), _event(4, 'action', loop=False)], animationDurationsMs={'action': 1200}),
+                        _player(
+                            0, 'first-main', [_event(1, 'idle'), _event(4, 'action', loop=False)], animationDurationsMs={'action': 1200}
+                        ),
                         _player(1, 'first-back', [_event(2, 'bg_idle')]),
                     ],
                 }

@@ -4,15 +4,15 @@
 
 use std::sync::{Arc, Mutex};
 
+use fav_browser::driver::DriverError;
 use fav_core::golden;
 use fav_core::pyjson::{Dict, Value, loads};
-use fav_browser::driver::DriverError;
 use futures_util::future::BoxFuture;
 
 use super::payload::{
-    LayerCaptureBuildInput, PayloadRequest, RuntimeContainerSnapshot, RuntimeGroupCapture, RuntimePlayerSnapshot, build_layer_capture_payload,
-    capture_payload, containers_from_raw, first_skin_model_group, layer_capture_fingerprint, live2d_key_from_url, multi_full_model_groups,
-    players_from_raw, select_model_group, to_float, to_int, unique_live2d_keys,
+    LayerCaptureBuildInput, PayloadRequest, RuntimeContainerSnapshot, RuntimeGroupCapture, RuntimePlayerSnapshot,
+    build_layer_capture_payload, capture_payload, containers_from_raw, first_skin_model_group, layer_capture_fingerprint,
+    live2d_key_from_url, multi_full_model_groups, players_from_raw, select_model_group, to_float, to_int, unique_live2d_keys,
 };
 use super::{
     BrowserCapturer, CANVAS_COUNT_SCRIPT, CLOTHES_BUTTON_SELECTOR, CaptureBrowser, CaptureLauncher, CapturePage, ChromiumLauncher,
@@ -71,7 +71,10 @@ fn keys(items: &[&str]) -> Vec<String> {
 }
 
 fn stable_ids(models: &[Dict]) -> Vec<String> {
-    models.iter().map(|model| golden::string(model.get("stable_id").expect("stable_id"))).collect()
+    models
+        .iter()
+        .map(|model| golden::string(model.get("stable_id").expect("stable_id")))
+        .collect()
 }
 
 fn layers(payload: &Dict) -> Vec<Dict> {
@@ -126,7 +129,10 @@ fn first_skin_model_group_ignores_aim_and_cover_models() {
         with(model(0, "stable-aim", "aim"), "label", Value::from("live2d(aim)")),
         with(model(0, "stable-cover", "cover"), "label", Value::from("live2d(cover)")),
     ];
-    assert_eq!(stable_ids(&first_skin_model_group(&models)), ["stable-main", "stable-front", "stable-back"]);
+    assert_eq!(
+        stable_ids(&first_skin_model_group(&models)),
+        ["stable-main", "stable-front", "stable-back"]
+    );
 }
 
 // py: tests/test_nikke_runtime.py::test_multi_full_model_groups_selects_only_layered_full_skins
@@ -150,7 +156,7 @@ struct Script {
     clicks: Vec<(String, u64)>,
     stage_clicks: Vec<(f64, f64)>,
     wait_args: Vec<(String, serde_json::Value, i64)>,
-    init_script: String,
+    init_code: String,
     recording: bool,
     gotos: Vec<(String, i64)>,
     urls: Vec<String>,
@@ -179,7 +185,7 @@ impl ScriptedPage {
 
 impl CapturePage for ScriptedPage {
     fn add_init_script<'a>(&'a self, script: &'a str) -> BoxFuture<'a, Result<(), DriverError>> {
-        script.clone_into(&mut self.state().init_script);
+        script.clone_into(&mut self.state().init_code);
         Box::pin(async { Ok(()) })
     }
 
@@ -212,7 +218,12 @@ impl CapturePage for ScriptedPage {
         Box::pin(async { Ok(()) })
     }
 
-    fn wait_for_function<'a>(&'a self, function: &'a str, arg: serde_json::Value, timeout_ms: i64) -> BoxFuture<'a, Result<(), DriverError>> {
+    fn wait_for_function<'a>(
+        &'a self,
+        function: &'a str,
+        arg: serde_json::Value,
+        timeout_ms: i64,
+    ) -> BoxFuture<'a, Result<(), DriverError>> {
         self.state().wait_args.push((function.to_owned(), arg, timeout_ms));
         Box::pin(async { Ok(()) })
     }
@@ -293,9 +304,9 @@ async fn capture_runtime_groups_switches_to_non_default_skin() {
     assert_eq!(state.headless, Some(true));
     assert_eq!(state.viewport, Some((1440, 1000)));
     assert_eq!(state.gotos, [("https://www.gamekee.com/nikke/tj/711133.html".to_owned(), 60_000)]);
-    assert!(state.init_script.contains("SpinePlayer"));
+    assert!(state.init_code.contains("SpinePlayer"));
     for method in ["setAnimation", "addAnimation", "setAnimationWith", "addAnimationWith"] {
-        assert!(state.init_script.contains(&format!("\"{method}\"")), "{method}");
+        assert!(state.init_code.contains(&format!("\"{method}\"")), "{method}");
     }
     assert_eq!(
         state.clicks,
@@ -412,7 +423,10 @@ fn capture_gamekee_runtime_layers_combines_multiple_group_payloads() {
         ))
     );
     let refs: Vec<&Dict> = all.iter().collect();
-    assert_eq!(payload.get("fingerprint"), Some(&Value::Str(live2d_layer_fingerprint(711_133, &refs))));
+    assert_eq!(
+        payload.get("fingerprint"),
+        Some(&Value::Str(live2d_layer_fingerprint(711_133, &refs)))
+    );
     let summary: Vec<(Value, Value, Value)> = layers(&payload)
         .iter()
         .map(|layer| {
@@ -448,7 +462,12 @@ fn build(models: Vec<Dict>, containers_json: &str, requested: &[&str]) -> LayerC
 fn layer_summary(payload: &Dict, fields: &[&str]) -> Vec<Vec<Value>> {
     layers(payload)
         .iter()
-        .map(|layer| fields.iter().map(|field| layer.get(field).cloned().unwrap_or(Value::Null)).collect())
+        .map(|layer| {
+            fields
+                .iter()
+                .map(|field| layer.get(field).cloned().unwrap_or(Value::Null))
+                .collect()
+        })
         .collect()
 }
 
@@ -479,17 +498,41 @@ fn build_layer_capture_payload_orders_runtime_layers_by_z_index() {
     assert_eq!(payload.get("status"), Some(&Value::from("success")));
     assert_eq!(payload.get("warnings"), Some(&Value::List(Vec::new())));
     let refs: Vec<&Dict> = models[2..].iter().collect();
-    assert_eq!(payload.get("fingerprint"), Some(&Value::Str(live2d_layer_fingerprint(711_133, &refs))));
-    assert_eq!(layer_capture_fingerprint(711_133, &models[2..]), live2d_layer_fingerprint(711_133, &refs));
+    assert_eq!(
+        payload.get("fingerprint"),
+        Some(&Value::Str(live2d_layer_fingerprint(711_133, &refs)))
+    );
+    assert_eq!(
+        layer_capture_fingerprint(711_133, &models[2..]),
+        live2d_layer_fingerprint(711_133, &refs)
+    );
     assert_eq!(
         layer_summary(
             &payload,
-            &["skin_index", "stable_id", "live2d_key", "source_layer_index", "source_z_index", "layer_order", "is_primary", "layer_match_confidence"]
+            &[
+                "skin_index",
+                "stable_id",
+                "live2d_key",
+                "source_layer_index",
+                "source_z_index",
+                "layer_order",
+                "is_primary",
+                "layer_match_confidence"
+            ]
         ),
         [
-            value(r#"[1, "stable-main", "main", 0, 9, 2, true, "high"]"#).as_list().expect("row").to_vec(),
-            value(r#"[1, "stable-front", "front", 1, 10, 3, false, "high"]"#).as_list().expect("row").to_vec(),
-            value(r#"[1, "stable-back", "back", 2, 8, 1, false, "high"]"#).as_list().expect("row").to_vec(),
+            value(r#"[1, "stable-main", "main", 0, 9, 2, true, "high"]"#)
+                .as_list()
+                .expect("row")
+                .to_vec(),
+            value(r#"[1, "stable-front", "front", 1, 10, 3, false, "high"]"#)
+                .as_list()
+                .expect("row")
+                .to_vec(),
+            value(r#"[1, "stable-back", "back", 2, 8, 1, false, "high"]"#)
+                .as_list()
+                .expect("row")
+                .to_vec(),
         ]
     );
     let first = &layers(&payload)[0];
@@ -525,7 +568,10 @@ fn build_layer_capture_payload_includes_runtime_animation_metadata() {
     assert_eq!(payload.get("layer_capture_schema"), Some(&Value::Int(2)));
     let first = &layers(&payload)[0];
     assert_eq!(first.get("runtime_animations"), Some(&runtime_animations("main")));
-    assert_eq!(first.get("runtime_animation_match_method"), Some(&Value::from("gamekee-runtime-player")));
+    assert_eq!(
+        first.get("runtime_animation_match_method"),
+        Some(&Value::from("gamekee-runtime-player"))
+    );
     assert_eq!(first.get("runtime_animation_match_confidence"), Some(&Value::from("high")));
     assert_eq!(report.get("matched"), Some(&Value::Int(2)));
     assert_eq!(target_models[0].get("runtime_animations"), Some(&runtime_animations("main")));
@@ -533,14 +579,24 @@ fn build_layer_capture_payload_includes_runtime_animation_metadata() {
         target_models[0].get("runtime_animation_match_method"),
         Some(&Value::from("gamekee-runtime-player"))
     );
-    assert_eq!(target_models[0].get("runtime_animation_match_confidence"), Some(&Value::from("high")));
-    assert_eq!(target_models[1].get("runtime_animation_match_confidence"), Some(&Value::from("high")));
+    assert_eq!(
+        target_models[0].get("runtime_animation_match_confidence"),
+        Some(&Value::from("high"))
+    );
+    assert_eq!(
+        target_models[1].get("runtime_animation_match_confidence"),
+        Some(&Value::from("high"))
+    );
 }
 
 // py: tests/test_nikke_runtime.py::test_build_layer_capture_payload_uses_gamekee_runtime_timeline_without_guessing_background_click
 #[test]
 fn build_layer_capture_payload_uses_gamekee_runtime_timeline_without_guessing_background_click() {
-    let models = vec![model(0, "stable-main", "main"), model(0, "stable-front", "front"), model(0, "stable-back", "back")];
+    let models = vec![
+        model(0, "stable-main", "main"),
+        model(0, "stable-front", "front"),
+        model(0, "stable-back", "back"),
+    ];
     let mut input = build(
         models,
         r#"[{"index": 0, "zIndex": 9, "rawZIndex": "9"}, {"index": 1, "zIndex": 10, "rawZIndex": "10"}, {"index": 2, "zIndex": 8, "rawZIndex": "8"}]"#,
@@ -594,7 +650,11 @@ fn build_layer_capture_payload_uses_gamekee_runtime_timeline_without_guessing_ba
 // py: tests/test_nikke_runtime.py::test_build_layer_capture_payload_marks_runtime_match_low_when_player_resource_does_not_match_model
 #[test]
 fn build_layer_capture_payload_marks_runtime_match_low_when_player_resource_does_not_match_model() {
-    let mut input = build(vec![model(0, "stable-main", "main")], r#"[{"index": 0, "zIndex": 9, "rawZIndex": "9"}]"#, &["main"]);
+    let mut input = build(
+        vec![model(0, "stable-main", "main")],
+        r#"[{"index": 0, "zIndex": 9, "rawZIndex": "9"}]"#,
+        &["main"],
+    );
     input.runtime_players = players(
         r#"[{"playerIndex": 0, "containerIndex": 0, "zIndex": 9, "rawZIndex": "9",
              "atlasUrl": "https://cdn.example.com/live2d/nikke/other/model.atlas", "configuredAnimation": "idle",
@@ -649,7 +709,11 @@ fn build_layer_capture_payload_marks_low_confidence_when_z_index_is_non_finite()
 // py: tests/test_nikke_runtime.py::test_build_layer_capture_payload_is_accepted_by_existing_merge_boundary
 #[test]
 fn build_layer_capture_payload_is_accepted_by_existing_merge_boundary() {
-    let mut models = vec![model(0, "stable-main", "main"), model(0, "stable-front", "front"), model(0, "stable-back", "back")];
+    let mut models = vec![
+        model(0, "stable-main", "main"),
+        model(0, "stable-front", "front"),
+        model(0, "stable-back", "back"),
+    ];
     let payload = build_layer_capture_payload(
         &build(
             models.clone(),
@@ -665,17 +729,27 @@ fn build_layer_capture_payload_is_accepted_by_existing_merge_boundary() {
     let rows: Vec<Vec<Value>> = models
         .iter()
         .map(|model| {
-            ["stable_id", "layer_order", "source_z_index", "source_layer_index", "is_primary", "layer_match_confidence"]
-                .iter()
-                .map(|field| model.get(field).cloned().unwrap_or(Value::Null))
-                .collect()
+            [
+                "stable_id",
+                "layer_order",
+                "source_z_index",
+                "source_layer_index",
+                "is_primary",
+                "layer_match_confidence",
+            ]
+            .iter()
+            .map(|field| model.get(field).cloned().unwrap_or(Value::Null))
+            .collect()
         })
         .collect();
     assert_eq!(
         rows,
         [
             value(r#"["stable-main", 2, 9, 0, true, "high"]"#).as_list().expect("row").to_vec(),
-            value(r#"["stable-front", 3, 10, 1, false, "high"]"#).as_list().expect("row").to_vec(),
+            value(r#"["stable-front", 3, 10, 1, false, "high"]"#)
+                .as_list()
+                .expect("row")
+                .to_vec(),
             value(r#"["stable-back", 1, 8, 2, false, "high"]"#).as_list().expect("row").to_vec(),
         ]
     );
@@ -684,7 +758,10 @@ fn build_layer_capture_payload_is_accepted_by_existing_merge_boundary() {
 // ---------- goldens ----------
 
 fn dicts(value: &Value) -> Vec<Dict> {
-    golden::list(value).iter().map(|item| item.as_dict().expect("a dict").clone()).collect()
+    golden::list(value)
+        .iter()
+        .map(|item| item.as_dict().expect("a dict").clone())
+        .collect()
 }
 
 fn strings(value: &Value) -> Vec<String> {
@@ -698,10 +775,18 @@ fn helpers_match_python() {
         let result = case.get("result").unwrap_or(&Value::Null);
         match golden::string(golden::get(case, "fn")).as_str() {
             "to_int" => {
-                assert_eq!(to_int(Some(golden::get(case, "value"))).map_or(Value::Null, Value::Int), *result, "{case:?}");
+                assert_eq!(
+                    to_int(Some(golden::get(case, "value"))).map_or(Value::Null, Value::Int),
+                    *result,
+                    "{case:?}"
+                );
             }
             "to_float" => {
-                assert_eq!(to_float(Some(golden::get(case, "value"))).map_or(Value::Null, Value::Float), *result, "{case:?}");
+                assert_eq!(
+                    to_float(Some(golden::get(case, "value"))).map_or(Value::Null, Value::Float),
+                    *result,
+                    "{case:?}"
+                );
             }
             "live2d_key_from_url" => {
                 assert_eq!(Value::Str(live2d_key_from_url(&golden::string(golden::get(case, "url")))), *result);
@@ -762,7 +847,9 @@ fn group_from_golden(group: &Value) -> RuntimeGroupCapture {
         models: dicts(golden::get(group, "models")),
         containers: containers_from_raw(golden::list(golden::get(group, "containers"))),
         requested_live2d_keys: strings(golden::get(group, "requested_live2d_keys")),
-        runtime_players: group.get("runtime_players").map_or_else(Vec::new, |items| players_from_raw(golden::list(items))),
+        runtime_players: group
+            .get("runtime_players")
+            .map_or_else(Vec::new, |items| players_from_raw(golden::list(items))),
         runtime_click_start_sequence: optional_int(group.get("runtime_click_start_sequence")),
     }
 }
@@ -786,7 +873,9 @@ fn payloads_match_python() {
                     title: text_or_empty(input.get("title")),
                     models: dicts(golden::get(input, "models")),
                     containers: containers_from_raw(golden::list(golden::get(input, "containers"))),
-                    runtime_players: input.get("runtime_players").map_or_else(Vec::new, |items| players_from_raw(golden::list(items))),
+                    runtime_players: input
+                        .get("runtime_players")
+                        .map_or_else(Vec::new, |items| players_from_raw(golden::list(items))),
                     runtime_click_start_sequence: optional_int(input.get("runtime_click_start_sequence")),
                     requested_live2d_keys: strings(golden::get(input, "requested_live2d_keys")),
                     captured_at: text_or_empty(input.get("captured_at")),
@@ -800,7 +889,10 @@ fn payloads_match_python() {
                 let models = dicts(golden::get(request, "models"));
                 let title = text_or_empty(request.get("title"));
                 let source_url = text_or_empty(request.get("source_url"));
-                let groups: Vec<RuntimeGroupCapture> = golden::list(golden::get(scenario, "groups")).iter().map(group_from_golden).collect();
+                let groups: Vec<RuntimeGroupCapture> = golden::list(golden::get(scenario, "groups"))
+                    .iter()
+                    .map(group_from_golden)
+                    .collect();
                 let payload_request = PayloadRequest {
                     content_id: golden::int(golden::get(request, "content_id")),
                     title: &title,
@@ -902,7 +994,10 @@ async fn captures_a_local_gamekee_page_in_chromium() {
     let main = layer_by_key(&payload, "target-main");
     assert_eq!(main.get("layer_order"), Some(&Value::Int(2)));
     assert_eq!(main.get("layer_match_confidence"), Some(&Value::from("high")));
-    assert_eq!(path(&main, &["raw_container", "className"]), &Value::from("spine-player-container layer-0"));
+    assert_eq!(
+        path(&main, &["raw_container", "className"]),
+        &Value::from("spine-player-container layer-0")
+    );
     assert_eq!(path(&main, &["raw_container", "canvasCount"]), &Value::Int(1));
     assert_eq!(
         path(&main, &["runtime_animations", "click"]),

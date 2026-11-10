@@ -164,7 +164,7 @@ pub fn truthy(value: Option<&Value>) -> bool {
 }
 
 /// `str(value or '')`.
-fn str_or_empty(value: Option<&Value>) -> String {
+pub(crate) fn str_or_empty(value: Option<&Value>) -> String {
     if !truthy(value) {
         return String::new();
     }
@@ -206,6 +206,12 @@ pub async fn prepare_page(context: &BrowserContext, page: &Page) -> Result<(), D
 /// replaced, `navigator.platform` and the client hints telling the same story). Returns
 /// whether an override was sent: a real Mac browser with a window needs none.
 pub async fn present_mac_user_agent(page: &dyn ProbePage, hints_retry: Duration) -> Result<bool, DriverError> {
+    present_mac_user_agent_via(page, EXIT_IP_URL, hints_retry).await
+}
+
+/// [`present_mac_user_agent`] with the neutral page the hints are read from named: the
+/// crawl's tests park the page on a loopback page instead of [`EXIT_IP_URL`].
+pub async fn present_mac_user_agent_via(page: &dyn ProbePage, hints_url: &str, hints_retry: Duration) -> Result<bool, DriverError> {
     let user_agent = str_or_empty(Some(&page.evaluate("() => navigator.userAgent").await?));
     let cleaned = user_agent
         .replace(HEADLESS_UA_TOKEN, "Chrome")
@@ -218,7 +224,7 @@ pub async fn present_mac_user_agent(page: &dyn ProbePage, hints_retry: Duration)
         "acceptLanguage": ACCEPT_LANGUAGE,
         "platform": MAC_NAVIGATOR_PLATFORM,
     });
-    let mut metadata = user_agent_metadata(page, &cleaned, hints_retry).await?;
+    let mut metadata = user_agent_metadata(page, &cleaned, hints_url, hints_retry).await?;
     if truthy(metadata.get("brands")) {
         metadata.insert("platform".to_owned(), json!(MAC_HINT_PLATFORM));
         metadata.insert("platformVersion".to_owned(), json!(MAC_HINT_PLATFORM_VERSION));
@@ -234,8 +240,13 @@ pub async fn present_mac_user_agent(page: &dyn ProbePage, hints_retry: Duration)
 
 /// `_user_agent_metadata(page, user_agent)`: the client hints as the browser reports
 /// them, with the version it reports.
-async fn user_agent_metadata(page: &dyn ProbePage, user_agent: &str, hints_retry: Duration) -> Result<Map<String, Value>, DriverError> {
-    let hints = read_user_agent_hints(page, hints_retry).await?;
+async fn user_agent_metadata(
+    page: &dyn ProbePage,
+    user_agent: &str,
+    hints_url: &str,
+    hints_retry: Duration,
+) -> Result<Map<String, Value>, DriverError> {
+    let hints = read_user_agent_hints(page, hints_url, hints_retry).await?;
     let from_ua = user_agent
         .rsplit_once("Chrome/")
         .map_or(user_agent, |(_, rest)| rest)
@@ -270,11 +281,11 @@ async fn user_agent_metadata(page: &dyn ProbePage, user_agent: &str, hints_retry
 /// will not give them. `about:blank` is not a secure context and has no
 /// `navigator.userAgentData`, so the page is first parked on a neutral origin; a read that
 /// lands while Chromium commits an error page is tried again after `retry`.
-async fn read_user_agent_hints(page: &dyn ProbePage, retry: Duration) -> Result<Map<String, Value>, DriverError> {
+async fn read_user_agent_hints(page: &dyn ProbePage, hints_url: &str, retry: Duration) -> Result<Map<String, Value>, DriverError> {
     if !truthy(Some(&page.evaluate("() => Boolean(navigator.userAgentData)").await?))
-        && let Err(error) = page.goto(EXIT_IP_URL).await
+        && let Err(error) = page.goto(hints_url).await
     {
-        log().warning(format!("RedNote could not open {EXIT_IP_URL} to read the client hints: {error}"));
+        log().warning(format!("RedNote could not open {hints_url} to read the client hints: {error}"));
     }
     for attempt in 1..=HINTS_ATTEMPTS {
         match page.evaluate(USER_AGENT_HINTS_SCRIPT).await {
@@ -294,6 +305,8 @@ async fn read_user_agent_hints(page: &dyn ProbePage, retry: Duration) -> Result<
     }
     Ok(Map::new())
 }
+
+pub mod note_browser;
 
 #[cfg(test)]
 mod tests;

@@ -144,7 +144,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP14 | 5 message sources | WeChat with Channels videos and stickers | 1,700 | done |
 | WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | pending |
 | WP16 | 6 browser | CDP driver layer, login window (Xvnc, VNC relay, cookie polling) | 1,100 | done |
-| WP17 | 6 browser | RedNote, Nikke runtime capture | 3,100 | pending |
+| WP17 | 6 browser | RedNote, Nikke runtime capture | 3,100 | done |
 | WP18 | 7 wrap-up | Dockerfile (build only, never published), memory benchmark, parity audit, final report | new | pending |
 
 Status values: pending, in progress (PR open), done (merged into `rust`).
@@ -263,6 +263,13 @@ Shared pieces that parallel work packages built twice, to fold together once bot
   launcher with Playwright's argv, `profile` the RedNote profile path and lock helpers, `rednote` the profile
   id and client-hints reads, `proxy` the proxy split. RedNote's own crawl builds on these; the login window's
   RedNote check is `fav_browser::site_checks::verify_rednote`.
+- WP17 (`fav-sources/src/rednote/proxy_probe.rs`): `httpx_url_repr` / `check_httpx_proxy` reproduce httpx's
+  `Unknown scheme for proxy URL` check with its message, beside `azurlane::l2d_sources::check_origin_proxy` (same
+  check, `BuildError` instead of the text) and `twitter`'s own. Fold them into `fav-net` when a package touches
+  any of them. `fav-api`'s archive link now reuses `fav_sources::rednote::build_note_url`.
+- WP17 (`fav-browser/src/testutil.rs`): `Reply` gained a `delay` (`Reply::after`) for the stalled-navigation
+  tests; the real-Chromium tests put the neutral client-hints page on `localhost` and the site on `127.0.0.1`,
+  because both are secure contexts and only a different origin keeps the hints page "off site".
 - WP16 for WP18: Chromium is looked up where Playwright 1.61 installs it
   (`$PLAYWRIGHT_BROWSERS_PATH` or `~/.cache/ms-playwright`, then `chromium-1228/chrome-linux64/chrome`), and
   the login window needs `Xvnc` (TigerVNC) on `PATH`, as the Python image has. The image must provide both.

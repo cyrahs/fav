@@ -20,20 +20,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use chromiumoxide::Browser;
+use chromiumoxide::cdp::browser_protocol::browser::BrowserContextId;
 use chromiumoxide::cdp::browser_protocol::browser::CloseParams as BrowserCloseParams;
 use chromiumoxide::cdp::browser_protocol::emulation::{
     MediaFeature, SetDeviceMetricsOverrideParams, SetEmulatedMediaParams, SetFocusEmulationEnabledParams, SetLocaleOverrideParams,
     SetTimezoneOverrideParams, SetUserAgentOverrideParams,
 };
 use chromiumoxide::cdp::browser_protocol::input::{DispatchMouseEventParams, DispatchMouseEventType, MouseButton};
+use chromiumoxide::cdp::browser_protocol::network::{
+    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived, GetResponseBodyParams,
+};
 use chromiumoxide::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, EventDomContentEventFired, NavigateParams, ReloadParams,
 };
 use chromiumoxide::cdp::browser_protocol::storage::GetCookiesParams;
-use chromiumoxide::cdp::browser_protocol::browser::BrowserContextId;
-use chromiumoxide::cdp::browser_protocol::network::{
-    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived, GetResponseBodyParams,
-};
 use chromiumoxide::cdp::browser_protocol::target::{
     CloseTargetParams, CreateBrowserContextParams, CreateTargetParams, EventTargetCreated, TargetId,
 };
@@ -183,10 +183,7 @@ impl BrowserContext {
         let argv = launch_argv(&options_with_profile);
         let process = ChromiumProcess::spawn(executable, &argv, env, LAUNCH_TIMEOUT).await?;
         let mut context = Self::attach(process, options, None).await?;
-        let created = context
-            .browser
-            .create_browser_context(CreateBrowserContextParams::default())
-            .await;
+        let created = context.browser.create_browser_context(CreateBrowserContextParams::default()).await;
         match created {
             Ok(id) => {
                 context.isolated = Some((id, std::sync::Mutex::new(Some(profile))));
@@ -677,7 +674,13 @@ impl Page {
 
     /// `page.wait_for_function(function, arg=arg, timeout=...)`: poll `function(arg)` until
     /// it returns a truthy value.
-    pub async fn wait_for_function_with_arg(&self, function: &str, arg: Value, timeout: Duration, poll: Duration) -> Result<Value, DriverError> {
+    pub async fn wait_for_function_with_arg(
+        &self,
+        function: &str,
+        arg: Value,
+        timeout: Duration,
+        poll: Duration,
+    ) -> Result<Value, DriverError> {
         let deadline = Instant::now().checked_add(timeout);
         loop {
             let value = self.evaluate_with_arg(function, arg.clone()).await?;

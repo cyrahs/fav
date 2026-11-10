@@ -128,6 +128,7 @@ fn authenticating_proxy(request: &str) -> Reply {
             content_type: "text/plain",
             headers: "Proxy-Authenticate: Basic realm=\"fav\"\r\n".to_owned(),
             body: String::new(),
+            delay: std::time::Duration::ZERO,
         }
     }
 }
@@ -245,6 +246,7 @@ fn network_site(request: &str) -> Reply {
             content_type: "application/json",
             headers: String::new(),
             body: r#"{"code": 0, "data": {"notes": [1, 2]}, "big": 12345678901234567890123}"#.to_owned(),
+            delay: std::time::Duration::ZERO,
         }
     } else if request.starts_with("get /moved") {
         Reply {
@@ -252,6 +254,7 @@ fn network_site(request: &str) -> Reply {
             content_type: "text/plain",
             headers: "Location: /landed\r\n".to_owned(),
             body: String::new(),
+            delay: std::time::Duration::ZERO,
         }
     } else if request.starts_with("get /landed") {
         Reply {
@@ -259,6 +262,7 @@ fn network_site(request: &str) -> Reply {
             content_type: "text/plain",
             headers: String::new(),
             body: "here".to_owned(),
+            delay: std::time::Duration::ZERO,
         }
     } else {
         Reply::html(NETWORK_PAGE)
@@ -266,6 +270,7 @@ fn network_site(request: &str) -> Reply {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)] // reason: one page load walks every event kind in order; split, each half would reload the page
 async fn reports_network_traffic_and_reads_response_bodies() {
     use futures_util::StreamExt as _;
 
@@ -273,10 +278,15 @@ async fn reports_network_traffic_and_reads_response_bodies() {
 
     let Some(executable) = chromium() else { return };
     let (addr, _seen) = serve(network_site).await;
-    let context = BrowserContext::launch_browser(&executable, &launch_options(std::path::Path::new("/unused"), ""), &[], ContextOptions {
-        viewport: Some((1440, 1000)),
-        ..ContextOptions::default()
-    })
+    let context = BrowserContext::launch_browser(
+        &executable,
+        &launch_options(std::path::Path::new("/unused"), ""),
+        &[],
+        ContextOptions {
+            viewport: Some((1440, 1000)),
+            ..ContextOptions::default()
+        },
+    )
     .await
     .expect("launched");
     let page = context.new_page().await.expect("a page");
@@ -290,7 +300,9 @@ async fn reports_network_traffic_and_reads_response_bodies() {
     let collected = tokio::time::timeout(WAIT, async {
         while let Some(event) = events.next().await {
             seen.push(event);
-            let finished_data = seen.iter().any(|event| matches!(event, NetworkEvent::Response { url, .. } if url.contains("/api/data")))
+            let finished_data = seen
+                .iter()
+                .any(|event| matches!(event, NetworkEvent::Response { url, .. } if url.contains("/api/data")))
                 && seen.iter().filter(|event| matches!(event, NetworkEvent::Finished { .. })).count() >= 3;
             let failed = seen.iter().any(|event| matches!(event, NetworkEvent::Failed { .. }));
             if finished_data && failed {
@@ -327,21 +339,44 @@ async fn reports_network_traffic_and_reads_response_bodies() {
         .position(|event| matches!(event, NetworkEvent::Response { url, status: 302, .. } if url.ends_with("/moved")))
         .expect("the redirect's response");
     let redirect_id = seen[hop].id().to_owned();
-    assert!(seen[hop + 1..].iter().any(|event| matches!(event, NetworkEvent::Request { id, url, .. } if *id == redirect_id && url.ends_with("/landed"))));
-    assert!(seen.iter().any(|event| matches!(event, NetworkEvent::Failed { error, .. } if error.starts_with("net::ERR_"))), "{seen:?}");
+    assert!(
+        seen[hop + 1..]
+            .iter()
+            .any(|event| matches!(event, NetworkEvent::Request { id, url, .. } if *id == redirect_id && url.ends_with("/landed")))
+    );
+    assert!(
+        seen.iter()
+            .any(|event| matches!(event, NetworkEvent::Failed { error, .. } if error.starts_with("net::ERR_"))),
+        "{seen:?}"
+    );
 
     // Strict mode: one match is clicked, two are refused at once.
     page.click_strict("button.one", WAIT).await.expect("one match");
     let refused = page.click_strict("button.two", WAIT).await.expect_err("two matches");
-    assert!(refused.to_string().starts_with("strict mode violation: locator(\"button.two\") resolved to 2 elements"), "{refused}");
+    assert!(
+        refused
+            .to_string()
+            .starts_with("strict mode violation: locator(\"button.two\") resolved to 2 elements"),
+        "{refused}"
+    );
     assert_eq!(page.evaluate("() => window.__clicked").await.unwrap(), json!(["a"]));
     let waited = page
-        .wait_for_function_with_arg("(count) => document.querySelectorAll('button').length >= count", json!(3), WAIT, Duration::from_millis(50))
+        .wait_for_function_with_arg(
+            "(count) => document.querySelectorAll('button').length >= count",
+            json!(3),
+            WAIT,
+            Duration::from_millis(50),
+        )
         .await
         .unwrap();
     assert_eq!(waited, json!(true));
     let timed_out = page
-        .wait_for_function_with_arg("(count) => document.querySelectorAll('button').length >= count", json!(4), Duration::from_millis(200), Duration::from_millis(50))
+        .wait_for_function_with_arg(
+            "(count) => document.querySelectorAll('button').length >= count",
+            json!(4),
+            Duration::from_millis(200),
+            Duration::from_millis(50),
+        )
         .await
         .expect_err("never true");
     assert!(matches!(timed_out, DriverError::Timeout(200)));
@@ -349,7 +384,12 @@ async fn reports_network_traffic_and_reads_response_bodies() {
     let profile = std::fs::read_dir(std::env::temp_dir())
         .unwrap()
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with(crate::chromium::LAUNCH_PROFILE_PREFIX))
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(crate::chromium::LAUNCH_PROFILE_PREFIX)
+        })
         .count();
     assert!(profile >= 1);
     context.close().await;

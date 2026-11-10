@@ -1,0 +1,119 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "rednote",
+  "cases": [
+    {
+      "proxy": "socks5://user:pw@home.example:1080",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Chromium cannot authenticate to a SOCKS proxy; use an http:// or https:// proxy instead.",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "socks5h://user@home.example",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Chromium cannot authenticate to a SOCKS proxy; use an http:// or https:// proxy instead.",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "http://",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Could not read a host out of the proxy setting: 'http://'",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "://nohost",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Could not read a host out of the proxy setting: '://nohost'",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "ftp://Host.Example:21/x",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Not a usable proxy URL: Unknown scheme for proxy URL URL('ftp://host.example/x')",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "ftp://user:secret@Host.Example:2121/path?q=1#frag",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Not a usable proxy URL: Unknown scheme for proxy URL URL('ftp://user:[secure]@host.example:2121/path?q=1#frag')",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "socks4://home.example:1080",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Not a usable proxy URL: Unknown scheme for proxy URL URL('socks4://home.example:1080')",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "gopher://home.example",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Not a usable proxy URL: Unknown scheme for proxy URL URL('gopher://home.example')",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "HTTPX://user:pw@[2001:db8::1]:8080",
+      "result": {
+        "ok": false,
+        "code": "invalid",
+        "message": "Not a usable proxy URL: Unknown scheme for proxy URL URL('httpx://user:[secure]@[2001:db8::1]:8080')",
+        "exit_ip": "",
+        "direct": false
+      }
+    },
+    {
+      "proxy": "http://home.example:abc",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as 'abc'"
+      }
+    },
+    {
+      "proxy": "http://home.example:70000",
+      "error": {
+        "class": "ValueError",
+        "message": "Port out of range 0-65535"
+      }
+    },
+    {
+      "proxy": "http://[::1",
+      "error": {
+        "class": "ValueError",
+        "message": "Invalid IPv6 URL"
+      }
+    }
+  ]
+}

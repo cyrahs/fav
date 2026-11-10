@@ -40,6 +40,7 @@ async fn fake_devtools(script: Script) -> (u16, Arc<Mutex<Vec<Value>>>) {
                 content_type: "application/json",
                 headers: String::new(),
                 body: json!({"webSocketDebuggerUrl": format!("ws://127.0.0.1:{socket_port}/devtools/browser/abc")}).to_string(),
+                delay: std::time::Duration::ZERO,
             }
         } else {
             Reply {
