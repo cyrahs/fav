@@ -1761,15 +1761,27 @@ impl Telegram {
         &self,
         disconnected: BoxFuture<'static, Result<(), TgError>>,
         stop: &StopSignal,
-        worker: &mut JoinHandle<Result<(), TgError>>,
+        worker: &mut Option<JoinHandle<Result<(), TgError>>>,
     ) -> Result<(), TgError> {
         let closed = self.inner.closed_signal.clone();
-        tokio::select! {
-            outcome = disconnected => outcome,
-            () = stop.wait() => Ok(()),
-            () = closed.wait() => Ok(()),
-            outcome = &mut *worker => outcome.map_err(|error| TgError::runtime(error.to_string()))?,
+        let Some(handle) = worker.as_mut() else {
+            return tokio::select! {
+                outcome = disconnected => outcome,
+                () = stop.wait() => Ok(()),
+                () = closed.wait() => Ok(()),
+            };
+        };
+        let (outcome, finished) = tokio::select! {
+            outcome = disconnected => (outcome, false),
+            () = stop.wait() => (Ok(()), false),
+            () = closed.wait() => (Ok(()), false),
+            outcome = handle => (outcome.unwrap_or_else(|error| Err(TgError::runtime(error.to_string()))), true),
+        };
+        // A finished worker is taken out: its handle must not be awaited again.
+        if finished {
+            *worker = None;
         }
+        outcome
     }
 
     /// `_run_account_once`: one connection with its listener and worker, until it ends.
@@ -1810,13 +1822,13 @@ impl Telegram {
             }
             self.set_ready(&account.name, true);
             let (runtime, worker_account, worker_client, worker_stop) = (self.clone(), account.clone(), Arc::clone(&client), stop.clone());
-            let handle = worker.insert(tokio::spawn(async move {
+            worker = Some(tokio::spawn(async move {
                 runtime
                     .consume_account_queue(&worker_account, worker_client.as_ref(), &owner_token, &worker_stop, false)
                     .await
             }));
             log().notice(format_args!("Telegram listener connected for account {}", account.name));
-            self.wait_for_disconnect_or_stop(disconnected, stop, handle).await
+            self.wait_for_disconnect_or_stop(disconnected, stop, &mut worker).await
         }
         .await;
         self.set_ready(&account.name, false);

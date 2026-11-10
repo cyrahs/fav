@@ -1108,7 +1108,7 @@ async fn account_worker_is_serial_and_delays_between_successes() {
 async fn queue_worker_failure_propagates_to_account_runtime() {
     let env = Env::new(Vec::new()).await;
     let (_handle, stop) = stop_signal();
-    let mut worker = tokio::spawn(async { Err(TgError::runtime("worker failed")) });
+    let mut worker = Some(tokio::spawn(async { Err(TgError::runtime("worker failed")) }));
 
     let error = env
         .telegram()
@@ -1117,6 +1117,8 @@ async fn queue_worker_failure_propagates_to_account_runtime() {
         .expect_err("the worker failed");
 
     assert_eq!(error.formatted(), "RuntimeError: worker failed");
+    // The finished worker is taken out, so the caller's clean-up never awaits it again.
+    assert!(worker.is_none());
 }
 
 // ---------- connections ----------
@@ -1158,7 +1160,14 @@ async fn persistent_account_client_enables_updates_and_catch_up() {
         .await
         .expect("connected in time")
         .expect("ready");
-    assert_eq!(env.status(5).await.1, "Recovered after account owner restart");
+    // The old owner's job was handed back before the workers started: it is no longer held
+    // by `old` (a worker may already have claimed it again, or finished it, under its own
+    // token; a worker never claims a row another owner still holds).
+    let owner: Option<String> = sqlx::query_scalar("SELECT owner_token FROM telegram_media_queue WHERE message_id = 5")
+        .fetch_one(env.db().pool())
+        .await
+        .expect("owner");
+    assert_ne!(owner.as_deref(), Some("old"));
     handle.stop();
     run.await.expect("joined").expect("stopped cleanly");
 
