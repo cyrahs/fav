@@ -130,6 +130,13 @@ async fn rednote_mid_login_is_left_alone() {
     let window = Window::probing(vec![json!({"has_verify_modal": true, "qr_src": "data:..."})]);
     let check = verify(&window).await;
     assert_eq!((check.ok, window.reloads()), (false, 0));
+
+    // Each sign on its own holds the reload back.
+    for probe in [json!({"has_verify_modal": true}), json!({"qr_src": "data:..."})] {
+        let window = Window::probing(vec![probe]);
+        let check = verify(&window).await;
+        assert_eq!((check.ok, window.reloads()), (false, 0));
+    }
 }
 
 // py: tests/test_browser_login.py::test_rednote_after_the_scan_is_reloaded_to_read_the_answer

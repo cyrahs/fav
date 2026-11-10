@@ -142,6 +142,16 @@ fn proxy_hostname(server: &str) -> &str {
     }
 }
 
+/// `BrowserType._user_data_dir`: a relative profile path is resolved against `cwd`
+/// (`Path(user_data_dir).resolve()`, no `~` expansion); an absolute one is only
+/// normalised (`str(Path(p))`).
+fn user_data_dir(path: &Path, cwd: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.components().collect();
+    }
+    crate::profile::resolve_path(&cwd.join(path))
+}
+
 /// The command line `launch_persistent_context` gives Chromium, `--remote-debugging-pipe`
 /// replaced by [`REMOTE_DEBUGGING_ARG`] (D160). The executable is not part of it.
 pub fn persistent_context_argv(options: &LaunchOptions) -> Vec<String> {
@@ -171,7 +181,8 @@ pub fn persistent_context_argv(options: &LaunchOptions) -> Vec<String> {
         argv.push("--proxy-bypass-list=<-loopback>".to_owned());
     }
     argv.extend(options.args.iter().cloned());
-    argv.push(format!("--user-data-dir={}", options.user_data_dir.display()));
+    let cwd = std::env::current_dir().unwrap_or_default();
+    argv.push(format!("--user-data-dir={}", user_data_dir(&options.user_data_dir, &cwd).display()));
     argv.push(REMOTE_DEBUGGING_ARG.to_owned());
     argv.push("about:blank".to_owned());
     argv.retain(|arg| !options.ignore_default_args.contains(arg));
@@ -234,9 +245,6 @@ pub struct ChromiumProcess {
     pid: Option<u32>,
     devtools_url: String,
 }
-
-/// How long a stopped browser gets before its process group is killed.
-pub const PROCESS_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl ChromiumProcess {
     /// Start `executable argv...` with `env` added to the environment and wait for the

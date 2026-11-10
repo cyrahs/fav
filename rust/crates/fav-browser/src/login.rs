@@ -405,8 +405,7 @@ pub struct AttemptProgress {
 }
 
 /// One login (`LoginAttempt`): the running one, or the last one, so the page can say how
-/// it ended.
-#[derive(Debug)]
+/// it ended. Its `Debug` leaves the ticket out: the ticket opens the VNC socket.
 pub struct LoginAttempt {
     pub site: String,
     pub ticket: String,
@@ -415,6 +414,18 @@ pub struct LoginAttempt {
     progress: Mutex<AttemptProgress>,
     cancel: watch::Sender<bool>,
     finished: watch::Sender<bool>,
+}
+
+impl std::fmt::Debug for LoginAttempt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginAttempt")
+            .field("site", &self.site)
+            .field("ticket", &"<redacted>")
+            .field("started_at", &self.started_at)
+            .field("deadline", &self.deadline)
+            .field("progress", &self.progress())
+            .finish_non_exhaustive()
+    }
 }
 
 impl LoginAttempt {

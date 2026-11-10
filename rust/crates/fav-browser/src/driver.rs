@@ -39,12 +39,17 @@ use futures_util::StreamExt as _;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use crate::chromium::{ChromiumProcess, LaunchError, LaunchOptions, PROCESS_STOP_TIMEOUT, persistent_context_argv};
+use crate::chromium::{ChromiumProcess, LaunchError, LaunchOptions, persistent_context_argv};
 
 /// Playwright's default navigation timeout (30 s).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-/// How long Chromium gets to open DevTools after it was started.
-const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long Chromium gets to open DevTools after it was started: Playwright's launch
+/// timeout (`DEFAULT_PLAYWRIGHT_LAUNCH_TIMEOUT_IN_MILLISECONDS`, 180 s).
+const LAUNCH_TIMEOUT: Duration = Duration::from_mins(3);
+/// How long a closing browser gets to exit before its process group is killed:
+/// Playwright's `closeOrKill(DEFAULT_PLAYWRIGHT_TIMEOUT)`, 30 s. Chromium writes its cookie
+/// store on the way out, so a profile-only login (RedNote) needs the whole of it.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a fresh persistent context is given to report the tab it opened.
 const FIRST_PAGE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -161,7 +166,9 @@ impl BrowserContext {
         let handler_closed = Arc::clone(&closed);
         let handler = tokio::spawn(async move {
             while handler.next().await.is_some() {}
-            // The connection is gone: the browser exited or was closed (`context.on('close')`).
+            // chromiumoxide 0.9.1's handler stays pending when the socket drops, so this is
+            // reached only rarely; `close()` sets the flag, and a browser that exited on its
+            // own is noticed through its process (`is_closed`).
             handler_closed.store(true, Ordering::SeqCst);
         });
         let init_scripts = Arc::new(Mutex::new(Vec::new()));
@@ -271,15 +278,16 @@ impl BrowserContext {
         Ok(())
     }
 
-    /// `context.close()`: ask the browser to close, give it [`PROCESS_STOP_TIMEOUT`], then
-    /// kill what is left of its process group.
+    /// `context.close()`: ask the browser to close and give it [`CLOSE_TIMEOUT`] in all to
+    /// exit (`closeOrKill`), then kill what is left of its process group.
     pub async fn close(&self) {
         self.watcher.abort();
+        let deadline = Instant::now() + CLOSE_TIMEOUT;
         if !self.closed.load(Ordering::SeqCst) {
-            let _ = tokio::time::timeout(Duration::from_secs(5), self.browser.execute(BrowserCloseParams::default())).await;
+            let _ = tokio::time::timeout(CLOSE_TIMEOUT, self.browser.execute(BrowserCloseParams::default())).await;
         }
         let mut process = self.process.lock().await;
-        let _ = process.wait_for_exit(PROCESS_STOP_TIMEOUT).await;
+        let _ = process.wait_for_exit(deadline.saturating_duration_since(Instant::now())).await;
         process.kill().await;
         self.closed.store(true, Ordering::SeqCst);
         self.handler.abort();

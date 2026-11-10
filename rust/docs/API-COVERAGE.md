@@ -57,9 +57,14 @@ Notes for WP15:
 
 ## chromiumoxide 0.9.1 (WP16, WP17)
 
-Probe: `probes/api-coverage/src/cdp.rs` until WP16, which deleted it; the driver's own tests in
-`fav-browser/src/driver/tests.rs` cover the same ground. Two tests drove a real headless Chromium against loopback servers
+Probe: `probes/api-coverage/src/cdp.rs` until WP16, which deleted it (it is still in the history: `git show
+6165a61:rust/probes/api-coverage/src/cdp.rs`). Two tests drove a real headless Chromium against loopback servers
 (`FAV_TEST_CHROMIUM`; CI points it at the runner's Chrome, and a missing binary fails in CI rather than skipping).
+The "Checked" column is what the probe checked. Since WP16, `fav-browser/src/driver/tests.rs` covers every row
+except the network listeners and `Network.getResponseBody`, which `fav-browser` does not have yet: WP17 adds them
+for the RedNote crawl's response capture (the probe's `drives_a_local_page_like_the_rednote_browser` shows the
+calls). URL-filtered cookies are `Storage.getCookies` plus Playwright's own filter (`driver::filter_cookies`),
+not `Network.getCookies`.
 
 | Python (`rednote_browser.py`, `nikke_runtime.py`, `browser_login.py`) | chromiumoxide | Checked |
 | --- | --- | --- |

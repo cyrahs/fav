@@ -26,7 +26,8 @@ fn rednote_launch(profile: &Path, proxy: &str, headless: bool) -> LaunchOptions 
 
 #[test]
 fn the_command_line_is_playwrights_own() {
-    let profile = Path::new("<profile>");
+    // The golden writes the profile as `<profile>`; an absolute stand-in is put back.
+    let profile = Path::new("/fav-profile");
     for case in golden_cases("browser_login/playwright_argv.json") {
         let proxy = case["proxy"].as_str().unwrap();
         let headless = case["headless"].as_bool().unwrap();
@@ -48,12 +49,30 @@ fn the_command_line_is_playwrights_own() {
                 if arg == REMOTE_DEBUGGING_ARG {
                     "--remote-debugging-pipe".to_owned()
                 } else {
-                    arg
+                    arg.replace("/fav-profile", "<profile>")
                 }
             })
             .collect();
         assert_eq!(serde_json::json!(argv), case["argv"], "{}/{headless}/{proxy}", case["launch"]);
     }
+}
+
+#[test]
+fn a_relative_profile_is_resolved_like_playwright_does() {
+    // `BrowserType._user_data_dir`: `Path(user_data_dir).resolve()` for a relative path.
+    let directory = tempfile::tempdir().unwrap();
+    let real = directory.path().canonicalize().unwrap();
+    std::fs::create_dir(real.join("data")).unwrap();
+    std::os::unix::fs::symlink(real.join("data"), real.join("link")).unwrap();
+    assert_eq!(
+        super::user_data_dir(Path::new("./link/../link/rednote-profile"), &real),
+        real.join("data/rednote-profile")
+    );
+    // An absolute path is only normalised, never resolved (`str(Path(p))`).
+    assert_eq!(
+        super::user_data_dir(&real.join("link//./rednote-profile/"), &real),
+        real.join("link/rednote-profile")
+    );
 }
 
 #[test]

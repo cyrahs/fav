@@ -438,10 +438,12 @@ async fn the_vnc_socket_relays_bytes_for_the_ticket_holder() {
     let ticket = golden::string(golden::get(&started.json(), "ticket"));
 
     // A wrong ticket, and any other path, never get a socket.
+    // The other path carries the real ticket, so only the path check can refuse it.
+    let elsewhere = format!("/api/v2/other?ticket={ticket}");
     for target in [
         "/api/v2/site-sessions/vnc?ticket=wrong",
         "/api/v2/site-sessions/vnc",
-        "/api/v2/other",
+        elsewhere.as_str(),
     ] {
         let refused = async_tungstenite::tokio::connect_async(format!("ws://{address}{target}"))
             .await

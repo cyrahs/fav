@@ -450,6 +450,9 @@ async fn the_ticket_only_opens_the_running_login() {
     );
     assert!(harness.manager.ticket_matches(&attempt.ticket));
     assert!(!harness.manager.ticket_matches("guess"));
+    // The ticket opens the VNC socket, so it never reaches Debug output.
+    assert!(!format!("{:?}", harness.manager).contains(&attempt.ticket));
+    assert!(!format!("{attempt:?}").contains(&attempt.ticket));
     assert!(!harness.manager.ticket_matches(""));
     harness.manager.cancel().await;
     assert!(!harness.manager.ticket_matches(&attempt.ticket));
