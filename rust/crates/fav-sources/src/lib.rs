@@ -16,6 +16,7 @@ use std::sync::Arc;
 use fav_db::{Db, SettingsStore};
 use fav_runtime::source::{JobError, Registry};
 
+pub mod azurlane;
 pub mod bd2;
 pub mod bd2_l2d_viewer;
 pub mod bilibili;
