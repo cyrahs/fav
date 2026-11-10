@@ -1,0 +1,98 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "browser_login",
+  "cases": [
+    {
+      "probe": {},
+      "user_id": ""
+    },
+    {
+      "probe": {
+        "logged_in": true,
+        "user_id": "5ff"
+      },
+      "user_id": "5ff"
+    },
+    {
+      "probe": {
+        "logged_in": true,
+        "user_id": "  5ff  "
+      },
+      "user_id": "5ff"
+    },
+    {
+      "probe": {
+        "logged_in": true,
+        "user_id": "",
+        "profile_href": "/user/profile/5ff?tab=liked"
+      },
+      "user_id": "5ff"
+    },
+    {
+      "probe": {
+        "logged_in": true,
+        "profile_href": "  /user/profile/abc  "
+      },
+      "user_id": "abc"
+    },
+    {
+      "probe": {
+        "logged_in": true,
+        "profile_href": "/elsewhere/abc?x=1"
+      },
+      "user_id": "/elsewhere/abc"
+    },
+    {
+      "probe": {
+        "logged_in": true,
+        "user_id": 42
+      },
+      "user_id": "42"
+    },
+    {
+      "probe": {
+        "logged_in": true,
+        "user_id": null,
+        "profile_href": null
+      },
+      "user_id": ""
+    },
+    {
+      "probe": {
+        "logged_in": 1,
+        "user_id": "x"
+      },
+      "user_id": "x"
+    },
+    {
+      "probe": {
+        "logged_in": "yes",
+        "user_id": "x"
+      },
+      "user_id": "x"
+    },
+    {
+      "probe": {
+        "logged_in": false,
+        "guest": true,
+        "user_id": "6a7d8554000000001400c801"
+      },
+      "user_id": ""
+    },
+    {
+      "probe": {
+        "logged_in": 0,
+        "user_id": "x"
+      },
+      "user_id": ""
+    },
+    {
+      "probe": {
+        "logged_in": true
+      },
+      "user_id": ""
+    }
+  ]
+}

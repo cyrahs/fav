@@ -25,6 +25,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use fav_browser::login::{BrowserLoginManager, DbSessions, ManagerOptions};
+use fav_browser::window::VncLauncher;
 use fav_db::{Db, SettingsStore};
 use fav_runtime::telegram_bot::BotClient;
 use fav_sources::azurlane::l2d_sources::{OriginProbe, ProbeOrigin};
@@ -50,6 +52,7 @@ pub mod router;
 pub mod site_logins;
 mod spine;
 mod summary_cache;
+mod vnc;
 
 mod handlers;
 mod json;
@@ -99,6 +102,8 @@ pub struct ApiState {
     pub live2d_overrides: Arc<dyn live2d_overrides::Live2DViewOverrideStore>,
     /// Checks the l2d.su origin through a draft proxy (`POST /api/v2/azurlane/proxy/test`).
     pub azurlane_origin: Arc<dyn ProbeOrigin>,
+    /// The 登录态 page's browser logins (`app.state.browser_login`), closed on shutdown.
+    pub browser_login: Arc<BrowserLoginManager>,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -127,6 +132,7 @@ impl ApiState {
         let hanime1_series = Arc::new(Hanime1SeriesService::new(db.clone(), Arc::clone(&settings))?);
         let hanime1_authors = Arc::new(Hanime1AuthorService::new(db.clone(), Arc::clone(&settings))?);
         let db_for_overrides = db.clone();
+        let db_for_logins = db.clone();
         Ok(Self {
             token: config.token.clone(),
             db,
@@ -145,9 +151,24 @@ impl ApiState {
             azurlane: azurlane::AzurLaneLibraries::default(),
             live2d_overrides: live2d_overrides::postgres_store(db_for_overrides),
             azurlane_origin: Arc::new(OriginProbe),
+            browser_login: Arc::new(default_browser_login(&db_for_logins, &settings)),
             settings,
         })
     }
+}
+
+/// `BrowserLoginManager(login_sites, busy_check=rednote_running)`: the real login window,
+/// the sites as the settings list them, sessions saved to `site_sessions`.
+pub fn default_browser_login(db: &Db, settings: &Arc<SettingsStore>) -> BrowserLoginManager {
+    let sessions = Arc::new(DbSessions { db: db.clone() });
+    BrowserLoginManager::new(
+        Arc::new(site_logins::FavLoginSites::new(site_logins::settings_loader(Arc::clone(settings)))),
+        Arc::new(VncLauncher::default()),
+        Arc::clone(&sessions) as Arc<dyn fav_browser::login::SessionStore>,
+        sessions,
+        ManagerOptions::default(),
+    )
+    .with_busy_check(site_logins::rednote_running(db.clone()))
 }
 
 /// The wall clock.
@@ -185,7 +206,13 @@ pub(crate) async fn serve_listener(
         shutdown.await;
         stopped.send_replace(true);
     };
-    let server = axum::serve(listener, app(state)).with_graceful_shutdown(graceful).into_future();
+    let logins = Arc::clone(&state.browser_login);
+    let server = async move {
+        let served = axum::serve(listener, app(state)).with_graceful_shutdown(graceful).await;
+        // The lifespan's `browser_login.close()`: no login window outlives the API.
+        logins.close().await;
+        served
+    };
     let deadline = async move {
         if stopped_rx.wait_for(|stopped| *stopped).await.is_err() {
             // The server ended on its own; only its result matters.

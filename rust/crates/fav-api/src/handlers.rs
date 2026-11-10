@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 
 use axum::http::{HeaderValue, header};
 use axum::response::Response;
+use fav_browser::login::StartError;
 use fav_core::pyjson::{Dict, Value};
 use fav_core::settings::{SECTIONS, SectionError, SectionValue};
 use fav_db::settings_store::SettingsStoreError;
@@ -167,6 +168,8 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::PutBd2Live2DViewOverride => live2d_overrides::put_override(state, Live2DSource::Bd2, &owned_path, &body).await,
         Endpoint::DeleteBd2Live2DViewOverride => live2d_overrides::delete_override(state, Live2DSource::Bd2, &owned_path).await,
         Endpoint::ListSiteSessions => list_site_sessions(state).await,
+        Endpoint::StartSiteLogin => start_site_login(state, path("site")).await,
+        Endpoint::CancelSiteLogin => cancel_site_login(state).await,
         Endpoint::GetSiteCredential => get_site_credential(state, path("site"), request).await,
         Endpoint::Mcp => Ok(crate::mcp::handle(state, request).await),
         Endpoint::Icon(name) => match &state.web_dist {
@@ -673,19 +676,49 @@ pub(crate) async fn archive_items(state: &ApiState, source_key: &str, query: &st
 
 // ---------- site sessions and credentials ----------
 
-/// `list_site_sessions`: every login-backed site with its stored session. No login can be
-/// in progress before the login window exists (WP16), so `login` is always null.
+/// `list_site_sessions`: every login-backed site with its stored session, plus the
+/// browser login in progress (or the last one), if any.
 async fn list_site_sessions(state: &ApiState) -> Result<Response, ApiError> {
-    let settings = state.settings.load().await.map_err(|error| unhandled(&error))?;
+    let sites = state.browser_login.sites().await.map_err(|error| unhandled(&error))?;
     let stored = site_sessions::load_all(&state.db).await.map_err(|error| unhandled(&error))?;
-    let items = site_logins::login_sites(&settings)
+    let items = sites
         .iter()
         .map(|site| site_logins::session_view(site, stored.get(&site.key)))
         .collect();
-    Ok(json_response(
-        200,
-        &json::dict([("items", Value::List(items)), ("login", Value::Null)]),
-    ))
+    let login = site_logins::login_view(state.browser_login.attempt().as_deref());
+    Ok(json_response(200, &json::dict([("items", Value::List(items)), ("login", login)])))
+}
+
+/// `start_site_login`: open a browser on the site's login page; the session is saved once
+/// the login verifies.
+async fn start_site_login(state: &ApiState, raw: Option<&str>) -> Result<Response, ApiError> {
+    let mut errors = Errors::new();
+    let site = params::str_param(
+        &mut errors,
+        Source::Path,
+        "site",
+        raw,
+        true,
+        StrRules {
+            min_length: Some(1),
+            max_length: Some(96),
+            pattern: Some((SITE_PATTERN, &SITE_REGEX)),
+        },
+    );
+    errors.finish()?;
+    let site = site.unwrap_or_default();
+    match state.browser_login.start(&site).await {
+        Ok(attempt) => Ok(json_response(202, &site_logins::login_view(Some(&attempt)))),
+        Err(StartError::UnknownSite(message)) => Err(ApiError::new(404, "not_found", message)),
+        Err(StartError::Busy(message)) => Err(ApiError::new(409, "login_busy", message)),
+        Err(StartError::Failed(error)) => Err(unhandled(&error.attempt_message())),
+    }
+}
+
+/// `cancel_site_login`: close the login browser without saving anything.
+async fn cancel_site_login(state: &ApiState) -> Result<Response, ApiError> {
+    let attempt = state.browser_login.cancel().await;
+    Ok(json_response(200, &site_logins::login_view(attempt.as_deref())))
 }
 
 /// `get_site_credential`: a client's read of one site's cookies.

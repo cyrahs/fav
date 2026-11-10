@@ -109,6 +109,8 @@ pub(crate) enum Endpoint {
     PutBd2Live2DViewOverride,
     DeleteBd2Live2DViewOverride,
     ListSiteSessions,
+    StartSiteLogin,
+    CancelSiteLogin,
     GetSiteCredential,
     /// The MCP endpoint, a plain route for every method (`crate::mcp`).
     Mcp,
@@ -351,6 +353,16 @@ const ROUTES: &[Route] = &[
         endpoint: Endpoint::ListSiteSessions,
     },
     Route {
+        path: "/api/v2/site-sessions/{site}/login",
+        methods: POST,
+        endpoint: Endpoint::StartSiteLogin,
+    },
+    Route {
+        path: "/api/v2/site-sessions/login",
+        methods: DELETE,
+        endpoint: Endpoint::CancelSiteLogin,
+    },
+    Route {
         path: "/api/v2/credentials/{site}",
         methods: GET,
         endpoint: Endpoint::GetSiteCredential,
@@ -415,6 +427,8 @@ impl Endpoint {
                 | Self::PutBd2Live2DViewOverride
                 | Self::DeleteBd2Live2DViewOverride
                 | Self::ListSiteSessions
+                | Self::StartSiteLogin
+                | Self::CancelSiteLogin
         )
     }
 }
@@ -513,6 +527,13 @@ pub(crate) async fn serve(State(state): State<Arc<ApiState>>, request: HttpReque
     // The MCP endpoint refuses large bodies itself (`RequestBodyLimitMiddleware`). Routes
     // match the percent-decoded path, so `/%6Dcp` is the endpoint too.
     let path = percent_decode_str(parts.uri.path()).decode_utf8_lossy().into_owned();
+    if crate::vnc::is_websocket(&parts.headers) {
+        // WebSockets never reach the HTTP routes, the middleware or the body reader.
+        let query: Vec<(String, String)> = form_urlencoded::parse(parts.uri.query().unwrap_or_default().as_bytes())
+            .into_owned()
+            .collect();
+        return crate::vnc::answer(&state, parts, &path, &query).await;
+    }
     let is_mcp = path == crate::mcp::MCP_PATH;
     let limit = if is_mcp { crate::mcp::MAX_BODY_BYTES + 1 } else { MAX_BODY_BYTES };
     let Ok(body) = axum::body::to_bytes(body, limit).await else {
