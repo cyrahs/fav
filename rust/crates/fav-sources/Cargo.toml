@@ -33,7 +33,7 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tempfile = "3"
-tokio = { workspace = true, features = ["fs", "io-util", "process", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "process", "sync", "time"] }
 url.workspace = true
 webp-animation = { workspace = true, features = ["static"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }

@@ -1,2 +1,2 @@
 # Proper nouns the docs use often; ".." keeps clippy's defaults.
-doc-valid-idents = ["PostgreSQL", "APScheduler", "FastAPI", "FastMCP", "Telethon", "Playwright", "SQLite", "DevTools", "OpenAPI", "WebSocket", "JavaScript", "TypeScript", "RedNote", "WeChat", "BiliBili", "TikHub", "..", "GitHub"]
+doc-valid-idents = ["PostgreSQL", "APScheduler", "FastAPI", "FastMCP", "Telethon", "Playwright", "SQLite", "DevTools", "OpenAPI", "WebSocket", "JavaScript", "TypeScript", "RedNote", "WeChat", "BiliBili", "TikHub", "..", "GitHub", "GameKee", "Live2D"]
