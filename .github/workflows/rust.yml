@@ -172,3 +172,14 @@ jobs:
         BASE_REV: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
         POSTGRES_DSN: postgresql://tests@127.0.0.1:5432/fav-tests
         API_TOKEN: token-for-tests
+
+    - name: Build fav and the unmodified front end for the page smoke test
+      run: |
+        cargo build -p fav --locked
+        cd ../web
+        npm ci --no-audit --no-fund
+        npm run build
+
+    - name: Page smoke test (React front end against the Rust API)
+      run: uv run python rust/tools/smoke/web_smoke.py
+      working-directory: .

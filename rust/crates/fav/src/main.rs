@@ -1,8 +1,8 @@
 //! `fav`: one binary for the API, the worker, or both.
 //!
 //! Commands arrive with their work packages (`rust/docs/PLAN.md`): `worker` and
-//! `trigger` in WP2 (`python run.py` and `python run.py --trigger <target>`), `api` and
-//! `serve` (the default) in WP3.
+//! `trigger` in WP2 (`python run.py` and `python run.py --trigger <target>`), `api`
+//! (`python -m src.api`) and `serve` (`python -m src.service`, the default) in WP3.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -10,23 +10,30 @@ use std::process::ExitCode;
 use std::sync::{Arc, LazyLock};
 
 use clap::{Parser, Subcommand};
+use fav_api::{ApiConfig, ApiState};
 use fav_core::env::Env;
 use fav_core::logging::{self, Level};
 use fav_db::{Db, SettingsStore};
 use fav_runtime::telegram_bot::BotClient;
 use fav_runtime::worker::{self, WorkerError, WorkerOptions};
+use fav_runtime::{StopHandle, StopSignal};
 
 static VERSION: LazyLock<String> = LazyLock::new(version);
 
 #[derive(Debug, Parser)]
-#[command(name = "fav", version = VERSION.as_str(), arg_required_else_help = true, about = "Crawls content sources on a schedule and archives their media")]
+#[command(name = "fav", version = VERSION.as_str(), about = "Crawls content sources on a schedule and archives their media")]
 struct Cli {
+    /// What to run; `serve` when left out.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Run the API and the worker in one process (the default).
+    Serve,
+    /// Run the HTTP API only: the web UI, `/api/v2`, credentials and health.
+    Api,
     /// Run the worker: scheduler, manual triggers, notification delivery, settings watcher.
     Worker,
     /// Run one job immediately and exit. Use a job key or "all".
@@ -55,29 +62,97 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    runtime.block_on(run(cli.command))
+    runtime.block_on(run(cli.command.unwrap_or(Command::Serve)))
 }
 
-/// The pieces every command needs, from the environment.
-async fn options() -> Result<WorkerOptions, String> {
+/// What every command shares, from the environment.
+struct Base {
+    env: Env,
+    db: Db,
+    settings: Arc<SettingsStore>,
+    bot: BotClient,
+}
+
+async fn base() -> Result<Base, String> {
     let env = Env::from_process().map_err(|error| error.to_string())?;
     let level = Level::from_name(&env.log_level).unwrap_or(Level::Info);
     logging::init(level, Path::new("log")).map_err(|error| format!("cannot open the log file: {error}"))?;
     let db = Db::connect_lazy(&env.postgres_dsn).map_err(|error| error.to_string())?;
     db.ensure_schema().await.map_err(|error| error.to_string())?;
     let bot = BotClient::new().map_err(|error| format!("cannot build the Telegram client: {error}"))?;
-    Ok(WorkerOptions {
+    Ok(Base {
         settings: Arc::new(SettingsStore::new(db.clone())),
+        env,
         db,
-        registry: fav_sources::registry(),
         bot,
-        timezone: worker::resolve_scheduler_timezone(std::env::var("TZ").ok().as_deref()),
     })
 }
 
+impl Base {
+    fn worker_options(&self) -> WorkerOptions {
+        WorkerOptions {
+            settings: Arc::clone(&self.settings),
+            db: self.db.clone(),
+            registry: fav_sources::registry(),
+            bot: self.bot.clone(),
+            timezone: worker::resolve_scheduler_timezone(std::env::var("TZ").ok().as_deref()),
+        }
+    }
+
+    /// `load_config_from_env()` and `create_app(config=...)`. The front end is
+    /// `web/dist` under the working directory, as in the image (`/app/web/dist`).
+    fn api(&self) -> Result<(ApiConfig, Arc<ApiState>), WorkerError> {
+        let config = fav_api::config::load_config_from_env(&self.env).map_err(|message| WorkerError::Exit(Some(message)))?;
+        let web_dist = fav_api::find_dist(Path::new("web/dist"));
+        let state = ApiState::new(&config, self.db.clone(), Arc::clone(&self.settings), self.bot.clone(), web_dist)
+            .map_err(|message| WorkerError::Exit(Some(message)))?;
+        Ok((config, Arc::new(state)))
+    }
+}
+
+/// `python -m src.api`: serve until a stop signal.
+async fn run_api(config: &ApiConfig, state: Arc<ApiState>, signal: StopSignal) -> Result<(), WorkerError> {
+    fav_api::serve(state, &config.bind, config.port, async move { signal.wait().await })
+        .await
+        .map_err(|error| WorkerError::Exit(Some(format!("cannot serve the API on {}:{}: {error}", config.bind, config.port))))
+}
+
+/// `python -m src.service`: the worker and the API side by side. When either ends, the
+/// other is stopped, as the Python launcher does with its two processes.
+async fn run_serve(base: &Base, stop: StopHandle) -> Result<(), WorkerError> {
+    let log = logging::get("service");
+    log.info("Starting services (worker + api)");
+    let (config, state) = base.api()?;
+    let api = async {
+        let result = run_api(&config, state, stop.signal()).await;
+        ended(&stop, "api", &result);
+        result
+    };
+    let worker = async {
+        let result = worker::run_worker(base.worker_options(), stop.clone()).await;
+        ended(&stop, "worker", &result);
+        result
+    };
+    let (api, worker) = tokio::join!(api, worker);
+    worker.and(api)
+}
+
+/// One half of `serve` ended: unless a stop was asked for, say so and stop the other.
+fn ended(stop: &StopHandle, name: &str, result: &Result<(), WorkerError>) {
+    if stop.is_stopped() {
+        return;
+    }
+    let log = logging::get("service");
+    match result {
+        Ok(()) => log.warning(format!("{name} exited with code 0, shutting down remaining services")),
+        Err(_) => log.error(format!("{name} exited with code 1, shutting down remaining services")),
+    }
+    stop.stop();
+}
+
 async fn run(command: Command) -> ExitCode {
-    let options = match options().await {
-        Ok(options) => options,
+    let base = match base().await {
+        Ok(base) => base,
         Err(message) => {
             report(&message);
             return ExitCode::FAILURE;
@@ -89,8 +164,13 @@ async fn run(command: Command) -> ExitCode {
         return ExitCode::FAILURE;
     }
     let result = match command {
-        Command::Worker => worker::run_worker(options, stop).await,
-        Command::Trigger { target } => worker::run_trigger(options, &target, signal).await,
+        Command::Serve => run_serve(&base, stop).await,
+        Command::Api => match base.api() {
+            Ok((config, state)) => run_api(&config, state, signal).await,
+            Err(error) => Err(error),
+        },
+        Command::Worker => worker::run_worker(base.worker_options(), stop).await,
+        Command::Trigger { target } => worker::run_trigger(base.worker_options(), &target, signal).await,
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -132,11 +212,14 @@ mod tests {
     }
 
     #[test]
-    fn worker_and_trigger_parse() {
-        assert!(matches!(Cli::parse_from(["fav", "worker"]).command, Command::Worker));
+    fn commands_parse_and_serve_is_the_default() {
+        assert!(Cli::parse_from(["fav"]).command.is_none());
+        assert!(matches!(Cli::parse_from(["fav", "serve"]).command, Some(Command::Serve)));
+        assert!(matches!(Cli::parse_from(["fav", "api"]).command, Some(Command::Api)));
+        assert!(matches!(Cli::parse_from(["fav", "worker"]).command, Some(Command::Worker)));
         assert!(matches!(
             Cli::parse_from(["fav", "trigger", "all"]).command,
-            Command::Trigger { target } if target == "all"
+            Some(Command::Trigger { target }) if target == "all"
         ));
         assert!(Cli::try_parse_from(["fav", "trigger"]).is_err());
     }

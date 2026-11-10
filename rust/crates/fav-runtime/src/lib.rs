@@ -27,7 +27,7 @@ pub mod source;
 pub mod telegram_bot;
 pub mod worker;
 
-mod pystr;
+pub mod pystr;
 mod which;
 
 #[cfg(test)]

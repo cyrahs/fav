@@ -1,0 +1,996 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "api",
+  "cases": [
+    {
+      "sources": [
+        {
+          "key": "bilibili",
+          "name": "Bilibili",
+          "table": "bilibili",
+          "id_columns": [
+            "bvid"
+          ],
+          "title_column": "title",
+          "columns": [
+            "upper",
+            "fav_id"
+          ],
+          "search_columns": [
+            "bvid",
+            "title",
+            "upper"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "upper"
+          ],
+          "selected_columns": [
+            "bvid",
+            "title",
+            "upper",
+            "fav_id",
+            "created_at"
+          ]
+        },
+        {
+          "key": "telegram",
+          "name": "Telegram",
+          "table": "telegram",
+          "id_columns": [
+            "account_name",
+            "channel_id",
+            "message_id"
+          ],
+          "title_column": "title",
+          "columns": [
+            "channel_name",
+            "media_type"
+          ],
+          "search_columns": [
+            "title",
+            "channel_name"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "channel_name",
+            "media_type"
+          ],
+          "selected_columns": [
+            "account_name",
+            "channel_id",
+            "message_id",
+            "title",
+            "channel_name",
+            "media_type",
+            "created_at"
+          ]
+        },
+        {
+          "key": "hanime1",
+          "name": "Hanime1",
+          "table": "hanime1",
+          "id_columns": [
+            "id"
+          ],
+          "title_column": "title",
+          "columns": [
+            "uploader",
+            "release_date"
+          ],
+          "search_columns": [
+            "id",
+            "title",
+            "uploader"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "uploader",
+            "release_date"
+          ],
+          "selected_columns": [
+            "id",
+            "title",
+            "uploader",
+            "release_date",
+            "created_at"
+          ]
+        },
+        {
+          "key": "jandan",
+          "name": "Jandan",
+          "table": "jandan",
+          "id_columns": [
+            "fav_type",
+            "pic_id",
+            "content_index"
+          ],
+          "title_column": "author",
+          "columns": [
+            "content_url",
+            "post_date",
+            "local_path",
+            "downloaded",
+            "unavailable",
+            "last_error"
+          ],
+          "search_columns": [
+            "author",
+            "content_url"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "post_date"
+          ],
+          "selected_columns": [
+            "fav_type",
+            "pic_id",
+            "content_index",
+            "author",
+            "content_url",
+            "post_date",
+            "local_path",
+            "downloaded",
+            "unavailable",
+            "last_error",
+            "created_at"
+          ]
+        },
+        {
+          "key": "twitter",
+          "name": "X",
+          "table": "twitter",
+          "id_columns": [
+            "tweet_id",
+            "num"
+          ],
+          "title_column": "content",
+          "columns": [
+            "author",
+            "author_nick",
+            "tweet_date",
+            "media_type",
+            "local_path"
+          ],
+          "search_columns": [
+            "author",
+            "author_nick",
+            "content"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "author",
+            "tweet_date"
+          ],
+          "selected_columns": [
+            "tweet_id",
+            "num",
+            "content",
+            "author",
+            "author_nick",
+            "tweet_date",
+            "media_type",
+            "local_path",
+            "created_at"
+          ]
+        },
+        {
+          "key": "rednote",
+          "name": "RedNote",
+          "table": "rednote",
+          "id_columns": [
+            "note_id",
+            "media_index"
+          ],
+          "title_column": "title",
+          "columns": [
+            "author",
+            "media_type",
+            "published_at",
+            "local_path",
+            "downloaded",
+            "unavailable",
+            "last_error",
+            "xsec_token"
+          ],
+          "search_columns": [
+            "note_id",
+            "title",
+            "author"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "author",
+            "published_at"
+          ],
+          "selected_columns": [
+            "note_id",
+            "media_index",
+            "title",
+            "author",
+            "media_type",
+            "published_at",
+            "local_path",
+            "downloaded",
+            "unavailable",
+            "last_error",
+            "xsec_token",
+            "created_at"
+          ]
+        },
+        {
+          "key": "pixiv",
+          "name": "Pixiv",
+          "table": "pixiv",
+          "id_columns": [
+            "illust_id",
+            "num"
+          ],
+          "title_column": "title",
+          "columns": [
+            "author",
+            "author_id",
+            "illust_type",
+            "local_path",
+            "downloaded",
+            "unavailable",
+            "last_error"
+          ],
+          "search_columns": [
+            "title",
+            "author"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "author"
+          ],
+          "selected_columns": [
+            "illust_id",
+            "num",
+            "title",
+            "author",
+            "author_id",
+            "illust_type",
+            "local_path",
+            "downloaded",
+            "unavailable",
+            "last_error",
+            "created_at"
+          ]
+        },
+        {
+          "key": "wechat",
+          "name": "WeChat",
+          "table": "wechat_inbox",
+          "id_columns": [
+            "msg_id",
+            "create_time"
+          ],
+          "title_column": "local_path",
+          "columns": [
+            "sender",
+            "sent_at",
+            "size"
+          ],
+          "search_columns": [
+            "local_path",
+            "sender"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "sent_at"
+          ],
+          "selected_columns": [
+            "msg_id",
+            "create_time",
+            "local_path",
+            "sender",
+            "sent_at",
+            "size",
+            "created_at"
+          ]
+        },
+        {
+          "key": "wechat_article",
+          "name": "WeChat articles",
+          "table": "wechat_article",
+          "id_columns": [
+            "msg_id",
+            "create_time"
+          ],
+          "title_column": "title",
+          "columns": [
+            "account",
+            "sender",
+            "sent_at",
+            "published_at",
+            "image_count",
+            "local_path",
+            "url"
+          ],
+          "search_columns": [
+            "title",
+            "account",
+            "url"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "account",
+            "sent_at"
+          ],
+          "selected_columns": [
+            "msg_id",
+            "create_time",
+            "title",
+            "account",
+            "sender",
+            "sent_at",
+            "published_at",
+            "image_count",
+            "local_path",
+            "url",
+            "created_at"
+          ]
+        },
+        {
+          "key": "wechat_channel_video",
+          "name": "WeChat Channels",
+          "table": "wechat_channel_video",
+          "id_columns": [
+            "msg_id",
+            "create_time"
+          ],
+          "title_column": "title",
+          "columns": [
+            "author",
+            "sender",
+            "sent_at",
+            "duration",
+            "size",
+            "local_path",
+            "object_id"
+          ],
+          "search_columns": [
+            "title",
+            "author",
+            "object_id"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "author",
+            "sent_at"
+          ],
+          "selected_columns": [
+            "msg_id",
+            "create_time",
+            "title",
+            "author",
+            "sender",
+            "sent_at",
+            "duration",
+            "size",
+            "local_path",
+            "object_id",
+            "created_at"
+          ]
+        },
+        {
+          "key": "kemono",
+          "name": "Kemono",
+          "table": "kemono",
+          "id_columns": [
+            "id",
+            "service",
+            "user_id"
+          ],
+          "title_column": "title",
+          "columns": [
+            "creator",
+            "service",
+            "published_at"
+          ],
+          "search_columns": [
+            "id",
+            "title",
+            "creator"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "creator",
+            "service"
+          ],
+          "selected_columns": [
+            "id",
+            "service",
+            "user_id",
+            "title",
+            "creator",
+            "published_at",
+            "created_at"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "bilibili",
+      "row": {
+        "bvid": "BV1xx",
+        "title": "标题",
+        "upper": "UP主",
+        "fav_id": 123,
+        "created_at": {
+          "timestamp": "2026-03-01T12:00:00"
+        }
+      },
+      "item": {
+        "source": "bilibili",
+        "id": "BV1xx",
+        "title": "标题",
+        "subtitle": "UP主",
+        "created_at": "2026-03-01T12:00:00",
+        "url": "https://www.bilibili.com/video/BV1xx",
+        "fields": {
+          "bvid": "BV1xx",
+          "title": "标题",
+          "upper": "UP主",
+          "fav_id": 123
+        }
+      }
+    },
+    {
+      "source": "bilibili",
+      "row": {
+        "bvid": "BV2yy",
+        "title": "",
+        "upper": "",
+        "fav_id": 0,
+        "created_at": null
+      },
+      "item": {
+        "source": "bilibili",
+        "id": "BV2yy",
+        "title": "",
+        "subtitle": "",
+        "created_at": null,
+        "url": "https://www.bilibili.com/video/BV2yy",
+        "fields": {
+          "bvid": "BV2yy",
+          "title": "",
+          "upper": "",
+          "fav_id": 0
+        }
+      }
+    },
+    {
+      "source": "telegram",
+      "row": {
+        "account_name": "main",
+        "channel_id": -1001234,
+        "message_id": 55,
+        "title": "clip",
+        "channel_name": "Channel",
+        "media_type": "photo",
+        "created_at": {
+          "timestamp": "2026-03-01T12:00:00.123456"
+        }
+      },
+      "item": {
+        "source": "telegram",
+        "id": "main:-1001234:55",
+        "title": "clip",
+        "subtitle": "Channel · photo",
+        "created_at": "2026-03-01T12:00:00.123456",
+        "url": null,
+        "fields": {
+          "account_name": "main",
+          "channel_id": -1001234,
+          "message_id": 55,
+          "title": "clip",
+          "channel_name": "Channel",
+          "media_type": "photo"
+        }
+      }
+    },
+    {
+      "source": "hanime1",
+      "row": {
+        "id": "12345",
+        "title": "Video",
+        "uploader": null,
+        "release_date": "2024-01-01",
+        "created_at": {
+          "timestamp": "2026-01-02T03:04:05"
+        }
+      },
+      "item": {
+        "source": "hanime1",
+        "id": "12345",
+        "title": "Video",
+        "subtitle": "2024-01-01",
+        "created_at": "2026-01-02T03:04:05",
+        "url": "https://hanime1.me/watch?v=12345",
+        "fields": {
+          "id": "12345",
+          "title": "Video",
+          "uploader": null,
+          "release_date": "2024-01-01"
+        }
+      }
+    },
+    {
+      "source": "hanime1",
+      "row": {
+        "id": "777",
+        "title": "Other",
+        "uploader": "  spaced  ",
+        "release_date": "",
+        "created_at": {
+          "timestamp": "2026-01-02T03:04:06"
+        }
+      },
+      "item": {
+        "source": "hanime1",
+        "id": "777",
+        "title": "Other",
+        "subtitle": "spaced",
+        "created_at": "2026-01-02T03:04:06",
+        "url": "https://hanime1.me/watch?v=777",
+        "fields": {
+          "id": "777",
+          "title": "Other",
+          "uploader": "  spaced  ",
+          "release_date": ""
+        }
+      }
+    },
+    {
+      "source": "jandan",
+      "row": {
+        "fav_type": 1,
+        "pic_id": 6000001,
+        "content_index": 0,
+        "author": "someone",
+        "content_url": "https://img.example/a.jpg",
+        "post_date": "2026-02-01",
+        "local_path": "collection/jandan/a.jpg",
+        "downloaded": 1,
+        "unavailable": 0,
+        "last_error": "",
+        "created_at": {
+          "timestamp": "2026-02-01T00:00:00"
+        }
+      },
+      "item": {
+        "source": "jandan",
+        "id": "1:6000001:0",
+        "title": "someone",
+        "subtitle": "2026-02-01",
+        "created_at": "2026-02-01T00:00:00",
+        "url": "https://img.example/a.jpg",
+        "fields": {
+          "fav_type": 1,
+          "pic_id": 6000001,
+          "content_index": 0,
+          "author": "someone",
+          "content_url": "https://img.example/a.jpg",
+          "post_date": "2026-02-01",
+          "local_path": "collection/jandan/a.jpg",
+          "downloaded": 1,
+          "unavailable": 0,
+          "last_error": ""
+        }
+      }
+    },
+    {
+      "source": "jandan",
+      "row": {
+        "fav_type": 2,
+        "pic_id": 6000002,
+        "content_index": 3,
+        "author": "",
+        "content_url": "",
+        "post_date": "",
+        "local_path": "",
+        "downloaded": 0,
+        "unavailable": 1,
+        "last_error": "gone",
+        "created_at": {
+          "timestamp": "2026-02-01T00:00:01"
+        }
+      },
+      "item": {
+        "source": "jandan",
+        "id": "2:6000002:3",
+        "title": "",
+        "subtitle": "",
+        "created_at": "2026-02-01T00:00:01",
+        "url": null,
+        "fields": {
+          "fav_type": 2,
+          "pic_id": 6000002,
+          "content_index": 3,
+          "author": "",
+          "content_url": "",
+          "post_date": "",
+          "local_path": "",
+          "downloaded": 0,
+          "unavailable": 1,
+          "last_error": "gone"
+        }
+      }
+    },
+    {
+      "source": "twitter",
+      "row": {
+        "tweet_id": 1890000000000000001,
+        "num": 2,
+        "content": "tweet text",
+        "author": "handle",
+        "author_nick": "Nick",
+        "tweet_date": "2026-02-02 10:00",
+        "media_type": "video",
+        "local_path": "x/a.mp4",
+        "created_at": {
+          "timestamp": "2026-02-02T10:00:00"
+        }
+      },
+      "item": {
+        "source": "twitter",
+        "id": "1890000000000000001:2",
+        "title": "tweet text",
+        "subtitle": "handle · 2026-02-02 10:00",
+        "created_at": "2026-02-02T10:00:00",
+        "url": "https://x.com/i/status/1890000000000000001",
+        "fields": {
+          "tweet_id": 1890000000000000001,
+          "num": 2,
+          "content": "tweet text",
+          "author": "handle",
+          "author_nick": "Nick",
+          "tweet_date": "2026-02-02 10:00",
+          "media_type": "video",
+          "local_path": "x/a.mp4"
+        }
+      }
+    },
+    {
+      "source": "rednote",
+      "row": {
+        "note_id": "64abc",
+        "media_index": 0,
+        "title": "笔记",
+        "author": "作者",
+        "media_type": "image",
+        "published_at": "2026-02-03",
+        "local_path": "r/a.webp",
+        "downloaded": 1,
+        "unavailable": 0,
+        "last_error": "",
+        "xsec_token": "ABC=",
+        "created_at": {
+          "timestamp": "2026-02-03T00:00:00"
+        }
+      },
+      "item": {
+        "source": "rednote",
+        "id": "64abc:0",
+        "title": "笔记",
+        "subtitle": "作者 · 2026-02-03",
+        "created_at": "2026-02-03T00:00:00",
+        "url": "https://www.xiaohongshu.com/explore/64abc?xsec_token=ABC=&xsec_source=pc_user",
+        "fields": {
+          "note_id": "64abc",
+          "media_index": 0,
+          "title": "笔记",
+          "author": "作者",
+          "media_type": "image",
+          "published_at": "2026-02-03",
+          "local_path": "r/a.webp",
+          "downloaded": 1,
+          "unavailable": 0,
+          "last_error": "",
+          "xsec_token": "ABC="
+        }
+      }
+    },
+    {
+      "source": "rednote",
+      "row": {
+        "note_id": "64def",
+        "media_index": 1,
+        "title": "",
+        "author": "",
+        "media_type": "video",
+        "published_at": "",
+        "local_path": "",
+        "downloaded": 0,
+        "unavailable": 0,
+        "last_error": "",
+        "xsec_token": "",
+        "created_at": {
+          "timestamp": "2026-02-03T00:00:01"
+        }
+      },
+      "item": {
+        "source": "rednote",
+        "id": "64def:1",
+        "title": "",
+        "subtitle": "",
+        "created_at": "2026-02-03T00:00:01",
+        "url": "https://www.xiaohongshu.com/explore/64def",
+        "fields": {
+          "note_id": "64def",
+          "media_index": 1,
+          "title": "",
+          "author": "",
+          "media_type": "video",
+          "published_at": "",
+          "local_path": "",
+          "downloaded": 0,
+          "unavailable": 0,
+          "last_error": "",
+          "xsec_token": ""
+        }
+      }
+    },
+    {
+      "source": "pixiv",
+      "row": {
+        "illust_id": 120000001,
+        "num": 0,
+        "title": "art",
+        "author": "painter",
+        "author_id": "42",
+        "illust_type": 2,
+        "local_path": "p/a.webp",
+        "downloaded": 1,
+        "unavailable": 0,
+        "last_error": "",
+        "created_at": {
+          "timestamp": "2026-02-04T00:00:00"
+        }
+      },
+      "item": {
+        "source": "pixiv",
+        "id": "120000001:0",
+        "title": "art",
+        "subtitle": "painter",
+        "created_at": "2026-02-04T00:00:00",
+        "url": "https://www.pixiv.net/artworks/120000001",
+        "fields": {
+          "illust_id": 120000001,
+          "num": 0,
+          "title": "art",
+          "author": "painter",
+          "author_id": "42",
+          "illust_type": 2,
+          "local_path": "p/a.webp",
+          "downloaded": 1,
+          "unavailable": 0,
+          "last_error": ""
+        }
+      }
+    },
+    {
+      "source": "wechat",
+      "row": {
+        "msg_id": 100,
+        "create_time": 1767225600,
+        "local_path": "w/file.pdf",
+        "sender": "friend",
+        "sent_at": "2026-01-01 08:00:00",
+        "size": null,
+        "created_at": {
+          "timestamp": "2026-02-05T00:00:00"
+        }
+      },
+      "item": {
+        "source": "wechat",
+        "id": "100:1767225600",
+        "title": "w/file.pdf",
+        "subtitle": "2026-01-01 08:00:00",
+        "created_at": "2026-02-05T00:00:00",
+        "url": null,
+        "fields": {
+          "msg_id": 100,
+          "create_time": 1767225600,
+          "local_path": "w/file.pdf",
+          "sender": "friend",
+          "sent_at": "2026-01-01 08:00:00",
+          "size": null
+        }
+      }
+    },
+    {
+      "source": "wechat_article",
+      "row": {
+        "msg_id": 101,
+        "create_time": 1767225601,
+        "title": "文章",
+        "account": "公众号",
+        "sender": "",
+        "sent_at": "2026-01-01 08:00:01",
+        "published_at": "",
+        "image_count": 3,
+        "local_path": "w/a",
+        "url": "https://mp.weixin.qq.com/s/abc",
+        "created_at": {
+          "timestamp": "2026-02-05T00:00:01"
+        }
+      },
+      "item": {
+        "source": "wechat_article",
+        "id": "101:1767225601",
+        "title": "文章",
+        "subtitle": "公众号 · 2026-01-01 08:00:01",
+        "created_at": "2026-02-05T00:00:01",
+        "url": "https://mp.weixin.qq.com/s/abc",
+        "fields": {
+          "msg_id": 101,
+          "create_time": 1767225601,
+          "title": "文章",
+          "account": "公众号",
+          "sender": "",
+          "sent_at": "2026-01-01 08:00:01",
+          "published_at": "",
+          "image_count": 3,
+          "local_path": "w/a",
+          "url": "https://mp.weixin.qq.com/s/abc"
+        }
+      }
+    },
+    {
+      "source": "wechat_article",
+      "row": {
+        "msg_id": 102,
+        "create_time": 1767225602,
+        "title": "",
+        "account": "",
+        "sender": "",
+        "sent_at": "",
+        "published_at": "",
+        "image_count": 0,
+        "local_path": "",
+        "url": "",
+        "created_at": {
+          "timestamp": "2026-02-05T00:00:02"
+        }
+      },
+      "item": {
+        "source": "wechat_article",
+        "id": "102:1767225602",
+        "title": "",
+        "subtitle": "",
+        "created_at": "2026-02-05T00:00:02",
+        "url": null,
+        "fields": {
+          "msg_id": 102,
+          "create_time": 1767225602,
+          "title": "",
+          "account": "",
+          "sender": "",
+          "sent_at": "",
+          "published_at": "",
+          "image_count": 0,
+          "local_path": "",
+          "url": ""
+        }
+      }
+    },
+    {
+      "source": "wechat_channel_video",
+      "row": {
+        "msg_id": 103,
+        "create_time": 1767225603,
+        "title": "视频",
+        "author": "作者",
+        "sender": "s",
+        "sent_at": "2026-01-01",
+        "duration": 61,
+        "size": 1048576,
+        "local_path": "w/v.mp4",
+        "object_id": "obj1",
+        "created_at": {
+          "timestamp": "2026-02-05T00:00:03"
+        }
+      },
+      "item": {
+        "source": "wechat_channel_video",
+        "id": "103:1767225603",
+        "title": "视频",
+        "subtitle": "作者 · 2026-01-01",
+        "created_at": "2026-02-05T00:00:03",
+        "url": null,
+        "fields": {
+          "msg_id": 103,
+          "create_time": 1767225603,
+          "title": "视频",
+          "author": "作者",
+          "sender": "s",
+          "sent_at": "2026-01-01",
+          "duration": 61,
+          "size": 1048576,
+          "local_path": "w/v.mp4",
+          "object_id": "obj1"
+        }
+      }
+    },
+    {
+      "source": "kemono",
+      "row": {
+        "id": "9001",
+        "service": "fanbox",
+        "user_id": "70050825",
+        "title": "post",
+        "creator": "artist",
+        "published_at": "2026-01-05T00:00:00",
+        "created_at": {
+          "timestamp": "2026-02-06T00:00:00"
+        }
+      },
+      "item": {
+        "source": "kemono",
+        "id": "9001:fanbox:70050825",
+        "title": "post",
+        "subtitle": "artist · fanbox",
+        "created_at": "2026-02-06T00:00:00",
+        "url": "https://pawchive.pw/fanbox/user/70050825/post/9001",
+        "fields": {
+          "id": "9001",
+          "service": "fanbox",
+          "user_id": "70050825",
+          "title": "post",
+          "creator": "artist",
+          "published_at": "2026-01-05T00:00:00"
+        }
+      }
+    },
+    {
+      "source": "kemono",
+      "row": {
+        "id": "9002",
+        "service": "patreon",
+        "user_id": "1",
+        "title": "post 2",
+        "creator": null,
+        "published_at": null,
+        "created_at": {
+          "timestamp": "2026-02-06T00:00:01"
+        }
+      },
+      "item": {
+        "source": "kemono",
+        "id": "9002:patreon:1",
+        "title": "post 2",
+        "subtitle": "patreon",
+        "created_at": "2026-02-06T00:00:01",
+        "url": "https://pawchive.pw/patreon/user/1/post/9002",
+        "fields": {
+          "id": "9002",
+          "service": "patreon",
+          "user_id": "1",
+          "title": "post 2",
+          "creator": null,
+          "published_at": null
+        }
+      }
+    },
+    {
+      "note_id": "64abc",
+      "xsec_token": "",
+      "url": "https://www.xiaohongshu.com/explore/64abc"
+    },
+    {
+      "note_id": "64abc",
+      "xsec_token": "ABC=",
+      "url": "https://www.xiaohongshu.com/explore/64abc?xsec_token=ABC=&xsec_source=pc_user"
+    },
+    {
+      "note_id": "id with space",
+      "xsec_token": "a&b",
+      "url": "https://www.xiaohongshu.com/explore/id with space?xsec_token=a&b&xsec_source=pc_user"
+    }
+  ]
+}

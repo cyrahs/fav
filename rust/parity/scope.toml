@@ -35,7 +35,7 @@ tests = [
 
 [WP3]
 title = "API skeleton, auth, settings, jobs, archive, credentials, front end"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_api_server.py",
     "tests/test_settings_masking.py",
@@ -50,7 +50,13 @@ tests = ["tests/test_mcp.py"]
 [WP5]
 title = "Jandan, Kemono"
 status = "pending"
-tests = ["tests/test_jandan.py", "tests/test_kemono.py", "tests/test_kemono_creator.py"]
+tests = [
+    "tests/test_jandan.py",
+    "tests/test_kemono.py",
+    "tests/test_kemono_creator.py",
+    # The creator-resolve endpoint arrives with the Kemono port.
+    "tests/test_api_server.py::test_*kemono*",
+]
 
 [WP6]
 title = "Stella Sora, Pixiv"
@@ -65,7 +71,13 @@ tests = ["tests/test_bilibili.py", "tests/test_bilibili_session.py", "tests/test
 [WP8]
 title = "Hanime1"
 status = "pending"
-tests = ["tests/test_hanime1.py", "tests/test_hanime1_author.py"]
+tests = [
+    "tests/test_hanime1.py",
+    "tests/test_hanime1_author.py",
+    # The Hanime1 endpoints and /readyz (its probe) arrive with the Hanime1 port.
+    "tests/test_api_server.py::test_*hanime1*",
+    "tests/test_api_server.py::test_readiness_*",
+]
 
 [WP9]
 title = "Nikke crawl, layer metadata, manifests, API reader"
@@ -96,7 +108,12 @@ tests = [
 [WP12]
 title = "Azur Lane crawl, manifests, API reader"
 status = "pending"
-tests = ["tests/test_azurlane.py", "tests/test_azurlane_api.py"]
+tests = [
+    "tests/test_azurlane.py",
+    "tests/test_azurlane_api.py",
+    # Asserts Hanime1, Nikke, BD2 and Azur Lane paths in /openapi.json; WP12 serves the last of them.
+    "tests/test_api_server.py::test_docs_and_openapi_are_public_and_v2_only",
+]
 
 [WP13]
 title = "Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub"

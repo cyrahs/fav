@@ -1,0 +1,169 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "api",
+  "cases": [
+    {
+      "bilibili_accounts": [],
+      "sites": [
+        {
+          "key": "pixiv",
+          "label": "Pixiv",
+          "hint": "",
+          "session_cookie": "PHPSESSID"
+        },
+        {
+          "key": "twitter",
+          "label": "X",
+          "hint": "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。",
+          "session_cookie": "auth_token"
+        },
+        {
+          "key": "nga",
+          "label": "NGA",
+          "hint": "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。",
+          "session_cookie": "ngaPassportCid"
+        },
+        {
+          "key": "rednote",
+          "label": "小红书",
+          "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
+          "session_cookie": "web_session"
+        }
+      ]
+    },
+    {
+      "bilibili_accounts": [
+        "main"
+      ],
+      "sites": [
+        {
+          "key": "pixiv",
+          "label": "Pixiv",
+          "hint": "",
+          "session_cookie": "PHPSESSID"
+        },
+        {
+          "key": "twitter",
+          "label": "X",
+          "hint": "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。",
+          "session_cookie": "auth_token"
+        },
+        {
+          "key": "nga",
+          "label": "NGA",
+          "hint": "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。",
+          "session_cookie": "ngaPassportCid"
+        },
+        {
+          "key": "rednote",
+          "label": "小红书",
+          "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
+          "session_cookie": "web_session"
+        },
+        {
+          "key": "bilibili-main",
+          "label": "Bilibili",
+          "hint": "用要给账号 main 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。",
+          "session_cookie": "SESSDATA"
+        }
+      ]
+    },
+    {
+      "bilibili_accounts": [
+        "main",
+        "alt"
+      ],
+      "sites": [
+        {
+          "key": "pixiv",
+          "label": "Pixiv",
+          "hint": "",
+          "session_cookie": "PHPSESSID"
+        },
+        {
+          "key": "twitter",
+          "label": "X",
+          "hint": "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。",
+          "session_cookie": "auth_token"
+        },
+        {
+          "key": "nga",
+          "label": "NGA",
+          "hint": "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。",
+          "session_cookie": "ngaPassportCid"
+        },
+        {
+          "key": "rednote",
+          "label": "小红书",
+          "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
+          "session_cookie": "web_session"
+        },
+        {
+          "key": "bilibili-main",
+          "label": "Bilibili（main）",
+          "hint": "用要给账号 main 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。",
+          "session_cookie": "SESSDATA"
+        },
+        {
+          "key": "bilibili-alt",
+          "label": "Bilibili（alt）",
+          "hint": "用要给账号 alt 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。",
+          "session_cookie": "SESSDATA"
+        }
+      ]
+    },
+    {
+      "bilibili_accounts": [
+        "a_b",
+        "X-2",
+        "third"
+      ],
+      "sites": [
+        {
+          "key": "pixiv",
+          "label": "Pixiv",
+          "hint": "",
+          "session_cookie": "PHPSESSID"
+        },
+        {
+          "key": "twitter",
+          "label": "X",
+          "hint": "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。",
+          "session_cookie": "auth_token"
+        },
+        {
+          "key": "nga",
+          "label": "NGA",
+          "hint": "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。",
+          "session_cookie": "ngaPassportCid"
+        },
+        {
+          "key": "rednote",
+          "label": "小红书",
+          "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
+          "session_cookie": "web_session"
+        },
+        {
+          "key": "bilibili-a_b",
+          "label": "Bilibili（a_b）",
+          "hint": "用要给账号 a_b 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。",
+          "session_cookie": "SESSDATA"
+        },
+        {
+          "key": "bilibili-X-2",
+          "label": "Bilibili（X-2）",
+          "hint": "用要给账号 X-2 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。",
+          "session_cookie": "SESSDATA"
+        },
+        {
+          "key": "bilibili-third",
+          "label": "Bilibili（third）",
+          "hint": "用要给账号 third 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。",
+          "session_cookie": "SESSDATA"
+        }
+      ]
+    }
+  ]
+}
