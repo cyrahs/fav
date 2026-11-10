@@ -8,7 +8,7 @@ and so that a reviewer can tell a faithful port from a plausible one.
 - Behaviour parity with the Python baseline (`rust/BASELINE`). Python bugs are copied and logged in
   `DIVERGENCES.md` unless they corrupt data; then fix them and log that too.
 - The Python tree on this branch is the reference and the golden generator. Never edit anything outside
-  `rust/` and `.github/workflows/rust.yml`; `rust/tools/check_tree.sh` fails CI if you do. Never merge `main`
+  `rust/`, `.github/workflows/rust.yml` and `.github/workflows/rust-image.yml`; `rust/tools/check_tree.sh` fails CI if you do. Never merge `main`
   into `rust`.
 - Never deploy, never publish an image, never touch `charys117/nas-gitops`. Never point a Rust build at the
   production database, the production `collection/` volume or a real account. Account-bound sources are

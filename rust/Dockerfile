@@ -2,10 +2,10 @@
 #
 #   docker build -f rust/Dockerfile .
 #
-# Built locally only: nothing publishes this image. `.github/workflows/ci.yml` builds
-# and pushes the Python image from the root `Dockerfile`; this file is not wired into
-# any workflow, and the `rust` branch never runs `ci.yml` (rust/docs/PLAN.md, safety
-# rules).
+# Published only as `ghcr.io/cyrahs/fav:rust-<short sha>` by
+# `.github/workflows/rust-image.yml` on pushes to `rust` (Max's direct deployment of
+# 2026-11-10); never `latest`. `.github/workflows/ci.yml` still builds and pushes the
+# Python image from the root `Dockerfile`, and the `rust` branch never runs it.
 #
 # The runtime matches the Python image wherever the binary shells out: yt-dlp and
 # gallery-dl at the versions the root `uv.lock` pins (so Dependabot's bumps there reach
