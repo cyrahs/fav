@@ -485,9 +485,13 @@ impl HttpClient {
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| TransportError::new(ErrorClass::LocalProtocolError, &url, error.to_string()))?,
         );
-        if !headers.contains(&reqwest::header::HOST) {
-            headers.prepend(reqwest::header::HOST, netloc(&url)?);
-        }
+        // h11 writes `Host` first even when the caller set it further down.
+        let host = match headers.get(&reqwest::header::HOST) {
+            Some(value) => value,
+            None => netloc(&url)?,
+        };
+        headers.remove(&reqwest::header::HOST);
+        headers.prepend(reqwest::header::HOST, host);
         let mut body = request.body.clone();
         let mut history: Vec<Redirect> = Vec::new();
         loop {
@@ -665,8 +669,8 @@ impl Headers {
         self.0.retain(|(have, _)| have != name);
     }
 
-    fn contains(&self, name: &HeaderName) -> bool {
-        self.0.iter().any(|(have, _)| have == name)
+    fn get(&self, name: &HeaderName) -> Option<HeaderValue> {
+        self.0.iter().find(|(have, _)| have == name).map(|(_, value)| value.clone())
     }
 
     fn names(&self) -> Vec<&str> {
@@ -674,7 +678,8 @@ impl Headers {
     }
 
     /// The map handed to reqwest or the connect-to route. A `HeaderMap` iterates names in
-    /// the order they were first appended, and hyper writes them in that order.
+    /// the order they were first appended, and hyper writes them in that order (a name
+    /// given twice is grouped at its first place, where httpx keeps the pairs apart).
     fn to_map(&self) -> HeaderMap {
         let mut map = HeaderMap::with_capacity(self.0.len());
         for (name, value) in &self.0 {

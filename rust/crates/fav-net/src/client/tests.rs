@@ -309,3 +309,23 @@ async fn a_redirect_to_another_origin_rewrites_host_in_place() {
         format!("GET /b HTTP/1.1\r\nHost: {target}\r\n{defaults}X-Requested-With: XMLHttpRequest\r\n\r\n")
     );
 }
+
+/// A `Host` the caller sets still goes out first, as h11 writes it.
+#[tokio::test]
+async fn a_host_the_caller_sets_goes_first() {
+    let (address, seen) = capture(|_| EMPTY_200.to_owned()).await;
+    HttpClient::new(&ClientOptions::default())
+        .expect("client")
+        .send(
+            Request::get(format!("http://{address}/"))
+                .header("X-A", "1")
+                .header("Host", "example.test"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(
+        seen.lock().expect("lock")[0],
+        "GET / HTTP/1.1\r\nHost: example.test\r\nAccept: */*\r\nAccept-Encoding: gzip, deflate, br\r\nConnection: keep-alive\r\n\
+         User-Agent: python-httpx/0.28.1\r\nX-A: 1\r\n\r\n"
+    );
+}
