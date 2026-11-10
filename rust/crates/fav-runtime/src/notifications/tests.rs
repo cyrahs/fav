@@ -306,8 +306,24 @@ fn job_run_failure_dedupe_key_is_one_row_per_job() {
 // py: tests/test_notifications.py::test_first_failure_rings_and_repeats_stay_silent
 #[test]
 fn first_failure_rings_and_repeats_stay_silent() {
-    let first = render("job_failed", "Bilibili", "Job failed", "KeyError: sessdata", "", WEBHOOK_ACTION_UPSERT, 1);
-    let repeat = render("job_failed", "Bilibili", "Job failed", "KeyError: sessdata", "", WEBHOOK_ACTION_UPSERT, 4);
+    let first = render(
+        "job_failed",
+        "Bilibili",
+        "Job failed",
+        "KeyError: sessdata",
+        "",
+        WEBHOOK_ACTION_UPSERT,
+        1,
+    );
+    let repeat = render(
+        "job_failed",
+        "Bilibili",
+        "Job failed",
+        "KeyError: sessdata",
+        "",
+        WEBHOOK_ACTION_UPSERT,
+        4,
+    );
     assert!(!first.disable_notification);
     assert!(first.pin);
     assert!(!first.markdown.contains("Occurrences"));
@@ -321,7 +337,15 @@ fn first_failure_rings_and_repeats_stay_silent() {
 #[test]
 fn an_unsupported_message_stays_pinned_until_it_is_resolved() {
     let fields = |kind: &str, action: &str| {
-        render(kind, "Telegram", "fav #130", "Link not supported: https://example.com/x", "https://t.me/c/1/130", action, 1)
+        render(
+            kind,
+            "Telegram",
+            "fav #130",
+            "Link not supported: https://example.com/x",
+            "https://t.me/c/1/130",
+            action,
+            1,
+        )
     };
     let open = fields(KIND_UNSUPPORTED_MESSAGE, WEBHOOK_ACTION_UPSERT);
     assert_eq!((open.disable_notification, open.pin), (false, true));
@@ -387,14 +411,30 @@ fn header_is_rendered_above_the_linked_title() {
 // py: tests/test_notifications.py::test_link_url_escapes_only_the_characters_telegram_forbids_in_a_url
 #[test]
 fn link_url_escapes_only_the_characters_telegram_forbids_in_a_url() {
-    let fields = render("download_completed", "", "Title", "", "https://example.com/a_(b)?q=1.2", WEBHOOK_ACTION_SEND, 1);
+    let fields = render(
+        "download_completed",
+        "",
+        "Title",
+        "",
+        "https://example.com/a_(b)?q=1.2",
+        WEBHOOK_ACTION_SEND,
+        1,
+    );
     assert_eq!(fields.markdown, "[*Title*](https://example.com/a_(b\\)?q=1.2)");
 }
 
 // py: tests/test_notifications.py::test_titleless_notification_keeps_the_link_on_its_own_line
 #[test]
 fn titleless_notification_keeps_the_link_on_its_own_line() {
-    let fields = render("download_completed", "", "", "Body", "https://example.com/video", WEBHOOK_ACTION_SEND, 1);
+    let fields = render(
+        "download_completed",
+        "",
+        "",
+        "Body",
+        "https://example.com/video",
+        WEBHOOK_ACTION_SEND,
+        1,
+    );
     assert_eq!(fields.markdown, "Body\nhttps://example\\.com/video");
 }
 
@@ -453,7 +493,10 @@ async fn resolve_notification_updates_existing_dedupe_key() {
     // Delivered once, a resolve is final; a failed resolve can be retried.
     outbox.claim_next_pending().await.expect("claim").expect("due");
     let stored = fetch(db, id).await;
-    outbox.mark_delivered(id, stored.event_version, Some(1), None).await.expect("delivered");
+    outbox
+        .mark_delivered(id, stored.event_version, Some(1), None)
+        .await
+        .expect("delivered");
     assert_eq!(outbox.resolve(key, &resolution).await.expect("resolve"), None);
     sqlx::query("UPDATE notifications SET delivery_status = 'failed' WHERE id = $1;")
         .bind(id)
@@ -518,12 +561,11 @@ async fn claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
     .expect("insert");
     // A row another worker holds locked is skipped, not waited for.
     let mut other = db.pool().begin().await.expect("transaction");
-    let locked: i64 = sqlx::query_scalar(
-        "INSERT INTO notifications (kind, source, delivery_status) VALUES ('x', 'worker', 'pending') RETURNING id;",
-    )
-    .fetch_one(&mut *other)
-    .await
-    .expect("insert locked");
+    let locked: i64 =
+        sqlx::query_scalar("INSERT INTO notifications (kind, source, delivery_status) VALUES ('x', 'worker', 'pending') RETURNING id;")
+            .fetch_one(&mut *other)
+            .await
+            .expect("insert locked");
     other.commit().await.expect("commit");
     let mut holder = db.pool().begin().await.expect("transaction");
     sqlx::query("SELECT id FROM notifications WHERE id = $1 FOR UPDATE;")
@@ -551,11 +593,17 @@ async fn claim_next_pending_notification_uses_skip_locked_and_backfills_markdown
     let stored = fetch(db, id).await;
     assert_eq!(stored.markdown, markdown);
     let lease = stored.next_attempt_at - Utc::now();
-    assert!(lease > Duration::seconds(SENDING_LEASE_SECONDS - 30) && lease <= Duration::seconds(SENDING_LEASE_SECONDS), "{lease}");
+    assert!(
+        lease > Duration::seconds(SENDING_LEASE_SECONDS - 30) && lease <= Duration::seconds(SENDING_LEASE_SECONDS),
+        "{lease}"
+    );
 
     assert_eq!(outbox.claim_next_pending().await.expect("claim"), None);
     holder.rollback().await.expect("release");
-    assert_eq!(outbox.claim_next_pending().await.expect("claim").expect("now free").notification_id, locked);
+    assert_eq!(
+        outbox.claim_next_pending().await.expect("claim").expect("now free").notification_id,
+        locked
+    );
     database.drop_database().await;
 }
 
@@ -661,18 +709,70 @@ fn retry_delay_seconds_uses_exponential_backoff_with_cap() {
 async fn resolve_job_failure_notifications_targets_job_scoped_rows() {
     let database = database().await;
     let db = database.db();
-    let run = insert_row(db, "job_failed:twitter:run", SCOPE_JOB, WEBHOOK_ACTION_UPSERT, DELIVERY_DELIVERED, 1).await;
-    let auth = insert_row(db, "job_failed:twitter:twitter:auth", SCOPE_JOB, WEBHOOK_ACTION_UPSERT, DELIVERY_PENDING, 1).await;
-    let item = insert_row(db, "job_failed:twitter:twitter:video:1", SCOPE_ITEM, WEBHOOK_ACTION_UPSERT, DELIVERY_DELIVERED, 1).await;
+    let run = insert_row(
+        db,
+        "job_failed:twitter:run",
+        SCOPE_JOB,
+        WEBHOOK_ACTION_UPSERT,
+        DELIVERY_DELIVERED,
+        1,
+    )
+    .await;
+    let auth = insert_row(
+        db,
+        "job_failed:twitter:twitter:auth",
+        SCOPE_JOB,
+        WEBHOOK_ACTION_UPSERT,
+        DELIVERY_PENDING,
+        1,
+    )
+    .await;
+    let item = insert_row(
+        db,
+        "job_failed:twitter:twitter:video:1",
+        SCOPE_ITEM,
+        WEBHOOK_ACTION_UPSERT,
+        DELIVERY_DELIVERED,
+        1,
+    )
+    .await;
     // `_` in the job key is a literal, not a LIKE wildcard.
-    let other = insert_row(db, "job_failedXtwitterXrun", SCOPE_JOB, WEBHOOK_ACTION_UPSERT, DELIVERY_DELIVERED, 1).await;
-    let similar = insert_row(db, "job_failed:twitter2:run", SCOPE_JOB, WEBHOOK_ACTION_UPSERT, DELIVERY_DELIVERED, 1).await;
-    let done = insert_row(db, "job_failed:twitter:old", SCOPE_JOB, WEBHOOK_ACTION_RESOLVE, DELIVERY_DELIVERED, 1).await;
+    let other = insert_row(
+        db,
+        "job_failedXtwitterXrun",
+        SCOPE_JOB,
+        WEBHOOK_ACTION_UPSERT,
+        DELIVERY_DELIVERED,
+        1,
+    )
+    .await;
+    let similar = insert_row(
+        db,
+        "job_failed:twitter2:run",
+        SCOPE_JOB,
+        WEBHOOK_ACTION_UPSERT,
+        DELIVERY_DELIVERED,
+        1,
+    )
+    .await;
+    let done = insert_row(
+        db,
+        "job_failed:twitter:old",
+        SCOPE_JOB,
+        WEBHOOK_ACTION_RESOLVE,
+        DELIVERY_DELIVERED,
+        1,
+    )
+    .await;
 
     let resolved = outbox(db)
         .resolve_job_failures(
             "Twitter",
-            &Resolution::job_recovered("X", "X completed successfully again.", Some(payload(&[("job", Value::from("twitter"))]))),
+            &Resolution::job_recovered(
+                "X",
+                "X completed successfully again.",
+                Some(payload(&[("job", Value::from("twitter"))])),
+            ),
         )
         .await
         .expect("resolved");
@@ -747,7 +847,11 @@ fn keys_and_escapes_match_python() {
                 assert_eq!(like_literal(&text("input")), case["like_literal"], "{case}");
             }
             "format_job_failure_dedupe_key" => {
-                assert_eq!(format_job_failure_dedupe_key(&text("job_key"), &text("failure_key")), case["result"], "{case}");
+                assert_eq!(
+                    format_job_failure_dedupe_key(&text("job_key"), &text("failure_key")),
+                    case["result"],
+                    "{case}"
+                );
             }
             "format_job_run_failure_dedupe_key" => {
                 assert_eq!(format_job_run_failure_dedupe_key(&text("job_key")), case["result"], "{case}");

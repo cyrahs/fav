@@ -1,6 +1,6 @@
 //! Direct notification delivery through the Telegram Bot API.
 //!
-//! Python origin: `src/tool/telegram_bot.py`. Every send uses MarkdownV2; the outbox
+//! Python origin: `src/tool/telegram_bot.py`. Every send uses `MarkdownV2`; the outbox
 //! delivery prefers a local image, then the remote image URL, then plain text, and keeps
 //! track of the one message a notification row has pinned.
 
@@ -66,7 +66,11 @@ fn with_header_line(header: &str, markdown: &str) -> String {
         return markdown.to_owned();
     }
     let header_line = format_header_line(header);
-    if markdown.is_empty() { header_line } else { format!("{header_line}\n{markdown}") }
+    if markdown.is_empty() {
+        header_line
+    } else {
+        format!("{header_line}\n{markdown}")
+    }
 }
 
 /// The bot and the chat (and topic) notifications go to.
@@ -123,7 +127,10 @@ impl TelegramDeliveryError {
     }
 
     fn can_fallback_from_photo(&self) -> bool {
-        !self.retryable && ["error 400", "error 413", "error 415"].iter().any(|code| self.message.contains(code))
+        !self.retryable
+            && ["error 400", "error 413", "error 415"]
+                .iter()
+                .any(|code| self.message.contains(code))
     }
 }
 
@@ -181,7 +188,11 @@ fn response_error(status: u16, payload: Option<&Value>, token: &str) -> Telegram
             error_code = code;
         }
         if let Some(Value::String(raw)) = payload.get("description") {
-            description = if token.is_empty() { raw.clone() } else { raw.replace(token, "[redacted]") };
+            description = if token.is_empty() {
+                raw.clone()
+            } else {
+                raw.replace(token, "[redacted]")
+            };
         }
         if let Some(Value::Object(parameters)) = payload.get("parameters") {
             retry_after = py_int(parameters.get("retry_after"));
@@ -221,7 +232,11 @@ pub struct BotClient {
 /// The body of one Bot API call.
 enum Body {
     Json(Value),
-    Multipart { fields: Vec<(&'static str, String)>, field: &'static str, file: PhotoFile },
+    Multipart {
+        fields: Vec<(&'static str, String)>,
+        field: &'static str,
+        file: PhotoFile,
+    },
 }
 
 impl BotClient {
@@ -438,7 +453,11 @@ impl BotClient {
     }
 
     /// `deliver`: one outbox record, preferring a local image and then its remote URL.
-    pub async fn deliver(&self, notification: &NotificationRecord, config: &TelegramBotConfig) -> Result<TelegramDeliveryResult, TelegramDeliveryError> {
+    pub async fn deliver(
+        &self,
+        notification: &NotificationRecord,
+        config: &TelegramBotConfig,
+    ) -> Result<TelegramDeliveryResult, TelegramDeliveryError> {
         let mut media_status = "none";
         let mut message_id = None;
         let caption_fits = notification.markdown.chars().count() <= MAX_CAPTION_LENGTH;
@@ -497,7 +516,13 @@ impl BotClient {
     /// that cannot: a login prompt that has to reach the user *during* the run that is
     /// blocked on it. Queued notifications are only flushed after the run returns, which for
     /// a login wait is far too late to be useful.
-    pub async fn send_text_now(&self, settings: &Settings, header: &str, text: &str, require_enabled: bool) -> Result<Option<i64>, TelegramDeliveryError> {
+    pub async fn send_text_now(
+        &self,
+        settings: &Settings,
+        header: &str,
+        text: &str,
+        require_enabled: bool,
+    ) -> Result<Option<i64>, TelegramDeliveryError> {
         let config = load_config(settings, require_enabled).ok_or_else(TelegramDeliveryError::not_configured)?;
         self.send_message(&config, &with_header_line(header, &escape_markdown_v2(text)), false, true)
             .await
@@ -513,8 +538,13 @@ impl BotClient {
         require_enabled: bool,
     ) -> Result<Option<i64>, TelegramDeliveryError> {
         let config = load_config(settings, require_enabled).ok_or_else(TelegramDeliveryError::not_configured)?;
-        self.send_photo(&config, Photo::File(photo), &with_header_line(header, &escape_markdown_v2(caption)), false)
-            .await
+        self.send_photo(
+            &config,
+            Photo::File(photo),
+            &with_header_line(header, &escape_markdown_v2(caption)),
+            false,
+        )
+        .await
     }
 
     /// `send_test_notification`: the settings page's test button; works while delivery is off.
@@ -549,8 +579,7 @@ fn common_payload(config: &TelegramBotConfig) -> Map<String, Value> {
 /// `_read_bounded_image`: the file when its name says image and it is small enough.
 async fn read_bounded_image(path: &Path, mime_types: &MimeTypes) -> Option<PhotoFile> {
     let filename = path.file_name()?.to_string_lossy().into_owned();
-    let content_type = mime_types
-        .guess_type(&filename).filter(|kind| kind.starts_with("image/"))?;
+    let content_type = mime_types.guess_type(&filename).filter(|kind| kind.starts_with("image/"))?;
     let file = tokio::fs::File::open(path).await.ok()?;
     let mut bytes = Vec::new();
     file.take(MAX_IMAGE_BYTES as u64 + 1).read_to_end(&mut bytes).await.ok()?;

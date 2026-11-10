@@ -124,7 +124,7 @@ impl MimeTypes {
             (base, ext) = (next_base.to_owned(), next_ext.to_owned());
         }
         if ENCODINGS.contains(&ext.as_str()) {
-            ext = splitext(&base).1.to_owned();
+            splitext(&base).1.clone_into(&mut ext);
         }
         self.types.get(&ext.to_lowercase()).cloned()
     }
@@ -187,7 +187,11 @@ fn guess_data_type(path: &str) -> Option<String> {
         Some(semi) => &path[..semi],
         None => &path[..comma],
     };
-    Some(if kind.contains('=') || !kind.contains('/') { "text/plain".to_owned() } else { kind.to_owned() })
+    Some(if kind.contains('=') || !kind.contains('/') {
+        "text/plain".to_owned()
+    } else {
+        kind.to_owned()
+    })
 }
 
 #[cfg(test)]

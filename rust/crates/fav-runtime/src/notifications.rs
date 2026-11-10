@@ -2,7 +2,7 @@
 //!
 //! Python origin: `src/tool/notifications.py`. Every message follows one template (a
 //! `FAV · <source>` header line, the title carrying the link, then the body), rendered in
-//! Telegram MarkdownV2 from the stored columns and re-rendered when the worker claims the
+//! Telegram `MarkdownV2` from the stored columns and re-rendered when the worker claims the
 //! row. A dedupe key turns repeats of one failure into one row whose occurrence count
 //! grows; only the first occurrence rings, the repeats arrive silently and take over the
 //! pin. A resolve re-opens the row as a quiet "recovered" message whose delivery unpins
@@ -51,7 +51,7 @@ pub const PINNED_KINDS: [&str; 2] = ["job_failed", KIND_UNSUPPORTED_MESSAGE];
 
 const LEASE_EXPIRED_ERROR: &str = "Notification delivery lease expired before completion";
 
-const SELECT_FIELDS: &str = "id, kind, source, header, title, body, link_url, image_url, payload, dedupe_key, status, created_at, \
+pub(crate) const SELECT_FIELDS: &str = "id, kind, source, header, title, body, link_url, image_url, payload, dedupe_key, status, created_at, \
      read_at, markdown, disable_web_page_preview, disable_notification, pin, webhook_action, occurrence_count, event_version, \
      delivery_status, attempt_count, next_attempt_at, delivered_at, last_error, scope, telegram_message_id, telegram_pinned_message_id";
 
@@ -111,7 +111,7 @@ impl NotificationRecord {
         }
     }
 
-    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+    pub(crate) fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
         let text = |name: &str| row.try_get::<String, _>(name);
         let or_default = |value: String, default: &str| if value.is_empty() { default.to_owned() } else { value };
         Ok(Self {
@@ -279,7 +279,8 @@ pub fn retry_delay_seconds(next_attempt_count: i32) -> i64 {
 }
 
 fn payload_text(payload: Option<&Dict>) -> Result<String, Error> {
-    pyjson::dumps(&Value::Dict(payload.cloned().unwrap_or_default()), &DumpOptions::compact()).map_err(|error| Error::Invalid(error.to_string()))
+    pyjson::dumps(&Value::Dict(payload.cloned().unwrap_or_default()), &DumpOptions::compact())
+        .map_err(|error| Error::Invalid(error.to_string()))
 }
 
 // ---------- the outbox ----------
@@ -384,7 +385,11 @@ impl Outbox {
             return Ok(None);
         }
         let dedupe_key = py_strip(&notification.dedupe_key);
-        let webhook_action = if dedupe_key.is_empty() { WEBHOOK_ACTION_SEND } else { WEBHOOK_ACTION_UPSERT };
+        let webhook_action = if dedupe_key.is_empty() {
+            WEBHOOK_ACTION_SEND
+        } else {
+            WEBHOOK_ACTION_UPSERT
+        };
         let fields = delivery_fields(&RenderInput {
             kind: &notification.kind,
             header: &notification.header,
@@ -474,7 +479,12 @@ impl Outbox {
         Ok(Some(NotificationRecord::from_row(&row)?.rendered()))
     }
 
-    fn bind_resolution<'q>(query: PgQuery<'q>, resolution: &'q Resolution, link_url: &'q str, image_url: &'q str) -> Result<PgQuery<'q>, Error> {
+    fn bind_resolution<'q>(
+        query: PgQuery<'q>,
+        resolution: &'q Resolution,
+        link_url: &'q str,
+        image_url: &'q str,
+    ) -> Result<PgQuery<'q>, Error> {
         let fields = delivery_fields(&RenderInput {
             kind: &resolution.kind,
             header: &resolution.header,
@@ -518,14 +528,23 @@ impl Outbox {
         let sql = format!(
             "UPDATE notifications {RESOLVE_SET_SQL} WHERE dedupe_key = $17 AND {RESOLVE_WHERE_ACTIVE_SQL} RETURNING {SELECT_FIELDS};"
         );
-        let query = Self::bind_resolution(sqlx::query(AssertSqlSafe(sql)), resolution, &resolution.link_url, &resolution.image_url)?;
+        let query = Self::bind_resolution(
+            sqlx::query(AssertSqlSafe(sql)),
+            resolution,
+            &resolution.link_url,
+            &resolution.image_url,
+        )?;
         let row = query
             .bind(dedupe_key)
             .bind(WEBHOOK_ACTION_RESOLVE)
             .bind(DELIVERY_FAILED)
             .fetch_optional(self.db.pool())
             .await?;
-        Ok(row.as_ref().map(NotificationRecord::from_row).transpose()?.map(NotificationRecord::rendered))
+        Ok(row
+            .as_ref()
+            .map(NotificationRecord::from_row)
+            .transpose()?
+            .map(NotificationRecord::rendered))
     }
 
     /// `resolve_job_failure_notifications`: close every job-scoped failure queued for
@@ -553,9 +572,7 @@ impl Outbox {
             .bind(SCOPE_JOB)
             .fetch_all(self.db.pool())
             .await?;
-        rows.iter()
-            .map(|row| Ok(NotificationRecord::from_row(row)?.rendered()))
-            .collect()
+        rows.iter().map(|row| Ok(NotificationRecord::from_row(row)?.rendered())).collect()
     }
 
     /// `claim_next_pending_notification`: the oldest due row, now `sending` under a lease,
@@ -615,7 +632,11 @@ impl Outbox {
         .fetch_optional(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        Ok(claimed.as_ref().map(NotificationRecord::from_row).transpose()?.map(NotificationRecord::rendered))
+        Ok(claimed
+            .as_ref()
+            .map(NotificationRecord::from_row)
+            .transpose()?
+            .map(NotificationRecord::rendered))
     }
 
     /// `reset_stale_sending_notifications`: rows whose `sending` lease ran out go back to `pending`.
@@ -709,7 +730,13 @@ impl Outbox {
     }
 
     /// `mark_notification_failed`: a permanent failure; the row stays `failed`.
-    pub async fn mark_failed(&self, notification_id: i64, event_version: i32, attempt_count: i32, error_message: &str) -> Result<(), Error> {
+    pub async fn mark_failed(
+        &self,
+        notification_id: i64,
+        event_version: i32,
+        attempt_count: i32,
+        error_message: &str,
+    ) -> Result<(), Error> {
         sqlx::query(
             "UPDATE notifications
              SET delivery_status = $1,

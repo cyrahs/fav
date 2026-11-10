@@ -838,6 +838,7 @@ dependencies = [
  "fav-net",
  "fav-runtime",
  "fav-sources",
+ "tokio",
 ]
 
 [[package]]

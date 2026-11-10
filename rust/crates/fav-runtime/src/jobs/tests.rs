@@ -13,7 +13,10 @@ fn job_specs_match_python() {
         assert_eq!(golden::string(golden::get(case, "key")), spec.key);
         assert_eq!(golden::string(golden::get(case, "name")), spec.name);
         assert_eq!(golden::string(golden::get(case, "attr")), spec.attr);
-        let commands: Vec<String> = golden::list(golden::get(case, "required_commands")).iter().map(golden::string).collect();
+        let commands: Vec<String> = golden::list(golden::get(case, "required_commands"))
+            .iter()
+            .map(golden::string)
+            .collect();
         assert_eq!(commands, spec.required_commands);
     }
 }

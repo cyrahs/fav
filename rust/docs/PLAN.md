@@ -129,7 +129,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | --- | --- | --- | --- | --- |
 | WP0 | 0 foundation | Workspace skeleton, CI, in-repo plan and conventions docs, golden generator, test-parity script, API-coverage check of the four key crates | new | done |
 | WP1 | 1 core runtime | Env, settings models and store, DB layer and consolidated schema, logging, filenames, Python-compatible JSON | 1,900 | done |
-| WP2 | 1 core runtime | Notification outbox and Telegram Bot delivery, control-request queue, site-session store, scheduler and worker loop, `trigger` | 2,900 | pending |
+| WP2 | 1 core runtime | Notification outbox and Telegram Bot delivery, control-request queue, site-session store, scheduler and worker loop, `trigger` | 2,900 | done |
 | WP3 | 2 API and MCP | axum skeleton, auth, settings, jobs, archive, credentials, health endpoints, serving the front end | 3,700 | pending |
 | WP4 | 2 API and MCP | 18 MCP tools and ops queries | 900 | pending |
 | WP5 | 3 HTTP sources | Jandan, Kemono | 1,700 | pending |

@@ -106,9 +106,15 @@ async fn deliver_falls_back_to_text_when_remote_photo_is_rejected() {
     let api = FakeBotApi::start().await;
     api.script(
         "sendPhoto",
-        vec![Answer::json(200, json!({"ok": false, "error_code": 400, "description": "wrong file identifier"}))],
+        vec![Answer::json(
+            200,
+            json!({"ok": false, "error_code": 400, "description": "wrong file identifier"}),
+        )],
     );
-    api.script("sendMessage", vec![Answer::json(200, json!({"ok": true, "result": {"message_id": 101}}))]);
+    api.script(
+        "sendMessage",
+        vec![Answer::json(200, json!({"ok": true, "result": {"message_id": 101}}))],
+    );
     let mut record = notification();
     record.image_url = "https://images.example/test.png".to_owned();
     let result = deliver(&api, &record).await.expect("delivered");
@@ -124,7 +130,10 @@ async fn deliver_sends_a_local_gif_as_an_animation() {
     let gif = directory.path().join("sticker.gif");
     std::fs::write(&gif, b"GIF89a-frames").expect("write gif");
     let api = FakeBotApi::start().await;
-    api.script("sendAnimation", vec![Answer::json(200, json!({"ok": true, "result": {"message_id": 102}}))]);
+    api.script(
+        "sendAnimation",
+        vec![Answer::json(200, json!({"ok": true, "result": {"message_id": 102}}))],
+    );
     let mut record = notification();
     record.payload = json!({"image_path": gif.to_str().expect("utf-8 path")}).to_string();
     let result = deliver(&api, &record).await.expect("delivered");
@@ -191,8 +200,15 @@ async fn send_text_now_opens_with_the_same_header_line_as_the_outbox() {
     settings.notifications.telegram.chat_id = "-100123".to_owned();
     settings.notifications.telegram.enabled = true;
     let api = FakeBotApi::start().await;
-    api.script("sendMessage", vec![Answer::json(200, json!({"ok": true, "result": {"message_id": 5}}))]);
-    let message_id = api.client().send_text_now(&settings, "RedNote", "Signed in.", true).await.expect("sent");
+    api.script(
+        "sendMessage",
+        vec![Answer::json(200, json!({"ok": true, "result": {"message_id": 5}}))],
+    );
+    let message_id = api
+        .client()
+        .send_text_now(&settings, "RedNote", "Signed in.", true)
+        .await
+        .expect("sent");
     assert_eq!(message_id, Some(5));
     assert_eq!(api.received()[0].json()["text"], "FAV · RedNote\nSigned in\\.");
 }
@@ -217,11 +233,17 @@ async fn immediate_sends_need_a_configured_bot() {
         bytes: vec![1, 2, 3],
         content_type: "image/png".to_owned(),
     };
-    client.send_photo_now(&settings, photo, "X", "Scan me.", false).await.expect("photo sent");
+    client
+        .send_photo_now(&settings, photo, "X", "Scan me.", false)
+        .await
+        .expect("photo sent");
     let (fields, files) = api.received()[1].multipart();
     assert_eq!(fields["caption"], "FAV · X\nScan me\\.");
     assert_eq!(fields["disable_notification"], "false");
-    assert_eq!(files, [json!({"field": "photo", "filename": "qr.png", "content_type": "image/png", "size": 3})]);
+    assert_eq!(
+        files,
+        [json!({"field": "photo", "filename": "qr.png", "content_type": "image/png", "size": 3})]
+    );
 }
 
 // py: tests/test_telegram_bot.py::test_resolve_delivery_unpins_the_previous_failure_message
@@ -233,7 +255,10 @@ async fn resolve_delivery_unpins_the_previous_failure_message() {
     record.telegram_pinned_message_id = Some(55);
     let result = deliver(&api, &record).await.expect("delivered");
     assert_eq!(api.methods(), ["sendMessage", "unpinChatMessage"]);
-    assert_eq!(api.received()[1].json(), json!({"chat_id": "-100123", "message_thread_id": 42, "message_id": 55}));
+    assert_eq!(
+        api.received()[1].json(),
+        json!({"chat_id": "-100123", "message_thread_id": 42, "message_id": 55})
+    );
     assert_eq!(result.message_id, Some(99));
     assert_eq!(result.pinned_message_id, None);
     assert!(result.warnings.is_empty());
@@ -271,7 +296,10 @@ async fn unpin_tolerates_a_message_that_is_already_gone() {
     let api = FakeBotApi::start().await;
     api.script(
         "unpinChatMessage",
-        vec![Answer::json(400, json!({"ok": false, "error_code": 400, "description": "message to unpin not found"}))],
+        vec![Answer::json(
+            400,
+            json!({"ok": false, "error_code": 400, "description": "message to unpin not found"}),
+        )],
     );
     let mut record = notification();
     record.webhook_action = "resolve".to_owned();
@@ -359,7 +387,7 @@ async fn deliver_matches_python_for_every_scripted_scenario() {
         let image_path = if let Some(image) = case["image"].as_array() {
             let name = image[0].as_str().expect("name");
             let size = usize::try_from(image[1].as_u64().expect("size")).expect("size");
-            let bytes = if name.ends_with(".gif") {
+            let bytes = if std::path::Path::new(name).extension().is_some_and(|extension| extension == "gif") {
                 let mut bytes = b"GIF89a".to_vec();
                 bytes.resize(size, 0);
                 bytes
@@ -374,9 +402,15 @@ async fn deliver_matches_python_for_every_scripted_scenario() {
         };
         let api = FakeBotApi::start().await;
         for (method, answers) in case["responses"].as_object().expect("responses") {
-            api.script(method, answers.as_array().expect("answers").iter().map(Answer::from_golden).collect());
+            api.script(
+                method,
+                answers.as_array().expect("answers").iter().map(Answer::from_golden).collect(),
+            );
         }
-        let record = scenario_notification(&case["notification"], image_path.as_deref().map(|path| path.to_str().expect("utf-8")));
+        let record = scenario_notification(
+            &case["notification"],
+            image_path.as_deref().map(|path| path.to_str().expect("utf-8")),
+        );
         let mut bot = config();
         bot.message_thread_id = case["thread"].as_i64();
         let outcome = api.client().deliver(&record, &bot).await;

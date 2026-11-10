@@ -3,3 +3,13 @@
 //! Scope (filled in by WP5 to WP17, see `rust/docs/PLAN.md`). Every source
 //! implements the runtime's `Source` trait and receives its HTTP client,
 //! database, browser, Telegram client and subprocess runner by injection.
+
+use fav_runtime::source::Registry;
+
+/// The sources that have a Rust implementation, for the worker.
+///
+/// Each source's work package registers it here. A job without an entry has no runner:
+/// the worker does not schedule it and refuses to trigger it (DIVERGENCES.md D17).
+pub fn registry() -> Registry {
+    Registry::new()
+}

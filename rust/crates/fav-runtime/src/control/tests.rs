@@ -32,8 +32,13 @@ async fn record_scheduled_run_start_raises_when_insert_returns_nothing() {
          CREATE TRIGGER swallow BEFORE INSERT ON control_requests FOR EACH ROW EXECUTE FUNCTION swallow();",
     )
     .await;
-    let error = record_scheduled_run_start(database.db(), "bilibili").await.expect_err("nothing returned");
-    assert!(matches!(&error, Error::Failed(message) if message == "Failed to record scheduled run"), "{error:?}");
+    let error = record_scheduled_run_start(database.db(), "bilibili")
+        .await
+        .expect_err("nothing returned");
+    assert!(
+        matches!(&error, Error::Failed(message) if message == "Failed to record scheduled run"),
+        "{error:?}"
+    );
     database.drop_database().await;
 }
 
@@ -43,9 +48,15 @@ async fn list_control_requests_rejects_unknown_status() {
     // Validation fires before any database connection is attempted: this pool points nowhere.
     let db = Db::connect_lazy("postgresql://nobody@127.0.0.1:1/never").expect("lazy pool");
     let error = list(&db, Some(&["succeeded", "bogus"]), 50).await.expect_err("refused");
-    assert!(matches!(&error, Error::Invalid(message) if message == "Unsupported control request status: bogus"), "{error:?}");
+    assert!(
+        matches!(&error, Error::Invalid(message) if message == "Unsupported control request status: bogus"),
+        "{error:?}"
+    );
     let error = list(&db, Some(&["zz", "bogus", "zz"]), 50).await.expect_err("refused");
-    assert!(matches!(&error, Error::Invalid(message) if message == "Unsupported control request status: bogus, zz"), "{error:?}");
+    assert!(
+        matches!(&error, Error::Invalid(message) if message == "Unsupported control request status: bogus, zz"),
+        "{error:?}"
+    );
 }
 
 // py: tests/test_control_queue.py::test_interrupt_running_control_requests_marks_rows
@@ -74,7 +85,10 @@ async fn interrupt_running_control_requests_marks_rows() {
     let old = get(db, old).await.expect("query").expect("row");
     assert_eq!(old.status, STATUS_INTERRUPTED);
     assert_eq!(old.error, "earlier note");
-    assert_eq!(get(db, pending.request_id).await.expect("query").expect("row").status, STATUS_PENDING);
+    assert_eq!(
+        get(db, pending.request_id).await.expect("query").expect("row").status,
+        STATUS_PENDING
+    );
     assert_eq!(get(db, done).await.expect("query").expect("row").status, STATUS_SUCCEEDED);
     database.drop_database().await;
 }
@@ -97,14 +111,23 @@ async fn requests_are_claimed_oldest_first_and_listed_newest_first() {
     assert!(claimed.started_at.is_some());
 
     let listed = list(db, None, 50).await.expect("list");
-    assert_eq!(listed.iter().map(|row| row.request_id).collect::<Vec<_>>(), [second.request_id, first.request_id]);
+    assert_eq!(
+        listed.iter().map(|row| row.request_id).collect::<Vec<_>>(),
+        [second.request_id, first.request_id]
+    );
     let running = list(db, Some(&[STATUS_RUNNING]), 0).await.expect("list");
     assert_eq!(running.iter().map(|row| row.request_id).collect::<Vec<_>>(), [first.request_id]);
 
     let error = create(db, "bogus", "all", None).await.expect_err("refused");
-    assert!(matches!(&error, Error::Invalid(message) if message == "Unsupported control request kind: bogus"), "{error:?}");
+    assert!(
+        matches!(&error, Error::Invalid(message) if message == "Unsupported control request kind: bogus"),
+        "{error:?}"
+    );
     let error = update(db, first.request_id, "done", "", "").await.expect_err("refused");
-    assert!(matches!(&error, Error::Invalid(message) if message == "Unsupported control request status: done"), "{error:?}");
+    assert!(
+        matches!(&error, Error::Invalid(message) if message == "Unsupported control request status: done"),
+        "{error:?}"
+    );
     database.drop_database().await;
 }
 

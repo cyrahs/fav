@@ -10,8 +10,8 @@
 use chrono::{DateTime, Utc};
 use fav_core::pyjson::{self, Dict, DumpOptions, Value};
 use fav_db::Db;
-use sqlx::{AssertSqlSafe, Row as _};
 use sqlx::postgres::PgRow;
+use sqlx::{AssertSqlSafe, Row as _};
 
 use crate::Error;
 
@@ -134,7 +134,10 @@ pub async fn list(db: &Db, statuses: Option<&[&str]>, limit: i64) -> Result<Vec<
     if !invalid.is_empty() {
         invalid.sort_unstable();
         invalid.dedup();
-        return Err(Error::Invalid(format!("Unsupported control request status: {}", invalid.join(", "))));
+        return Err(Error::Invalid(format!(
+            "Unsupported control request status: {}",
+            invalid.join(", ")
+        )));
     }
     let bounded = limit.clamp(1, 200);
     let rows = if statuses.is_empty() {

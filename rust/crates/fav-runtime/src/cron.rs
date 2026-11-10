@@ -25,7 +25,9 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use chrono::{DateTime, Datelike as _, Duration, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset as _, TimeZone as _, Timelike as _, Utc};
+use chrono::{
+    DateTime, Datelike as _, Duration, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset as _, TimeZone as _, Timelike as _, Utc,
+};
 use chrono_tz::Tz;
 use fav_core::pyjson::py_isoformat_datetime;
 use fav_core::pytext::py_split;
@@ -62,6 +64,13 @@ impl ZonedTime {
     /// `datetime(..., tzinfo=zone, fold=fold)`.
     pub fn new(naive: NaiveDateTime, fold: bool, zone: Tz) -> Self {
         Self { naive, fold, zone }
+    }
+
+    /// `strftime('%Z')`: the zone's abbreviation at this time (`UTC`, `CST`, `+08`).
+    pub fn tzname(&self) -> String {
+        use chrono_tz::OffsetName as _;
+        let offset = self.zone.offset_from_utc_datetime(&self.to_utc().naive_utc());
+        offset.abbreviation().map_or_else(|| offset.fix().to_string(), str::to_owned)
     }
 
     pub fn now(zone: Tz) -> Self {
@@ -102,8 +111,13 @@ impl ZonedTime {
     }
 
     /// `astimezone(zone)`: unchanged (fold included) in its own zone, converted otherwise.
+    #[must_use]
     pub fn astimezone(&self, zone: Tz) -> Self {
-        if zone == self.zone { *self } else { Self::from_utc(self.to_utc(), zone) }
+        if zone == self.zone {
+            *self
+        } else {
+            Self::from_utc(self.to_utc(), zone)
+        }
     }
 
     /// `self + timedelta(microseconds=micros)`: wall-clock arithmetic, `fold` reset.
@@ -134,7 +148,11 @@ impl ZonedTime {
 /// The offsets of an ambiguous wall time, first occurrence first (the earlier instant,
 /// which has the larger offset).
 fn ambiguous_pair(a: FixedOffset, b: FixedOffset) -> (FixedOffset, FixedOffset) {
-    if a.local_minus_utc() >= b.local_minus_utc() { (a, b) } else { (b, a) }
+    if a.local_minus_utc() >= b.local_minus_utc() {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
 fn offset_for(zone: Tz, naive: NaiveDateTime, fold: bool) -> FixedOffset {
@@ -148,7 +166,11 @@ fn offset_for(zone: Tz, naive: NaiveDateTime, fold: bool) -> FixedOffset {
         // the one after. Offsets are under a day and transitions are months apart, so the
         // offsets a day either side are those two.
         LocalResult::None => {
-            let probe = if fold { naive + Duration::days(1) } else { naive - Duration::days(1) };
+            let probe = if fold {
+                naive + Duration::days(1)
+            } else {
+                naive - Duration::days(1)
+            };
             zone.offset_from_utc_datetime(&probe).fix()
         }
     }
@@ -246,7 +268,10 @@ impl Field {
 
 fn days_in_month(year: i32, month: u32) -> i64 {
     let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
-    match (NaiveDate::from_ymd_opt(year, month, 1), NaiveDate::from_ymd_opt(next_year, next_month, 1)) {
+    match (
+        NaiveDate::from_ymd_opt(year, month, 1),
+        NaiveDate::from_ymd_opt(next_year, next_month, 1),
+    ) {
         (Some(first), Some(next)) => (next - first).num_days(),
         _ => 31,
     }
@@ -369,7 +394,8 @@ fn match_range(expr: &str) -> Option<(&str, Option<&str>, Option<&str>)> {
     rest.is_empty().then_some((first, last, step))
 }
 
-/// `\*(?:/(?P<step>\d+))?$`
+/// `\*(?:/(?P<step>\d+))?$`: `None` when it does not match, else the optional step.
+#[allow(clippy::option_option)] // reason: "no match" and "matched without a step" are both meaningful, as in the regex
 fn match_all(expr: &str) -> Option<Option<&str>> {
     let rest = expr.strip_prefix('*')?;
     if rest.is_empty() {
@@ -492,7 +518,13 @@ fn compile_expression(expr: &str, field: Field) -> Result<Expression, CronError>
     let attempt = if let Some(step) = match_all(expr) {
         Some(all_expression(step, field))
     } else if let Some((first, last, step)) = match_range(expr) {
-        let numbers = (|| Ok((parse_number(first)?, last.map(parse_number).transpose()?, step.map(parse_number).transpose()?)))();
+        let numbers = (|| {
+            Ok((
+                parse_number(first)?,
+                last.map(parse_number).transpose()?,
+                step.map(parse_number).transpose()?,
+            ))
+        })();
         Some(match numbers {
             Ok((first, last, step)) => range_expression(first, last, step, Names::Numbers, field),
             Err(error) => Err(ValidationStage::Construct(error)),
@@ -510,7 +542,10 @@ fn compile_expression(expr: &str, field: Field) -> Result<Expression, CronError>
         Some(Ok(expression)) => Ok(expression),
         Some(Err(ValidationStage::Construct(error))) => Err(error),
         Some(Err(ValidationStage::Validate(message))) => Err(CronError(format!("Error validating expression '{expr}': {message}"))),
-        None => Err(CronError(format!("Unrecognized expression \"{expr}\" for field \"{}\"", field.name()))),
+        None => Err(CronError(format!(
+            "Unrecognized expression \"{expr}\" for field \"{}\"",
+            field.name()
+        ))),
     }
 }
 

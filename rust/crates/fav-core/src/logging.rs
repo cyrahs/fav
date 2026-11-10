@@ -132,6 +132,12 @@ pub fn get(name: &str) -> Logger {
     }
 }
 
+/// A logger under another library's own name (`apscheduler.scheduler`), for the messages a
+/// ported piece of that library writes (DIVERGENCES.md D10).
+pub fn get_external(name: &str) -> Logger {
+    Logger { name: name.to_owned() }
+}
+
 impl Logger {
     pub fn name(&self) -> &str {
         &self.name

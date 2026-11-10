@@ -50,9 +50,10 @@ fn next_fire_times_match_apscheduler() {
         assert_eq!(now.isoformat(), now_text);
         let expected: Vec<String> = golden::list(golden::get(case, "fires")).iter().map(golden::string).collect();
         assert_eq!(chain(&trigger, now, false), expected, "{cron:?} in {tz} from {now_text}");
-        let strict: Vec<String> = case
-            .get("strict")
-            .map_or_else(|| expected.clone(), |strict| golden::list(strict).iter().map(golden::string).collect());
+        let strict: Vec<String> = case.get("strict").map_or_else(
+            || expected.clone(),
+            |strict| golden::list(strict).iter().map(golden::string).collect(),
+        );
         assert_eq!(chain(&trigger, now, true), strict, "{cron:?} in {tz} from {now_text}, strict");
         checked += 1;
     }
@@ -62,7 +63,10 @@ fn next_fire_times_match_apscheduler() {
 #[test]
 fn weekday_numbers_start_on_monday() {
     let trigger = CronTrigger::from_crontab("0 9 * * 1", Tz::UTC).expect("parses");
-    let now = ZonedTime::from_utc(DateTime::parse_from_rfc3339("2026-11-09T00:00:00Z").expect("time").to_utc(), Tz::UTC);
+    let now = ZonedTime::from_utc(
+        DateTime::parse_from_rfc3339("2026-11-09T00:00:00Z").expect("time").to_utc(),
+        Tz::UTC,
+    );
     // 2026-11-09 is a Monday; APScheduler's 1 is Tuesday.
     let fire = trigger.next_fire_time(None, &now).expect("fires");
     assert_eq!(fire.isoformat(), "2026-11-10T09:00:00+00:00");
@@ -71,7 +75,9 @@ fn weekday_numbers_start_on_monday() {
 #[test]
 fn a_skipped_wall_time_keeps_the_offset_from_before_the_gap() {
     let new_york = zone("America/New_York");
-    let gap = chrono::NaiveDate::from_ymd_opt(2026, 3, 8).and_then(|day| day.and_hms_opt(2, 30, 0)).expect("date");
+    let gap = chrono::NaiveDate::from_ymd_opt(2026, 3, 8)
+        .and_then(|day| day.and_hms_opt(2, 30, 0))
+        .expect("date");
     assert_eq!(ZonedTime::new(gap, false, new_york).isoformat(), "2026-03-08T02:30:00-05:00");
     assert_eq!(ZonedTime::new(gap, true, new_york).isoformat(), "2026-03-08T02:30:00-04:00");
 }

@@ -69,6 +69,11 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
 - Test helpers live behind the `test-support` feature: `fav_core::golden` and `fav_db::testdb`. Add
   `fav-core = { workspace = true, features = ["test-support"] }` (or `fav-db`) to a crate's
   `[dev-dependencies]` to use them.
+- `fav-runtime` has its own test helpers in `src/testutil.rs` (crate-private, `cfg(test)`): `database()`,
+  `golden_json()`, and `FakeBotApi`, a local axum server that scripts Telegram Bot API answers and records
+  every request (JSON or multipart). Telegram delivery is only ever tested against it, never the real bot.
+- Async tests that read `logging::capture` (thread-local) run on the current-thread runtime
+  (`#[tokio::test]`) and poll the future inside the capture.
 - All external effects are injected: HTTP client, database pool, clock, browser, Telegram client, subprocess
   runner, filesystem root. A source never builds its own client.
 - Memory: stream downloads to `.part` and rename; stream large result sets; write manifests in batches; never
@@ -133,6 +138,14 @@ A module mirrors the Python module it ports (`src/web/kemono.py` becomes `fav-so
   inputs and a coercion matrix, values or pydantic's error entries; `settings/build_settings.json`), `env`
   (environment and `.env` parsing), `text` (full code-point scans of `isspace` and `isdigit`),
   `logging_format` (file and console lines, level numbers).
+- Areas from WP2: `scheduler` (more cron cases, including the DST repeats of D3), `notifications`
+  (`render.json`: titles, bodies and payloads of every notification kind; `text.json`: `MarkdownV2` escaping
+  and truncation; `send_message.json` and `deliver.json`: the Bot API requests Python's delivery makes for
+  each scenario against a scripted fake API, and the resulting row), `site_sessions` (cookie codec,
+  Netscape export), `jobs` (default jobs and `--trigger` target resolution). `mimetypes.guess_type` cases are
+  generated with Python's built-in table only (`mimetypes._db = mimetypes.MimeTypes()`), so they do not
+  depend on the generating machine's `/etc/mime.types`; Rust tests use `MimeTypes::defaults()` to match,
+  while the binary uses `MimeTypes::system()`, which reads the same files Python does.
 
 ## Schema snapshot
 

@@ -165,7 +165,11 @@ pub fn without_values(cookies: &[StoredCookie]) -> Vec<StoredCookie> {
     cookies
         .iter()
         .map(|cookie| StoredCookie {
-            value: if cookie.value.is_empty() { String::new() } else { VALUE_IN_PROFILE.to_owned() },
+            value: if cookie.value.is_empty() {
+                String::new()
+            } else {
+                VALUE_IN_PROFILE.to_owned()
+            },
             ..cookie.clone()
         })
         .collect()
@@ -186,7 +190,7 @@ fn from_timestamp(seconds: f64) -> Option<DateTime<Utc>> {
         return None;
     }
     // Both are whole numbers in range now.
-    #[allow(clippy::cast_possible_truncation)] // reason: checked to be whole and within 1e15 just above
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // reason: whole, within 1e15, and micros in 0..1e6 just above
     let (whole, micros) = (whole as i64, micros as u32);
     DateTime::from_timestamp(whole, micros * 1000)
 }
@@ -217,7 +221,18 @@ pub fn to_netscape(cookies: &[StoredCookie]) -> String {
             _ => "0".to_owned(),
         };
         let path = if cookie.path.is_empty() { "/" } else { cookie.path.as_str() };
-        lines.push([cookie.domain.as_str(), include_subdomains, path, "TRUE", &expires, &cookie.name, &cookie.value].join("\t"));
+        lines.push(
+            [
+                cookie.domain.as_str(),
+                include_subdomains,
+                path,
+                "TRUE",
+                &expires,
+                &cookie.name,
+                &cookie.value,
+            ]
+            .join("\t"),
+        );
     }
     lines.join("\n") + "\n"
 }
@@ -294,7 +309,9 @@ pub async fn load(db: &Db, site: &str) -> Result<Option<SiteSession>, Error> {
 
 /// `load_all()`: every stored session by site.
 pub async fn load_all(db: &Db) -> Result<BTreeMap<String, SiteSession>, Error> {
-    let rows = sqlx::query("SELECT * FROM site_sessions ORDER BY site;").fetch_all(db.pool()).await?;
+    let rows = sqlx::query("SELECT * FROM site_sessions ORDER BY site;")
+        .fetch_all(db.pool())
+        .await?;
     rows.iter()
         .map(|row| {
             let session = SiteSession::from_row(row)?;

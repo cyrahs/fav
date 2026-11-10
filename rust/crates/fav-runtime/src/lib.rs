@@ -21,11 +21,11 @@ pub mod control;
 pub mod cron;
 pub mod jobs;
 pub mod notifications;
-// pub mod scheduler;
+pub mod scheduler;
 pub mod site_sessions;
 pub mod source;
 pub mod telegram_bot;
-// pub mod worker;
+pub mod worker;
 
 mod pystr;
 mod which;

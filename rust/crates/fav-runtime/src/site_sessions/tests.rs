@@ -41,7 +41,11 @@ fn codec_matches_python() {
         match golden::string(golden::get(case, "function")).as_str() {
             "cookies" => {
                 let cookies = golden_cookies(golden::get(case, "cookies"));
-                assert_eq!(encode_cookies(&cookies), golden::string(golden::get(case, "encoded")), "{cookies:?}");
+                assert_eq!(
+                    encode_cookies(&cookies),
+                    golden::string(golden::get(case, "encoded")),
+                    "{cookies:?}"
+                );
                 assert_eq!(to_netscape(&cookies), golden::string(golden::get(case, "netscape")), "{cookies:?}");
                 assert_eq!(without_values(&cookies), golden_cookies(golden::get(case, "without_values")));
                 for (name, expected) in golden::get(case, "cookie_value").as_dict().expect("dict").iter() {
@@ -57,7 +61,11 @@ fn codec_matches_python() {
                 let reread: Vec<StoredCookie> = cookies
                     .iter()
                     .map(|cookie| StoredCookie {
-                        path: if cookie.path.is_empty() { "/".to_owned() } else { cookie.path.clone() },
+                        path: if cookie.path.is_empty() {
+                            "/".to_owned()
+                        } else {
+                            cookie.path.clone()
+                        },
                         ..cookie.clone()
                     })
                     .collect();
@@ -130,7 +138,9 @@ async fn sessions_round_trip_through_the_table() {
     assert_eq!(session.message.chars().count(), 500);
     let signed_in_at = session.signed_in_at;
 
-    replace_cookies(db, "pixiv", &[cookie("PHPSESSID", "renewed")], None, &[]).await.expect("replaced");
+    replace_cookies(db, "pixiv", &[cookie("PHPSESSID", "renewed")], None, &[])
+        .await
+        .expect("replaced");
     let session = load(db, "pixiv").await.expect("load").expect("row");
     assert_eq!(session.cookie("PHPSESSID"), "renewed");
     assert_eq!(session.status, STATUS_VALID);
