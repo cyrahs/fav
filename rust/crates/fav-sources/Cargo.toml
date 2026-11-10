@@ -30,6 +30,7 @@ reqwest = { workspace = true, features = ["query", "stream"] }
 rsa = "0.10"
 serde_json.workspace = true
 # hmac 0.13 and rsa 0.10 take digest 0.11, which the workspace's sha2 0.10 predates.
+# The tests hash with it too.
 sha2 = "0.11"
 sqlx.workspace = true
 tempfile = "3"
@@ -45,4 +46,3 @@ fav-db = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "net", "rt", "io-util", "test-util"] }
 url.workspace = true
 http.workspace = true
-sha2.workspace = true
