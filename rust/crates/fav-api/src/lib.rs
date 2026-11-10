@@ -16,7 +16,7 @@
 //! Work-package scope (`rust/docs/PLAN.md`): WP3 ports the system, jobs, settings, archive,
 //! site-session, credential and notification-test routes, the documents and the bundled
 //! front end; WP4 the MCP endpoint ([`mcp`]); WP5 the Kemono creator lookup; WP8 the
-//! Hanime1 routes and `/readyz` ([`hanime1`]). The other source-specific routes arrive with
+//! Hanime1 routes and `/readyz` ([`hanime1`]); WP9 the Nikke character routes ([`nikke`]). The other source-specific routes arrive with
 //! their sources; [`openapi::PENDING`] lists every route still missing and which package owns it.
 
 use std::path::PathBuf;
@@ -37,10 +37,13 @@ pub mod error;
 pub mod hanime1;
 pub mod masking;
 pub mod mcp;
+pub mod nikke;
 pub mod openapi;
 pub mod params;
 pub mod router;
 pub mod site_logins;
+mod spine;
+mod summary_cache;
 
 mod handlers;
 mod json;
@@ -79,6 +82,8 @@ pub struct ApiState {
     pub hanime1_authors: Arc<dyn AuthorSubscriptions>,
     /// `GET /readyz`'s timings and cached answer.
     pub readiness: hanime1::Readiness,
+    /// The Nikke collection under `web.nikke.path`, with its summary cache.
+    pub nikke: nikke::NikkeLibraries,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -119,6 +124,7 @@ impl ApiState {
             hanime1_series,
             hanime1_authors,
             readiness: hanime1::Readiness::default(),
+            nikke: nikke::NikkeLibraries::default(),
             settings,
         })
     }

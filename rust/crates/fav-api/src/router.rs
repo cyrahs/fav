@@ -89,6 +89,9 @@ pub(crate) enum Endpoint {
     ListHanime1Authors,
     DeleteHanime1Author,
     ResolveKemonoCreator,
+    ListNikkeCharacters,
+    ListNikkeSidebarCharacters,
+    GetNikkeCharacter,
     ListSiteSessions,
     GetSiteCredential,
     /// The MCP endpoint, a plain route for every method (`crate::mcp`).
@@ -229,6 +232,21 @@ const ROUTES: &[Route] = &[
         endpoint: Endpoint::ResolveKemonoCreator,
     },
     Route {
+        path: "/api/v2/nikke/characters",
+        methods: GET,
+        endpoint: Endpoint::ListNikkeCharacters,
+    },
+    Route {
+        path: "/api/v2/nikke/sidebar/characters",
+        methods: GET,
+        endpoint: Endpoint::ListNikkeSidebarCharacters,
+    },
+    Route {
+        path: "/api/v2/nikke/characters/{content_id}",
+        methods: GET,
+        endpoint: Endpoint::GetNikkeCharacter,
+    },
+    Route {
         path: "/api/v2/site-sessions",
         methods: GET,
         endpoint: Endpoint::ListSiteSessions,
@@ -278,6 +296,9 @@ impl Endpoint {
                 | Self::ListHanime1Authors
                 | Self::DeleteHanime1Author
                 | Self::ResolveKemonoCreator
+                | Self::ListNikkeCharacters
+                | Self::ListNikkeSidebarCharacters
+                | Self::GetNikkeCharacter
                 | Self::ListSiteSessions
         )
     }

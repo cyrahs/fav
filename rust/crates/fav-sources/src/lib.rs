@@ -7,7 +7,8 @@
 //! Ported so far: [`bilibili`] and [`twitter`] (WP7); [`stellasora`] and [`pixiv`] (WP6); [`jandan`] and [`kemono`] (with
 //! [`kemono_creator`], which the API's creator-resolve route uses), WP5; [`hanime1`] with
 //! [`hanime1_series`], [`hanime1_author`] and [`runtime_config`] (the API's seed, author and
-//! readiness routes use the first two) and the t2s conversion [`opencc`], WP8.
+//! readiness routes use the first two) and the t2s conversion [`opencc`], WP8; [`nikke`] with
+//! [`nikke_layer_metadata`] and [`content_discovery`], WP9.
 
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ use fav_db::{Db, SettingsStore};
 use fav_runtime::source::{JobError, Registry};
 
 pub mod bilibili;
+pub mod content_discovery;
 pub mod hanime1;
 pub mod hanime1_author;
 #[cfg(test)]
@@ -24,6 +26,8 @@ pub mod jandan;
 pub mod kemono;
 pub mod kemono_creator;
 mod kit;
+pub mod nikke;
+pub mod nikke_layer_metadata;
 pub mod opencc;
 pub mod pixiv;
 mod pydecode;
@@ -61,6 +65,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     jandan::register(&mut registry, ctx);
     kemono::register(&mut registry, ctx);
     hanime1::register(&mut registry, ctx);
+    nikke::register(&mut registry, ctx);
     registry
 }
 
