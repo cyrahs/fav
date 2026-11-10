@@ -9,7 +9,7 @@
 //! [`hanime1_series`], [`hanime1_author`] and [`runtime_config`] (the API's seed, author and
 //! readiness routes use the first two) and the t2s conversion [`opencc`], WP8; [`nikke`] with
 //! [`nikke_layer_metadata`] and [`content_discovery`], WP9; [`bd2`] with the
-//! `bd2-l2d-viewer` command's [`bd2_l2d_viewer`], WP10.
+//! BD2-L2D-Viewer helpers [`bd2_l2d_viewer`], WP10.
 
 use std::sync::Arc;
 

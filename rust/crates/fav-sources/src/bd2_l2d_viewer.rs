@@ -6,8 +6,9 @@
 //! or supplement Live2D files; the pure helpers below (stems, categories, asset URLs, the
 //! manifest and detail readers, [`compare_resources`]) are the module's own and are ported
 //! with it. The script-only fetchers (`fetch_gamekee_resources`,
-//! `fetch_gamekee_character_rows`, `gamekee_headers`, `_select_gamekee_rows`,
-//! `load_gamekee_resources_from_manifests`) are not (DIVERGENCES.md D94).
+//! `fetch_gamekee_character_rows`, `_filter_gamekee_character_rows`, `gamekee_headers`,
+//! `_select_gamekee_rows`, `load_gamekee_resources_from_manifests`) are not (DIVERGENCES.md
+//! D94).
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::LazyLock;

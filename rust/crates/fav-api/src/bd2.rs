@@ -343,9 +343,14 @@ pub(crate) async fn list(state: &ApiState, request: &Request) -> Result<Response
         Some(BigInt::Fits(limit)) => limit,
         _ => 200,
     };
+    // The response echoes the offset as given, however large (past 128 bits it is
+    // `i128::MAX`, D99); a page that far out is empty.
     let offset = match offset {
-        Some(BigInt::Fits(offset)) => offset,
-        Some(BigInt::AbovePositive) => i64::MAX,
+        Some(BigInt::Fits(offset)) => i128::from(offset),
+        Some(BigInt::AbovePositive) => request
+            .query_last("offset")
+            .and_then(|raw| fav_core::validate::int_unbounded(&Value::Str(raw.to_owned()), &[]).ok())
+            .unwrap_or(i128::MAX),
         _ => 0,
     };
     let mut characters = list_characters(state).await?;
@@ -366,7 +371,7 @@ pub(crate) async fn list(state: &ApiState, request: &Request) -> Result<Response
             ("items", Value::List(items)),
             ("total", Value::Int(i128::try_from(total).unwrap_or(i128::MAX))),
             ("limit", Value::from(limit)),
-            ("offset", Value::from(offset)),
+            ("offset", Value::Int(offset)),
         ]),
     ))
 }

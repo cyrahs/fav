@@ -5,8 +5,8 @@
 //! crawler wrote, so every field is read the way Python reads it: `_clean_text` is
 //! `str(value)` (a number becomes its digits, a list its `repr`), `_to_int` takes ints and
 //! digit strings only, and a digit string `int()` cannot read (`'²'`) fails the request as
-//! Python's `ValueError` does. The asset route `get_asset_file` serves is not in the API
-//! (the static files are served beside it), so it is not ported.
+//! Python's `ValueError` does. `get_asset_file` has no route (the static files are
+//! served beside the API), so it is not ported (D100).
 
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt as _;

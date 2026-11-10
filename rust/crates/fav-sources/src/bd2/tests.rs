@@ -999,8 +999,8 @@ async fn process_asset_skips_video_during_retry_cooldown() {
     let harness = Harness::start(|url| panic!("download should not run during cooldown: {url}")).await;
     harness
         .sql(
-            "INSERT INTO bd2_assets (url, status, failed_count, last_error, next_retry_at)
-             VALUES ('https://cdn.example.com/broken.mp4', 'failed', 2, 'HTTP 403', NOW() + INTERVAL '2 days')",
+            "INSERT INTO bd2_assets (url, status, failed_count, last_error, next_retry_at, last_seen_at)
+             VALUES ('https://cdn.example.com/broken.mp4', 'failed', 2, 'HTTP 403', NOW() + INTERVAL '2 days', '2000-01-01T00:00:00Z')",
         )
         .await;
     let mut asset = Asset::new("https://cdn.example.com/broken.mp4", "video");
@@ -1012,12 +1012,18 @@ async fn process_asset_skips_video_during_retry_cooldown() {
     assert_eq!(asset.status, "failed");
     assert_eq!(asset.error, "HTTP 403");
     // `_upsert_asset_seen` touched the row and kept it failed during the cooldown.
-    let row = sqlx::query("SELECT status, next_retry_at > NOW() AS waiting FROM bd2_assets")
-        .fetch_one(harness.db.pool())
-        .await
-        .expect("row");
+    let row = sqlx::query(
+        "SELECT status, next_retry_at > NOW() AS waiting, last_seen_at > '2001-01-01T00:00:00Z' AS seen, normalized_url FROM bd2_assets",
+    )
+    .fetch_one(harness.db.pool())
+    .await
+    .expect("row");
     assert_eq!(row.get::<String, _>("status"), "failed");
     assert!(row.get::<bool, _>("waiting"));
+    // Python's `touched == [url]`: the seeded row was last seen in 2000, without a
+    // normalized URL.
+    assert!(row.get::<bool, _>("seen"));
+    assert_eq!(row.get::<String, _>("normalized_url"), "https://cdn.example.com/broken.mp4");
 }
 
 /// `_process_assets` over one asset the web answers with `status`.
@@ -1269,9 +1275,20 @@ async fn update_reports_failures_after_attempting_remaining_pages() {
         _ => Reply::status(404),
     })
     .await;
+    // A page the tree no longer lists, to see the run deactivate it (Python's fake
+    // `_upsert_tree_pages` asserts both rows and `deactivate_missing=True`).
+    harness
+        .sql("INSERT INTO bd2_pages (content_id, name, active) VALUES (3, 'Gone', TRUE)")
+        .await;
 
     let error = harness.crawler.update().await.unwrap_err();
 
+    let rows = sqlx::query("SELECT content_id, active FROM bd2_pages ORDER BY content_id")
+        .fetch_all(harness.db.pool())
+        .await
+        .expect("rows");
+    let pages: Vec<(i64, bool)> = rows.iter().map(|row| (row.get("content_id"), row.get("active"))).collect();
+    assert_eq!(pages, [(1, true), (2, true), (3, false)]);
     assert_eq!(error.class_name(), "CrawlRunError");
     assert_eq!(error.message(), "1 BD2 pages failed: 1");
     let details: Vec<String> = harness
@@ -1353,4 +1370,85 @@ async fn discovery_notifications_are_suppressed_without_an_existing_archive_base
         .await;
 
     assert!(notifier.sent().is_empty());
+}
+
+// ---------- pacing ----------
+
+/// A crawler over `web` whose sleeps are recorded, not slept.
+fn paced_crawler(web: &Web, sleeper: &RecordingSleeper) -> (tempfile::TempDir, Bd2Crawler) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let crawler = Bd2Crawler::new(
+        &tmp.path().to_string_lossy(),
+        web.client(),
+        unused_db(),
+        Arc::new(RecordingNotifier::default()),
+    )
+    .with_sleeper(sleeper.sleeper())
+    .with_jitter(Arc::new(|| 0))
+    .with_clock(Arc::new(fixed_now))
+    .with_viewer_resources(Vec::new())
+    .with_plain_http();
+    (tmp, crawler)
+}
+
+// `_request`: the API bucket's 0.5 s spacing, `Retry-After` when the answer has one and
+// the exponential backoff (0.75 s, then 1.5 s) when it has none.
+#[tokio::test]
+async fn requests_are_spaced_and_retried_with_python_delays() {
+    let answers = Arc::new(Mutex::new(0_u32));
+    let counter = Arc::clone(&answers);
+    let web = Web::start(move |_url| {
+        let mut count = counter.lock().expect("lock");
+        *count += 1;
+        match *count {
+            1 => Reply::Respond {
+                status: 503,
+                headers: vec![("retry-after".to_owned(), "1".to_owned())],
+                body: Vec::new(),
+            },
+            2 => Reply::status(500),
+            _ => json_reply("{}"),
+        }
+    })
+    .await;
+    let sleeper = RecordingSleeper::new();
+    let (_tmp, crawler) = paced_crawler(&web, &sleeper);
+
+    let body = crawler
+        .request("https://www.gamekee.com/v1/x", &[], true)
+        .await
+        .expect("third answer");
+
+    assert_eq!(&body[..], b"{}");
+    let delays = sleeper.delays();
+    assert_eq!(delays.len(), 4, "{delays:?}");
+    // Retry-After, the limiter, the second attempt's backoff, the limiter.
+    assert!((delays[0] - 1.0).abs() < f64::EPSILON, "{delays:?}");
+    assert!(delays[1] > 0.4 && delays[1] <= 0.5, "{delays:?}");
+    assert!((delays[2] - 1.5).abs() < f64::EPSILON, "{delays:?}");
+    assert!(delays[3] > 0.4 && delays[3] <= 0.5, "{delays:?}");
+}
+
+// `_CircuitBreaker`: the fifth throttling answer in a row pauses the run for 30 s and
+// starts the count again; a success in between resets it.
+#[tokio::test]
+async fn five_throttling_answers_pause_the_run() {
+    let web = Web::start(|url| panic!("unexpected request {url}")).await;
+    let sleeper = RecordingSleeper::new();
+    let (_tmp, crawler) = paced_crawler(&web, &sleeper);
+    let sleep = sleeper.sleeper();
+    for _ in 0..4 {
+        crawler.circuit_breaker.record_limited_failure(&sleep).await;
+    }
+    crawler.circuit_breaker.record_success();
+    for _ in 0..4 {
+        crawler.circuit_breaker.record_limited_failure(&sleep).await;
+    }
+    assert!(sleeper.delays().is_empty());
+    crawler.circuit_breaker.record_limited_failure(&sleep).await;
+    assert_eq!(sleeper.delays(), [30.0]);
+    for _ in 0..4 {
+        crawler.circuit_breaker.record_limited_failure(&sleep).await;
+    }
+    assert_eq!(sleeper.delays(), [30.0]);
 }

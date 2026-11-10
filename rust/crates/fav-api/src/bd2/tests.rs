@@ -912,3 +912,24 @@ async fn a_changed_collection_path_applies_at_once() {
     assert_eq!(get(&harness, "/api/v2/bd2/characters/101").await.status, 404);
     harness.finish().await;
 }
+
+// D99: an offset past `i64::MAX` is echoed as given (Python's ints are unbounded); past
+// 128 bits it is `i128::MAX`. Either way the page is empty.
+#[tokio::test]
+async fn a_huge_offset_is_echoed() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let harness = fixture_harness(&tmp.path().join("bd2")).await;
+    for (raw, echoed) in [
+        ("9223372036854775808", 9_223_372_036_854_775_808_i128),
+        ("1".repeat(60).as_str(), i128::MAX),
+    ] {
+        let answer = get(&harness, &format!("/api/v2/bd2/characters?offset={raw}")).await;
+        assert_eq!(answer.status, 200, "{}", answer.text());
+        let payload = answer.json();
+        let payload = payload.as_dict().expect("object");
+        assert_eq!(payload.get("offset"), Some(&Value::Int(echoed)));
+        assert_eq!(payload.get("items"), Some(&Value::List(Vec::new())));
+        assert_eq!(payload.get("total"), Some(&Value::Int(1)));
+    }
+    harness.finish().await;
+}
