@@ -16,10 +16,9 @@ import gzip
 import hashlib
 import json
 import struct
-from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from Crypto.Cipher import AES
@@ -59,6 +58,9 @@ from src.tool.azurlane_l2d_sources import (
     spine_resource_manifest,
     validate_azurlane_model_catalog_resources,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 FIXED_NOW_ISO = '2026-11-10T00:00:00+00:00'
 PRIMARY_INDEX_URL = l2d_su_ship_index_url(L2D_SU_PRIMARY_REGION)
@@ -254,7 +256,11 @@ def _protected_cases() -> list[dict[str, Any]]:
 
 def _protected() -> list[dict[str, Any]]:
     return [
-        {'data_descriptor': [{'path': path, 'result': _attempt(lambda path=path: _descriptor(protected.data_descriptor(path)))} for path in DATA_PATHS]},
+        {
+            'data_descriptor': [
+                {'path': path, 'result': _attempt(lambda path=path: _descriptor(protected.data_descriptor(path)))} for path in DATA_PATHS
+            ]
+        },
         {'urls': _protected_urls()},
         {'decrypt_for_url': _protected_cases()},
     ]
@@ -394,9 +400,9 @@ def _primary_ships() -> list[object]:
         ),
         _ship(
             90001,
-            ' Ｚ２３ ',
-            'Ｚ２３',
-            [_skin(900010, 'Ｚ２３', 'Ｚ２３_2'), _skin(900011, 'Z23 Ｂ', 'z23_3', kind='spine')],
+            ' \uff3a\uff12\uff13 ',
+            '\uff3a\uff12\uff13',
+            [_skin(900010, '\uff3a\uff12\uff13', '\uff3a\uff12\uff13_2'), _skin(900011, 'Z23 \uff22', 'z23_3', kind='spine')],
             extra={'nationName': 'Iron Blood', 'typeName': ' Destroyer '},
         ),
         _ship(90002, 'twin', '双子A', [_skin(900020, '一', 'twin_2')]),
@@ -472,7 +478,9 @@ def _parts(key: str, suffixes: tuple[str, ...]) -> str:
 
 
 def _atlas(*pages: str) -> str:
-    return ''.join(f'\n{page}\nsize: 1024,1024\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\nregion\n  rotate: false\n' for page in pages)
+    return ''.join(
+        f'\n{page}\nsize: 1024,1024\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\nregion\n  rotate: false\n' for page in pages
+    )
 
 
 # ---------- the recorded pipeline ----------
@@ -532,7 +540,7 @@ def _resource_rules() -> list[Any]:
         (_contains('GET', 'nagami.moe/live2d/biaoqiang_2'), {'text': _model3()}),
         (_contains('GET', 'nagami.moe'), {'status': 200}),
         (_suffix('GET', 'biaoqiang_3.model3.json'), {'text': '<!doctype html>'}),
-        (_suffix('GET', 'Ｚ２３_2.model3.json'), {'error': 'connection reset'}),
+        (_suffix('GET', '\uff3a\uff12\uff13_2.model3.json'), {'error': 'connection reset'}),
         (_suffix('GET', '.model3.json'), {'text': _model3(DisplayInfo='display.cdi3.json')}),
         (_suffix('HEAD', 'lafei_12.skel'), {'status': 404}),
         (_suffix('GET', 'lafei_12.json'), {'text': _parts('lafei_12', ('B', 'T'))}),
@@ -574,7 +582,7 @@ def _run_pipeline(rules: list[Any], previous: Any = None) -> tuple[dict[str, Any
             for query, model_type in (
                 ('javelin', None),
                 ('标枪', None),
-                ('Ｚ２３', None),
+                ('\uff3a\uff12\uff13', None),
                 ('z23', 'spine'),
                 ('blue  pottery', None),
                 ('', None),
@@ -741,7 +749,12 @@ def _enumerations() -> list[dict[str, Any]]:
         Pose='pose.pose3.json',
         DisplayInfo='display.cdi3.json',
         UserData='user.userdata3.json',
-        Expressions=[{'Name': 'smile', 'File': 'expressions/smile.exp3.json'}, {'File': 'expressions/plain.exp3.json'}, 'junk', {'Name': 'x'}],
+        Expressions=[
+            {'Name': 'smile', 'File': 'expressions/smile.exp3.json'},
+            {'File': 'expressions/plain.exp3.json'},
+            'junk',
+            {'Name': 'x'},
+        ],
         Motions={
             'Idle': [
                 {'File': 'motions/idle.motion3.json', 'Sound': 'voice/idle.wav'},
@@ -754,13 +767,29 @@ def _enumerations() -> list[dict[str, Any]]:
     )
     cases: list[dict[str, Any]] = [
         {'name': 'live2d rich model3', 'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2', 'model3': rich_model3},
-        {'name': 'live2d minimal model3', 'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2', 'model3': json.dumps({'FileReferences': {'Moc': 'm.moc3'}})},
+        {
+            'name': 'live2d minimal model3',
+            'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2',
+            'model3': json.dumps({'FileReferences': {'Moc': 'm.moc3'}}),
+        },
         {'name': 'live2d without model3', 'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2'},
         {'name': 'live2d model3 not json', 'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2', 'model3': '<html>'},
-        {'name': 'live2d model3 without references', 'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2', 'model3': json.dumps({'Version': 3})},
-        {'name': 'live2d model3 without moc', 'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2', 'model3': json.dumps({'FileReferences': {'Textures': []}})},
+        {
+            'name': 'live2d model3 without references',
+            'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2',
+            'model3': json.dumps({'Version': 3}),
+        },
+        {
+            'name': 'live2d model3 without moc',
+            'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2',
+            'model3': json.dumps({'FileReferences': {'Textures': []}}),
+        },
         {'name': 'live2d nagami only', 'entry_id': 'azurlane:live2d:shengluyisi:shengluyisi_2', 'model3': _model3()},
-        {'name': 'live2d merged with fallback', 'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2', 'model3': _model3(DisplayInfo='d.cdi3.json')},
+        {
+            'name': 'live2d merged with fallback',
+            'entry_id': 'azurlane:live2d:biaoqiang:biaoqiang_2',
+            'model3': _model3(DisplayInfo='d.cdi3.json'),
+        },
         {'name': 'live2d shared key variant', 'entry_id': 'azurlane:live2d:twin:twin_2', 'model3': _model3()},
         {'name': 'live2d normalized key', 'entry_id': 'azurlane:live2d:Z23:Z23_2', 'model3': _model3()},
         {
@@ -768,25 +797,36 @@ def _enumerations() -> list[dict[str, Any]]:
             'entry_id': 'azurlane:live2d:ship-910117:skin-910170',
             'model3': _model3(Moc=f'm.moc3{FRAGMENT}', Textures=[f'../ee55/{"3" * 32}.webp']),
         },
-        {'name': 'spine single part', 'entry_id': 'azurlane:spine:biaoqiang:biaoqiang_4', 'atlases': {f'{biaoqiang_4}/biaoqiang_4.atlas': _atlas('biaoqiang_4.webp', 'sub/biaoqiang_4_2.png', 'biaoqiang_4.webp')}},
+        {
+            'name': 'spine single part',
+            'entry_id': 'azurlane:spine:biaoqiang:biaoqiang_4',
+            'atlases': {f'{biaoqiang_4}/biaoqiang_4.atlas': _atlas('biaoqiang_4.webp', 'sub/biaoqiang_4_2.png', 'biaoqiang_4.webp')},
+        },
         {'name': 'spine single part without atlas source', 'entry_id': 'azurlane:spine:biaoqiang:biaoqiang_4'},
         {
             'name': 'spine multi part',
             'entry_id': 'azurlane:spine:lafei:lafei_12',
             'spine_parts': _parts('lafei_12', ('B', 'T')),
-            'atlases': {f'{lafei_base}/lafei_12B.atlas': _atlas('lafei_12B.webp'), f'{lafei_base}/lafei_12T.atlas': _atlas('shared.webp', 'lafei_12T.webp')},
+            'atlases': {
+                f'{lafei_base}/lafei_12B.atlas': _atlas('lafei_12B.webp'),
+                f'{lafei_base}/lafei_12T.atlas': _atlas('shared.webp', 'lafei_12T.webp'),
+            },
         },
         {'name': 'spine parts not json', 'entry_id': 'azurlane:spine:lafei:lafei_12', 'spine_parts': 'nope'},
         {'name': 'spine parts without models', 'entry_id': 'azurlane:spine:lafei:lafei_12', 'spine_parts': json.dumps({'models': 'x'})},
         {
             'name': 'spine parts with odd models',
             'entry_id': 'azurlane:spine:lafei:lafei_12',
-            'spine_parts': json.dumps({'models': [{'name': 'a', 'skeleton': 'a.skel', 'atlases': ['a.atlas', 3]}, 'junk', {'skeleton': ''}]}),
+            'spine_parts': json.dumps(
+                {'models': [{'name': 'a', 'skeleton': 'a.skel', 'atlases': ['a.atlas', 3]}, 'junk', {'skeleton': ''}]}
+            ),
         },
         {
             'name': 'spine hashed',
             'entry_id': 'azurlane:spine:ship-910117:skin-910171',
-            'spine_parts': json.dumps({'models': [{'name': 'h', 'skeleton': f'{"4" * 32}.skel', 'atlases': [f'{"5" * 32}.atlas{FRAGMENT}']}]}),
+            'spine_parts': json.dumps(
+                {'models': [{'name': 'h', 'skeleton': f'{"4" * 32}.skel', 'atlases': [f'{"5" * 32}.atlas{FRAGMENT}']}]}
+            ),
             'atlases': {f'{BASE}/cd34/{"5" * 32}.atlas{FRAGMENT}': _atlas(f'{"6" * 32}.webp')},
         },
         {'name': 'spine hashed without parts', 'entry_id': 'azurlane:spine:ship-910117:skin-910171'},
@@ -835,7 +875,11 @@ def _details() -> list[dict[str, Any]]:
                     'shipGroupId': 1,
                     'className': '  J Class ',
                     'skins': [
-                        {'id': 10, 'model': {'type': 'live2d', 'path': 'live2d/a/a.model3.json'}, 'words': [{'key': 'k', 'voicePath': 'cue/a'}]},
+                        {
+                            'id': 10,
+                            'model': {'type': 'live2d', 'path': 'live2d/a/a.model3.json'},
+                            'words': [{'key': 'k', 'voicePath': 'cue/a'}],
+                        },
                         {'id': 11, 'model': {'type': 'spine', 'path': ' https://mirror.example/x '}},
                         {'id': 12, 'model': {'path': ''}},
                         {'id': True, 'model': {'path': 'live2d/b/b.model3.json'}},

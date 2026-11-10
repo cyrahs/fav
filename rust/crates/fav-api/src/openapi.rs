@@ -161,6 +161,7 @@ fn schemas() -> Vec<(&'static str, RefOr<Schema>)> {
         schemas_c(),
         schemas_c2(),
         schemas_d(),
+        schemas_azurlane(),
         crate::nikke::schema::components(),
     ]
     .concat();
@@ -887,6 +888,38 @@ fn schemas_c2() -> Vec<(&'static str, RefOr<Schema>)> {
     ]
 }
 
+/// The Azur Lane proxy test's request and result.
+fn schemas_azurlane() -> Vec<(&'static str, RefOr<Schema>)> {
+    vec![
+        (
+            "AzurLaneProxyTestRequest",
+            model(
+                "AzurLaneProxyTestRequest",
+                None,
+                true,
+                vec![
+                    ("origin_proxy", defaulted_string("Origin Proxy"), false),
+                    ("origin_connect_host", defaulted_string("Origin Connect Host"), false),
+                ],
+            ),
+        ),
+        (
+            "AzurLaneProxyTestResult",
+            model(
+                "AzurLaneProxyTestResult",
+                None,
+                true,
+                vec![
+                    ("ok", boolean("Ok"), true),
+                    ("code", string("Code"), true),
+                    ("message", string("Message"), true),
+                    ("exit_ip", defaulted_string("Exit Ip"), false),
+                ],
+            ),
+        ),
+    ]
+}
+
 fn schemas_d() -> Vec<(&'static str, RefOr<Schema>)> {
     vec![
         (
@@ -926,32 +959,6 @@ fn schemas_d() -> Vec<(&'static str, RefOr<Schema>)> {
                     ("expires_at", nullable(Type::String, "Expires At"), false),
                     ("signed_in_at", nullable(Type::String, "Signed In At"), false),
                     ("checked_at", nullable(Type::String, "Checked At"), false),
-                ],
-            ),
-        ),
-        (
-            "AzurLaneProxyTestRequest",
-            model(
-                "AzurLaneProxyTestRequest",
-                None,
-                true,
-                vec![
-                    ("origin_proxy", defaulted_string("Origin Proxy"), false),
-                    ("origin_connect_host", defaulted_string("Origin Connect Host"), false),
-                ],
-            ),
-        ),
-        (
-            "AzurLaneProxyTestResult",
-            model(
-                "AzurLaneProxyTestResult",
-                None,
-                true,
-                vec![
-                    ("ok", boolean("Ok"), true),
-                    ("code", string("Code"), true),
-                    ("message", string("Message"), true),
-                    ("exit_ip", defaulted_string("Exit Ip"), false),
                 ],
             ),
         ),

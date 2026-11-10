@@ -109,9 +109,18 @@ fn the_catalog_merges_an_exact_nagami_fallback_and_prefers_l2d_su() {
     );
     assert_eq!(
         keys(&merged.to_dict()),
-        ["id", "type", "source", "character", "costume", "resources", "resource_summary", "availability"]
-            .map(str::to_owned)
-            .into()
+        [
+            "id",
+            "type",
+            "source",
+            "character",
+            "costume",
+            "resources",
+            "resource_summary",
+            "availability"
+        ]
+        .map(str::to_owned)
+        .into()
     );
 
     let nagami_only = catalog_entry(&catalog, "azurlane:live2d:shengluyisi:shengluyisi_2");
@@ -162,7 +171,7 @@ fn an_l2d_su_path_variant_stays_apart_from_the_nagami_fallback() {
         nagami_candidate.resources.primary_url,
         "https://cdn.nagami.moe/live2d/adaerbote_3/adaerbote_3.model3.json"
     );
-    assert_eq!(ids(&catalog.search("Fantasy Variant", None)), [variant.id.clone()]);
+    assert_eq!(ids(&catalog.search("Fantasy Variant", None)), std::slice::from_ref(&variant.id));
 }
 
 // py: tests/test_azurlane_l2d_sources.py::test_catalog_ids_are_key_based_and_searches_character_and_costume_names
@@ -195,15 +204,15 @@ fn catalog_ids_are_key_based_and_search_covers_character_and_costume_names() {
     assert_eq!(entry.id, "azurlane:live2d:guanghui:guanghui_7");
     assert!(!entry.id.contains("Illustrious"));
     assert!(!entry.id.contains("光辉"));
-    assert_eq!(ids(&catalog.search("Our Private", None)), [entry.id.clone()]);
-    assert_eq!(ids(&catalog.search("丝绸", None)), [entry.id.clone()]);
+    assert_eq!(ids(&catalog.search("Our Private", None)), std::slice::from_ref(&entry.id));
+    assert_eq!(ids(&catalog.search("丝绸", None)), std::slice::from_ref(&entry.id));
     assert_eq!(
         ids(&catalog.search("blue pottery", None)),
         ["azurlane:live2d:shengluyisi:shengluyisi_2"]
     );
     assert_eq!(
         ids(&catalog.search("guanghui", Some(ModelKind::Live2d))),
-        [entry.id.clone()]
+        std::slice::from_ref(&entry.id)
     );
 }
 
@@ -237,11 +246,7 @@ fn duplicate_assets_merge_and_different_assets_stay_variants() {
             .iter()
             .any(|entry_id| entry_id.starts_with("azurlane:live2d:biaoqiang:biaoqiang:asset-"))
     );
-    let urls: BTreeSet<&str> = catalog
-        .entries
-        .iter()
-        .map(|entry| entry.resources.primary_url.as_str())
-        .collect();
+    let urls: BTreeSet<&str> = catalog.entries.iter().map(|entry| entry.resources.primary_url.as_str()).collect();
     assert_eq!(
         urls,
         BTreeSet::from([

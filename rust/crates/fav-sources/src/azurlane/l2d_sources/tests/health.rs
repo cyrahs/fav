@@ -1,6 +1,6 @@
 //! The health report and its drift against the previous report.
 
-use std::collections::{HashSet, BTreeSet};
+use std::collections::{BTreeSet, HashSet};
 
 use super::super::{
     AzurLaneSourceSnapshots, ModelKind, SourceFetchMetadata, build_azurlane_l2d_health_report, build_azurlane_model_catalog,
@@ -123,7 +123,12 @@ async fn the_health_report_detects_source_catalog_and_resource_drift() {
 #[test]
 fn a_source_changes_when_only_its_entry_count_does() {
     let snapshots = source_snapshots(
-        vec![live2d_character(1, "same", "Same", "https://static.example/live2d/azurlane/same/same.model3.json")],
+        vec![live2d_character(
+            1,
+            "same",
+            "Same",
+            "https://static.example/live2d/azurlane/same/same.model3.json",
+        )],
         &[],
     );
     let snapshots = with_etag(snapshots, "\"same\"", "Thu, 14 May 2026 00:00:00 GMT");

@@ -12,12 +12,12 @@ use fav_runtime::BoxFuture;
 
 use super::super::{
     ArchivedModel, AzurLaneL2DHealthReport, AzurLaneModelCatalog, AzurLaneSourceSnapshots, EnumerationInputs, Fetch, FetchedResponse,
-    L2D_SU_PRIMARY_REGION, L2DSuSourceSnapshot, ModelKind, NagamiSourceSnapshot, SourceFetchMetadata, ToPy, build_azurlane_l2d_health_report,
-    build_azurlane_model_catalog, case_variant_urls, enumerate_azurlane_model_resources, fetch_source_snapshots, is_hashed_asset_url,
-    l2d_su_asset_url_from_legacy, l2d_su_character_fingerprint, l2d_su_legacy_asset_urls, l2d_su_ship_index_url, model_entry_from_dict,
-    model_probe_urls, painting_index_url, parse_l2d_su_ship_class, parse_l2d_su_ship_index, parse_l2d_su_ship_models, parse_l2d_su_ship_voices,
-    parse_nagami_mapping, parse_painting_index, pin_archived_entries, spine_parts_manifest_url, spine_resource_manifest,
-    validate_azurlane_model_catalog_resources,
+    L2D_SU_PRIMARY_REGION, L2DSuSourceSnapshot, ModelKind, NagamiSourceSnapshot, SourceFetchMetadata, ToPy,
+    build_azurlane_l2d_health_report, build_azurlane_model_catalog, case_variant_urls, enumerate_azurlane_model_resources,
+    fetch_source_snapshots, is_hashed_asset_url, l2d_su_asset_url_from_legacy, l2d_su_character_fingerprint, l2d_su_legacy_asset_urls,
+    l2d_su_ship_index_url, model_entry_from_dict, model_probe_urls, painting_index_url, parse_l2d_su_ship_class, parse_l2d_su_ship_index,
+    parse_l2d_su_ship_models, parse_l2d_su_ship_voices, parse_nagami_mapping, parse_painting_index, pin_archived_entries,
+    spine_parts_manifest_url, spine_resource_manifest, validate_azurlane_model_catalog_resources,
 };
 use super::{FETCHED_AT, clock};
 use crate::PyError;
@@ -200,8 +200,16 @@ async fn run_pipeline(exchanges: &[Value], previous: Option<&AzurLaneL2DHealthRe
             .iter()
             .map(|character| list![character.char_id, l2d_su_character_fingerprint(character)])
             .collect();
-        assert_same(&Value::List(fingerprints), golden::get(case, "fingerprints"), &format!("{name}: fingerprints"));
-        assert_same(&validation.to_dict(), golden::get(case, "validation"), &format!("{name}: validation"));
+        assert_same(
+            &Value::List(fingerprints),
+            golden::get(case, "fingerprints"),
+            &format!("{name}: fingerprints"),
+        );
+        assert_same(
+            &validation.to_dict(),
+            golden::get(case, "validation"),
+            &format!("{name}: validation"),
+        );
         assert_same(
             &Value::Dict(validation.summary()),
             golden::get(case, "validation_summary"),
@@ -227,7 +235,9 @@ async fn the_source_pipeline_matches_the_python_baseline() {
         };
         let pipeline = run_pipeline(golden::list(golden::get(case, "exchanges")), previous.as_ref(), Some(case)).await;
         assert_eq!(pipeline.snapshots.l2d_su.metadata.fetched_at, FETCHED_AT);
-        let Value::Dict(searches) = golden::get(case, "searches") else { panic!("searches") };
+        let Value::Dict(searches) = golden::get(case, "searches") else {
+            panic!("searches")
+        };
         for (query, expected) in searches.iter() {
             let query = key_text(query);
             let query = query.as_str();
@@ -282,9 +292,8 @@ fn resource_enumeration_matches_the_python_baseline() {
             .find(|(id, _)| Some(*id) == entry.costume.id.or(Some(-1)))
             .map(|(_, lines)| lines.clone())
             .unwrap_or_default();
-        let painting_index = optional_text(case, "painting_index").map(|source| {
-            parse_painting_index(&source, &entry.resources.primary_url, &entry.resources.painting_index_url).unwrap()
-        });
+        let painting_index = optional_text(case, "painting_index")
+            .map(|source| parse_painting_index(&source, &entry.resources.primary_url, &entry.resources.painting_index_url).unwrap());
         let model3 = optional_text(case, "model3");
         let spine_parts = optional_text(case, "spine_parts");
         let atlases: Option<HashMap<String, String>> = case
@@ -311,23 +320,11 @@ fn the_ship_detail_parsers_match_the_python_baseline() {
     let document = golden::load("azurlane/details.json");
     for case in golden::cases(&document) {
         let payload = text(golden::get(case, "payload"));
-        let models = parse_l2d_su_ship_models(&payload).map(|models| {
-            Value::List(
-                models
-                    .into_iter()
-                    .map(|(id, url)| list![id, url])
-                    .collect(),
-            )
-        });
+        let models =
+            parse_l2d_su_ship_models(&payload).map(|models| Value::List(models.into_iter().map(|(id, url)| list![id, url]).collect()));
         assert_same(&attempt(models), golden::get(case, "models"), &format!("{payload}: models"));
-        let voices = parse_l2d_su_ship_voices(&payload).map(|voices| {
-            Value::List(
-                voices
-                    .into_iter()
-                    .map(|(id, lines)| list![id, lines.to_py()])
-                    .collect(),
-            )
-        });
+        let voices = parse_l2d_su_ship_voices(&payload)
+            .map(|voices| Value::List(voices.into_iter().map(|(id, lines)| list![id, lines.to_py()]).collect()));
         assert_same(&attempt(voices), golden::get(case, "voices"), &format!("{payload}: voices"));
         let class = parse_l2d_su_ship_class(&payload).map(Value::Str);
         assert_same(&attempt(class), golden::get(case, "class"), &format!("{payload}: class"));
@@ -356,9 +353,14 @@ fn the_url_helpers_match_the_python_baseline() {
 #[test]
 fn catalog_round_trips_match_the_python_baseline() {
     let document = golden::load("azurlane/catalog_round_trips.json");
-    let [entries_case, pinned_case] = golden::cases(&document) else { panic!("two cases") };
+    let [entries_case, pinned_case] = golden::cases(&document) else {
+        panic!("two cases")
+    };
 
-    let catalog = enumeration_catalog(&text(golden::get(entries_case, "index")), &text(golden::get(entries_case, "nagami")));
+    let catalog = enumeration_catalog(
+        &text(golden::get(entries_case, "index")),
+        &text(golden::get(entries_case, "nagami")),
+    );
     let expected = golden::list(golden::get(entries_case, "entries"));
     assert_eq!(catalog.entries.len(), expected.len());
     for (entry, expected) in catalog.entries.iter().zip(expected) {

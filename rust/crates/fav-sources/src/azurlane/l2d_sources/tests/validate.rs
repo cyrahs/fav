@@ -113,7 +113,8 @@ async fn a_live2d_model_with_a_broken_primary_is_fallback_only() {
         respond(404, "")
     });
 
-    let catalog = build_azurlane_model_catalog(&guanghui(primary_url, &[("guanghui_7", "Illustrious - Our Private Study Session")])).unwrap();
+    let catalog =
+        build_azurlane_model_catalog(&guanghui(primary_url, &[("guanghui_7", "Illustrious - Our Private Study Session")])).unwrap();
     let report = validate_azurlane_model_catalog_resources(&catalog, &client, NO_FILTER, clock())
         .await
         .unwrap();
@@ -121,7 +122,10 @@ async fn a_live2d_model_with_a_broken_primary_is_fallback_only() {
     let entry = &report.catalog.entries[0];
     assert_eq!(entry.availability.state, AvailabilityState::FallbackOnly);
     assert_eq!(entry.availability.validated_url, fallback_url);
-    assert_eq!(entry.resource_summary.moc3, "https://cdn.nagami.moe/live2d/guanghui_7/test_model.moc3");
+    assert_eq!(
+        entry.resource_summary.moc3,
+        "https://cdn.nagami.moe/live2d/guanghui_7/test_model.moc3"
+    );
     assert_eq!(
         entry.resources.display_info_url,
         "https://cdn.nagami.moe/live2d/guanghui_7/display.cdi3.json"
@@ -135,7 +139,14 @@ async fn a_live2d_model_with_a_broken_primary_is_fallback_only() {
     assert_eq!(sources, [Some(ValidationSource::Primary), Some(ValidationSource::Fallback)]);
 }
 
-fn single_spine(char_id: i128, char_key: &str, char_name: &str, costume_id: i128, costume_name: &str, path: &str) -> super::super::AzurLaneSourceSnapshots {
+fn single_spine(
+    char_id: i128,
+    char_key: &str,
+    char_name: &str,
+    costume_id: i128,
+    costume_name: &str,
+    path: &str,
+) -> super::super::AzurLaneSourceSnapshots {
     source_snapshots(
         vec![character(
             char_id,
@@ -183,15 +194,10 @@ async fn a_spine_model_is_valid_once_its_atlas_texture_answers() {
 async fn spine_validation_falls_back_to_the_parts_manifest() {
     let spine_base_url = spine_url("lafei_12");
     let parts_url = format!("{spine_base_url}/lafei_12.json");
-    let found: HashSet<String> = [
-        "lafei_12B.skel",
-        "lafei_12T.skel",
-        "lafei_12B.webp",
-        "lafei_12T.webp",
-    ]
-    .iter()
-    .map(|name| format!("{spine_base_url}/{name}"))
-    .collect();
+    let found: HashSet<String> = ["lafei_12B.skel", "lafei_12T.skel", "lafei_12B.webp", "lafei_12T.webp"]
+        .iter()
+        .map(|name| format!("{spine_base_url}/{name}"))
+        .collect();
     let base = spine_base_url.clone();
     let parts = parts_url.clone();
     let client = FakeFetch::new(move |method, url| {

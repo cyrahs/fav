@@ -9,7 +9,8 @@
 //! [`hanime1_series`], [`hanime1_author`] and [`runtime_config`] (the API's seed, author and
 //! readiness routes use the first two) and the t2s conversion [`opencc`], WP8; [`nikke`] with
 //! [`nikke_layer_metadata`] and [`content_discovery`], WP9; [`bd2`] with the
-//! BD2-L2D-Viewer helpers [`bd2_l2d_viewer`], WP10.
+//! BD2-L2D-Viewer helpers [`bd2_l2d_viewer`], WP10; the Azur Lane source parsing, AZP2 envelope
+//! and health report in [`azurlane`] (its crawl follows in WP12), WP11.
 
 use std::sync::Arc;
 

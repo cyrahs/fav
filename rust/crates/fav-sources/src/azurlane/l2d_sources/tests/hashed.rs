@@ -6,9 +6,10 @@ use fav_core::pyjson::{Value, loads};
 
 use super::super::{
     ArchivedModel, AzurLaneModelCatalog, AzurLaneSourceSnapshots, CatalogSource, EnumerationInputs, L2D_SU_STATIC_BASE_URL,
-    L2DSuSourceSnapshot, ModelEntry, ModelKind, NagamiMappingEntry, NagamiSourceSnapshot, SourceFetchMetadata, build_azurlane_model_catalog,
-    entry_painting_index_url, enumerate_azurlane_model_resources, is_hashed_asset_url, l2d_su_legacy_asset_urls, model_entry_from_dict,
-    parse_l2d_su_ship_index, parse_l2d_su_ship_models, parse_painting_index, pin_archived_entries, spine_parts_manifest_url,
+    L2DSuSourceSnapshot, ModelEntry, ModelKind, NagamiMappingEntry, NagamiSourceSnapshot, SourceFetchMetadata,
+    build_azurlane_model_catalog, entry_painting_index_url, enumerate_azurlane_model_resources, is_hashed_asset_url,
+    l2d_su_legacy_asset_urls, model_entry_from_dict, parse_l2d_su_ship_index, parse_l2d_su_ship_models, parse_painting_index,
+    pin_archived_entries, spine_parts_manifest_url,
 };
 use super::{clock, json, set};
 
@@ -312,7 +313,10 @@ fn a_hashed_painting_takes_sheets_and_meshes_from_its_index() {
     // A raw layer has no mesh.
     assert_eq!(
         by_kind["painting.mesh"],
-        [format!("{}/18266872a5d491dc/ac98db33fcf298b8d6f3740cf5fed3ce.obj{fragment}", root())]
+        [format!(
+            "{}/18266872a5d491dc/ac98db33fcf298b8d6f3740cf5fed3ce.obj{fragment}",
+            root()
+        )]
     );
     assert_eq!(
         by_kind["painting.face"],
@@ -429,10 +433,7 @@ fn nagami_models_are_only_kept_where_already_archived_on_their_own() {
         .filter(|entry| entry.source == CatalogSource::Nagami)
         .collect();
     assert_eq!(nagami_entries.len(), nagami.len());
-    let archived_only = nagami_entries
-        .iter()
-        .find(|entry| entry.costume.key == "nagami_only")
-        .unwrap();
+    let archived_only = nagami_entries.iter().find(|entry| entry.costume.key == "nagami_only").unwrap();
 
     let pinned = pin_archived_entries(&catalog, &[archived(archived_only, true)]);
 

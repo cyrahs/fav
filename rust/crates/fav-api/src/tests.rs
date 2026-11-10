@@ -1973,10 +1973,7 @@ impl fav_sources::azurlane::l2d_sources::ProbeOrigin for FakeOriginProbe {
         connect_host: &'a str,
     ) -> fav_runtime::BoxFuture<'a, Result<fav_sources::azurlane::l2d_sources::L2DSuOriginProbe, String>> {
         Box::pin(async move {
-            self.calls
-                .lock()
-                .expect("lock")
-                .push((proxy.to_owned(), connect_host.to_owned()));
+            self.calls.lock().expect("lock").push((proxy.to_owned(), connect_host.to_owned()));
             if self.fail {
                 return Err("Invalid proxy URL".to_owned());
             }
@@ -2041,7 +2038,12 @@ async fn the_azurlane_proxy_test_validates_its_body_and_reports_a_broken_client(
         .send_json("POST", "/api/v2/azurlane/proxy/test", r#"{"origin_proxy": 8080, "extra": 1}"#)
         .await;
     let unauthorised = harness
-        .request("POST", "/api/v2/azurlane/proxy/test", &[("content-type", "application/json")], Some("{}"))
+        .request(
+            "POST",
+            "/api/v2/azurlane/proxy/test",
+            &[("content-type", "application/json")],
+            Some("{}"),
+        )
         .await;
     let broken = harness
         .send_json("POST", "/api/v2/azurlane/proxy/test", r#"{"origin_proxy": "http://[::1"}"#)

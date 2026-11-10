@@ -27,7 +27,9 @@ fn the_ship_index_derives_model_urls_from_skin_keys() {
             ship(2, "yilisi", "伊莉丝", "", vec![skin(20, "某位女神的午后", "yilisi_2_doa", "spine")]),
         ],
         "CN",
-        vec![obj! {"shipGroupId" => 2, "shipName" => "伊莉丝", "skinName" => "某位女神的午后", "skinType" => "Spine", "skinIds" => vec![20]}],
+        vec![
+            obj! {"shipGroupId" => 2, "shipName" => "伊莉丝", "skinName" => "某位女神的午后", "skinType" => "Spine", "skinIds" => vec![20]},
+        ],
     );
 
     let parsed = parse_l2d_su_ship_index(&payload, "CN").unwrap();
@@ -120,7 +122,13 @@ fn ship_detail_models_need_a_ship_object() {
 fn the_ship_index_aggregates_skin_series_and_the_default_skin() {
     let dressed = set(skin(11, "泳装", "biaoqiang_2", "live2d"), "shopTypeName", "Swimsuits");
     let repeat = set(skin(12, "另一件泳装", "biaoqiang_3", "live2d"), "shopTypeName", "Swimsuits");
-    let javelin = ship(1, "biaoqiang", "标枪", "", vec![static_skin(10, "标枪", "biaoqiang"), dressed, repeat]);
+    let javelin = ship(
+        1,
+        "biaoqiang",
+        "标枪",
+        "",
+        vec![static_skin(10, "标枪", "biaoqiang"), dressed, repeat],
+    );
     let javelin = set(javelin, "defaultSkinId", 10);
 
     let parsed = parse_l2d_su_ship_index(&index_payload(vec![javelin]), "CN").unwrap();
@@ -134,7 +142,13 @@ fn the_ship_index_aggregates_skin_series_and_the_default_skin() {
 // py: tests/test_azurlane_l2d_sources.py::test_apply_l2d_su_ship_classes_attaches_detail_only_class_names
 #[test]
 fn ship_classes_from_the_detail_attach_to_every_entry_of_the_ship() {
-    let payload = index_payload(vec![ship(1, "biaoqiang", "标枪", "", vec![skin(10, "默认", "biaoqiang", "live2d")])]);
+    let payload = index_payload(vec![ship(
+        1,
+        "biaoqiang",
+        "标枪",
+        "",
+        vec![skin(10, "默认", "biaoqiang", "live2d")],
+    )]);
     let characters = parse_l2d_su_ship_index(&payload, "CN").unwrap().characters;
     let catalog = build_azurlane_model_catalog(&source_snapshots(characters, &[])).unwrap();
     assert!(catalog.entries.iter().all(|entry| entry.character.class_name.is_empty()));
@@ -153,7 +167,10 @@ fn the_ship_class_comes_from_the_detail() {
     let detail = json(&obj! {"ship" => obj! {"shipGroupId" => 1, "className" => "J Class", "skins" => list![]}});
 
     assert_eq!(parse_l2d_su_ship_class(&detail).unwrap(), "J Class");
-    assert_eq!(parse_l2d_su_ship_class(&json(&obj! {"ship" => obj! {"shipGroupId" => 1}})).unwrap(), "");
+    assert_eq!(
+        parse_l2d_su_ship_class(&json(&obj! {"ship" => obj! {"shipGroupId" => 1}})).unwrap(),
+        ""
+    );
     let error = parse_l2d_su_ship_class(&json(&obj! {"version" => 1})).unwrap_err();
     assert_eq!(error.class, SOURCE_SCHEMA_ERROR);
     assert!(error.message.contains("ship object"), "{}", error.message);
@@ -189,7 +206,9 @@ fn ship_voices_read_words_and_extra_words() {
 
     let ids: Vec<i128> = voices.iter().map(|(id, _)| *id).collect();
     assert_eq!(ids, [9_600_070]);
-    let [battle, extra] = voices[0].1.as_slice() else { panic!("two lines") };
+    let [battle, extra] = voices[0].1.as_slice() else {
+        panic!("two lines")
+    };
     assert_eq!(battle.voice_path, "cue/cv-960007-battle/warcry");
     assert_eq!(battle.face_id, "5");
     assert_eq!(battle.l2d_action, "battle");
@@ -247,7 +266,10 @@ fn the_nagami_mapping_reads_name_and_background() {
         "z23" => "Z23",
     });
 
-    assert_eq!(Value::Dict(parse_nagami_mapping(&source).unwrap().summary()), obj! {"entry_count" => 2});
+    assert_eq!(
+        Value::Dict(parse_nagami_mapping(&source).unwrap().summary()),
+        obj! {"entry_count" => 2}
+    );
     assert_eq!(
         entries_by_key(&source),
         BTreeMap::from([
@@ -335,7 +357,13 @@ fn model_paths_from_the_detail_correct_l2d_su_entries_only() {
             "俾斯麦Zwei",
             "Bismarck Zwei",
             Vec::new(),
-            vec![model(ModelKind::Spine, 405_050, "俾斯麦Zwei", "Bismarck Zwei", &spine_url("bisimaiz"))],
+            vec![model(
+                ModelKind::Spine,
+                405_050,
+                "俾斯麦Zwei",
+                "Bismarck Zwei",
+                &spine_url("bisimaiz"),
+            )],
         )],
         &[("shengluyisi_2", "St. Louis - Blue and White Pottery")],
     );

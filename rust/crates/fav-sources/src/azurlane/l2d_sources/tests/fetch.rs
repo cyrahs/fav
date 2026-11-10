@@ -10,7 +10,7 @@ use super::super::{
     fetch_l2d_su_snapshot, fetch_nagami_snapshot, l2d_su_primary_ship_index_url, probe_l2d_su_origin, run_origin_probe,
 };
 use super::{
-    FETCHED_AT, FakeFetch, clock, connect_error, english_index_url, index_payload, json, primary_index_url, respond, respond_with, ship,
+    FETCHED_AT, FakeFetch, clock, connect_error, english_index_url, index_payload, json, primary_index_url, respond, response_with, ship,
     ship_index_payload, skin,
 };
 
@@ -27,11 +27,11 @@ async fn the_l2d_su_snapshot_merges_english_names_and_records_metadata() {
         if url == english_index_url() {
             return respond(200, &english);
         }
-        respond_with(
+        Ok(response_with(
             200,
             &primary,
             &[("ETag", "\"abc\""), ("Last-Modified", "Thu, 14 May 2026 00:00:00 GMT")],
-        )
+        ))
     });
 
     let snapshot = fetch_l2d_su_snapshot(&client, L2D_SU_PRIMARY_REGION, L2D_SU_ENGLISH_REGION, None, &clock)
@@ -129,11 +129,11 @@ async fn a_nagami_network_failure_is_a_network_error() {
 #[tokio::test]
 async fn the_spa_shell_is_a_parse_error_naming_its_content_type() {
     let client = FakeFetch::new(|_, _| {
-        respond_with(
+        Ok(response_with(
             200,
             "<!doctype html><html><body><div id=\"root\"></div></body></html>",
             &[("content-type", "text/html; charset=utf-8")],
-        )
+        ))
     });
 
     let snapshot = fetch_l2d_su_snapshot(&client, L2D_SU_PRIMARY_REGION, L2D_SU_ENGLISH_REGION, None, &clock)

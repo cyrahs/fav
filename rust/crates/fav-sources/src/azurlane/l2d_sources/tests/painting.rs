@@ -37,7 +37,13 @@ pub(super) fn source_urls(assets: Option<&Vec<&AzurLaneEnumeratedResource>>) -> 
 }
 
 fn biaoqiang_catalog() -> AzurLaneModelCatalog {
-    catalog_of(&index_payload(vec![ship(1, "biaoqiang", "标枪", "", vec![static_skin(10, "标枪", "biaoqiang")])]))
+    catalog_of(&index_payload(vec![ship(
+        1,
+        "biaoqiang",
+        "标枪",
+        "",
+        vec![static_skin(10, "标枪", "biaoqiang")],
+    )]))
 }
 
 // py: tests/test_azurlane_l2d_sources.py::test_enumerate_painting_resources_covers_image_faces_icons_and_voices
@@ -80,7 +86,10 @@ fn painting_resources_cover_the_image_faces_icons_and_voices() {
         by_kind["painting.face"][0].local_path,
         "assets/painting/biaoqiang/paintingface/biaoqiang/1.webp"
     );
-    assert_eq!(by_kind["icon.square"][0].source_url, format!("{}/squareicon/biaoqiang.webp", base()));
+    assert_eq!(
+        by_kind["icon.square"][0].source_url,
+        format!("{}/squareicon/biaoqiang.webp", base())
+    );
     let voice = by_kind["voice.audio"][0];
     assert_eq!(voice.source_url, format!("{L2D_SU_AUDIO_BASE_URL}/cue/cv-1/detail.ogg"));
     assert_eq!(voice.local_path, "assets/painting/biaoqiang/cue/cv-1/detail.ogg");
@@ -151,7 +160,13 @@ fn a_painting_index_without_a_layer_is_rejected() {
 // py: tests/test_azurlane_l2d_sources.py::test_enumerate_painting_resources_adds_layer_sheets_and_meshes_from_the_index
 #[test]
 fn painting_resources_add_layer_sheets_and_meshes_from_the_index() {
-    let catalog = catalog_of(&index_payload(vec![ship(1, "xiafei", "霞飞", "", vec![static_skin(10, "霞飞", "xiafei_4")])]));
+    let catalog = catalog_of(&index_payload(vec![ship(
+        1,
+        "xiafei",
+        "霞飞",
+        "",
+        vec![static_skin(10, "霞飞", "xiafei_4")],
+    )]));
     let entry = catalog_entry(&catalog, "azurlane:painting:xiafei:xiafei_4");
     let index = parse_painting_index(&xiafei_index_payload(), &entry.resources.primary_url, "").unwrap();
 
@@ -204,7 +219,13 @@ fn painting_resources_add_layer_sheets_and_meshes_from_the_index() {
 #[test]
 fn the_primary_layer_matches_across_a_case_disagreement() {
     // The entry says Z28_3; the index that answered for it says z28_3. It is still one sheet.
-    let catalog = catalog_of(&index_payload(vec![ship(1, "Z28", "Z28", "", vec![static_skin(10, "Z28", "Z28_3")])]));
+    let catalog = catalog_of(&index_payload(vec![ship(
+        1,
+        "Z28",
+        "Z28",
+        "",
+        vec![static_skin(10, "Z28", "Z28_3")],
+    )]));
     let entry = catalog_entry(&catalog, "azurlane:painting:Z28:Z28_3");
     let index_source = json(&obj! {"z28_3" => obj! {"size" => vec![1908, 2048], "pivot" => vec![0.5, 0.5], "position" => vec![0, 0]}});
     let index = parse_painting_index(&index_source, &entry.resources.primary_url, "").unwrap();
@@ -252,7 +273,9 @@ fn the_painting_index_renders_with_the_origin_field_names() {
     let Value::Dict(payload) = index.to_dict() else { panic!("a dict") };
 
     assert_eq!(payload.get("painting_key"), Some(&Value::Str("xiafei_4".to_owned())));
-    let Some(Value::List(layers)) = payload.get("layers") else { panic!("layers") };
+    let Some(Value::List(layers)) = payload.get("layers") else {
+        panic!("layers")
+    };
     assert_eq!(
         layers[1],
         obj! {
@@ -264,7 +287,9 @@ fn the_painting_index_renders_with_the_origin_field_names() {
             "raw" => false,
         }
     );
-    let Some(Value::Dict(face)) = payload.get("face") else { panic!("face") };
+    let Some(Value::Dict(face)) = payload.get("face") else {
+        panic!("face")
+    };
     assert_eq!(face.get("size"), Some(&list![372.0, 374.0]));
 }
 
@@ -324,21 +349,36 @@ fn case_variants_never_repeat_the_original_url() {
 #[test]
 fn painting_resources_leave_case_handling_to_the_downloader() {
     // Enumeration names only what the source named; variants are derived when a fetch fails.
-    let catalog = catalog_of(&index_payload(vec![ship(1, "Z28", "Z28", "", vec![static_skin(10, "Z28", "Z28_3")])]));
+    let catalog = catalog_of(&index_payload(vec![ship(
+        1,
+        "Z28",
+        "Z28",
+        "",
+        vec![static_skin(10, "Z28", "Z28_3")],
+    )]));
     let entry = catalog_entry(&catalog, "azurlane:painting:Z28:Z28_3");
 
     let enumeration = enumerate_azurlane_model_resources(entry, EnumerationInputs::default()).unwrap();
 
     let by_kind = by_kind(&enumeration.assets);
     assert_eq!(by_kind["painting.image"][0].source_url, format!("{}/painting/Z28_3.webp", base()));
-    assert_eq!(by_kind["painting.face"][0].source_url, format!("{}/paintingface/Z28_3/1.webp", base()));
+    assert_eq!(
+        by_kind["painting.face"][0].source_url,
+        format!("{}/paintingface/Z28_3/1.webp", base())
+    );
     assert!(enumeration.assets.iter().all(|asset| asset.fallback_url.is_empty()));
 }
 
 // py: tests/test_azurlane_l2d_sources.py::test_painting_entries_keep_their_paths_when_model_paths_are_applied
 #[test]
 fn painting_entries_keep_their_paths_when_model_paths_are_applied() {
-    let catalog = catalog_of(&index_payload(vec![ship(1, "biaoqiang", "标枪", "", vec![skin(10, "默认", "biaoqiang", "live2d")])]));
+    let catalog = catalog_of(&index_payload(vec![ship(
+        1,
+        "biaoqiang",
+        "标枪",
+        "",
+        vec![skin(10, "默认", "biaoqiang", "live2d")],
+    )]));
     let resolved_model_url = live2d_url("Biaoqiang");
 
     let patched = apply_l2d_su_model_paths(&catalog, &HashMap::from([(10, resolved_model_url.clone())]));
@@ -349,5 +389,8 @@ fn painting_entries_keep_their_paths_when_model_paths_are_applied() {
     );
     let painting = catalog_entry(&patched, "azurlane:painting:biaoqiang:biaoqiang");
     assert_eq!(painting.resources.primary_url, format!("{}/painting/biaoqiang.webp", base()));
-    assert_eq!(model_probe_urls(painting).unwrap(), [painting.resources.primary_url.clone()]);
+    assert_eq!(
+        model_probe_urls(painting).unwrap(),
+        std::slice::from_ref(&painting.resources.primary_url)
+    );
 }

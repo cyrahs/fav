@@ -106,10 +106,7 @@ fn live2d_resources_come_from_the_model3_with_paths_and_contexts() {
             by_field.insert(field.unwrap_or_default(), asset);
         }
     }
-    assert_eq!(
-        by_field["model3"].local_path,
-        "assets/live2d/guanghui_7/guanghui_7.model3.json"
-    );
+    assert_eq!(by_field["model3"].local_path, "assets/live2d/guanghui_7/guanghui_7.model3.json");
     assert_eq!(
         by_field["physics"].source_url,
         "https://static.example/live2d/azurlane/guanghui_7/guanghui_7.physics3.json"
@@ -149,7 +146,13 @@ fn spine_resources_take_the_atlas_texture_pages() {
             "伊莉丝",
             "Iris",
             Vec::new(),
-            vec![model(ModelKind::Spine, 2, "某位女神的午后", "Afternoon of a Goddess", spine_base_url)],
+            vec![model(
+                ModelKind::Spine,
+                2,
+                "某位女神的午后",
+                "Afternoon of a Goddess",
+                spine_base_url,
+            )],
         )],
         &[],
     );
@@ -224,11 +227,7 @@ fn a_spine_manifest_defaults_to_one_part_named_after_the_directory() {
 fn each_spine_part_resolves_against_the_manifest_url() {
     let base_url = spine_url("lafei_12");
 
-    let parts = parse_spine_parts_manifest(
-        &spine_parts_payload("lafei_12", &["B", "T"]),
-        &format!("{base_url}/lafei_12.json"),
-    )
-    .unwrap();
+    let parts = parse_spine_parts_manifest(&spine_parts_payload("lafei_12", &["B", "T"]), &format!("{base_url}/lafei_12.json")).unwrap();
 
     assert_eq!(
         parts,
@@ -273,8 +272,14 @@ fn spine_resources_cover_every_part_of_a_multi_part_model() {
     );
     let parts_source = spine_parts_payload("lafei_12", &["B", "T"]);
     let atlas_sources = HashMap::from([
-        (format!("{spine_base_url}/lafei_12B.atlas"), "\nlafei_12B.webp\nsize: 4096,4096\n".to_owned()),
-        (format!("{spine_base_url}/lafei_12T.atlas"), "\nlafei_12T.webp\nsize: 4096,4096\n".to_owned()),
+        (
+            format!("{spine_base_url}/lafei_12B.atlas"),
+            "\nlafei_12B.webp\nsize: 4096,4096\n".to_owned(),
+        ),
+        (
+            format!("{spine_base_url}/lafei_12T.atlas"),
+            "\nlafei_12T.webp\nsize: 4096,4096\n".to_owned(),
+        ),
     ]);
 
     let catalog = build_azurlane_model_catalog(&snapshots).unwrap();

@@ -569,7 +569,11 @@ def _scenarios() -> list[dict[str, Any]]:
     add(
         'azurlane proxy test',
         [
-            _json_req('POST', '/api/v2/azurlane/proxy/test', {'origin_proxy': 'http://user:pass@proxy.example:8080', 'origin_connect_host': 'static.l2d.su'}),
+            _json_req(
+                'POST',
+                '/api/v2/azurlane/proxy/test',
+                {'origin_proxy': 'http://user:pass@proxy.example:8080', 'origin_connect_host': 'static.l2d.su'},
+            ),
             _json_req('POST', '/api/v2/azurlane/proxy/test', {}),
             _json_req('POST', '/api/v2/azurlane/proxy/test', {'origin_proxy': 8080, 'origin_connect_host': None, 'extra': 1}),
             _json_req('POST', '/api/v2/azurlane/proxy/test', [1]),

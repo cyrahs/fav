@@ -18,7 +18,7 @@
 //! front end; WP4 the MCP endpoint ([`mcp`]); WP5 the Kemono creator lookup; WP8 the
 //! Hanime1 routes and `/readyz` ([`hanime1`]); WP9 the Nikke character routes ([`nikke`]);
 //! WP10 the BD2 routes ([`bd2`]) and the Live2D view overrides of both games
-//! ([`live2d_overrides`]). The other source-specific routes arrive with
+//! ([`live2d_overrides`]); WP11 the Azur Lane proxy test (`POST /api/v2/azurlane/proxy/test`). The other source-specific routes arrive with
 //! their sources; [`openapi::PENDING`] lists every route still missing and which package owns it.
 
 use std::path::PathBuf;
@@ -27,9 +27,9 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use fav_db::{Db, SettingsStore};
 use fav_runtime::telegram_bot::BotClient;
+use fav_sources::azurlane::l2d_sources::{OriginProbe, ProbeOrigin};
 use fav_sources::hanime1_author::{AuthorSubscriptions, Hanime1AuthorService};
 use fav_sources::hanime1_series::{Hanime1SeriesService, SeriesSubscriptions};
-use fav_sources::azurlane::l2d_sources::{OriginProbe, ProbeOrigin};
 use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
 
 pub mod archive;

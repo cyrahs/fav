@@ -327,13 +327,14 @@ pub(super) fn catalog_entry<'a>(catalog: &'a AzurLaneModelCatalog, entry_id: &st
 pub(super) type Reply = Result<FetchedResponse, TransportError>;
 
 /// `httpx.Response(status, text=body)`.
+#[allow(clippy::unnecessary_wraps)] // A handler's answer, like `connect_error`.
 pub(super) fn respond(status: u16, body: &str) -> Reply {
-    respond_with(status, body, &[])
+    Ok(response_with(status, body, &[]))
 }
 
 /// `httpx.Response(status, text=body, headers=headers)`.
-pub(super) fn respond_with(status: u16, body: &str, headers: &[(&str, &str)]) -> Reply {
-    Ok(FetchedResponse {
+pub(super) fn response_with(status: u16, body: &str, headers: &[(&str, &str)]) -> FetchedResponse {
+    FetchedResponse {
         status,
         url: String::new(),
         headers: headers
@@ -341,7 +342,7 @@ pub(super) fn respond_with(status: u16, body: &str, headers: &[(&str, &str)]) ->
             .map(|(name, value)| (name.to_ascii_lowercase(), (*value).to_owned()))
             .collect(),
         content: body.as_bytes().to_vec(),
-    })
+    }
 }
 
 /// `raise httpx.ConnectError(message)`.
@@ -383,10 +384,7 @@ impl Fetch for FakeFetch {
         url: &'a str,
         _timeout: Option<std::time::Duration>,
     ) -> BoxFuture<'a, Result<FetchedResponse, TransportError>> {
-        self.requests
-            .lock()
-            .expect("the log")
-            .push((method.to_owned(), url.to_owned()));
+        self.requests.lock().expect("the log").push((method.to_owned(), url.to_owned()));
         let reply = (self.handler)(method, url).map(|mut response| {
             if response.url.is_empty() {
                 url.clone_into(&mut response.url);

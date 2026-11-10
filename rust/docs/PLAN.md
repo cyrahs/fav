@@ -138,7 +138,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP8 | 3 HTTP sources | Hanime1 with series, author subscriptions, ranking discovery and its endpoints | 2,600 | done |
 | WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | done |
 | WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | done |
-| WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | pending |
+| WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | done |
 | WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | pending |
 | WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | pending |
 | WP14 | 5 message sources | WeChat with Channels videos and stickers | 1,700 | pending |

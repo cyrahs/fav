@@ -230,7 +230,9 @@ fn the_envelope_matches_the_python_baseline() {
     use crate::azurlane::l2d_sources::tests::golden::{assert_same, decode_hex};
 
     let document = golden::load("azurlane/protected.json");
-    let [paths, urls, envelopes] = golden::cases(&document) else { panic!("three cases") };
+    let [paths, urls, envelopes] = golden::cases(&document) else {
+        panic!("three cases")
+    };
     for case in golden::list(golden::get(paths, "data_descriptor")) {
         let path = golden::string(golden::get(case, "path"));
         let actual = attempt(data_descriptor(&path), |descriptor| descriptor_value(Some(descriptor)));

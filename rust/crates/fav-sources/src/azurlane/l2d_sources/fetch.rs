@@ -19,8 +19,8 @@ use fav_runtime::BoxFuture;
 use super::catalog::{build_azurlane_model_catalog, l2d_su_primary_ship_index_url, l2d_su_ship_index_url};
 use super::health::build_azurlane_l2d_health_report;
 use super::model::{
-    AssetKind, AvailabilityState, AzurLaneL2DHealthReport, AzurLaneModelCatalog, AzurLaneResourceValidationReport, AzurLaneSourceSnapshots, HTTP_ERROR_MIN,
-    L2DSuIndexData, L2DSuOriginProbe, L2DSuSourceSnapshot, ModelAvailability, ModelEntry, ModelKind, ModelResourceSummary,
+    AssetKind, AvailabilityState, AzurLaneL2DHealthReport, AzurLaneModelCatalog, AzurLaneResourceValidationReport, AzurLaneSourceSnapshots,
+    HTTP_ERROR_MIN, L2DSuIndexData, L2DSuOriginProbe, L2DSuSourceSnapshot, ModelAvailability, ModelEntry, ModelKind, ModelResourceSummary,
     NagamiSourceSnapshot, ResourceCandidateValidation, ResourceCheck, ResourceValidationEntry, SourceErrorKind, SourceFetchMetadata,
     SourceSnapshotError, SpineResourceManifest, ValidationSource, ValidationStatus,
 };
