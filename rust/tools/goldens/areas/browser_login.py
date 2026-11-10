@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import stat
 import tempfile
 from pathlib import Path
@@ -49,7 +50,7 @@ _PROXIES = [
     'http://home.example:-1',
     'http://home.example: 80',
     'http://home.example:+80',
-    'http://home.example:８０',
+    'http://home.example:８０',  # noqa: RUF001 - full-width digits are the point
     'http://',
     'http:///path',
     '://nohost',
@@ -77,8 +78,16 @@ def _proxy_settings() -> list[dict[str, Any]]:
 
 def _plain_chromium_command() -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
-    for proxy in ['', 'http://home.proxy.svc.cluster.local', 'home.example:3128', 'socks5://home.example:1080',
-                  'http://user:pass@proxy.example:3128', 'http://:pw@proxy.example', 'socks5://user:pw@h:1', 'http://h:x']:
+    for proxy in [
+        '',
+        'http://home.proxy.svc.cluster.local',
+        'home.example:3128',
+        'socks5://home.example:1080',
+        'http://user:pass@proxy.example:3128',
+        'http://:pw@proxy.example',
+        'socks5://user:pw@h:1',
+        'http://h:x',
+    ]:
         for url in ['https://x.com/i/flow/login', 'about:blank']:
             arguments = {
                 'executable': '/opt/chrome',
@@ -173,26 +182,28 @@ def _login_sites() -> list[dict[str, Any]]:
             sites = browser_login.login_sites()
         finally:
             settings.use(settings.Settings())
-        cases.append({
-            'bilibili_accounts': names,
-            'sites': [
-                {
-                    'key': site.key,
-                    'label': site.label,
-                    'login_url': site.login_url,
-                    'cookie_urls': list(site.cookie_urls),
-                    'session_cookie': site.session_cookie,
-                    'controlled': site.controlled,
-                    'store_cookie_values': site.store_cookie_values,
-                    'verifies_in_browser': site.verify_in_browser is not None,
-                    'has_profile_dir': site.profile_dir is not None,
-                    'has_lock_name': site.lock_name is not None,
-                    'has_after_login': site.after_login is not None,
-                    'hint': site.hint,
-                }
-                for site in sites.values()
-            ],
-        })
+        cases.append(
+            {
+                'bilibili_accounts': names,
+                'sites': [
+                    {
+                        'key': site.key,
+                        'label': site.label,
+                        'login_url': site.login_url,
+                        'cookie_urls': list(site.cookie_urls),
+                        'session_cookie': site.session_cookie,
+                        'controlled': site.controlled,
+                        'store_cookie_values': site.store_cookie_values,
+                        'verifies_in_browser': site.verify_in_browser is not None,
+                        'has_profile_dir': site.profile_dir is not None,
+                        'has_lock_name': site.lock_name is not None,
+                        'has_after_login': site.after_login is not None,
+                        'hint': site.hint,
+                    }
+                    for site in sites.values()
+                ],
+            }
+        )
     return cases
 
 
@@ -211,10 +222,9 @@ async def _capture(options: dict[str, Any], workdir: Path) -> list[str]:
     (workdir / 'argv').unlink(missing_ok=True)
     launch = {key: value for key, value in options.items() if key != 'env'}
     async with async_playwright() as playwright:
-        try:
+        # The recorder always exits 1; the arguments are what matter.
+        with contextlib.suppress(Exception):
             await playwright.chromium.launch_persistent_context(executable_path=str(recorder), timeout=10_000, **launch)
-        except Exception:  # noqa: BLE001, S110 - the recorder always exits 1; the arguments are what matter
-            pass
     argv = (workdir / 'argv').read_bytes().split(b'\0')[:-1]
     profile = str(launch['user_data_dir'])
     return [arg.decode().replace(profile, '<profile>') for arg in argv]
@@ -226,26 +236,34 @@ def _playwright_argv() -> list[dict[str, Any]]:
         workdir = Path(directory)
         profile = workdir / 'profile'
         builders = [
-            ('login', lambda proxy, headless: browser_login.build_login_launch_options(profile_dir=profile, proxy=proxy, display=99)),
+            ('login', lambda proxy, _headless: browser_login.build_login_launch_options(profile_dir=profile, proxy=proxy, display=99)),
             (
                 'rednote',
                 lambda proxy, headless: rednote_browser.build_launch_options(user_data_dir=profile, proxy=proxy, headless=headless),
             ),
         ]
-        proxies = ['', 'http://user:pw@proxy.example:3128', 'socks5://proxy.example:1080', 'https://proxy.example:443', 'http://proxy.example:80']
+        proxies = [
+            '',
+            'http://user:pw@proxy.example:3128',
+            'socks5://proxy.example:1080',
+            'https://proxy.example:443',
+            'http://proxy.example:80',
+        ]
         for name, build in builders:
-            for headless in ([False] if name == 'login' else [True, False]):
+            for headless in [False] if name == 'login' else [True, False]:
                 for proxy in proxies:
                     options = build(proxy, headless)
                     argv = asyncio.run(_capture(options, workdir))
-                    cases.append({
-                        'launch': name,
-                        'headless': headless,
-                        'proxy': proxy,
-                        'args': list(options['args']),
-                        'ignore_default_args': list(options['ignore_default_args']),
-                        'argv': argv,
-                    })
+                    cases.append(
+                        {
+                            'launch': name,
+                            'headless': headless,
+                            'proxy': proxy,
+                            'args': list(options['args']),
+                            'ignore_default_args': list(options['ignore_default_args']),
+                            'argv': argv,
+                        }
+                    )
     return cases
 
 

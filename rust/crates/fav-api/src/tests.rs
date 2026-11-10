@@ -90,9 +90,11 @@ impl Harness {
         let database = TestDatabase::create().await;
         database.db().ensure_schema().await.expect("the schema");
         let db = database.db().clone();
+        let settings = Arc::new(SettingsStore::new(db.clone()));
         let state = ApiState {
             token: TOKEN.to_owned(),
-            settings: Arc::new(SettingsStore::new(db.clone())),
+            browser_login: Arc::new(crate::default_browser_login(&db, &settings)),
+            settings,
             db,
             // Nothing here reaches it unless a test points it at its own fake.
             bot: BotClient::with_base_url("http://127.0.0.1:9").expect("a client"),
@@ -229,28 +231,7 @@ impl Harness {
     }
 
     pub(crate) async fn request(&self, method: &str, target: &str, headers: &[(&str, &str)], body: Option<&str>) -> Answer {
-        let (path, query_string) = target.split_once('?').unwrap_or((target, ""));
-        let mut header_map = HeaderMap::new();
-        header_map.insert("host", HeaderValue::from_static("testserver"));
-        for (name, value) in headers {
-            header_map.append(
-                HeaderName::from_bytes(name.to_lowercase().as_bytes()).expect("a header name"),
-                HeaderValue::from_bytes(value.as_bytes()).expect("a header value"),
-            );
-        }
-        let request = Request {
-            method: method.to_owned(),
-            path: percent_decode_str(path).decode_utf8_lossy().into_owned(),
-            query: form_urlencoded::parse(query_string.as_bytes()).into_owned().collect(),
-            query_string: query_string.to_owned(),
-            headers: header_map,
-            body: Bytes::from(body.unwrap_or_default().to_owned()),
-        };
-        let response = router::handle(&self.state, request).await;
-        let status = response.status().as_u16();
-        let headers = response.headers().clone();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.expect("a body");
-        Answer { status, headers, body }
+        request_state(&self.state, method, target, headers, body).await
     }
 
     async fn get(&self, target: &str) -> Answer {
@@ -268,6 +249,32 @@ impl Harness {
         )
         .await
     }
+}
+
+/// One request through the router, against any state.
+pub(crate) async fn request_state(state: &ApiState, method: &str, target: &str, headers: &[(&str, &str)], body: Option<&str>) -> Answer {
+    let (path, query_string) = target.split_once('?').unwrap_or((target, ""));
+    let mut header_map = HeaderMap::new();
+    header_map.insert("host", HeaderValue::from_static("testserver"));
+    for (name, value) in headers {
+        header_map.append(
+            HeaderName::from_bytes(name.to_lowercase().as_bytes()).expect("a header name"),
+            HeaderValue::from_bytes(value.as_bytes()).expect("a header value"),
+        );
+    }
+    let request = Request {
+        method: method.to_owned(),
+        path: percent_decode_str(path).decode_utf8_lossy().into_owned(),
+        query: form_urlencoded::parse(query_string.as_bytes()).into_owned().collect(),
+        query_string: query_string.to_owned(),
+        headers: header_map,
+        body: Bytes::from(body.unwrap_or_default().to_owned()),
+    };
+    let response = router::handle(state, request).await;
+    let status = response.status().as_u16();
+    let headers = response.headers().clone();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.expect("a body");
+    Answer { status, headers, body }
 }
 
 /// The headers Python's replay records (`_RESPONSE_HEADERS` and every

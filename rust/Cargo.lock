@@ -137,14 +137,11 @@ name = "api-coverage"
 version = "0.1.0"
 dependencies = [
  "axum",
- "chromiumoxide",
- "futures",
  "grammers-client",
  "http",
  "http-body-util",
  "rmcp",
  "serde_json",
- "tempfile",
  "tokio",
  "tower",
 ]
@@ -1111,15 +1108,19 @@ dependencies = [
 name = "fav-api"
 version = "0.1.0"
 dependencies = [
+ "async-tungstenite",
  "axum",
  "chrono",
  "chrono-tz",
+ "fav-browser",
  "fav-core",
  "fav-db",
  "fav-runtime",
  "fav-sources",
  "form_urlencoded",
  "futures-util",
+ "hyper",
+ "hyper-util",
  "percent-encoding",
  "regex",
  "serde_json",

@@ -255,6 +255,17 @@ Shared pieces that parallel work packages built twice, to fold together once bot
 - WP9 (`fav-api/src/openapi.rs`): `Op` gained `bare_responses` (responses without a JSON body, the sidebar's
   304); `mcp::fromisoformat` is re-exported for the sidebar sort key. Move `fromisoformat` to `fav-core` if a
   third caller appears.
+- WP16 (`fav-browser/src/testutil.rs`): `serve(answer)` is a small loopback HTTP server for the real-Chromium
+  tests (pages, a Basic-auth proxy), beside WP14's `FakeWeb` in `fav-sources` (which `fav-browser` cannot
+  depend on). Fold them into one test-support crate if a third copy appears.
+- WP16 for WP17: `fav_browser::driver` is the Playwright stand-in (`launch_persistent_context`, `Page::goto`,
+  `evaluate`, `wait_for_function`, `click_text`, mouse, `cookies(urls)`, CDP sessions), `chromium` the
+  launcher with Playwright's argv, `profile` the RedNote profile path and lock helpers, `rednote` the profile
+  id and client-hints reads, `proxy` the proxy split. RedNote's own crawl builds on these; the login window's
+  RedNote check is `fav_browser::site_checks::verify_rednote`.
+- WP16 for WP18: Chromium is looked up where Playwright 1.61 installs it
+  (`$PLAYWRIGHT_BROWSERS_PATH` or `~/.cache/ms-playwright`, then `chromium-1228/chrome-linux64/chrome`), and
+  the login window needs `Xvnc` (TigerVNC) on `PATH`, as the Python image has. The image must provide both.
 
 ## Experiment log
 

@@ -57,7 +57,8 @@ Notes for WP15:
 
 ## chromiumoxide 0.9.1 (WP16, WP17)
 
-Probe: `probes/api-coverage/src/cdp.rs`. Two tests drive a real headless Chromium against loopback servers
+Probe: `probes/api-coverage/src/cdp.rs` until WP16, which deleted it; the driver's own tests in
+`fav-browser/src/driver/tests.rs` cover the same ground. Two tests drove a real headless Chromium against loopback servers
 (`FAV_TEST_CHROMIUM`; CI points it at the runner's Chrome, and a missing binary fails in CI rather than skipping).
 
 | Python (`rednote_browser.py`, `nikke_runtime.py`, `browser_login.py`) | chromiumoxide | Checked |

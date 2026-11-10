@@ -157,8 +157,18 @@ tests = ["tests/test_telegram.py", "tests/test_telegram_queue.py"]
 
 [WP16]
 title = "CDP driver layer, login window"
-status = "pending"
-tests = ["tests/test_browser_login.py"]
+status = "done"
+tests = [
+    "tests/test_browser_login.py",
+    # The browser helpers the login window shares with RedNote: proxy splitting, the
+    # profile lock, and reading the profile id and client hints off a page.
+    "tests/test_rednote.py::test_proxy_credentials_are_split_out_of_the_url",
+    "tests/test_rednote.py::test_an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous",
+    "tests/test_rednote.py::test_a_killed_chromium_does_not_lock_the_profile_forever",
+    "tests/test_rednote.py::test_the_profile_id_is_never_taken_from_a_signed_out_page",
+    "tests/test_rednote.py::test_a_client_hints_read_cut_short_by_the_error_page_is_tried_again",
+    "tests/test_rednote.py::test_hints_that_never_come_back_cost_the_metadata_and_not_the_run",
+]
 
 [WP17]
 title = "RedNote, Nikke runtime capture"
