@@ -811,6 +811,12 @@ async fn list_characters_supports_pagination_and_search() {
     harness.finish().await;
 }
 
+// py: tests/test_azurlane.py::test_api_job_enum_includes_azurlane
+#[test]
+fn api_job_enum_includes_azurlane() {
+    assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"azurlane"));
+}
+
 // py: tests/test_azurlane_api.py::test_list_azurlane_sidebar_characters_returns_etagged_light_payload
 #[tokio::test]
 async fn list_sidebar_characters_returns_etagged_light_payload() {

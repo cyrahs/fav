@@ -7,7 +7,7 @@
 //! models of `src/api/schemas.py` ([`models`]). The library is [`library`]. Python makes it
 //! once, with the `web.azurlane.path` the settings held when the API started; here the path
 //! is read at each request and the library (with its cache) is rebuilt when it changes, as
-//! for NIKKE and BD2 (DIVERGENCES.md D95).
+//! for NIKKE and BD2 (DIVERGENCES.md D118).
 
 pub(crate) mod library;
 pub(crate) mod models;

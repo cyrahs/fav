@@ -116,7 +116,7 @@ tests = [
 
 [WP12]
 title = "Azur Lane crawl, manifests, API reader"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_azurlane.py",
     "tests/test_azurlane_api.py",

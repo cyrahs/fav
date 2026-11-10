@@ -10,7 +10,7 @@
 //! readiness routes use the first two) and the t2s conversion [`opencc`], WP8; [`nikke`] with
 //! [`nikke_layer_metadata`] and [`content_discovery`], WP9; [`bd2`] with the
 //! BD2-L2D-Viewer helpers [`bd2_l2d_viewer`], WP10; the Azur Lane source parsing, AZP2 envelope
-//! and health report in [`azurlane`] (its crawl follows in WP12), WP11. The post-link parsers
+//! and health report in [`azurlane`] (and its crawl, WP12), WP11. The post-link parsers
 //! WeChat and Telegram share (WP13), which are not sources of their own: [`post_links`] over
 //! [`wechat_article`], [`tieba_post`], [`nga_post`] and [`zhihu_post`], and the TikHub account
 //! check [`tikhub`] the API's settings page uses.
@@ -86,6 +86,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     hanime1::register(&mut registry, ctx);
     nikke::register(&mut registry, ctx);
     bd2::register(&mut registry, ctx);
+    azurlane::crawl::register(&mut registry, ctx);
     registry
 }
 

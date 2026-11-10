@@ -139,7 +139,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | done |
 | WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | done |
 | WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | done |
-| WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | pending |
+| WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | done |
 | WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | done |
 | WP14 | 5 message sources | WeChat with Channels videos and stickers | 1,700 | pending |
 | WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | pending |
@@ -215,21 +215,24 @@ Shared pieces that parallel work packages built twice, to fold together once bot
   small `int()`/`parse_qs` helpers, local to `fav-sources`; move to `fav-core` if a later source needs them.
 - WP9 (`fav-api/src/summary_cache.rs`, `fav-api/src/spine.rs`): the summary cache (version 1 only) and the
   Spine version probe are crate-level in `fav-api`, and WP10 folded BD2 onto them (and onto `fav-sources`'
-  `content_discovery`). Add version 2 (`read_summary_records`) here for WP12.
+  `content_discovery`). WP12 added version 2 (`read_summary_records`, the Azur Lane library's) beside it.
 - WP10 (`fav-api/src/live2d_overrides.rs`): the view-override store, model ids, overlay and routes serve both
   games (`Live2DSource::{Bd2, Nikke}`); `Live2DVector2`, `Live2DViewOverrideValue` and the request and
   response models are declared once there (`nikke::schema` refers to `Live2DViewOverrideValue` through
   `Ty::External`).
 - WP10 (`fav-api/src/response_models.rs`): BD2's response models are validated by small closures and their
   OpenAPI components written by hand in `openapi.rs`, while NIKKE's come from one field table
-  (`nikke::schema`) that drives both. Move that table to crate level and put BD2's and the Live2D models on it
-  when a later package (Azur Lane, WP12) adds models of the same kind.
+  (`nikke::schema`) that drives both. WP12 moved that table to crate level (`fav-api/src/schema.rs`) and put
+  BD2's, the Live2D view-override models and Azur Lane's on it.
 - WP10 (`fav-sources/src/bd2/gamekee.rs`): BD2's copy of the GameKee helpers Python imports from
   `src/web/nikke.py` (`Asset`, `add_asset`, `normalize_url`, `asset_headers`, `parse_spine_atlas_textures`,
   `original_filename_from_url`, `context_hash`, `materialize_blob`, `write_json`, ...), built while WP9 ported
   the same functions in `fav-sources/src/nikke.rs`. Fold both onto one GameKee module, keeping each side's
   golden tests (their signatures differ slightly: NIKKE's `context_hash` cannot fail, BD2's returns the JSON
-  error Python would raise).
+  error Python would raise). WP12's Azur Lane crawl reuses BD2's blob and retry helpers
+  (`bd2::gamekee::{materialize_blob, verify_file, write_json, sha256_hex, ...}`,
+  `bd2::extract::{retry_after_delay_seconds, retry_delay_seconds}`, now `pub(crate)`), as Python's
+  `src/web/azurlane.py` has copies of the same functions; the shared module should take them too.
 - WP10 (`fav-sources/src/bd2.rs`, `Bd2Crawler::viewer_resources`): the BD2-L2D-Viewer fetch builds its own
   `HttpClient` (as Python builds its own `httpx.Client`), against the CONVENTIONS rule that a source never
   builds its client. Inject a second client (or a factory) through `SourceContext` when a later package adds

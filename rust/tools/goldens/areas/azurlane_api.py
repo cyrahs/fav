@@ -28,7 +28,7 @@ AUTH = {'Authorization': f'Bearer {TOKEN}'}
 _RESPONSE_HEADERS = ('content-type', 'cache-control', 'etag', 'allow')
 
 
-def _asset(  # noqa: PLR0913 - mirrors the manifest asset fields
+def _asset(
     path: str,
     kind: str,
     context: dict[str, Any],
@@ -211,7 +211,9 @@ def _javelin(files: dict[str, str]) -> None:
         ],
     }
     files[f'{root}/manifest.json'] = json.dumps(manifest, ensure_ascii=False)
-    files[f'{root}/detail.json'] = json.dumps({'ship_id': 101, 'skins': [{'id': 1, 'name': '默认'}], 'stats': {'hp': 1.5}}, ensure_ascii=False)
+    files[f'{root}/detail.json'] = json.dumps(
+        {'ship_id': 101, 'skins': [{'id': 1, 'name': '默认'}], 'stats': {'hp': 1.5}}, ensure_ascii=False
+    )
 
 
 def _minimal(character_key: str, name_en: str, completed_at: str, source_id: int, **extra: Any) -> str:
@@ -339,7 +341,13 @@ def _fixture() -> dict[str, str]:
             'generated_at': '2026-08-13T05:33:57.726Z',
             'characters': [{'char_id': 1}],
             'new_skins': [
-                {'ship_group_id': 10720, 'ship_name': '本宁顿', 'skin_name': '盛夏', 'skin_type': 'Live2D+', 'skin_ids': [107201, '107202', 'x']},
+                {
+                    'ship_group_id': 10720,
+                    'ship_name': '本宁顿',
+                    'skin_name': '盛夏',
+                    'skin_type': 'Live2D+',
+                    'skin_ids': [107201, '107202', 'x'],
+                },
                 {'shipGroupId': '20', 'ship_group_id': None, 'shipName': 'camel', 'skinIds': None},
                 'junk',
             ],
@@ -480,7 +488,9 @@ def _replay(root: Path, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
             exchanges.append(exchange)
         # The matching ETag (alone, and inside a list) answers 304 with the same headers.
         for path, etag in etags.items():
-            exchanges.extend(_exchange(client, _req('GET', path, headers={**AUTH, 'If-None-Match': value})) for value in [etag, f'"other", {etag}'])
+            exchanges.extend(
+                _exchange(client, _req('GET', path, headers={**AUTH, 'If-None-Match': value})) for value in [etag, f'"other", {etag}']
+            )
     return exchanges
 
 

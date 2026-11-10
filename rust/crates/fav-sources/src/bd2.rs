@@ -10,8 +10,8 @@
 //! files being hard links to it, as in Python. The run holds the `bd2` advisory lock; the
 //! tables are created by the schema, not by the run (DIVERGENCES.md D96).
 
-mod extract;
-mod gamekee;
+pub(crate) mod extract;
+pub(crate) mod gamekee;
 #[cfg(test)]
 mod golden;
 #[cfg(test)]
