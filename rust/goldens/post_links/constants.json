@@ -7,6 +7,7 @@
     {
       "post_links.USER_AGENT": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
       "post_links.VIDEO_READ_SECONDS": 600.0,
+      "post_links._REQUEST_TIMEOUT_SECONDS": 60.0,
       "zhihu_post.USER_AGENT": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36",
       "nga_post.NGA_HOSTS": [
         "bbs.nga.cn",
@@ -17,6 +18,7 @@
         "ngabbs.com"
       ],
       "nga_post.READ_URL": "https://bbs.nga.cn/read.php",
+      "nga_post._SESSION_CHECK_URL": "https://bbs.nga.cn/nuke.php",
       "nga_post.LOGIN_COOKIES": [
         "ngaPassportUid",
         "ngaPassportCid"

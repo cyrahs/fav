@@ -1539,9 +1539,11 @@ def _constants() -> list[dict[str, Any]]:
         {
             'post_links.USER_AGENT': post_links.USER_AGENT,
             'post_links.VIDEO_READ_SECONDS': post_links.VIDEO_READ_SECONDS,
+            'post_links._REQUEST_TIMEOUT_SECONDS': post_links._REQUEST_TIMEOUT_SECONDS,  # noqa: SLF001
             'zhihu_post.USER_AGENT': zhihu_post.USER_AGENT,
             'nga_post.NGA_HOSTS': sorted(nga_post.NGA_HOSTS),
             'nga_post.READ_URL': nga_post.READ_URL,
+            'nga_post._SESSION_CHECK_URL': nga_post._SESSION_CHECK_URL,  # noqa: SLF001
             'nga_post.LOGIN_COOKIES': list(nga_post.LOGIN_COOKIES),
             'nga_post.SESSION_SITE': nga_post.SESSION_SITE,
             'nga_post.LOGIN_URL': nga_post.LOGIN_URL,

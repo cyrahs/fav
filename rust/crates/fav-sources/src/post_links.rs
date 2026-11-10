@@ -48,7 +48,7 @@ use crate::wechat_article::{
 use crate::zhihu_post::{self, ZhihuError};
 
 const ARTICLE_HOST: &str = "mp.weixin.qq.com";
-const REQUEST_TIMEOUT_SECONDS: u64 = 60;
+pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 60;
 /// How long a post's video may take to download from its CDN.
 pub const VIDEO_READ_SECONDS: u64 = 600;
 /// `httpx.Timeout(30.0, read=60.0)`, the TikHub lookup's.
@@ -298,7 +298,7 @@ impl PostClient {
                     if head.len() < 16 {
                         head.extend(chunk.iter().take(16 - head.len()));
                     }
-                    file.write_all(&chunk).await.map_err(|error| os_error(&error, partial))?;
+                    file.write_all(&chunk).await.map_err(|error| io_error(&error))?;
                 }
                 Ok(None) => break,
                 Err(error) => {
@@ -309,7 +309,7 @@ impl PostClient {
                 }
             }
         }
-        file.flush().await.map_err(|error| os_error(&error, partial))?;
+        file.flush().await.map_err(|error| io_error(&error))?;
         drop(file);
         if !is_mp4(&head) {
             log.info(format!("Post video {} is not an MP4", video.url));
@@ -321,6 +321,13 @@ impl PostClient {
 }
 
 /// `OSError` with Python's text, naming the file.
+/// An `OSError` from writing to an open file, which names no file in Python
+/// (`[Errno 28] No space left on device`).
+fn io_error(error: &std::io::Error) -> PyError {
+    PyError::new(io_class_name(error), py_os_error_text(error))
+}
+
+/// An `OSError` naming the file, as `mkdir`, `open` and `unlink` raise it.
 fn os_error(error: &std::io::Error, path: &Path) -> PyError {
     PyError::new(
         io_class_name(error),

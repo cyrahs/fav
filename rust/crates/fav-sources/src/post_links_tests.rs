@@ -845,3 +845,113 @@ async fn an_nga_read_records_whether_the_session_worked() {
         }
     }
 }
+
+// ---------- transport failures (the goldens leave them to these tests) ----------
+
+/// A WeChat page whose server hangs up is a post link error naming the canonical URL.
+#[tokio::test]
+async fn a_wechat_page_that_does_not_answer_could_not_be_read() {
+    let web = FakeWeb::start(|_| Reply::Close).await;
+    let link = ArticleLink::new("http://mp.weixin.qq.com/s?__biz=a&mid=1&idx=1&sn=b&chksm=c", "", "");
+    let error = link_error(links(&web, "").fetch_page(&link).await);
+    assert!(
+        error
+            .message
+            .starts_with("Could not read https://mp.weixin.qq.com/s?__biz=a&mid=1&idx=1&sn=b: "),
+        "{}",
+        error.message
+    );
+    assert_eq!((error.needs, error.captcha), (Needs::Nothing, false));
+}
+
+/// TikHub hanging up on a Zhihu lookup names the post and httpx's class.
+#[tokio::test]
+async fn a_tikhub_lookup_that_does_not_answer_names_the_post() {
+    let web = FakeWeb::start(|_| Reply::Close).await;
+    let link = ZhihuLink::new(ZhihuKind::Answer, "1");
+    let error = zhihu_post::fetch_post(&client(&web), &link, "http://api.tikhub.io", "key")
+        .await
+        .expect_err("fails");
+    let ZhihuError::Zhihu(message) = error else {
+        panic!("expected a Zhihu error, got {error:?}");
+    };
+    let prefix = format!("TikHub did not answer for {}: RemoteProtocolError: ", link.url());
+    assert!(message.starts_with(&prefix), "{message}");
+}
+
+/// Zhihu's lens hanging up is no play URL: the video falls back to the one in the post.
+#[tokio::test]
+async fn a_lens_lookup_that_does_not_answer_falls_back() {
+    let web = FakeWeb::start(|_| Reply::Close).await;
+    let video = ZhihuVideo {
+        id: "1".to_owned(),
+        fallback_url: "https://vdn3.vzuu.com/HD/p.mp4".to_owned(),
+        cover_url: String::new(),
+    };
+    let url = zhihu_post::resolve_video(&client(&web), &video).await.expect("no error");
+    assert_eq!(url, "https://vdn3.vzuu.com/HD/p.mp4");
+}
+
+/// NGA hanging up on the session check says it was unreachable, with httpx's class.
+#[tokio::test]
+async fn an_nga_check_that_does_not_answer_is_unreachable() {
+    let web = FakeWeb::start(|_| Reply::Close).await;
+    let check = verify_session_at(NGA_CHECK_URL, Some(&web.proxy), &nga_cookies(&NGA_LOGIN)).await;
+    assert!(!check.ok);
+    assert_eq!(check.message, "NGA unreachable: RemoteProtocolError");
+}
+
+/// The settings page's key check reports a TikHub that hangs up as unreachable.
+#[tokio::test]
+async fn a_tikhub_key_check_that_does_not_answer_is_unreachable() {
+    let web = FakeWeb::start(|_| Reply::Close).await;
+    let cfg = fav_core::settings::TikHub {
+        api_url: "http://api.tikhub.dev".to_owned(),
+        token: "key".to_owned(),
+    };
+    let error = crate::tikhub::check_account_via(&cfg, Some(&web.proxy)).await.expect_err("fails");
+    assert_eq!(error.code, "tikhub_unreachable");
+    assert!(
+        error.message.starts_with("TikHub did not answer: RemoteProtocolError: "),
+        "{}",
+        error.message
+    );
+}
+
+/// A video download that breaks off, before or during the body, is no video: it logs
+/// why and leaves no partial file behind.
+#[test]
+fn a_video_download_that_breaks_off_leaves_nothing_behind() {
+    for (name, reply) in [
+        ("hung up", Reply::Close),
+        (
+            "cut short",
+            Reply::Truncated {
+                status: 200,
+                sent: b"\0\0\0\x18ftypmp42".to_vec(),
+                length: 4096,
+            },
+        ),
+    ] {
+        let folder = tempfile::tempdir().expect("temporary folder");
+        let partial = folder.path().join("video.mp4.part");
+        std::fs::write(&partial, b"left from an earlier try").expect("written");
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+        let mut downloaded = None;
+        let records = fav_core::logging::capture(|| {
+            downloaded = Some(runtime.block_on(async {
+                let web = FakeWeb::start(move |_| reply.clone()).await;
+                client(&web)
+                    .fetch_video(&crate::wechat_article::PostVideo::new("http://v.example/v.mp4", ""), &partial)
+                    .await
+            }));
+        });
+        assert_eq!(downloaded.expect("ran"), Ok(false), "{name}");
+        assert!(!partial.exists(), "{name}: the partial file is gone");
+        let lines: Vec<&str> = records.iter().map(|record| record.message.as_str()).collect();
+        assert!(
+            lines.len() == 1 && lines[0].starts_with("Post video http://v.example/v.mp4 failed: "),
+            "{name}: {lines:?}"
+        );
+    }
+}

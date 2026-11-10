@@ -379,11 +379,17 @@ fn the_constants_are_pythons() {
     expect("post_links.USER_AGENT", text(post_links::USER_AGENT));
     #[allow(clippy::cast_precision_loss)] // reason: a small whole number of seconds
     expect("post_links.VIDEO_READ_SECONDS", Value::Float(post_links::VIDEO_READ_SECONDS as f64));
+    #[allow(clippy::cast_precision_loss)] // reason: a small whole number of seconds
+    expect(
+        "post_links._REQUEST_TIMEOUT_SECONDS",
+        Value::Float(post_links::REQUEST_TIMEOUT_SECONDS as f64),
+    );
     expect("zhihu_post.USER_AGENT", text(zhihu_post::USER_AGENT));
     let mut hosts = nga_post::NGA_HOSTS.to_vec();
     hosts.sort_unstable();
     expect("nga_post.NGA_HOSTS", list(&hosts));
     expect("nga_post.READ_URL", text(nga_post::READ_URL));
+    expect("nga_post._SESSION_CHECK_URL", text(nga_post::SESSION_CHECK_URL));
     expect("nga_post.LOGIN_COOKIES", list(&nga_post::LOGIN_COOKIES));
     expect("nga_post.SESSION_SITE", text(nga_post::SESSION_SITE));
     expect("nga_post.LOGIN_URL", text(nga_post::LOGIN_URL));
