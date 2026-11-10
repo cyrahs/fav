@@ -4,13 +4,20 @@
 //! `http://wx4.sinaimg.cn/large/abc.jpg` arrives here with its full URL and the handler
 //! answers for any host, as Python's mock transport does. It speaks HTTP/1.1 by hand so a
 //! handler can also drop the connection or stall, which is how transport errors are made.
+//!
+//! An `https://` request arrives as a `CONNECT` tunnel; the fake web answers the TLS
+//! handshake itself with a certificate for the host signed by a test authority, and a
+//! client built with [`test_roots`] trusts it. The request is then seen as `https://...`.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use fav_db::testdb::TestDatabase;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use rcgen::{CertificateParams, Issuer, KeyPair};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 /// A temporary database with fav's schema applied.
@@ -20,11 +27,62 @@ pub(crate) async fn database() -> TestDatabase {
     database
 }
 
+/// The test authority the fake web signs its `https://` sites with.
+struct Authority {
+    params: CertificateParams,
+    key: KeyPair,
+    der: Vec<u8>,
+    sites: Mutex<HashMap<String, Arc<rustls::ServerConfig>>>,
+}
+
+static AUTHORITY: LazyLock<Authority> = LazyLock::new(|| {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let key = KeyPair::generate().expect("key");
+    let mut params = CertificateParams::new(Vec::<String>::new()).expect("params");
+    params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    params.distinguished_name.push(rcgen::DnType::CommonName, "fav fake web");
+    let der = params.self_signed(&key).expect("authority").der().to_vec();
+    Authority {
+        params,
+        key,
+        der,
+        sites: Mutex::new(HashMap::new()),
+    }
+});
+
+impl Authority {
+    /// The server side of a TLS handshake for `host`.
+    fn site(&self, host: &str) -> Arc<rustls::ServerConfig> {
+        let mut sites = self.sites.lock().expect("lock");
+        let config = sites.entry(host.to_owned()).or_insert_with(|| {
+            let key = KeyPair::generate().expect("key");
+            let leaf = CertificateParams::new(vec![host.to_owned()])
+                .expect("params")
+                .signed_by(&key, &Issuer::from_params(&self.params, &self.key))
+                .expect("certificate");
+            let config = rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![CertificateDer::from(leaf.der().to_vec())],
+                    PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.serialize_der())),
+                )
+                .expect("server config");
+            Arc::new(config)
+        });
+        Arc::clone(config)
+    }
+}
+
+/// The roots a client trusts to reach the fake web's `https://` sites.
+pub(crate) fn test_roots() -> Vec<Vec<u8>> {
+    vec![AUTHORITY.der.clone()]
+}
+
 /// One request as the fake web saw it.
 #[derive(Debug, Clone)]
 pub(crate) struct Seen {
     pub method: String,
-    /// The absolute URL (`http://host/path?query`).
+    /// The absolute URL (`http://host/path?query`, or `https://` through a tunnel).
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -148,7 +206,44 @@ impl FakeWeb {
     }
 }
 
+/// A connection the fake web answers on: plain, or TLS inside a tunnel.
+trait Connection: AsyncRead + AsyncWrite + Unpin + Send {
+    /// Drop the connection with a TCP reset.
+    fn reset(self);
+}
+
+impl Connection for TcpStream {
+    fn reset(self) {
+        let _ = self.set_zero_linger();
+    }
+}
+
+impl Connection for tokio_rustls::server::TlsStream<TcpStream> {
+    fn reset(self) {
+        let (stream, _) = self.into_inner();
+        let _ = stream.set_zero_linger();
+    }
+}
+
 async fn serve(mut stream: TcpStream, handler: Handler, seen: Arc<Mutex<Vec<Seen>>>) {
+    let Some((head, rest)) = read_head(&mut stream).await else { return };
+    if head.starts_with("CONNECT ") {
+        let authority = head.split(' ').nth(1).unwrap_or_default().to_owned();
+        let host = authority.rsplit_once(':').map_or(authority.as_str(), |(host, _)| host).to_owned();
+        if stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.is_err() {
+            return;
+        }
+        let acceptor = tokio_rustls::TlsAcceptor::from(AUTHORITY.site(&host));
+        let Ok(mut tls) = acceptor.accept(stream).await else { return };
+        let Some((head, rest)) = read_head(&mut tls).await else { return };
+        answer(tls, "https", &head, rest, &handler, &seen).await;
+        return;
+    }
+    answer(stream, "http", &head, rest, &handler, &seen).await;
+}
+
+/// The request head, and whatever of the body came with it.
+async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> Option<(String, Vec<u8>)> {
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 8192];
     let header_end = loop {
@@ -156,11 +251,16 @@ async fn serve(mut stream: TcpStream, handler: Handler, seen: Arc<Mutex<Vec<Seen
             break end;
         }
         match stream.read(&mut chunk).await {
-            Ok(0) | Err(_) => return,
+            Ok(0) | Err(_) => return None,
             Ok(read) => buffer.extend_from_slice(&chunk[..read]),
         }
     };
     let head = String::from_utf8_lossy(&buffer[..header_end]).into_owned();
+    Some((head, buffer[header_end + 4..].to_vec()))
+}
+
+async fn answer(mut stream: impl Connection, scheme: &str, head: &str, mut body: Vec<u8>, handler: &Handler, seen: &Mutex<Vec<Seen>>) {
+    let mut chunk = [0_u8; 8192];
     let mut lines = head.split("\r\n");
     let request_line = lines.next().unwrap_or_default();
     let mut parts = request_line.split(' ');
@@ -175,7 +275,6 @@ async fn serve(mut stream: TcpStream, handler: Handler, seen: Arc<Mutex<Vec<Seen
         .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
         .and_then(|(_, value)| value.parse().ok())
         .unwrap_or(0);
-    let mut body = buffer[header_end + 4..].to_vec();
     while body.len() < length {
         match stream.read(&mut chunk).await {
             Ok(0) | Err(_) => break,
@@ -190,7 +289,7 @@ async fn serve(mut stream: TcpStream, handler: Handler, seen: Arc<Mutex<Vec<Seen
             .find(|(name, _)| name.eq_ignore_ascii_case("host"))
             .map(|(_, value)| value.clone())
             .unwrap_or_default();
-        format!("http://{host}{target}")
+        format!("{scheme}://{host}{target}")
     };
     let request = Seen {
         method,
@@ -202,10 +301,7 @@ async fn serve(mut stream: TcpStream, handler: Handler, seen: Arc<Mutex<Vec<Seen
     seen.lock().expect("lock").push(request);
     match reply {
         Reply::Close => {}
-        Reply::Reset => {
-            let _ = stream.set_zero_linger();
-            drop(stream);
-        }
+        Reply::Reset => stream.reset(),
         Reply::Truncated { status, sent, length } => {
             let head = format!("HTTP/1.1 {status} OK\r\nconnection: close\r\ncontent-length: {length}\r\n\r\n");
             let _ = stream.write_all(head.as_bytes()).await;
@@ -229,6 +325,7 @@ async fn serve(mut stream: TcpStream, handler: Handler, seen: Arc<Mutex<Vec<Seen
             let _ = stream.write_all(response.as_bytes()).await;
             let _ = stream.write_all(&body).await;
             let _ = stream.flush().await;
+            let _ = stream.shutdown().await;
         }
     }
 }

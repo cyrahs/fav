@@ -538,4 +538,58 @@ mod tests {
     fn api_job_enum_includes_twitter() {
         assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"twitter"));
     }
+
+    // py: tests/test_wechat.py::test_the_api_accepts_wechat_as_a_job_target
+    #[test]
+    fn the_api_accepts_wechat_as_a_job_target() {
+        assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"wechat"));
+    }
+
+    /// `{'msg_id': ..., 'create_time': 2025-10-05 03:13:20 UTC in ms}` and more columns.
+    fn wechat_row(msg_id: i64, extra: &[(&str, &str)]) -> Row {
+        let mut row: Row = vec![
+            ("msg_id".to_owned(), Value::from(msg_id)),
+            ("create_time".to_owned(), Value::from(1_759_634_000_000_i64)),
+        ];
+        row.extend(extra.iter().map(|(column, value)| ((*column).to_owned(), Value::from(*value))));
+        row
+    }
+
+    // py: tests/test_wechat.py::test_the_archive_lists_wechat_rows_without_an_external_link
+    #[test]
+    fn the_archive_lists_wechat_rows_without_an_external_link() {
+        let source = source("wechat").expect("wechat is archived");
+
+        assert_eq!(source.id_columns, ["msg_id", "create_time"]);
+        // The removed iLink source left a `wechat` table with another schema behind.
+        assert_eq!(source.table, "wechat_inbox");
+        let settings = fav_db::settings_store::default_settings();
+        assert_eq!(external_url(source, &wechat_row(1, &[]), &settings), None);
+    }
+
+    // py: tests/test_wechat.py::test_the_archive_lists_channels_videos
+    #[test]
+    fn the_archive_lists_channels_videos() {
+        let source = source("wechat_channel_video").expect("channels videos are archived");
+
+        assert_eq!(source.table, "wechat_channel_video");
+        assert_eq!(source.id_columns, ["msg_id", "create_time"]);
+        let settings = fav_db::settings_store::default_settings();
+        assert_eq!(external_url(source, &wechat_row(65, &[]), &settings), None);
+    }
+
+    // py: tests/test_wechat.py::test_the_archive_links_articles_to_their_canonical_url
+    #[test]
+    fn the_archive_links_articles_to_their_canonical_url() {
+        let source = source("wechat_article").expect("articles are archived");
+        let canonical = "https://mp.weixin.qq.com/s?__biz=MzA5==&mid=2247&idx=1&sn=abc123";
+
+        assert_eq!(source.table, "wechat_article");
+        assert_eq!(source.id_columns, ["msg_id", "create_time"]);
+        let settings = fav_db::settings_store::default_settings();
+        assert_eq!(
+            external_url(source, &wechat_row(44, &[("url", canonical)]), &settings).as_deref(),
+            Some(canonical)
+        );
+    }
 }

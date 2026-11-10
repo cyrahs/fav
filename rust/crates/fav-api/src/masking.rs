@@ -162,6 +162,30 @@ mod tests {
         }
     }
 
+    // py: tests/test_wechat.py::test_the_token_is_masked_and_survives_a_save_of_the_masked_form
+    #[test]
+    fn the_wechat_token_is_masked_and_survives_a_save_of_the_masked_form() {
+        let stored = parse(r#"{"api_url": "http://favinbox-oracle.proxy.svc", "token": "abcdef123456"}"#);
+
+        let masked = mask_section("web.wechat", &stored);
+        let merged = unmask_section("web.wechat", &masked, &stored);
+
+        assert_eq!(get(&masked, "token"), &Value::Str(format!("abcd{MASK_SUFFIX}")));
+        assert_eq!(get(&masked, "api_url"), get(&stored, "api_url"));
+        assert_eq!(merged, stored);
+    }
+
+    // py: tests/test_wechat.py::test_the_tikhub_key_is_masked_in_its_own_section
+    #[test]
+    fn the_tikhub_key_is_masked_in_its_own_section() {
+        let stored = parse(r#"{"api_url": "https://api.tikhub.io", "token": "tikhub-secret"}"#);
+
+        let masked = mask_section("services.tikhub", &stored);
+
+        assert_eq!(get(&masked, "token"), &Value::Str(format!("tikh{MASK_SUFFIX}")));
+        assert_eq!(unmask_section("services.tikhub", &masked, &stored), stored);
+    }
+
     // py: tests/test_settings_masking.py::test_a_nonsecret_field_is_left_alone
     #[test]
     fn a_nonsecret_field_is_left_alone() {
