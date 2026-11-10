@@ -81,12 +81,20 @@ pub(crate) enum Endpoint {
     TestTelegramNotification,
     ListArchiveSources,
     ListArchiveItems,
+    ListHanime1Videos,
+    CreateHanime1Seed,
+    ListHanime1Seeds,
+    DeleteHanime1Seed,
+    CreateHanime1Author,
+    ListHanime1Authors,
+    DeleteHanime1Author,
     ResolveKemonoCreator,
     ListSiteSessions,
     GetSiteCredential,
     /// The MCP endpoint, a plain route for every method (`crate::mcp`).
     Mcp,
     Health,
+    Readiness,
     Icon(&'static str),
 }
 
@@ -102,6 +110,7 @@ const GET: &[&str] = &["GET"];
 const GET_HEAD: &[&str] = &["GET", "HEAD"];
 const POST: &[&str] = &["POST"];
 const PUT: &[&str] = &["PUT"];
+const DELETE: &[&str] = &["DELETE"];
 /// A route without methods (an ASGI app as the endpoint) takes every method.
 const ANY: &[&str] = &[];
 
@@ -180,6 +189,41 @@ const ROUTES: &[Route] = &[
         endpoint: Endpoint::ListArchiveItems,
     },
     Route {
+        path: "/api/v2/hanime1/videos",
+        methods: GET,
+        endpoint: Endpoint::ListHanime1Videos,
+    },
+    Route {
+        path: "/api/v2/hanime1/seeds",
+        methods: POST,
+        endpoint: Endpoint::CreateHanime1Seed,
+    },
+    Route {
+        path: "/api/v2/hanime1/seeds",
+        methods: GET,
+        endpoint: Endpoint::ListHanime1Seeds,
+    },
+    Route {
+        path: "/api/v2/hanime1/seeds/{canonical_video_id}",
+        methods: DELETE,
+        endpoint: Endpoint::DeleteHanime1Seed,
+    },
+    Route {
+        path: "/api/v2/hanime1/authors",
+        methods: POST,
+        endpoint: Endpoint::CreateHanime1Author,
+    },
+    Route {
+        path: "/api/v2/hanime1/authors",
+        methods: GET,
+        endpoint: Endpoint::ListHanime1Authors,
+    },
+    Route {
+        path: "/api/v2/hanime1/authors/{author_id}",
+        methods: DELETE,
+        endpoint: Endpoint::DeleteHanime1Author,
+    },
+    Route {
         path: "/api/v2/kemono/creators/resolve",
         methods: POST,
         endpoint: Endpoint::ResolveKemonoCreator,
@@ -204,6 +248,11 @@ const ROUTES: &[Route] = &[
         methods: GET,
         endpoint: Endpoint::Health,
     },
+    Route {
+        path: "/readyz",
+        methods: GET,
+        endpoint: Endpoint::Readiness,
+    },
 ];
 
 impl Endpoint {
@@ -221,6 +270,13 @@ impl Endpoint {
                 | Self::TestTelegramNotification
                 | Self::ListArchiveSources
                 | Self::ListArchiveItems
+                | Self::ListHanime1Videos
+                | Self::CreateHanime1Seed
+                | Self::ListHanime1Seeds
+                | Self::DeleteHanime1Seed
+                | Self::CreateHanime1Author
+                | Self::ListHanime1Authors
+                | Self::DeleteHanime1Author
                 | Self::ResolveKemonoCreator
                 | Self::ListSiteSessions
         )

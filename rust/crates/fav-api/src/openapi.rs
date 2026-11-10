@@ -21,6 +21,7 @@ use utoipa::openapi::{
 };
 
 use crate::handlers::{JOB_REQUEST_STATUSES, JOB_REQUEST_TARGETS, SETTINGS_SECTION_PATTERN, SITE_PATTERN};
+use crate::hanime1::NUMERIC_ID_PATTERN;
 
 pub const API_TITLE: &str = "fav API";
 pub const API_DESCRIPTION: &str = "Internal control and Hanime1 scan-target creation API for fav.";
@@ -32,11 +33,6 @@ pub const PENDING: &[(&str, &str)] = &[
     ("/api/v2/services/tikhub/test", "WP13"),
     ("/api/v2/azurlane/proxy/test", "WP11"),
     ("/api/v2/rednote/proxy/test", "WP17"),
-    ("/api/v2/hanime1/videos", "WP8"),
-    ("/api/v2/hanime1/seeds", "WP8"),
-    ("/api/v2/hanime1/seeds/{canonical_video_id}", "WP8"),
-    ("/api/v2/hanime1/authors", "WP8"),
-    ("/api/v2/hanime1/authors/{author_id}", "WP8"),
     ("/api/v2/azurlane/characters", "WP12"),
     ("/api/v2/azurlane/sidebar/characters", "WP12"),
     ("/api/v2/azurlane/skin-updates", "WP12"),
@@ -58,7 +54,6 @@ pub const PENDING: &[(&str, &str)] = &[
     ),
     ("/api/v2/site-sessions/{site}/login", "WP16"),
     ("/api/v2/site-sessions/login", "WP16"),
-    ("/readyz", "WP8"),
 ];
 
 /// Routes outside the document that are pending too: the VNC relay.
@@ -159,9 +154,19 @@ fn list_model(name: &str, item: &str) -> RefOr<Schema> {
     )
 }
 
+/// A create body with one non-empty string field (`Hanime1SeedCreate`).
+fn create_model(name: &str, field: &'static str, title: &str) -> RefOr<Schema> {
+    model(
+        name,
+        None,
+        true,
+        vec![(field, typed(Type::String, title).min_length(Some(1)).into(), true)],
+    )
+}
+
 /// The components, alphabetically, as FastAPI lists them.
 fn schemas() -> Vec<(&'static str, RefOr<Schema>)> {
-    [schemas_a(), schemas_b(), schemas_c(), schemas_d()].concat()
+    [schemas_a(), schemas_hanime1(), schemas_b(), schemas_c(), schemas_c2(), schemas_d()].concat()
 }
 
 fn schemas_a() -> Vec<(&'static str, RefOr<Schema>)> {
@@ -216,6 +221,34 @@ fn schemas_a() -> Vec<(&'static str, RefOr<Schema>)> {
             ),
         ),
         (
+            "ComponentReadiness",
+            model(
+                "ComponentReadiness",
+                None,
+                true,
+                vec![
+                    (
+                        "status",
+                        typed(Type::String, "Status")
+                            .enum_values(Some(["ok", "degraded", "skipped"]))
+                            .into(),
+                        true,
+                    ),
+                    ("code", string("Code"), true),
+                    ("message", string("Message"), true),
+                    // pydantic writes `ge=0` as the float `0.0`, which utoipa's `minimum` would
+                    // turn into an integer.
+                    (
+                        "sampled_targets",
+                        typed(Type::Integer, "Sampled Targets")
+                            .extensions(Some(extensions(&[("minimum", json!(0.0))])))
+                            .into(),
+                        true,
+                    ),
+                ],
+            ),
+        ),
+        (
             "CredentialCookie",
             model(
                 "CredentialCookie",
@@ -235,15 +268,6 @@ fn schemas_a() -> Vec<(&'static str, RefOr<Schema>)> {
 
 fn schemas_b() -> Vec<(&'static str, RefOr<Schema>)> {
     vec![
-        (
-            "HTTPValidationError",
-            model(
-                "HTTPValidationError",
-                None,
-                false,
-                vec![("detail", array_of(reference("ValidationError"), "Detail"), false)],
-            ),
-        ),
         (
             "HealthResponse",
             model(
@@ -354,6 +378,150 @@ fn schemas_c() -> Vec<(&'static str, RefOr<Schema>)> {
                     ("deadline", nullable(Type::String, "Deadline"), false),
                     ("finished_at", nullable(Type::String, "Finished At"), false),
                     ("ticket", with_default(typed(Type::String, "Ticket"), json!("")), false),
+                ],
+            ),
+        ),
+    ]
+}
+
+/// `HTTPValidationError` and the Hanime1 models, which sort between it and `HealthResponse`.
+#[allow(clippy::too_many_lines)] // One entry per model of `schemas.py`, as the other lists.
+fn schemas_hanime1() -> Vec<(&'static str, RefOr<Schema>)> {
+    vec![
+        (
+            "HTTPValidationError",
+            model(
+                "HTTPValidationError",
+                None,
+                false,
+                vec![("detail", array_of(reference("ValidationError"), "Detail"), false)],
+            ),
+        ),
+        (
+            "Hanime1Author",
+            model(
+                "Hanime1Author",
+                None,
+                true,
+                vec![
+                    ("author_id", string("Author Id"), true),
+                    ("name", string("Name"), true),
+                    ("author_url", string("Author Url"), true),
+                ],
+            ),
+        ),
+        ("Hanime1AuthorCreate", create_model("Hanime1AuthorCreate", "author", "Author")),
+        (
+            "Hanime1AuthorDetail",
+            model(
+                "Hanime1AuthorDetail",
+                None,
+                true,
+                vec![
+                    ("author_id", string("Author Id"), true),
+                    ("name", string("Name"), true),
+                    ("author_url", string("Author Url"), true),
+                    ("video_count", integer("Video Count"), true),
+                    ("created_at", nullable(Type::String, "Created At"), false),
+                    ("updated_at", nullable(Type::String, "Updated At"), false),
+                    ("last_scanned_at", nullable(Type::String, "Last Scanned At"), false),
+                    (
+                        "last_scan_error",
+                        with_default(typed(Type::String, "Last Scan Error"), json!("")),
+                        false,
+                    ),
+                ],
+            ),
+        ),
+        (
+            "Hanime1AuthorListResponse",
+            list_model("Hanime1AuthorListResponse", "Hanime1AuthorDetail"),
+        ),
+        ("Hanime1ListResponse", list_model("Hanime1ListResponse", "Hanime1Video")),
+        (
+            "Hanime1Seed",
+            model(
+                "Hanime1Seed",
+                None,
+                true,
+                vec![
+                    ("video_id", string("Video Id"), true),
+                    ("title", string("Title"), true),
+                    ("label", string("Label"), true),
+                ],
+            ),
+        ),
+        ("Hanime1SeedCreate", create_model("Hanime1SeedCreate", "seed", "Seed")),
+        (
+            "Hanime1SeedDetail",
+            model(
+                "Hanime1SeedDetail",
+                None,
+                true,
+                vec![
+                    ("video_id", string("Video Id"), true),
+                    ("title", string("Title"), true),
+                    ("label", string("Label"), true),
+                    ("added_from_video_id", string("Added From Video Id"), true),
+                    ("video_count", integer("Video Count"), true),
+                    ("created_at", nullable(Type::String, "Created At"), false),
+                    ("updated_at", nullable(Type::String, "Updated At"), false),
+                    ("last_scanned_at", nullable(Type::String, "Last Scanned At"), false),
+                    (
+                        "last_scan_error",
+                        with_default(typed(Type::String, "Last Scan Error"), json!("")),
+                        false,
+                    ),
+                    ("watch_url", string("Watch Url"), true),
+                ],
+            ),
+        ),
+        (
+            "Hanime1SeedListResponse",
+            list_model("Hanime1SeedListResponse", "Hanime1SeedDetail"),
+        ),
+        (
+            "Hanime1Video",
+            model(
+                "Hanime1Video",
+                None,
+                true,
+                vec![
+                    ("video_id", string("Video Id"), true),
+                    ("title", string("Title"), true),
+                    ("downloaded", boolean("Downloaded"), true),
+                    ("uploader", nullable(Type::String, "Uploader"), false),
+                    ("release_date", nullable(Type::String, "Release Date"), false),
+                    ("plot", nullable(Type::String, "Plot"), false),
+                    ("watch_url", string("Watch Url"), true),
+                ],
+            ),
+        ),
+    ]
+}
+
+fn schemas_c2() -> Vec<(&'static str, RefOr<Schema>)> {
+    vec![
+        (
+            "ReadinessResponse",
+            model(
+                "ReadinessResponse",
+                None,
+                true,
+                vec![
+                    (
+                        "status",
+                        typed(Type::String, "Status").enum_values(Some(["ok", "degraded"])).into(),
+                        true,
+                    ),
+                    ("generated_at", string("Generated At"), true),
+                    (
+                        "checks",
+                        typed(Type::Object, "Checks")
+                            .additional_properties(Some(AdditionalProperties::RefOr(reference("ComponentReadiness"))))
+                            .into(),
+                        true,
+                    ),
                 ],
             ),
         ),
@@ -486,7 +654,10 @@ struct Op {
     id: &'static str,
     description: Option<&'static str>,
     status: &'static str,
+    /// The response model; empty for a response without a body (a 204).
     response: &'static str,
+    /// Further responses with the same model (`responses={503: ...}`): status, description.
+    extra_responses: Vec<(&'static str, &'static str)>,
     parameters: Vec<utoipa::openapi::path::Parameter>,
     body: Option<RefOr<Schema>>,
 }
@@ -500,6 +671,7 @@ impl Op {
             description: None,
             status: "200",
             response,
+            extra_responses: Vec::new(),
             parameters: Vec::new(),
             body: None,
         }
@@ -508,17 +680,26 @@ impl Op {
     fn build(self) -> utoipa::openapi::path::Operation {
         let json_content = |schema: RefOr<Schema>| ContentBuilder::new().schema(Some(schema)).build();
         let validates = !self.parameters.is_empty() || self.body.is_some();
+        let success = ResponseBuilder::new().description("Successful Response");
+        let success = if self.response.is_empty() {
+            success
+        } else {
+            success.content("application/json", json_content(reference(self.response)))
+        };
         let mut builder = OperationBuilder::new()
             .tag(self.tag)
             .summary(Some(self.summary))
             .description(self.description)
             .operation_id(Some(self.id))
-            .response(
-                self.status,
+            .response(self.status, success);
+        for (status, description) in self.extra_responses {
+            builder = builder.response(
+                status,
                 ResponseBuilder::new()
-                    .description("Successful Response")
+                    .description(description)
                     .content("application/json", json_content(reference(self.response))),
             );
+        }
         if validates {
             builder = builder.response(
                 "422",
@@ -576,6 +757,7 @@ fn section_parameter() -> utoipa::openapi::path::Parameter {
 fn paths() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     let mut paths = paths_a();
     paths.extend(paths_b());
+    paths.extend(paths_hanime1());
     paths.extend(paths_c());
     paths
 }
@@ -724,6 +906,89 @@ fn paths_b() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     ]
 }
 
+fn numeric_id_parameter(name: &str, title: &str) -> utoipa::openapi::path::Parameter {
+    parameter(
+        name,
+        ParameterIn::Path,
+        true,
+        typed(Type::String, title)
+            .min_length(Some(1))
+            .max_length(Some(32))
+            .pattern(Some(NUMERIC_ID_PATTERN))
+            .into(),
+    )
+}
+
+/// The Hanime1 paths. Python's document lists `get` before `post` on the seed and author
+/// paths although the `POST` routes are registered first, so they are written that way.
+fn paths_hanime1() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
+    vec![
+        (
+            "/api/v2/hanime1/videos",
+            vec![(
+                HttpMethod::Get,
+                Op::new("hanime1", "List Hanime1 Videos", "listHanime1Videos", "Hanime1ListResponse"),
+            )],
+        ),
+        (
+            "/api/v2/hanime1/seeds",
+            vec![
+                (
+                    HttpMethod::Get,
+                    Op::new("hanime1", "List Hanime1 Seeds", "listHanime1Seeds", "Hanime1SeedListResponse"),
+                ),
+                (
+                    HttpMethod::Post,
+                    Op {
+                        status: "201",
+                        body: Some(reference("Hanime1SeedCreate")),
+                        ..Op::new("hanime1", "Create Hanime1 Seed", "createHanime1Seed", "Hanime1Seed")
+                    },
+                ),
+            ],
+        ),
+        (
+            "/api/v2/hanime1/seeds/{canonical_video_id}",
+            vec![(
+                HttpMethod::Delete,
+                Op {
+                    status: "204",
+                    parameters: vec![numeric_id_parameter("canonical_video_id", "Canonical Video Id")],
+                    ..Op::new("hanime1", "Delete Hanime1 Seed", "deleteHanime1Seed", "")
+                },
+            )],
+        ),
+        (
+            "/api/v2/hanime1/authors",
+            vec![
+                (
+                    HttpMethod::Get,
+                    Op::new("hanime1", "List Hanime1 Authors", "listHanime1Authors", "Hanime1AuthorListResponse"),
+                ),
+                (
+                    HttpMethod::Post,
+                    Op {
+                        status: "201",
+                        body: Some(reference("Hanime1AuthorCreate")),
+                        ..Op::new("hanime1", "Create Hanime1 Author", "createHanime1Author", "Hanime1Author")
+                    },
+                ),
+            ],
+        ),
+        (
+            "/api/v2/hanime1/authors/{author_id}",
+            vec![(
+                HttpMethod::Delete,
+                Op {
+                    status: "204",
+                    parameters: vec![numeric_id_parameter("author_id", "Author Id")],
+                    ..Op::new("hanime1", "Delete Hanime1 Author", "deleteHanime1Author", "")
+                },
+            )],
+        ),
+    ]
+}
+
 fn paths_c() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     vec![
         (
@@ -768,6 +1033,16 @@ fn paths_c() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
         (
             "/healthz",
             vec![(HttpMethod::Get, Op::new("system", "Get Health", "getHealth", "HealthResponse"))],
+        ),
+        (
+            "/readyz",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    extra_responses: vec![("503", "Service Unavailable")],
+                    ..Op::new("system", "Get Readiness", "getReadiness", "ReadinessResponse")
+                },
+            )],
         ),
     ]
 }

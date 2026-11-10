@@ -102,6 +102,9 @@ impl Harness {
             clock: fixed_clock(),
             mcp: test_mcp_state(),
             kemono_creators: Arc::new(FakeResolver::default()),
+            hanime1_series: Arc::new(FakeSeries::default()),
+            hanime1_authors: Arc::new(FakeAuthors::default()),
+            readiness: crate::hanime1::Readiness::default(),
         };
         Self { database, state }
     }
@@ -1110,7 +1113,7 @@ async fn the_front_end_is_served_with_its_deep_links() {
     assert_eq!(harness.request("HEAD", "/logins", &[], None).await.status, 200);
     // The backend's paths stay JSON errors.
     // `/mcp` itself is the MCP endpoint (its own tests); below it is not.
-    for path in ["/api/v2/nope", "/mcp/x", "/readyz", "/docs/nope", "/healthz/x"] {
+    for path in ["/api/v2/nope", "/mcp/x", "/readyz/x", "/docs/nope", "/healthz/x"] {
         let answer = harness.request("GET", path, &[], None).await;
         assert_eq!(answer.status, 404, "{path}");
         assert_eq!(answer.error_code(), "not_found", "{path}");
@@ -1294,4 +1297,657 @@ async fn resolve_kemono_creator_maps_errors() {
         assert_eq!(answer.json(), pyjson::loads(&expected).unwrap());
         harness.finish().await;
     }
+}
+
+// ---------- hanime1 ----------
+
+/// `_RuntimeService`: seeds in memory, scripted readiness targets and probe outcomes.
+#[derive(Default)]
+pub(crate) struct FakeSeries {
+    pub(crate) seeds: std::sync::Mutex<Vec<fav_sources::runtime_config::RuntimeSeriesSeed>>,
+    pub(crate) add_error: std::sync::Mutex<Option<fav_sources::hanime1_series::ServiceError>>,
+    pub(crate) added: std::sync::Mutex<Vec<String>>,
+    pub(crate) deleted: std::sync::Mutex<Vec<String>>,
+    pub(crate) readiness_ids: std::sync::Mutex<Vec<String>>,
+    pub(crate) readiness_delay: std::sync::Mutex<std::time::Duration>,
+    pub(crate) readiness_calls: std::sync::Mutex<usize>,
+    pub(crate) probe_errors: std::sync::Mutex<std::collections::HashMap<String, fav_sources::hanime1_series::ProbeError>>,
+    pub(crate) probe_delays: std::sync::Mutex<std::collections::HashMap<String, std::time::Duration>>,
+    pub(crate) probe_calls: std::sync::Mutex<Vec<String>>,
+}
+
+impl FakeSeries {
+    fn with_seed(video_id: &str, title: &str) -> Self {
+        let fake = Self::default();
+        fake.seeds.lock().unwrap().push(fav_sources::runtime_config::RuntimeSeriesSeed {
+            video_id: video_id.to_owned(),
+            title: title.to_owned(),
+        });
+        fake
+    }
+
+    fn set_readiness_ids(&self, ids: &[&str]) {
+        *self.readiness_ids.lock().unwrap() = ids.iter().map(|id| (*id).to_owned()).collect();
+    }
+}
+
+impl fav_sources::hanime1_series::SeriesSubscriptions for FakeSeries {
+    fn add<'a>(
+        &'a self,
+        raw_seed: &'a str,
+    ) -> fav_runtime::BoxFuture<'a, Result<fav_sources::runtime_config::RuntimeSeriesSeed, fav_sources::hanime1_series::ServiceError>> {
+        Box::pin(async move {
+            self.added.lock().unwrap().push(raw_seed.to_owned());
+            if let Some(error) = self.add_error.lock().unwrap().clone() {
+                return Err(error);
+            }
+            let seed = fav_sources::runtime_config::RuntimeSeriesSeed {
+                video_id: "12488".to_owned(),
+                title: "屈辱".to_owned(),
+            };
+            self.seeds.lock().unwrap().push(seed.clone());
+            Ok(seed)
+        })
+    }
+
+    fn list(
+        &self,
+    ) -> fav_runtime::BoxFuture<'_, Result<Vec<fav_sources::hanime1_series::SeedDetail>, fav_sources::hanime1_series::ServiceError>> {
+        Box::pin(async move {
+            Ok(self
+                .seeds
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|seed| fav_sources::hanime1_series::SeedDetail {
+                    video_id: seed.video_id.clone(),
+                    title: seed.title.clone(),
+                    label: seed.label().unwrap(),
+                    added_from_video_id: seed.video_id.clone(),
+                    video_count: 1,
+                    created_at: fixed_now(),
+                    updated_at: fixed_now(),
+                    last_scanned_at: None,
+                    last_scan_error: String::new(),
+                    watch_url: format!("https://hanime1.me/watch?v={}", seed.video_id),
+                })
+                .collect())
+        })
+    }
+
+    fn delete<'a>(
+        &'a self,
+        canonical_video_id: &'a str,
+    ) -> fav_runtime::BoxFuture<'a, Result<bool, fav_sources::hanime1_series::ServiceError>> {
+        Box::pin(async move {
+            let mut seeds = self.seeds.lock().unwrap();
+            let before = seeds.len();
+            seeds.retain(|seed| seed.video_id != canonical_video_id);
+            self.deleted.lock().unwrap().push(canonical_video_id.to_owned());
+            Ok(seeds.len() != before)
+        })
+    }
+
+    fn readiness_seed_ids(&self, limit: i64) -> fav_runtime::BoxFuture<'_, Result<Vec<String>, String>> {
+        Box::pin(async move {
+            *self.readiness_calls.lock().unwrap() += 1;
+            let delay = *self.readiness_delay.lock().unwrap();
+            tokio::time::sleep(delay).await;
+            let ids = self.readiness_ids.lock().unwrap();
+            Ok(ids.iter().take(usize::try_from(limit).unwrap()).cloned().collect())
+        })
+    }
+
+    fn probe_seed<'a>(
+        &'a self,
+        seed_id: &'a str,
+        timeout: std::time::Duration,
+    ) -> fav_runtime::BoxFuture<'a, Result<(), fav_sources::hanime1_series::ProbeError>> {
+        Box::pin(async move {
+            assert_eq!(timeout, std::time::Duration::from_secs(10));
+            self.probe_calls.lock().unwrap().push(seed_id.to_owned());
+            let delay = self.probe_delays.lock().unwrap().get(seed_id).copied().unwrap_or_default();
+            tokio::time::sleep(delay).await;
+            match self.probe_errors.lock().unwrap().get(seed_id) {
+                Some(error) => Err(error.clone()),
+                None => Ok(()),
+            }
+        })
+    }
+}
+
+/// `_AuthorService`.
+#[derive(Default)]
+pub(crate) struct FakeAuthors {
+    pub(crate) authors: std::sync::Mutex<Vec<fav_sources::hanime1_author::AuthorDetail>>,
+    pub(crate) add_error: std::sync::Mutex<Option<fav_sources::hanime1_series::ServiceError>>,
+    pub(crate) added: std::sync::Mutex<Vec<String>>,
+    pub(crate) deleted: std::sync::Mutex<Vec<String>>,
+}
+
+impl fav_sources::hanime1_author::AuthorSubscriptions for FakeAuthors {
+    fn add<'a>(
+        &'a self,
+        raw_author: &'a str,
+    ) -> fav_runtime::BoxFuture<'a, Result<fav_sources::hanime1_author::AddedAuthor, fav_sources::hanime1_series::ServiceError>> {
+        Box::pin(async move {
+            self.added.lock().unwrap().push(raw_author.to_owned());
+            if let Some(error) = self.add_error.lock().unwrap().clone() {
+                return Err(error);
+            }
+            Ok(fav_sources::hanime1_author::AddedAuthor {
+                author_id: "202534".to_owned(),
+                name: "Maplestar".to_owned(),
+                author_url: "https://hanime1.me/user/202534/uploaded".to_owned(),
+            })
+        })
+    }
+
+    fn list(
+        &self,
+    ) -> fav_runtime::BoxFuture<'_, Result<Vec<fav_sources::hanime1_author::AuthorDetail>, fav_sources::hanime1_series::ServiceError>> {
+        Box::pin(async move { Ok(self.authors.lock().unwrap().clone()) })
+    }
+
+    fn delete<'a>(&'a self, author_id: &'a str) -> fav_runtime::BoxFuture<'a, Result<bool, fav_sources::hanime1_series::ServiceError>> {
+        Box::pin(async move {
+            let mut authors = self.authors.lock().unwrap();
+            let before = authors.len();
+            authors.retain(|author| author.author_id != author_id);
+            self.deleted.lock().unwrap().push(author_id.to_owned());
+            Ok(authors.len() != before)
+        })
+    }
+}
+
+fn error_envelope(code: &str, message: &str) -> Value {
+    pyjson::loads(&format!(
+        r#"{{"error": {{"code": "{code}", "message": "{message}", "details": null}}}}"#
+    ))
+    .unwrap()
+}
+
+/// `_build_service` turns Hanime1 on, which readiness needs.
+async fn readiness_harness(series: Arc<FakeSeries>) -> Harness {
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_series = series;
+    harness
+        .store_settings("web.hanime1", &pyjson::loads(r#"{"enabled": true}"#).unwrap())
+        .await;
+    harness
+}
+
+fn hanime1_check(answer: &Answer) -> Value {
+    golden::get(golden::get(&answer.json(), "checks"), "hanime1").clone()
+}
+
+// py: tests/test_api_server.py::test_readiness_endpoint_returns_ok_when_any_hanime1_probe_succeeds
+#[tokio::test]
+async fn readiness_endpoint_returns_ok_when_any_hanime1_probe_succeeds() {
+    use fav_sources::hanime1_series::ProbeError;
+    let series = Arc::new(FakeSeries::default());
+    series.set_readiness_ids(&["100", "200", "300"]);
+    series.probe_errors.lock().unwrap().extend([
+        ("100".to_owned(), ProbeError::ParserIncompatible),
+        ("200".to_owned(), ProbeError::Other("RuntimeError: upstream failed".to_owned())),
+    ]);
+    let harness = readiness_harness(series.clone()).await;
+
+    let answer = harness.request("GET", "/readyz", &[], None).await;
+
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(golden::string(golden::get(&answer.json(), "status")), "ok");
+    assert_eq!(
+        hanime1_check(&answer),
+        pyjson::loads(r#"{"status": "ok", "code": "ok", "message": "Hanime1 playlist parsing is healthy.", "sampled_targets": 3}"#)
+            .unwrap()
+    );
+    let mut calls = series.probe_calls.lock().unwrap().clone();
+    calls.sort();
+    assert_eq!(calls, ["100", "200", "300"]);
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_readiness_endpoint_returns_on_first_success
+#[tokio::test]
+async fn readiness_endpoint_returns_on_first_success() {
+    let series = Arc::new(FakeSeries::default());
+    series.set_readiness_ids(&["fast", "slow"]);
+    series
+        .probe_delays
+        .lock()
+        .unwrap()
+        .insert("slow".to_owned(), std::time::Duration::from_millis(200));
+    let mut harness = readiness_harness(series).await;
+    harness.state.readiness.total_timeout = std::time::Duration::from_millis(50);
+
+    let answer = harness.request("GET", "/readyz", &[], None).await;
+
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(golden::string(golden::get(&answer.json(), "status")), "ok");
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_readiness_total_budget_includes_target_loading
+#[tokio::test]
+async fn readiness_total_budget_includes_target_loading() {
+    let series = Arc::new(FakeSeries::default());
+    *series.readiness_delay.lock().unwrap() = std::time::Duration::from_millis(50);
+    let mut harness = readiness_harness(series).await;
+    harness.state.readiness.total_timeout = std::time::Duration::from_millis(10);
+
+    let answer = harness.request("GET", "/readyz", &[], None).await;
+
+    assert_eq!(answer.status, 503);
+    let check = hanime1_check(&answer);
+    assert_eq!(golden::string(golden::get(&check, "code")), "upstream_timeout");
+    assert_eq!(golden::int(golden::get(&check, "sampled_targets")), 0);
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_readiness_endpoint_returns_degraded_for_incompatible_parser
+#[tokio::test]
+async fn readiness_endpoint_returns_degraded_for_incompatible_parser() {
+    use fav_sources::hanime1_series::ProbeError;
+    let series = Arc::new(FakeSeries::default());
+    series.set_readiness_ids(&["100", "200"]);
+    series.probe_errors.lock().unwrap().extend([
+        ("100".to_owned(), ProbeError::ParserIncompatible),
+        ("200".to_owned(), ProbeError::ParserIncompatible),
+    ]);
+    let harness = readiness_harness(series).await;
+
+    let answer = harness.request("GET", "/readyz", &[], None).await;
+
+    assert_eq!(answer.status, 503);
+    assert_eq!(golden::string(golden::get(&answer.json(), "status")), "degraded");
+    let check = hanime1_check(&answer);
+    assert_eq!(golden::string(golden::get(&check, "code")), "parser_incompatible");
+    assert_eq!(golden::int(golden::get(&check, "sampled_targets")), 2);
+    harness.finish().await;
+}
+
+#[tokio::test]
+async fn readiness_classifies_mixed_and_timed_out_probes() {
+    use fav_sources::hanime1_series::ProbeError;
+    let other = || ProbeError::Other("HTTPStatusError: 503".to_owned());
+    for (errors, code) in [
+        (vec![ProbeError::Timeout, ProbeError::Timeout], "upstream_timeout"),
+        (vec![ProbeError::ParserIncompatible, other()], "probe_failed"),
+        (vec![ProbeError::Timeout, other()], "upstream_unavailable"),
+    ] {
+        let series = Arc::new(FakeSeries::default());
+        series.set_readiness_ids(&["1", "2"]);
+        series.probe_errors.lock().unwrap().extend(
+            errors
+                .into_iter()
+                .enumerate()
+                .map(|(index, error)| ((index + 1).to_string(), error)),
+        );
+        let harness = readiness_harness(series).await;
+        let answer = harness.request("GET", "/readyz", &[], None).await;
+        assert_eq!(answer.status, 503, "{code}");
+        assert_eq!(golden::string(golden::get(&hanime1_check(&answer), "code")), code);
+        harness.finish().await;
+    }
+}
+
+// py: tests/test_api_server.py::test_readiness_endpoint_skips_when_no_targets_and_caches_for_five_minutes
+#[tokio::test]
+async fn readiness_endpoint_skips_when_no_targets_and_caches_for_five_minutes() {
+    let now = Arc::new(std::sync::Mutex::new(std::time::Duration::ZERO));
+    let series = Arc::new(FakeSeries::default());
+    let mut harness = readiness_harness(series.clone()).await;
+    let clock = Arc::clone(&now);
+    harness.state.readiness = crate::hanime1::Readiness::new(Arc::new(move || *clock.lock().unwrap()));
+
+    let first = harness.request("GET", "/readyz", &[], None).await;
+    series.set_readiness_ids(&["100"]);
+    *now.lock().unwrap() = std::time::Duration::from_secs(299);
+    let second = harness.request("GET", "/readyz", &[], None).await;
+    *now.lock().unwrap() = std::time::Duration::from_mins(5);
+    let third = harness.request("GET", "/readyz", &[], None).await;
+
+    assert_eq!(first.status, 200);
+    assert_eq!(golden::string(golden::get(&hanime1_check(&first), "code")), "no_targets");
+    assert_eq!(second.json(), first.json());
+    assert_eq!(golden::string(golden::get(&hanime1_check(&third), "code")), "ok");
+    assert_eq!(*series.readiness_calls.lock().unwrap(), 2);
+    assert_eq!(*series.probe_calls.lock().unwrap(), ["100"]);
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_readiness_endpoint_skips_when_hanime1_is_disabled
+#[tokio::test]
+async fn readiness_endpoint_skips_when_hanime1_is_disabled() {
+    let series = Arc::new(FakeSeries::default());
+    series.set_readiness_ids(&["100"]);
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_series = series.clone();
+
+    let answer = harness.request("GET", "/readyz", &[], None).await;
+
+    assert_eq!(answer.status, 200);
+    assert_eq!(
+        hanime1_check(&answer),
+        pyjson::loads(r#"{"status": "skipped", "code": "disabled", "message": "Hanime1 is disabled.", "sampled_targets": 0}"#).unwrap()
+    );
+    assert_eq!(golden::string(golden::get(&answer.json(), "generated_at")), "2026-03-02T00:00:00Z");
+    assert!(series.probe_calls.lock().unwrap().is_empty());
+    harness.finish().await;
+}
+
+#[tokio::test]
+async fn readiness_reports_unloadable_targets() {
+    struct Broken;
+    impl fav_sources::hanime1_series::SeriesSubscriptions for Broken {
+        fn add<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> fav_runtime::BoxFuture<'a, Result<fav_sources::runtime_config::RuntimeSeriesSeed, fav_sources::hanime1_series::ServiceError>>
+        {
+            unreachable!()
+        }
+        fn list(
+            &self,
+        ) -> fav_runtime::BoxFuture<'_, Result<Vec<fav_sources::hanime1_series::SeedDetail>, fav_sources::hanime1_series::ServiceError>>
+        {
+            Box::pin(async { Err(fav_sources::hanime1_series::ServiceError::Other("db down".to_owned())) })
+        }
+        fn delete<'a>(&'a self, _: &'a str) -> fav_runtime::BoxFuture<'a, Result<bool, fav_sources::hanime1_series::ServiceError>> {
+            Box::pin(async { Err(fav_sources::hanime1_series::ServiceError::Other("db down".to_owned())) })
+        }
+        fn readiness_seed_ids(&self, _: i64) -> fav_runtime::BoxFuture<'_, Result<Vec<String>, String>> {
+            Box::pin(async { Err("db down".to_owned()) })
+        }
+        fn probe_seed<'a>(
+            &'a self,
+            _: &'a str,
+            _: std::time::Duration,
+        ) -> fav_runtime::BoxFuture<'a, Result<(), fav_sources::hanime1_series::ProbeError>> {
+            unreachable!()
+        }
+    }
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_series = Arc::new(Broken);
+    harness
+        .store_settings("web.hanime1", &pyjson::loads(r#"{"enabled": true}"#).unwrap())
+        .await;
+
+    let answer = harness.request("GET", "/readyz", &[], None).await;
+    assert_eq!(answer.status, 503);
+    assert_eq!(golden::string(golden::get(&hanime1_check(&answer), "code")), "database_unavailable");
+    // The seed list and delete answer 500 on the same failure.
+    let auth = bearer();
+    let list = harness
+        .request("GET", "/api/v2/hanime1/seeds", &[("Authorization", &auth)], None)
+        .await;
+    assert_eq!(list.status, 500);
+    let delete = harness
+        .request("DELETE", "/api/v2/hanime1/seeds/1", &[("Authorization", &auth)], None)
+        .await;
+    assert_eq!(delete.status, 500);
+    harness.finish().await;
+}
+
+fn bearer() -> String {
+    format!("Bearer {TOKEN}")
+}
+
+// py: tests/test_api_server.py::test_hanime1_seed_list_and_delete_endpoints_are_available
+#[tokio::test]
+async fn hanime1_seed_list_and_delete_endpoints_are_available() {
+    let series = Arc::new(FakeSeries::with_seed("12488", "屈辱"));
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_series = series.clone();
+    let auth = bearer();
+    let headers = [("Authorization", auth.as_str())];
+
+    let list = harness.request("GET", "/api/v2/hanime1/seeds", &headers, None).await;
+    let delete = harness.request("DELETE", "/api/v2/hanime1/seeds/12488", &headers, None).await;
+    let missing = harness.request("DELETE", "/api/v2/hanime1/seeds/99999", &headers, None).await;
+    let invalid = harness.request("DELETE", "/api/v2/hanime1/seeds/abc", &headers, None).await;
+
+    assert_eq!(list.status, 200);
+    assert_eq!(
+        list.json(),
+        pyjson::loads(
+            r#"{"items": [{"video_id": "12488", "title": "屈辱", "label": "屈辱 {id-12488}", "added_from_video_id": "12488",
+                "video_count": 1, "created_at": "2026-03-02T00:00:00Z", "updated_at": "2026-03-02T00:00:00Z",
+                "last_scanned_at": null, "last_scan_error": "", "watch_url": "https://hanime1.me/watch?v=12488"}], "total": 1}"#
+        )
+        .unwrap()
+    );
+    assert_eq!(delete.status, 204);
+    assert!(delete.body.is_empty());
+    assert_eq!(*series.deleted.lock().unwrap(), ["12488", "99999"]);
+    assert_eq!(missing.status, 404);
+    assert_eq!(missing.json(), error_envelope("not_found", "Hanime1 seed not found."));
+    assert_eq!(invalid.status, 422);
+    assert_eq!(invalid.error_code(), "validation_error");
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_list_hanime1_videos_returns_video_objects
+#[tokio::test]
+async fn list_hanime1_videos_returns_video_objects() {
+    let harness = Harness::new().await;
+    harness
+        .execute(
+            "INSERT INTO hanime1 (id, title, uploader, release_date, plot) VALUES
+             ('1001', 'Video One', 'Uploader One', '2024-01-01', 'Plot One'),
+             ('1002', 'Video Two', NULL, '  ', NULL),
+             (' ', 'blank id', NULL, NULL, NULL);",
+            &[],
+        )
+        .await;
+    harness
+        .store_settings("web.hanime1", &pyjson::loads(r#"{"host": "https://hanime1.me/"}"#).unwrap())
+        .await;
+
+    let answer = harness
+        .request("GET", "/api/v2/hanime1/videos", &[("Authorization", &bearer())], None)
+        .await;
+
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(
+            r#"{"items": [
+                {"video_id": "1001", "title": "Video One", "downloaded": true, "uploader": "Uploader One",
+                 "release_date": "2024-01-01", "plot": "Plot One", "watch_url": "https://hanime1.me/watch?v=1001"},
+                {"video_id": "1002", "title": "Video Two", "downloaded": true, "uploader": null,
+                 "release_date": null, "plot": null, "watch_url": "https://hanime1.me/watch?v=1002"}
+            ], "total": 2}"#
+        )
+        .unwrap()
+    );
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_add_hanime1_seed_returns_created_seed
+#[tokio::test]
+async fn add_hanime1_seed_returns_created_seed() {
+    let series = Arc::new(FakeSeries::default());
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_series = series.clone();
+
+    let answer = harness.send_json("POST", "/api/v2/hanime1/seeds", r#"{"seed": "12488"}"#).await;
+
+    assert_eq!(answer.status, 201, "{}", answer.text());
+    assert_eq!(*series.added.lock().unwrap(), ["12488"]);
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(r#"{"video_id": "12488", "title": "屈辱", "label": "屈辱 {id-12488}"}"#).unwrap()
+    );
+    // An empty seed fails the body model before the service sees it.
+    let empty = harness.send_json("POST", "/api/v2/hanime1/seeds", r#"{"seed": ""}"#).await;
+    assert_eq!(empty.status, 422);
+    assert_eq!(series.added.lock().unwrap().len(), 1);
+    harness.finish().await;
+}
+
+async fn add_seed_failing_with(error: fav_sources::hanime1_series::ServiceError) -> Answer {
+    let series = Arc::new(FakeSeries::default());
+    *series.add_error.lock().unwrap() = Some(error);
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_series = series;
+    let answer = harness.send_json("POST", "/api/v2/hanime1/seeds", r#"{"seed": "12488"}"#).await;
+    harness.finish().await;
+    answer
+}
+
+// py: tests/test_api_server.py::test_add_hanime1_seed_rejects_duplicate_seed
+#[tokio::test]
+async fn add_hanime1_seed_rejects_duplicate_seed() {
+    let answer = add_seed_failing_with(fav_sources::hanime1_series::ServiceError::Duplicate).await;
+    assert_eq!(answer.status, 409);
+    assert_eq!(answer.json(), error_envelope("duplicate_seed", "Hanime1 seed already exists."));
+}
+
+// py: tests/test_api_server.py::test_add_hanime1_seed_returns_resolve_error
+#[tokio::test]
+async fn add_hanime1_seed_returns_resolve_error() {
+    let answer = add_seed_failing_with(fav_sources::hanime1_series::ServiceError::ResolveFailed).await;
+    assert_eq!(answer.status, 422);
+    assert_eq!(
+        answer.json(),
+        error_envelope("seed_resolve_failed", "Unable to resolve Hanime1 seed.")
+    );
+}
+
+#[tokio::test]
+async fn add_hanime1_seed_maps_invalid_and_internal_errors() {
+    let answer = add_seed_failing_with(fav_sources::hanime1_series::ServiceError::Invalid).await;
+    assert_eq!(answer.status, 422);
+    assert_eq!(answer.json(), error_envelope("invalid_seed", "Seed format is invalid."));
+    let answer = add_seed_failing_with(fav_sources::hanime1_series::ServiceError::Other("boom".to_owned())).await;
+    assert_eq!(answer.status, 500);
+    assert_eq!(answer.json(), error_envelope("internal_server_error", "Internal server error."));
+}
+
+// py: tests/test_api_server.py::test_hanime1_author_list_and_delete_endpoints_are_available
+#[tokio::test]
+async fn hanime1_author_list_and_delete_endpoints_are_available() {
+    let authors = Arc::new(FakeAuthors::default());
+    authors.authors.lock().unwrap().push(fav_sources::hanime1_author::AuthorDetail {
+        author_id: "202534".to_owned(),
+        name: "Maplestar".to_owned(),
+        video_count: 34,
+        created_at: fixed_now(),
+        updated_at: fixed_now(),
+        last_scanned_at: None,
+        last_scan_error: String::new(),
+        author_url: "https://hanime1.me/user/202534/uploaded".to_owned(),
+    });
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_authors = authors.clone();
+    let auth = bearer();
+    let headers = [("Authorization", auth.as_str())];
+
+    let list = harness.request("GET", "/api/v2/hanime1/authors", &headers, None).await;
+    let delete = harness.request("DELETE", "/api/v2/hanime1/authors/202534", &headers, None).await;
+    let missing = harness.request("DELETE", "/api/v2/hanime1/authors/99999", &headers, None).await;
+    let invalid = harness
+        .request("DELETE", "/api/v2/hanime1/authors/not-a-number", &headers, None)
+        .await;
+
+    assert_eq!(list.status, 200);
+    assert_eq!(
+        list.json(),
+        pyjson::loads(
+            r#"{"items": [{"author_id": "202534", "name": "Maplestar", "author_url": "https://hanime1.me/user/202534/uploaded",
+                "video_count": 34, "created_at": "2026-03-02T00:00:00Z", "updated_at": "2026-03-02T00:00:00Z",
+                "last_scanned_at": null, "last_scan_error": ""}], "total": 1}"#
+        )
+        .unwrap()
+    );
+    assert_eq!(delete.status, 204);
+    assert_eq!(*authors.deleted.lock().unwrap(), ["202534", "99999"]);
+    assert_eq!(missing.status, 404);
+    assert_eq!(missing.json(), error_envelope("not_found", "Hanime1 author not found."));
+    assert_eq!(invalid.status, 422);
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_add_hanime1_author_returns_created_author
+#[tokio::test]
+async fn add_hanime1_author_returns_created_author() {
+    let authors = Arc::new(FakeAuthors::default());
+    let mut harness = Harness::new().await;
+    harness.state.hanime1_authors = authors.clone();
+
+    let answer = harness
+        .send_json(
+            "POST",
+            "/api/v2/hanime1/authors",
+            r#"{"author": "https://hanime1.me/user/202534/uploaded"}"#,
+        )
+        .await;
+
+    assert_eq!(answer.status, 201, "{}", answer.text());
+    assert_eq!(*authors.added.lock().unwrap(), ["https://hanime1.me/user/202534/uploaded"]);
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(r#"{"author_id": "202534", "name": "Maplestar", "author_url": "https://hanime1.me/user/202534/uploaded"}"#).unwrap()
+    );
+    harness.finish().await;
+}
+
+// py: tests/test_api_server.py::test_add_hanime1_author_maps_errors
+#[tokio::test]
+async fn add_hanime1_author_maps_errors() {
+    use fav_sources::hanime1_series::ServiceError;
+    let cases = [
+        (ServiceError::Duplicate, 409, "duplicate_author", "Hanime1 author already exists."),
+        (
+            ServiceError::ResolveFailed,
+            422,
+            "author_resolve_failed",
+            "Unable to resolve Hanime1 author.",
+        ),
+        (ServiceError::Invalid, 422, "invalid_author", "Author id or URL is invalid."),
+        (
+            ServiceError::Other("boom".to_owned()),
+            500,
+            "internal_server_error",
+            "Internal server error.",
+        ),
+    ];
+    for (error, status, code, message) in cases {
+        let authors = Arc::new(FakeAuthors::default());
+        *authors.add_error.lock().unwrap() = Some(error);
+        let mut harness = Harness::new().await;
+        harness.state.hanime1_authors = authors;
+        let answer = harness
+            .send_json("POST", "/api/v2/hanime1/authors", r#"{"author": "202534"}"#)
+            .await;
+        assert_eq!(answer.status, status, "{code}");
+        assert_eq!(answer.json(), error_envelope(code, message));
+        harness.finish().await;
+    }
+}
+
+#[tokio::test]
+async fn hanime1_routes_need_the_api_token() {
+    let harness = Harness::new().await;
+    for (method, path) in [
+        ("GET", "/api/v2/hanime1/videos"),
+        ("GET", "/api/v2/hanime1/seeds"),
+        ("POST", "/api/v2/hanime1/seeds"),
+        ("DELETE", "/api/v2/hanime1/seeds/1"),
+        ("GET", "/api/v2/hanime1/authors"),
+        ("POST", "/api/v2/hanime1/authors"),
+        ("DELETE", "/api/v2/hanime1/authors/1"),
+    ] {
+        // The body is read first but validated after the token.
+        let answer = harness
+            .request(method, path, &[], if method == "POST" { Some("{}") } else { None })
+            .await;
+        assert_eq!(answer.status, 401, "{method} {path}");
+    }
+    let wrong = harness.request("PUT", "/api/v2/hanime1/seeds/1", &[], None).await;
+    assert_eq!(wrong.status, 405);
+    assert_eq!(wrong.header("allow"), Some("DELETE"));
+    harness.finish().await;
 }

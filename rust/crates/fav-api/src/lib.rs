@@ -15,8 +15,9 @@
 //!
 //! Work-package scope (`rust/docs/PLAN.md`): WP3 ports the system, jobs, settings, archive,
 //! site-session, credential and notification-test routes, the documents and the bundled
-//! front end; WP4 the MCP endpoint ([`mcp`]). The source-specific routes arrive with their
-//! sources; [`openapi::PENDING`] lists every route still missing and which package owns it.
+//! front end; WP4 the MCP endpoint ([`mcp`]); WP5 the Kemono creator lookup; WP8 the
+//! Hanime1 routes and `/readyz` ([`hanime1`]). The other source-specific routes arrive with
+//! their sources; [`openapi::PENDING`] lists every route still missing and which package owns it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,6 +25,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use fav_db::{Db, SettingsStore};
 use fav_runtime::telegram_bot::BotClient;
+use fav_sources::hanime1_author::{AuthorSubscriptions, Hanime1AuthorService};
+use fav_sources::hanime1_series::{Hanime1SeriesService, SeriesSubscriptions};
 use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
 
 pub mod archive;
@@ -31,6 +34,7 @@ pub mod config;
 pub mod cors;
 pub mod credentials;
 pub mod error;
+pub mod hanime1;
 pub mod masking;
 pub mod mcp;
 pub mod openapi;
@@ -69,6 +73,12 @@ pub struct ApiState {
     pub mcp: mcp::McpState,
     /// Resolves pasted Kemono creator URLs (`POST /api/v2/kemono/creators/resolve`).
     pub kemono_creators: Arc<dyn ResolveCreator>,
+    /// The Hanime1 series subscriptions and the readiness probes (`/api/v2/hanime1/seeds`, `/readyz`).
+    pub hanime1_series: Arc<dyn SeriesSubscriptions>,
+    /// The Hanime1 author subscriptions (`/api/v2/hanime1/authors`).
+    pub hanime1_authors: Arc<dyn AuthorSubscriptions>,
+    /// `GET /readyz`'s timings and cached answer.
+    pub readiness: hanime1::Readiness,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -94,6 +104,8 @@ impl ApiState {
         web_dist: Option<PathBuf>,
         mcp: mcp::McpState,
     ) -> Result<Self, String> {
+        let hanime1_series = Arc::new(Hanime1SeriesService::new(db.clone(), Arc::clone(&settings))?);
+        let hanime1_authors = Arc::new(Hanime1AuthorService::new(db.clone(), Arc::clone(&settings))?);
         Ok(Self {
             token: config.token.clone(),
             db,
@@ -104,6 +116,9 @@ impl ApiState {
             clock: system_clock(),
             mcp,
             kemono_creators: Arc::new(KemonoCreatorResolver::new(Arc::clone(&settings))?),
+            hanime1_series,
+            hanime1_authors,
+            readiness: hanime1::Readiness::default(),
             settings,
         })
     }

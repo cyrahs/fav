@@ -4,8 +4,10 @@
 //! implements the runtime's `Source` trait and receives its HTTP client,
 //! database, browser, Telegram client and subprocess runner by injection.
 //!
-//! Ported so far: [`stellasora`] and [`pixiv`] (WP6); [`jandan`] and [`kemono`] (with
-//! [`kemono_creator`], which the API's creator-resolve route uses), WP5.
+//! Ported so far: [`bilibili`] and [`twitter`] (WP7); [`stellasora`] and [`pixiv`] (WP6); [`jandan`] and [`kemono`] (with
+//! [`kemono_creator`], which the API's creator-resolve route uses), WP5; [`hanime1`] with
+//! [`hanime1_series`], [`hanime1_author`] and [`runtime_config`] (the API's seed, author and
+//! readiness routes use the first two) and the t2s conversion [`opencc`], WP8.
 
 use std::sync::Arc;
 
@@ -13,13 +15,21 @@ use fav_db::{Db, SettingsStore};
 use fav_runtime::source::{JobError, Registry};
 
 pub mod bilibili;
+pub mod hanime1;
+pub mod hanime1_author;
+#[cfg(test)]
+mod hanime1_golden;
+pub mod hanime1_series;
 pub mod jandan;
 pub mod kemono;
 pub mod kemono_creator;
 mod kit;
+pub mod opencc;
 pub mod pixiv;
 mod pydecode;
 mod pyerr;
+mod pyre;
+pub mod runtime_config;
 pub mod stellasora;
 #[cfg(test)]
 mod testkit;
@@ -50,6 +60,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     twitter::register(&mut registry, ctx);
     jandan::register(&mut registry, ctx);
     kemono::register(&mut registry, ctx);
+    hanime1::register(&mut registry, ctx);
     registry
 }
 
