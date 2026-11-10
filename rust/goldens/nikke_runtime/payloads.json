@@ -1,0 +1,2048 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "nikke_runtime",
+  "cases": [
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 711133,
+        "title": "Test",
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 0,
+            "stable_id": "other-main",
+            "live2d_key": "other-main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/other-main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/other-main/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 0,
+            "stable_id": "other-front",
+            "live2d_key": "other-front",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/other-front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/other-front/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-back",
+            "live2d_key": "back",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/back/model.atlas",
+              "skel": "https://cdn.example.com/live2d/back/model.skel"
+            }
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 9,
+            "rawZIndex": "9",
+            "canvasCount": 1
+          },
+          {
+            "index": 1,
+            "zIndex": "10",
+            "rawZIndex": "10",
+            "canvasCount": 1
+          },
+          {
+            "index": 2,
+            "zIndex": 8,
+            "rawZIndex": "8",
+            "canvasCount": 1
+          }
+        ],
+        "requested_live2d_keys": [
+          "main",
+          "front",
+          "back"
+        ]
+      },
+      "result": {
+        "content_id": 711133,
+        "source_url": "https://www.gamekee.com/nikke/tj/711133.html",
+        "title": "Test",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "main",
+            "front",
+            "back"
+          ],
+          "matched_live2d_keys": [
+            "main",
+            "front",
+            "back"
+          ],
+          "container_count": 3
+        },
+        "fingerprint": "062d08430d9374694cf19d0c771d074ca5a35befc57da1f9839f33bf09f71cfb",
+        "warnings": [],
+        "layers": [
+          {
+            "content_id": 711133,
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 9,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 9,
+              "rawZIndex": "9",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 1,
+              "rect": {}
+            },
+            "layer_order": 2
+          },
+          {
+            "content_id": 711133,
+            "skin_index": 1,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            },
+            "source_layer_index": 1,
+            "source_z_index": 10,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 1,
+              "zIndex": 10,
+              "rawZIndex": "10",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 1,
+              "rect": {}
+            },
+            "layer_order": 3
+          },
+          {
+            "content_id": 711133,
+            "skin_index": 1,
+            "stable_id": "stable-back",
+            "live2d_key": "back",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/back/model.atlas",
+              "skel": "https://cdn.example.com/live2d/back/model.skel"
+            },
+            "source_layer_index": 2,
+            "source_z_index": 8,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 2,
+              "zIndex": 8,
+              "rawZIndex": "8",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 1,
+              "rect": {}
+            },
+            "layer_order": 1
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 1,
+        "models": [],
+        "containers": [],
+        "requested_live2d_keys": []
+      },
+      "result": {
+        "content_id": 1,
+        "source_url": "https://www.gamekee.com/nikke/tj/1.html",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [],
+          "matched_live2d_keys": [],
+          "container_count": 0
+        },
+        "fingerprint": "78fe98e5cb1ca9e6aa2064c3f4f1339f86088fd623ace200423bfde41c70ac1f",
+        "warnings": [],
+        "layers": []
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 2,
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-back",
+            "live2d_key": "back",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/back/model.atlas",
+              "skel": "https://cdn.example.com/live2d/back/model.skel"
+            }
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 5
+          }
+        ],
+        "requested_live2d_keys": [
+          " main ",
+          "main",
+          "",
+          "zzz"
+        ]
+      },
+      "result": {
+        "content_id": 2,
+        "source_url": "https://www.gamekee.com/nikke/tj/2.html",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "main",
+            "zzz"
+          ],
+          "matched_live2d_keys": [
+            "main"
+          ],
+          "container_count": 1
+        },
+        "fingerprint": "88b23b6d2f5893807cff046334d9ee897995de3977f31349b247115409527a44",
+        "warnings": [
+          "visible container count 1 differs from full model count 3"
+        ],
+        "layers": [
+          {
+            "content_id": 2,
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 5,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 5,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "layer_order": 1
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 3,
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            }
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 5,
+            "rawZIndex": "5"
+          },
+          {
+            "index": 1,
+            "zIndex": "auto",
+            "rawZIndex": "auto"
+          }
+        ],
+        "requested_live2d_keys": [
+          "main"
+        ]
+      },
+      "result": {
+        "content_id": 3,
+        "source_url": "https://www.gamekee.com/nikke/tj/3.html",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "main"
+          ],
+          "matched_live2d_keys": [
+            "main"
+          ],
+          "container_count": 2
+        },
+        "fingerprint": "be57eaf62d28c0a4cfd1e1a9fe08bef205cd0931a1576c1b8a3a7be98e35ae42",
+        "warnings": [
+          "fewer runtime live2d keys than visible containers"
+        ],
+        "layers": [
+          {
+            "content_id": 3,
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 5,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 5,
+              "rawZIndex": "5",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "layer_order": 1
+          },
+          {
+            "content_id": 3,
+            "skin_index": 1,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            },
+            "source_layer_index": 1,
+            "source_z_index": null,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "low",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 1,
+              "zIndex": null,
+              "rawZIndex": "auto",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 4,
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 0,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "main-idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "animation": "main-click",
+                "enabled": true,
+                "loop": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high",
+                "duration_ms": 1200
+              }
+            },
+            "runtime_animation_match_method": "m",
+            "runtime_animation_match_confidence": "high"
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 0,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            },
+            "runtimeAnimations": {
+              "idle": {
+                "animation": " i ",
+                "enabled": 1,
+                "loop": false,
+                "matchConfidence": "odd",
+                "durationMs": "5"
+              },
+              "click": {}
+            },
+            "runtimeAnimationMatchConfidence": "medium"
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 9
+          },
+          {
+            "index": 1,
+            "zIndex": 8
+          }
+        ],
+        "requested_live2d_keys": [
+          "main",
+          "front"
+        ],
+        "source_url": "https://example.test/page"
+      },
+      "result": {
+        "content_id": 4,
+        "source_url": "https://example.test/page",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "main",
+            "front"
+          ],
+          "matched_live2d_keys": [
+            "main",
+            "front"
+          ],
+          "container_count": 2
+        },
+        "fingerprint": "af0aad8d9c627039a5fd6cac247e0a18eff540296e321462592008568f091e3b",
+        "warnings": [],
+        "layers": [
+          {
+            "content_id": 4,
+            "skin_index": 0,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 9,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 9,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "main-idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "animation": "main-click",
+                "enabled": true,
+                "loop": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high",
+                "duration_ms": 1200
+              }
+            },
+            "runtime_animation_match_method": "m",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 2
+          },
+          {
+            "content_id": 4,
+            "skin_index": 0,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            },
+            "source_layer_index": 1,
+            "source_z_index": 8,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 1,
+              "zIndex": 8,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "i",
+                "loop": false,
+                "duration_ms": 5
+              }
+            },
+            "runtime_animation_match_confidence": "medium",
+            "layer_order": 1
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 5,
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            }
+          },
+          {
+            "label": "live2d(full)",
+            "skin_index": 1,
+            "stable_id": "stable-back",
+            "live2d_key": "back",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/back/model.atlas",
+              "skel": "https://cdn.example.com/live2d/back/model.skel"
+            }
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 9,
+            "rawZIndex": "9",
+            "canvasCount": 1
+          },
+          {
+            "index": 1,
+            "zIndex": "10",
+            "rawZIndex": "10",
+            "canvasCount": 1
+          },
+          {
+            "index": 2,
+            "zIndex": 8,
+            "rawZIndex": "8",
+            "canvasCount": 1
+          }
+        ],
+        "runtime_players": [
+          {
+            "playerIndex": 0,
+            "containerIndex": 0,
+            "zIndex": 9,
+            "rawZIndex": "9",
+            "atlasUrl": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+            "skelUrl": "https://cdn.example.com/live2d/nikke/main/model.skel",
+            "configuredAnimation": "idle",
+            "events": [
+              {
+                "sequence": 1,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "idle",
+                "loop": true
+              },
+              {
+                "sequence": 5,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "action",
+                "loop": false
+              }
+            ],
+            "animationDurationsMs": {
+              "action": 1333
+            }
+          },
+          {
+            "playerIndex": 1,
+            "containerIndex": 1,
+            "zIndex": 8,
+            "rawZIndex": "8",
+            "atlasUrl": "https://cdn.example.com/live2d/nikke/front/model.atlas",
+            "skelUrl": "https://cdn.example.com/live2d/nikke/front/model.skel",
+            "configuredAnimation": "idle",
+            "events": [
+              {
+                "sequence": 2,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "bg_idle",
+                "loop": true
+              },
+              {
+                "sequence": 6,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "action",
+                "loop": null,
+                "delayMs": 250
+              }
+            ],
+            "animationDurationsMs": {
+              "action": 900
+            }
+          },
+          {
+            "playerIndex": 2,
+            "containerIndex": 2,
+            "zIndex": 7,
+            "rawZIndex": "7",
+            "atlasUrl": "https://cdn.example.com/live2d/nikke/back/model.atlas",
+            "skelUrl": "https://cdn.example.com/live2d/nikke/back/model.skel",
+            "configuredAnimation": "idle",
+            "events": [
+              {
+                "sequence": 3,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "bg_idle",
+                "loop": true
+              }
+            ]
+          }
+        ],
+        "runtime_click_start_sequence": 4,
+        "requested_live2d_keys": [
+          "main",
+          "front",
+          "back"
+        ]
+      },
+      "result": {
+        "content_id": 5,
+        "source_url": "https://www.gamekee.com/nikke/tj/5.html",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "main",
+            "front",
+            "back"
+          ],
+          "matched_live2d_keys": [
+            "main",
+            "front",
+            "back"
+          ],
+          "container_count": 3
+        },
+        "fingerprint": "369bdde671a65bbf02433d4413edcc75dbe9a9172f48df8d86d964ba2d7e933a",
+        "warnings": [],
+        "layers": [
+          {
+            "content_id": 5,
+            "skin_index": 1,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 9,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 9,
+              "rawZIndex": "9",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 1,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 0,
+              "container_index": 0,
+              "z_index": 9,
+              "raw_z_index": "9",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/main/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "main"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "animation": "action",
+                "enabled": true,
+                "loop": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high",
+                "duration_ms": 1333
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 2
+          },
+          {
+            "content_id": 5,
+            "skin_index": 1,
+            "stable_id": "stable-front",
+            "live2d_key": "front",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+              "skel": "https://cdn.example.com/live2d/front/model.skel"
+            },
+            "source_layer_index": 1,
+            "source_z_index": 10,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 1,
+              "zIndex": 10,
+              "rawZIndex": "10",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 1,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 1,
+              "container_index": 1,
+              "z_index": 8,
+              "raw_z_index": "8",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/front/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/front/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "front"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "bg_idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "animation": "action",
+                "enabled": true,
+                "loop": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high",
+                "duration_ms": 900
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 3
+          },
+          {
+            "content_id": 5,
+            "skin_index": 1,
+            "stable_id": "stable-back",
+            "live2d_key": "back",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/back/model.atlas",
+              "skel": "https://cdn.example.com/live2d/back/model.skel"
+            },
+            "source_layer_index": 2,
+            "source_z_index": 8,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 2,
+              "zIndex": 8,
+              "rawZIndex": "8",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 1,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 2,
+              "container_index": 2,
+              "z_index": 7,
+              "raw_z_index": "7",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/back/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/back/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "back"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "bg_idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "enabled": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high"
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 1
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 6,
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 0,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            }
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 9
+          }
+        ],
+        "runtime_players": [
+          {
+            "playerIndex": 0,
+            "containerIndex": 0,
+            "zIndex": 9,
+            "rawZIndex": "9",
+            "atlasUrl": "https://cdn.example.com/live2d/nikke/other/model.atlas",
+            "skelUrl": "https://cdn.example.com/live2d/nikke/other/model.skel",
+            "configuredAnimation": "idle",
+            "events": [
+              {
+                "sequence": 1,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "idle",
+                "loop": true
+              }
+            ]
+          }
+        ],
+        "runtime_click_start_sequence": 2,
+        "requested_live2d_keys": [
+          "main"
+        ]
+      },
+      "result": {
+        "content_id": 6,
+        "source_url": "https://www.gamekee.com/nikke/tj/6.html",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "main"
+          ],
+          "matched_live2d_keys": [
+            "main"
+          ],
+          "container_count": 1
+        },
+        "fingerprint": "58d8908b95fcbbdb5d1f81c447e83c0d9b0e4f3f54551e7f80075ff75c83567e",
+        "warnings": [],
+        "layers": [
+          {
+            "content_id": 6,
+            "skin_index": 0,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 9,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 9,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 0,
+              "container_index": 0,
+              "z_index": 9,
+              "raw_z_index": "9",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/other/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/other/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "other"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "enabled": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high"
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "low",
+            "layer_order": 1
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 7,
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 0,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            }
+          },
+          {
+            "stable_id": "bare",
+            "resource_urls": {
+              "atlas": "/live2d/nikke/x/m.atlas",
+              "list": [
+                "//a/b",
+                3,
+                " "
+              ]
+            }
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 1
+          },
+          {
+            "index": 1,
+            "zIndex": 1
+          },
+          {
+            "index": 2
+          }
+        ],
+        "runtime_players": [
+          {
+            "playerIndex": 0,
+            "containerIndex": 0,
+            "zIndex": 9,
+            "rawZIndex": "9",
+            "atlasUrl": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+            "skelUrl": "https://cdn.example.com/live2d/nikke/main/model.skel",
+            "configuredAnimation": "idle",
+            "events": [
+              {
+                "sequence": 3,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "a",
+                "loop": true
+              },
+              {
+                "sequence": 3,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "b",
+                "loop": true
+              },
+              {
+                "sequence": 1,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 1,
+                "animation": "c",
+                "loop": true
+              },
+              {
+                "sequence": 2,
+                "type": "playerMethod",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "d",
+                "loop": true
+              },
+              {
+                "sequence": 4,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "",
+                "loop": true
+              }
+            ]
+          },
+          {
+            "playerIndex": 1,
+            "containerIndex": 1,
+            "zIndex": 8,
+            "rawZIndex": "8",
+            "atlasUrl": "https://h/no-key/model.atlas",
+            "skelUrl": "/live2d/nikke/x/m.atlas",
+            "configuredAnimation": "",
+            "events": []
+          },
+          {
+            "playerIndex": 1,
+            "containerIndex": 1,
+            "zIndex": 8,
+            "rawZIndex": "8",
+            "atlasUrl": "https://cdn.example.com/live2d/nikke/dup/model.atlas",
+            "skelUrl": "https://cdn.example.com/live2d/nikke/dup/model.skel",
+            "configuredAnimation": "idle",
+            "events": [
+              {
+                "sequence": 9,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "late",
+                "loop": true
+              }
+            ]
+          }
+        ],
+        "runtime_click_start_sequence": null,
+        "requested_live2d_keys": []
+      },
+      "result": {
+        "content_id": 7,
+        "source_url": "https://www.gamekee.com/nikke/tj/7.html",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [],
+          "matched_live2d_keys": [],
+          "container_count": 3
+        },
+        "fingerprint": "5a8fe72522addd053aec2882e3f732f8831752bdf278b3deaf5969672a9ed790",
+        "warnings": [
+          "fewer runtime live2d keys than visible containers",
+          "visible container count 3 differs from full model count 2"
+        ],
+        "layers": [
+          {
+            "content_id": 7,
+            "skin_index": 0,
+            "stable_id": "stable-main",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 1,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "low",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 1,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 0,
+              "container_index": 0,
+              "z_index": 9,
+              "raw_z_index": "9",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/main/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "main"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "a",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 1
+          },
+          {
+            "content_id": 7,
+            "skin_index": null,
+            "stable_id": "bare",
+            "live2d_key": "",
+            "resource_urls": {
+              "atlas": "https://www.gamekee.com/live2d/nikke/x/m.atlas",
+              "list": [
+                "https://a/b"
+              ]
+            },
+            "source_layer_index": 1,
+            "source_z_index": 1,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "low",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 1,
+              "zIndex": 1,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 1,
+              "container_index": 1,
+              "z_index": 8,
+              "raw_z_index": "8",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/dup/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/dup/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "dup"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "late",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "low",
+            "layer_order": 2
+          },
+          {
+            "content_id": 7,
+            "skin_index": null,
+            "stable_id": "",
+            "live2d_key": "",
+            "resource_urls": {},
+            "source_layer_index": 2,
+            "source_z_index": null,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "low",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 2,
+              "zIndex": null,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "build",
+      "input": {
+        "content_id": 8,
+        "models": [
+          {
+            "label": "live2d(full)",
+            "skin_index": 0,
+            "stable_id": "m",
+            "live2d_key": "main",
+            "urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            }
+          }
+        ],
+        "containers": [
+          {
+            "index": 0,
+            "zIndex": 2
+          }
+        ],
+        "runtime_players": [
+          {
+            "playerIndex": 0,
+            "containerIndex": 0,
+            "zIndex": 9,
+            "rawZIndex": "9",
+            "atlasUrl": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+            "skelUrl": "https://cdn.example.com/live2d/nikke/main/model.skel",
+            "configuredAnimation": "idle",
+            "events": [
+              {
+                "sequence": 7,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "after",
+                "loop": null
+              },
+              {
+                "sequence": 6,
+                "type": "animationState",
+                "method": "setAnimationWith",
+                "trackIndex": 0,
+                "animation": "first-after",
+                "loop": true
+              }
+            ],
+            "animationDurationsMs": {
+              "after": 10
+            }
+          }
+        ],
+        "runtime_click_start_sequence": 0,
+        "requested_live2d_keys": [
+          "main"
+        ],
+        "captured_at": "2020-01-01T00:00:00+00:00"
+      },
+      "result": {
+        "content_id": 8,
+        "source_url": "https://www.gamekee.com/nikke/tj/8.html",
+        "title": "",
+        "captured_at": "2020-01-01T00:00:00+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "main"
+          ],
+          "matched_live2d_keys": [
+            "main"
+          ],
+          "container_count": 1
+        },
+        "fingerprint": "3756854a5c3f00bc382ddc0dde48f1dbbfaf2945f1510931390bed7946efa852",
+        "warnings": [],
+        "layers": [
+          {
+            "content_id": 8,
+            "skin_index": 0,
+            "stable_id": "m",
+            "live2d_key": "main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 2,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2020-01-01T00:00:00+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 2,
+              "rawZIndex": "",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 0,
+              "container_index": 0,
+              "z_index": 9,
+              "raw_z_index": "9",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/main/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "main"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "animation": "first-after",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high"
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 1
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "capture",
+      "scenario": {
+        "request": {
+          "content_id": 711133,
+          "models": [
+            {
+              "label": "live2d(full)",
+              "skin_index": 0,
+              "stable_id": "first-main",
+              "live2d_key": "first-main",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/first-main/model.atlas",
+                "skel": "https://cdn.example.com/live2d/first-main/model.skel"
+              }
+            },
+            {
+              "label": "live2d(full)",
+              "skin_index": 0,
+              "stable_id": "first-back",
+              "live2d_key": "first-back",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/first-back/model.atlas",
+                "skel": "https://cdn.example.com/live2d/first-back/model.skel"
+              }
+            },
+            {
+              "label": "live2d(full)",
+              "skin_index": 1,
+              "stable_id": "second-main",
+              "live2d_key": "second-main",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/second-main/model.atlas",
+                "skel": "https://cdn.example.com/live2d/second-main/model.skel"
+              }
+            },
+            {
+              "label": "live2d(full)",
+              "skin_index": 1,
+              "stable_id": "second-back",
+              "live2d_key": "second-back",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/second-back/model.atlas",
+                "skel": "https://cdn.example.com/live2d/second-back/model.skel"
+              }
+            }
+          ],
+          "title": "T"
+        },
+        "groups": []
+      },
+      "result": {
+        "content_id": 711133,
+        "source_url": "https://www.gamekee.com/nikke/tj/711133.html",
+        "title": "T",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [],
+          "matched_live2d_keys": [],
+          "container_count": 0
+        },
+        "fingerprint": "1ddfad3c6d9536aca38cb34bb30e346ffdaea57e9205fa712089a3f78a7c9360",
+        "warnings": [
+          "visible container count 0 differs from full model count 4"
+        ],
+        "layers": []
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "capture",
+      "scenario": {
+        "request": {
+          "content_id": 711133,
+          "models": [
+            {
+              "label": "live2d(full)",
+              "skin_index": 0,
+              "stable_id": "first-main",
+              "live2d_key": "first-main",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/first-main/model.atlas",
+                "skel": "https://cdn.example.com/live2d/first-main/model.skel"
+              }
+            },
+            {
+              "label": "live2d(full)",
+              "skin_index": 0,
+              "stable_id": "first-back",
+              "live2d_key": "first-back",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/first-back/model.atlas",
+                "skel": "https://cdn.example.com/live2d/first-back/model.skel"
+              }
+            }
+          ],
+          "source_url": "https://example.test/p"
+        },
+        "groups": [
+          {
+            "models": [
+              {
+                "label": "live2d(full)",
+                "skin_index": 0,
+                "stable_id": "first-main",
+                "live2d_key": "first-main",
+                "urls": {
+                  "atlas": "https://cdn.example.com/live2d/first-main/model.atlas",
+                  "skel": "https://cdn.example.com/live2d/first-main/model.skel"
+                }
+              },
+              {
+                "label": "live2d(full)",
+                "skin_index": 0,
+                "stable_id": "first-back",
+                "live2d_key": "first-back",
+                "urls": {
+                  "atlas": "https://cdn.example.com/live2d/first-back/model.atlas",
+                  "skel": "https://cdn.example.com/live2d/first-back/model.skel"
+                }
+              }
+            ],
+            "containers": [
+              {
+                "index": 0,
+                "zIndex": 9,
+                "rawZIndex": "9"
+              },
+              {
+                "index": 1,
+                "zIndex": 8,
+                "rawZIndex": "8"
+              }
+            ],
+            "requested_live2d_keys": [
+              "first-main",
+              "first-back"
+            ],
+            "runtime_click_start_sequence": 3,
+            "runtime_players": [
+              {
+                "playerIndex": 0,
+                "containerIndex": 0,
+                "zIndex": 9,
+                "rawZIndex": "9",
+                "atlasUrl": "https://cdn.example.com/live2d/nikke/first-main/model.atlas",
+                "skelUrl": "https://cdn.example.com/live2d/nikke/first-main/model.skel",
+                "configuredAnimation": "idle",
+                "events": [
+                  {
+                    "sequence": 1,
+                    "type": "animationState",
+                    "method": "setAnimationWith",
+                    "trackIndex": 0,
+                    "animation": "idle",
+                    "loop": true
+                  },
+                  {
+                    "sequence": 4,
+                    "type": "animationState",
+                    "method": "setAnimationWith",
+                    "trackIndex": 0,
+                    "animation": "action",
+                    "loop": false
+                  }
+                ],
+                "animationDurationsMs": {
+                  "action": 1200
+                }
+              },
+              {
+                "playerIndex": 1,
+                "containerIndex": 1,
+                "zIndex": 8,
+                "rawZIndex": "8",
+                "atlasUrl": "https://cdn.example.com/live2d/nikke/first-back/model.atlas",
+                "skelUrl": "https://cdn.example.com/live2d/nikke/first-back/model.skel",
+                "configuredAnimation": "idle",
+                "events": [
+                  {
+                    "sequence": 2,
+                    "type": "animationState",
+                    "method": "setAnimationWith",
+                    "trackIndex": 0,
+                    "animation": "bg_idle",
+                    "loop": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "content_id": 711133,
+        "source_url": "https://example.test/p",
+        "title": "",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "first-main",
+            "first-back"
+          ],
+          "matched_live2d_keys": [
+            "first-main",
+            "first-back"
+          ],
+          "container_count": 2
+        },
+        "fingerprint": "b5d8d741f9991d1128267767637fc8d66fcf7a16a008753ed171f687417836c3",
+        "warnings": [],
+        "layers": [
+          {
+            "content_id": 711133,
+            "skin_index": 0,
+            "stable_id": "first-main",
+            "live2d_key": "first-main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/first-main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/first-main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 9,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 9,
+              "rawZIndex": "9",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 0,
+              "container_index": 0,
+              "z_index": 9,
+              "raw_z_index": "9",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/first-main/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/first-main/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "first-main"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "animation": "action",
+                "enabled": true,
+                "loop": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high",
+                "duration_ms": 1200
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 2
+          },
+          {
+            "content_id": 711133,
+            "skin_index": 0,
+            "stable_id": "first-back",
+            "live2d_key": "first-back",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/first-back/model.atlas",
+              "skel": "https://cdn.example.com/live2d/first-back/model.skel"
+            },
+            "source_layer_index": 1,
+            "source_z_index": 8,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 1,
+              "zIndex": 8,
+              "rawZIndex": "8",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "runtime_player": {
+              "player_index": 1,
+              "container_index": 1,
+              "z_index": 8,
+              "raw_z_index": "8",
+              "atlas_url": "https://cdn.example.com/live2d/nikke/first-back/model.atlas",
+              "skel_url": "https://cdn.example.com/live2d/nikke/first-back/model.skel",
+              "configured_animation": "idle",
+              "current_animation": "",
+              "runtime_key": "first-back"
+            },
+            "runtime_animations": {
+              "idle": {
+                "animation": "bg_idle",
+                "enabled": true,
+                "loop": true,
+                "match_method": "gamekee-runtime-player",
+                "match_confidence": "high"
+              },
+              "click": {
+                "enabled": false,
+                "match_method": "gamekee-runtime-player-event",
+                "match_confidence": "high"
+              }
+            },
+            "runtime_animation_match_method": "gamekee-runtime-player",
+            "runtime_animation_match_confidence": "high",
+            "layer_order": 1
+          }
+        ]
+      }
+    },
+    {
+      "now": "2026-11-10T08:00:00.123456+00:00",
+      "fn": "capture",
+      "scenario": {
+        "request": {
+          "content_id": 711133,
+          "models": [
+            {
+              "label": "live2d(full)",
+              "skin_index": 0,
+              "stable_id": "first-main",
+              "live2d_key": "first-main",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/first-main/model.atlas",
+                "skel": "https://cdn.example.com/live2d/first-main/model.skel"
+              }
+            },
+            {
+              "label": "live2d(full)",
+              "skin_index": 0,
+              "stable_id": "first-back",
+              "live2d_key": "first-back",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/first-back/model.atlas",
+                "skel": "https://cdn.example.com/live2d/first-back/model.skel"
+              }
+            },
+            {
+              "label": "live2d(full)",
+              "skin_index": 1,
+              "stable_id": "second-main",
+              "live2d_key": "second-main",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/second-main/model.atlas",
+                "skel": "https://cdn.example.com/live2d/second-main/model.skel"
+              }
+            },
+            {
+              "label": "live2d(full)",
+              "skin_index": 1,
+              "stable_id": "second-back",
+              "live2d_key": "second-back",
+              "urls": {
+                "atlas": "https://cdn.example.com/live2d/second-back/model.atlas",
+                "skel": "https://cdn.example.com/live2d/second-back/model.skel"
+              }
+            }
+          ],
+          "title": "Two"
+        },
+        "groups": [
+          {
+            "models": [
+              {
+                "label": "live2d(full)",
+                "skin_index": 0,
+                "stable_id": "first-main",
+                "live2d_key": "first-main",
+                "urls": {
+                  "atlas": "https://cdn.example.com/live2d/first-main/model.atlas",
+                  "skel": "https://cdn.example.com/live2d/first-main/model.skel"
+                }
+              },
+              {
+                "label": "live2d(full)",
+                "skin_index": 0,
+                "stable_id": "first-back",
+                "live2d_key": "first-back",
+                "urls": {
+                  "atlas": "https://cdn.example.com/live2d/first-back/model.atlas",
+                  "skel": "https://cdn.example.com/live2d/first-back/model.skel"
+                }
+              }
+            ],
+            "containers": [
+              {
+                "index": 0,
+                "zIndex": 9,
+                "rawZIndex": "9"
+              },
+              {
+                "index": 1,
+                "zIndex": 8,
+                "rawZIndex": "8"
+              }
+            ],
+            "requested_live2d_keys": [
+              "first-main",
+              "first-back"
+            ]
+          },
+          {
+            "models": [
+              {
+                "label": "live2d(full)",
+                "skin_index": 1,
+                "stable_id": "second-main",
+                "live2d_key": "second-main",
+                "urls": {
+                  "atlas": "https://cdn.example.com/live2d/second-main/model.atlas",
+                  "skel": "https://cdn.example.com/live2d/second-main/model.skel"
+                }
+              },
+              {
+                "label": "live2d(full)",
+                "skin_index": 1,
+                "stable_id": "second-back",
+                "live2d_key": "second-back",
+                "urls": {
+                  "atlas": "https://cdn.example.com/live2d/second-back/model.atlas",
+                  "skel": "https://cdn.example.com/live2d/second-back/model.skel"
+                }
+              }
+            ],
+            "containers": [
+              {
+                "index": 0,
+                "zIndex": 7,
+                "rawZIndex": "7"
+              }
+            ],
+            "requested_live2d_keys": [
+              "second-main",
+              "first-main",
+              ""
+            ],
+            "runtime_click_start_sequence": 0
+          }
+        ]
+      },
+      "result": {
+        "content_id": 711133,
+        "source_url": "https://www.gamekee.com/nikke/tj/711133.html",
+        "title": "Two",
+        "captured_at": "2026-11-10T08:00:00.123456+00:00",
+        "status": "success",
+        "layer_capture_schema": 2,
+        "runtime": {
+          "requested_live2d_keys": [
+            "first-main",
+            "first-back",
+            "second-main"
+          ],
+          "matched_live2d_keys": [
+            "first-main",
+            "first-back",
+            "second-main"
+          ],
+          "container_count": 3
+        },
+        "fingerprint": "1ddfad3c6d9536aca38cb34bb30e346ffdaea57e9205fa712089a3f78a7c9360",
+        "warnings": [
+          "visible container count 1 differs from full model count 2"
+        ],
+        "layers": [
+          {
+            "content_id": 711133,
+            "skin_index": 0,
+            "stable_id": "first-main",
+            "live2d_key": "first-main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/first-main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/first-main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 9,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 9,
+              "rawZIndex": "9",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "layer_order": 2
+          },
+          {
+            "content_id": 711133,
+            "skin_index": 0,
+            "stable_id": "first-back",
+            "live2d_key": "first-back",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/first-back/model.atlas",
+              "skel": "https://cdn.example.com/live2d/first-back/model.skel"
+            },
+            "source_layer_index": 1,
+            "source_z_index": 8,
+            "is_primary": false,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 1,
+              "zIndex": 8,
+              "rawZIndex": "8",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "layer_order": 1
+          },
+          {
+            "content_id": 711133,
+            "skin_index": 1,
+            "stable_id": "second-main",
+            "live2d_key": "second-main",
+            "resource_urls": {
+              "atlas": "https://cdn.example.com/live2d/second-main/model.atlas",
+              "skel": "https://cdn.example.com/live2d/second-main/model.skel"
+            },
+            "source_layer_index": 0,
+            "source_z_index": 7,
+            "is_primary": true,
+            "layer_match_method": "gamekee-runtime-container",
+            "layer_match_confidence": "high",
+            "captured_at": "2026-11-10T08:00:00.123456+00:00",
+            "raw_container": {
+              "index": 0,
+              "zIndex": 7,
+              "rawZIndex": "7",
+              "className": "",
+              "parentClassName": "",
+              "canvasCount": 0,
+              "rect": {}
+            },
+            "layer_order": 1
+          }
+        ]
+      }
+    }
+  ]
+}

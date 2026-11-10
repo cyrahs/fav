@@ -1,0 +1,1431 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "nikke_runtime",
+  "cases": [
+    {
+      "fn": "to_int",
+      "value": null,
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": true,
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": false,
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": 0,
+      "result": 0
+    },
+    {
+      "fn": "to_int",
+      "value": 7,
+      "result": 7
+    },
+    {
+      "fn": "to_int",
+      "value": -3,
+      "result": -3
+    },
+    {
+      "fn": "to_int",
+      "value": 7.0,
+      "result": 7
+    },
+    {
+      "fn": "to_int",
+      "value": 7.5,
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": -0.0,
+      "result": 0
+    },
+    {
+      "fn": "to_int",
+      "value": 1e+18,
+      "result": 1000000000000000000
+    },
+    {
+      "fn": "to_int",
+      "value": "12",
+      "result": 12
+    },
+    {
+      "fn": "to_int",
+      "value": " 12px ",
+      "result": 12
+    },
+    {
+      "fn": "to_int",
+      "value": "+5",
+      "result": 5
+    },
+    {
+      "fn": "to_int",
+      "value": "-5abc",
+      "result": -5
+    },
+    {
+      "fn": "to_int",
+      "value": "auto",
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": "",
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": "٣",
+      "result": 3
+    },
+    {
+      "fn": "to_int",
+      "value": "²",
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": "--1",
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": "1.9",
+      "result": 1
+    },
+    {
+      "fn": "to_int",
+      "value": [],
+      "result": null
+    },
+    {
+      "fn": "to_int",
+      "value": {},
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": null,
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": true,
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": 3,
+      "result": 3.0
+    },
+    {
+      "fn": "to_float",
+      "value": -2,
+      "result": -2.0
+    },
+    {
+      "fn": "to_float",
+      "value": 2.5,
+      "result": 2.5
+    },
+    {
+      "fn": "to_float",
+      "value": "2.5",
+      "result": 2.5
+    },
+    {
+      "fn": "to_float",
+      "value": " 1e3 ",
+      "result": 1000.0
+    },
+    {
+      "fn": "to_float",
+      "value": "inf",
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": "nan",
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": "x",
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": "",
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": [],
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": {},
+      "result": null
+    },
+    {
+      "fn": "to_float",
+      "value": "1_0",
+      "result": 10.0
+    },
+    {
+      "fn": "to_float",
+      "value": "１２",
+      "result": 12.0
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "https://cdn.gamekee.com/live2d/nikke/main/model.atlas?version=1",
+      "result": "main"
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "https://cdn.gamekee.com/live2d/nikke/front/model.skel",
+      "result": "front"
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "https://cdn.gamekee.com/live2d/nikke/main/model.png",
+      "result": "main"
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "https://cdn.example.com/not-live2d/model.png",
+      "result": ""
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "https://x/live2d/a/b",
+      "result": ""
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "https://x/live2d/a/b?/c/",
+      "result": ""
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "https://x/live2d//b/",
+      "result": ""
+    },
+    {
+      "fn": "live2d_key_from_url",
+      "url": "/live2d/g/k/x/live2d/h/j/",
+      "result": "k"
+    },
+    {
+      "fn": "unique_live2d_keys",
+      "urls": [
+        "https://cdn.gamekee.com/live2d/nikke/main/model.atlas?version=1",
+        "https://cdn.gamekee.com/live2d/nikke/front/model.skel",
+        "https://cdn.gamekee.com/live2d/nikke/main/model.png",
+        "https://cdn.example.com/not-live2d/model.png",
+        "https://x/live2d/a/b",
+        "https://x/live2d/a/b?/c/",
+        "https://x/live2d//b/",
+        "/live2d/g/k/x/live2d/h/j/"
+      ],
+      "result": [
+        "main",
+        "front",
+        "k"
+      ]
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {},
+      "fallback": 0,
+      "result": {
+        "index": 0,
+        "zIndex": null,
+        "rawZIndex": "",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "index": 3,
+        "zIndex": 9,
+        "rawZIndex": "9",
+        "className": "spine-player-container",
+        "parentClassName": " p ",
+        "canvasCount": 2
+      },
+      "fallback": 0,
+      "result": {
+        "index": 3,
+        "zIndex": 9,
+        "rawZIndex": "9",
+        "className": "spine-player-container",
+        "parentClassName": "p",
+        "canvasCount": 2,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "z_index": null,
+        "zIndex": 4,
+        "raw_z_index": "7",
+        "rawZIndex": "8"
+      },
+      "fallback": 0,
+      "result": {
+        "index": 0,
+        "zIndex": 7,
+        "rawZIndex": "7",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "zIndex": "auto",
+        "rawZIndex": "auto",
+        "canvas_count": "3",
+        "rect": {
+          "x": 1,
+          "y": 2.5,
+          "width": "wide",
+          "height": "40"
+        }
+      },
+      "fallback": 0,
+      "result": {
+        "index": 0,
+        "zIndex": null,
+        "rawZIndex": "auto",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 3,
+        "rect": {
+          "x": 1.0,
+          "y": 2.5,
+          "height": 40.0
+        }
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "zIndex": null,
+        "rawZIndex": "12",
+        "rect": [
+          1,
+          2
+        ]
+      },
+      "fallback": 0,
+      "result": {
+        "index": 0,
+        "zIndex": 12,
+        "rawZIndex": "12",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "index": "2",
+        "zIndex": 1.0,
+        "class_name": "c",
+        "className": "ignored",
+        "canvasCount": 0,
+        "rect": {
+          "height": 3,
+          "x": 0
+        }
+      },
+      "fallback": 0,
+      "result": {
+        "index": 2,
+        "zIndex": 1,
+        "rawZIndex": "",
+        "className": "c",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {
+          "x": 0.0,
+          "height": 3.0
+        }
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "index": null,
+        "zIndex": true,
+        "rawZIndex": 5
+      },
+      "fallback": 0,
+      "result": {
+        "index": 0,
+        "zIndex": 5,
+        "rawZIndex": "5",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {},
+      "fallback": 0,
+      "result": {
+        "player_index": 0,
+        "container_index": 0,
+        "z_index": null,
+        "raw_z_index": "",
+        "atlas_url": "",
+        "skel_url": "",
+        "configured_animation": "",
+        "current_animation": "",
+        "runtime_key": ""
+      },
+      "durations": {},
+      "events": []
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {
+        "playerIndex": 0,
+        "containerIndex": 0,
+        "zIndex": 9,
+        "rawZIndex": "9",
+        "atlasUrl": "//cdn.example.com/live2d/nikke/main/model.atlas",
+        "skelUrl": "/live2d/nikke/main/model.skel",
+        "configuredAnimation": "idle",
+        "currentAnimation": "idle",
+        "animationDurationsMs": {
+          "action": 1200,
+          "bad": -1,
+          "idle": "300",
+          "x": null
+        },
+        "events": [
+          {
+            "sequence": 1,
+            "timeMs": 10,
+            "type": "animationState",
+            "method": "setAnimation",
+            "trackIndex": 0,
+            "animation": "idle",
+            "loop": true
+          },
+          {
+            "seq": "2",
+            "type": "playerMethod",
+            "method": "play",
+            "playerIndex": 0,
+            "delayMs": 250,
+            "loop": 1
+          },
+          "not an event"
+        ]
+      },
+      "fallback": 0,
+      "result": {
+        "player_index": 0,
+        "container_index": 0,
+        "z_index": 9,
+        "raw_z_index": "9",
+        "atlas_url": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+        "skel_url": "https://www.gamekee.com/live2d/nikke/main/model.skel",
+        "configured_animation": "idle",
+        "current_animation": "idle",
+        "runtime_key": "main"
+      },
+      "durations": {
+        "action": 1200,
+        "idle": 300
+      },
+      "events": [
+        {
+          "sequence": 1,
+          "time_ms": 10,
+          "type": "animationState",
+          "method": "setAnimation",
+          "player_index": null,
+          "track_index": 0,
+          "animation": "idle",
+          "loop": true,
+          "delay_ms": null
+        },
+        {
+          "sequence": 2,
+          "time_ms": null,
+          "type": "playerMethod",
+          "method": "play",
+          "player_index": 0,
+          "track_index": null,
+          "animation": "",
+          "loop": null,
+          "delay_ms": 250
+        }
+      ]
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {
+        "player_index": 2,
+        "container_index": 5,
+        "atlas_url": "https://x/live2d/g/k/a.atlas",
+        "animation": "fallback",
+        "current": "now",
+        "events": "nope"
+      },
+      "fallback": 0,
+      "result": {
+        "player_index": 2,
+        "container_index": 5,
+        "z_index": null,
+        "raw_z_index": "",
+        "atlas_url": "https://x/live2d/g/k/a.atlas",
+        "skel_url": "",
+        "configured_animation": "fallback",
+        "current_animation": "now",
+        "runtime_key": "k"
+      },
+      "durations": {},
+      "events": []
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {
+        "playerIndex": 4,
+        "containerIndex": -1,
+        "skelUrl": "https://x/other/model.skel",
+        "events": [
+          {}
+        ]
+      },
+      "fallback": 0,
+      "result": {
+        "player_index": 4,
+        "container_index": -1,
+        "z_index": null,
+        "raw_z_index": "",
+        "atlas_url": "",
+        "skel_url": "https://x/other/model.skel",
+        "configured_animation": "",
+        "current_animation": "",
+        "runtime_key": ""
+      },
+      "durations": {},
+      "events": [
+        {
+          "sequence": 0,
+          "time_ms": null,
+          "type": "",
+          "method": "",
+          "player_index": null,
+          "track_index": null,
+          "animation": "",
+          "loop": null,
+          "delay_ms": null
+        }
+      ]
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {},
+      "fallback": 4,
+      "result": {
+        "index": 4,
+        "zIndex": null,
+        "rawZIndex": "",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "index": 3,
+        "zIndex": 9,
+        "rawZIndex": "9",
+        "className": "spine-player-container",
+        "parentClassName": " p ",
+        "canvasCount": 2
+      },
+      "fallback": 4,
+      "result": {
+        "index": 3,
+        "zIndex": 9,
+        "rawZIndex": "9",
+        "className": "spine-player-container",
+        "parentClassName": "p",
+        "canvasCount": 2,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "z_index": null,
+        "zIndex": 4,
+        "raw_z_index": "7",
+        "rawZIndex": "8"
+      },
+      "fallback": 4,
+      "result": {
+        "index": 4,
+        "zIndex": 7,
+        "rawZIndex": "7",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "zIndex": "auto",
+        "rawZIndex": "auto",
+        "canvas_count": "3",
+        "rect": {
+          "x": 1,
+          "y": 2.5,
+          "width": "wide",
+          "height": "40"
+        }
+      },
+      "fallback": 4,
+      "result": {
+        "index": 4,
+        "zIndex": null,
+        "rawZIndex": "auto",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 3,
+        "rect": {
+          "x": 1.0,
+          "y": 2.5,
+          "height": 40.0
+        }
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "zIndex": null,
+        "rawZIndex": "12",
+        "rect": [
+          1,
+          2
+        ]
+      },
+      "fallback": 4,
+      "result": {
+        "index": 4,
+        "zIndex": 12,
+        "rawZIndex": "12",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "index": "2",
+        "zIndex": 1.0,
+        "class_name": "c",
+        "className": "ignored",
+        "canvasCount": 0,
+        "rect": {
+          "height": 3,
+          "x": 0
+        }
+      },
+      "fallback": 4,
+      "result": {
+        "index": 2,
+        "zIndex": 1,
+        "rawZIndex": "",
+        "className": "c",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {
+          "x": 0.0,
+          "height": 3.0
+        }
+      }
+    },
+    {
+      "fn": "container_from_raw",
+      "raw": {
+        "index": null,
+        "zIndex": true,
+        "rawZIndex": 5
+      },
+      "fallback": 4,
+      "result": {
+        "index": 4,
+        "zIndex": 5,
+        "rawZIndex": "5",
+        "className": "",
+        "parentClassName": "",
+        "canvasCount": 0,
+        "rect": {}
+      }
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {},
+      "fallback": 4,
+      "result": {
+        "player_index": 4,
+        "container_index": 4,
+        "z_index": null,
+        "raw_z_index": "",
+        "atlas_url": "",
+        "skel_url": "",
+        "configured_animation": "",
+        "current_animation": "",
+        "runtime_key": ""
+      },
+      "durations": {},
+      "events": []
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {
+        "playerIndex": 0,
+        "containerIndex": 0,
+        "zIndex": 9,
+        "rawZIndex": "9",
+        "atlasUrl": "//cdn.example.com/live2d/nikke/main/model.atlas",
+        "skelUrl": "/live2d/nikke/main/model.skel",
+        "configuredAnimation": "idle",
+        "currentAnimation": "idle",
+        "animationDurationsMs": {
+          "action": 1200,
+          "bad": -1,
+          "idle": "300",
+          "x": null
+        },
+        "events": [
+          {
+            "sequence": 1,
+            "timeMs": 10,
+            "type": "animationState",
+            "method": "setAnimation",
+            "trackIndex": 0,
+            "animation": "idle",
+            "loop": true
+          },
+          {
+            "seq": "2",
+            "type": "playerMethod",
+            "method": "play",
+            "playerIndex": 0,
+            "delayMs": 250,
+            "loop": 1
+          },
+          "not an event"
+        ]
+      },
+      "fallback": 4,
+      "result": {
+        "player_index": 4,
+        "container_index": 4,
+        "z_index": 9,
+        "raw_z_index": "9",
+        "atlas_url": "https://cdn.example.com/live2d/nikke/main/model.atlas",
+        "skel_url": "https://www.gamekee.com/live2d/nikke/main/model.skel",
+        "configured_animation": "idle",
+        "current_animation": "idle",
+        "runtime_key": "main"
+      },
+      "durations": {
+        "action": 1200,
+        "idle": 300
+      },
+      "events": [
+        {
+          "sequence": 1,
+          "time_ms": 10,
+          "type": "animationState",
+          "method": "setAnimation",
+          "player_index": null,
+          "track_index": 0,
+          "animation": "idle",
+          "loop": true,
+          "delay_ms": null
+        },
+        {
+          "sequence": 2,
+          "time_ms": null,
+          "type": "playerMethod",
+          "method": "play",
+          "player_index": 0,
+          "track_index": null,
+          "animation": "",
+          "loop": null,
+          "delay_ms": 250
+        }
+      ]
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {
+        "player_index": 2,
+        "container_index": 5,
+        "atlas_url": "https://x/live2d/g/k/a.atlas",
+        "animation": "fallback",
+        "current": "now",
+        "events": "nope"
+      },
+      "fallback": 4,
+      "result": {
+        "player_index": 2,
+        "container_index": 5,
+        "z_index": null,
+        "raw_z_index": "",
+        "atlas_url": "https://x/live2d/g/k/a.atlas",
+        "skel_url": "",
+        "configured_animation": "fallback",
+        "current_animation": "now",
+        "runtime_key": "k"
+      },
+      "durations": {},
+      "events": []
+    },
+    {
+      "fn": "player_from_raw",
+      "raw": {
+        "playerIndex": 4,
+        "containerIndex": -1,
+        "skelUrl": "https://x/other/model.skel",
+        "events": [
+          {}
+        ]
+      },
+      "fallback": 4,
+      "result": {
+        "player_index": 4,
+        "container_index": -1,
+        "z_index": null,
+        "raw_z_index": "",
+        "atlas_url": "",
+        "skel_url": "https://x/other/model.skel",
+        "configured_animation": "",
+        "current_animation": "",
+        "runtime_key": ""
+      },
+      "durations": {},
+      "events": [
+        {
+          "sequence": 0,
+          "time_ms": null,
+          "type": "",
+          "method": "",
+          "player_index": null,
+          "track_index": null,
+          "animation": "",
+          "loop": null,
+          "delay_ms": null
+        }
+      ]
+    },
+    {
+      "fn": "groups",
+      "models": [],
+      "multi": [],
+      "first": [],
+      "select": [
+        {
+          "keys": [],
+          "result": []
+        },
+        {
+          "keys": [
+            "main"
+          ],
+          "result": []
+        },
+        {
+          "keys": [
+            "main",
+            "front"
+          ],
+          "result": []
+        },
+        {
+          "keys": [
+            "layer-main",
+            "layer-back"
+          ],
+          "result": []
+        },
+        {
+          "keys": [
+            "shared"
+          ],
+          "result": []
+        },
+        {
+          "keys": [
+            "",
+            "main"
+          ],
+          "result": []
+        },
+        {
+          "keys": [
+            "nope"
+          ],
+          "result": []
+        }
+      ]
+    },
+    {
+      "fn": "groups",
+      "models": [
+        {
+          "label": "live2d(full)",
+          "skin_index": 0,
+          "stable_id": "stable-main",
+          "live2d_key": "main",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/main/model.atlas",
+            "skel": "https://cdn.example.com/live2d/main/model.skel"
+          }
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": 0,
+          "stable_id": "stable-front",
+          "live2d_key": "front",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/front/model.atlas",
+            "skel": "https://cdn.example.com/live2d/front/model.skel"
+          }
+        },
+        {
+          "label": "live2d(aim)",
+          "skin_index": 0,
+          "stable_id": "stable-aim",
+          "live2d_key": "aim",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/aim/model.atlas",
+            "skel": "https://cdn.example.com/live2d/aim/model.skel"
+          }
+        },
+        {
+          "label": "live2d(cover)",
+          "skin_index": 0,
+          "stable_id": "stable-cover",
+          "live2d_key": "cover",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/cover/model.atlas",
+            "skel": "https://cdn.example.com/live2d/cover/model.skel"
+          }
+        }
+      ],
+      "multi": [
+        [
+          "stable-main",
+          "stable-front"
+        ]
+      ],
+      "first": [
+        "stable-main",
+        "stable-front"
+      ],
+      "select": [
+        {
+          "keys": [],
+          "result": [
+            "stable-main",
+            "stable-front"
+          ]
+        },
+        {
+          "keys": [
+            "main"
+          ],
+          "result": [
+            "stable-main",
+            "stable-front"
+          ]
+        },
+        {
+          "keys": [
+            "main",
+            "front"
+          ],
+          "result": [
+            "stable-main",
+            "stable-front"
+          ]
+        },
+        {
+          "keys": [
+            "layer-main",
+            "layer-back"
+          ],
+          "result": [
+            "stable-main",
+            "stable-front",
+            "stable-aim",
+            "stable-cover"
+          ]
+        },
+        {
+          "keys": [
+            "shared"
+          ],
+          "result": [
+            "stable-main",
+            "stable-front",
+            "stable-aim",
+            "stable-cover"
+          ]
+        },
+        {
+          "keys": [
+            "",
+            "main"
+          ],
+          "result": [
+            "stable-main",
+            "stable-front",
+            "stable-aim",
+            "stable-cover"
+          ]
+        },
+        {
+          "keys": [
+            "nope"
+          ],
+          "result": [
+            "stable-main",
+            "stable-front",
+            "stable-aim",
+            "stable-cover"
+          ]
+        }
+      ]
+    },
+    {
+      "fn": "groups",
+      "models": [
+        {
+          "label": "live2d(full)",
+          "skin_index": 0,
+          "stable_id": "base-main",
+          "live2d_key": "base-main",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/base-main/model.atlas",
+            "skel": "https://cdn.example.com/live2d/base-main/model.skel"
+          }
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": 3,
+          "stable_id": "layer-main",
+          "live2d_key": "layer-main",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/layer-main/model.atlas",
+            "skel": "https://cdn.example.com/live2d/layer-main/model.skel"
+          },
+          "skin_title": "Layered"
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": 3,
+          "stable_id": "layer-back",
+          "live2d_key": "layer-back",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/layer-back/model.atlas",
+            "skel": "https://cdn.example.com/live2d/layer-back/model.skel"
+          },
+          "skin_title": "Layered"
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": null,
+          "stable_id": "none-a",
+          "live2d_key": "none-a",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/none-a/model.atlas",
+            "skel": "https://cdn.example.com/live2d/none-a/model.skel"
+          }
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": null,
+          "stable_id": "none-b",
+          "live2d_key": "none-b",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/none-b/model.atlas",
+            "skel": "https://cdn.example.com/live2d/none-b/model.skel"
+          }
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": 1,
+          "stable_id": "one-a",
+          "live2d_key": "one-a",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/one-a/model.atlas",
+            "skel": "https://cdn.example.com/live2d/one-a/model.skel"
+          },
+          "skinIndex": 9
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": 1,
+          "stable_id": "one-b",
+          "live2d_key": "one-b",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/one-b/model.atlas",
+            "skel": "https://cdn.example.com/live2d/one-b/model.skel"
+          }
+        }
+      ],
+      "multi": [
+        [
+          "none-a",
+          "none-b"
+        ],
+        [
+          "one-a",
+          "one-b"
+        ],
+        [
+          "layer-main",
+          "layer-back"
+        ]
+      ],
+      "first": [
+        "none-a",
+        "none-b"
+      ],
+      "select": [
+        {
+          "keys": [],
+          "result": [
+            "base-main",
+            "layer-main",
+            "layer-back",
+            "none-a",
+            "none-b",
+            "one-a",
+            "one-b"
+          ]
+        },
+        {
+          "keys": [
+            "main"
+          ],
+          "result": [
+            "base-main",
+            "layer-main",
+            "layer-back",
+            "none-a",
+            "none-b",
+            "one-a",
+            "one-b"
+          ]
+        },
+        {
+          "keys": [
+            "main",
+            "front"
+          ],
+          "result": [
+            "base-main",
+            "layer-main",
+            "layer-back",
+            "none-a",
+            "none-b",
+            "one-a",
+            "one-b"
+          ]
+        },
+        {
+          "keys": [
+            "layer-main",
+            "layer-back"
+          ],
+          "result": [
+            "layer-main",
+            "layer-back"
+          ]
+        },
+        {
+          "keys": [
+            "shared"
+          ],
+          "result": [
+            "base-main",
+            "layer-main",
+            "layer-back",
+            "none-a",
+            "none-b",
+            "one-a",
+            "one-b"
+          ]
+        },
+        {
+          "keys": [
+            "",
+            "main"
+          ],
+          "result": [
+            "base-main",
+            "layer-main",
+            "layer-back",
+            "none-a",
+            "none-b",
+            "one-a",
+            "one-b"
+          ]
+        },
+        {
+          "keys": [
+            "nope"
+          ],
+          "result": [
+            "base-main",
+            "layer-main",
+            "layer-back",
+            "none-a",
+            "none-b",
+            "one-a",
+            "one-b"
+          ]
+        }
+      ]
+    },
+    {
+      "fn": "groups",
+      "models": [
+        {
+          "label": "aim",
+          "skin_index": 2,
+          "stable_id": "aim-only",
+          "live2d_key": "aim-only",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/aim-only/model.atlas",
+            "skel": "https://cdn.example.com/live2d/aim-only/model.skel"
+          }
+        }
+      ],
+      "multi": [],
+      "first": [],
+      "select": [
+        {
+          "keys": [],
+          "result": [
+            "aim-only"
+          ]
+        },
+        {
+          "keys": [
+            "main"
+          ],
+          "result": [
+            "aim-only"
+          ]
+        },
+        {
+          "keys": [
+            "main",
+            "front"
+          ],
+          "result": [
+            "aim-only"
+          ]
+        },
+        {
+          "keys": [
+            "layer-main",
+            "layer-back"
+          ],
+          "result": [
+            "aim-only"
+          ]
+        },
+        {
+          "keys": [
+            "shared"
+          ],
+          "result": [
+            "aim-only"
+          ]
+        },
+        {
+          "keys": [
+            "",
+            "main"
+          ],
+          "result": [
+            "aim-only"
+          ]
+        },
+        {
+          "keys": [
+            "nope"
+          ],
+          "result": [
+            "aim-only"
+          ]
+        }
+      ]
+    },
+    {
+      "fn": "groups",
+      "models": [
+        {
+          "label": "live2d(full)",
+          "skin_index": "2",
+          "stable_id": "s2",
+          "live2d_key": "shared",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/shared/model.atlas",
+            "skel": "https://cdn.example.com/live2d/shared/model.skel"
+          }
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": 2,
+          "stable_id": "s2b",
+          "live2d_key": "shared",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/shared/model.atlas",
+            "skel": "https://cdn.example.com/live2d/shared/model.skel"
+          }
+        },
+        {
+          "label": "live2d(full)",
+          "skin_index": 5,
+          "stable_id": "s5",
+          "live2d_key": "shared",
+          "urls": {
+            "atlas": "https://cdn.example.com/live2d/shared/model.atlas",
+            "skel": "https://cdn.example.com/live2d/shared/model.skel"
+          }
+        }
+      ],
+      "multi": [
+        [
+          "s2",
+          "s2b"
+        ]
+      ],
+      "first": [
+        "s2",
+        "s2b"
+      ],
+      "select": [
+        {
+          "keys": [],
+          "result": [
+            "s2",
+            "s2b",
+            "s5"
+          ]
+        },
+        {
+          "keys": [
+            "main"
+          ],
+          "result": [
+            "s2",
+            "s2b",
+            "s5"
+          ]
+        },
+        {
+          "keys": [
+            "main",
+            "front"
+          ],
+          "result": [
+            "s2",
+            "s2b",
+            "s5"
+          ]
+        },
+        {
+          "keys": [
+            "layer-main",
+            "layer-back"
+          ],
+          "result": [
+            "s2",
+            "s2b",
+            "s5"
+          ]
+        },
+        {
+          "keys": [
+            "shared"
+          ],
+          "result": [
+            "s2",
+            "s2b",
+            "s5"
+          ]
+        },
+        {
+          "keys": [
+            "",
+            "main"
+          ],
+          "result": [
+            "s2",
+            "s2b",
+            "s5"
+          ]
+        },
+        {
+          "keys": [
+            "nope"
+          ],
+          "result": [
+            "s2",
+            "s2b",
+            "s5"
+          ]
+        }
+      ]
+    }
+  ]
+}

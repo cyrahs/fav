@@ -30,7 +30,13 @@ use chromiumoxide::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, EventDomContentEventFired, NavigateParams, ReloadParams,
 };
 use chromiumoxide::cdp::browser_protocol::storage::GetCookiesParams;
-use chromiumoxide::cdp::browser_protocol::target::{CloseTargetParams, EventTargetCreated, TargetId};
+use chromiumoxide::cdp::browser_protocol::browser::BrowserContextId;
+use chromiumoxide::cdp::browser_protocol::network::{
+    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived, GetResponseBodyParams,
+};
+use chromiumoxide::cdp::browser_protocol::target::{
+    CloseTargetParams, CreateBrowserContextParams, CreateTargetParams, EventTargetCreated, TargetId,
+};
 use chromiumoxide::cdp::js_protocol::runtime::{CallArgument, CallFunctionOnParams, EvaluateParams};
 use chromiumoxide::error::CdpError;
 use chromiumoxide::handler::HandlerConfig;
@@ -39,7 +45,7 @@ use futures_util::StreamExt as _;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use crate::chromium::{ChromiumProcess, LaunchError, LaunchOptions, persistent_context_argv};
+use crate::chromium::{ChromiumProcess, LaunchError, LaunchOptions, launch_argv, persistent_context_argv};
 
 /// Playwright's default navigation timeout (30 s).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -116,7 +122,9 @@ impl std::fmt::Debug for ContextOptions {
     }
 }
 
-/// A persistent browser context: one Chromium on one profile.
+/// A browser context: one Chromium on one profile, either the persistent context of a
+/// profile directory or the one context of a throwaway browser
+/// ([`BrowserContext::launch_browser`]).
 pub struct BrowserContext {
     browser: Arc<Browser>,
     process: Mutex<ChromiumProcess>,
@@ -125,6 +133,9 @@ pub struct BrowserContext {
     options: ContextOptions,
     init_scripts: Arc<Mutex<Vec<String>>>,
     watcher: tokio::task::JoinHandle<()>,
+    /// For a throwaway browser: the context its pages open in, and the temporary profile
+    /// that goes with the browser.
+    isolated: Option<(BrowserContextId, std::sync::Mutex<Option<tempfile::TempDir>>)>,
 }
 
 impl std::fmt::Debug for BrowserContext {
@@ -146,7 +157,54 @@ impl BrowserContext {
         options: ContextOptions,
     ) -> Result<Self, DriverError> {
         let argv = persistent_context_argv(launch);
-        let mut process = ChromiumProcess::spawn(executable, &argv, env, LAUNCH_TIMEOUT).await?;
+        let process = ChromiumProcess::spawn(executable, &argv, env, LAUNCH_TIMEOUT).await?;
+        Self::attach(process, options, None).await
+    }
+
+    /// `chromium.launch(headless=...)` followed by `browser.new_context(...)` (which
+    /// `browser.new_page(...)` does on its own): a browser on a throwaway profile in the
+    /// temp directory, removed again by [`close`](Self::close), whose pages open in one
+    /// fresh browser context. `launch.user_data_dir` is ignored.
+    pub async fn launch_browser(
+        executable: &std::path::Path,
+        launch: &LaunchOptions,
+        env: &[(String, String)],
+        options: ContextOptions,
+    ) -> Result<Self, DriverError> {
+        let profile = tempfile::Builder::new()
+            .prefix(crate::chromium::LAUNCH_PROFILE_PREFIX)
+            .tempdir()
+            .map_err(|source| LaunchError::Spawn {
+                executable: executable.display().to_string(),
+                source,
+            })?;
+        let mut options_with_profile = launch.clone();
+        options_with_profile.user_data_dir = profile.path().to_path_buf();
+        let argv = launch_argv(&options_with_profile);
+        let process = ChromiumProcess::spawn(executable, &argv, env, LAUNCH_TIMEOUT).await?;
+        let mut context = Self::attach(process, options, None).await?;
+        let created = context
+            .browser
+            .create_browser_context(CreateBrowserContextParams::default())
+            .await;
+        match created {
+            Ok(id) => {
+                context.isolated = Some((id, std::sync::Mutex::new(Some(profile))));
+                Ok(context)
+            }
+            Err(error) => {
+                context.close().await;
+                drop(profile);
+                Err(error.into())
+            }
+        }
+    }
+
+    async fn attach(
+        mut process: ChromiumProcess,
+        options: ContextOptions,
+        isolated: Option<(BrowserContextId, std::sync::Mutex<Option<tempfile::TempDir>>)>,
+    ) -> Result<Self, DriverError> {
         let config = HandlerConfig {
             // Playwright's defaults: certificate errors are errors, and the viewport is
             // applied by this driver (or not at all) rather than chromiumoxide's 800x600.
@@ -181,6 +239,7 @@ impl BrowserContext {
             options,
             init_scripts,
             watcher,
+            isolated,
         })
     }
 
@@ -221,8 +280,19 @@ impl BrowserContext {
 
     /// `context.new_page()`.
     pub async fn new_page(&self) -> Result<Page, DriverError> {
-        let page = Page::new(self.browser.new_page("about:blank").await?);
-        page.prepare(&self.options, &self.init_scripts.lock().await).await?;
+        self.new_page_with(&self.options).await
+    }
+
+    /// `browser.new_page(viewport=..., ...)`: a page given `options` instead of the
+    /// context's own (Playwright makes a context for each such page; on a throwaway
+    /// browser this context is that one).
+    pub async fn new_page_with(&self, options: &ContextOptions) -> Result<Page, DriverError> {
+        let mut params = CreateTargetParams::new("about:blank");
+        if let Some((id, _)) = &self.isolated {
+            params.browser_context_id = Some(id.clone());
+        }
+        let page = Page::new(self.browser.new_page(params).await?);
+        page.prepare(options, &self.init_scripts.lock().await).await?;
         Ok(page)
     }
 
@@ -291,6 +361,12 @@ impl BrowserContext {
         process.kill().await;
         self.closed.store(true, Ordering::SeqCst);
         self.handler.abort();
+        if let Some((_, profile)) = &self.isolated
+            && let Some(profile) = profile.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        {
+            // Playwright's `tempDirectories`: removed once the browser is gone.
+            let _ = profile.close();
+        }
     }
 }
 
@@ -442,6 +518,78 @@ impl Page {
         Ok(())
     }
 
+    /// `page.add_init_script(source)`: run on every document this page loads from now on.
+    pub async fn add_init_script(&self, source: &str) -> Result<(), DriverError> {
+        self.inner.execute(AddScriptToEvaluateOnNewDocumentParams::new(source)).await?;
+        Ok(())
+    }
+
+    /// The page's network traffic from now on, as Playwright's `page.on('request' |
+    /// 'response' | 'requestfinished' | 'requestfailed')` sees it, from the page's own
+    /// `Network` events (the domain is already enabled on every page). A redirect is the
+    /// previous hop's response followed by the next hop's request, under the same id.
+    /// Events of out-of-process frames and workers, which come on sessions of their own,
+    /// are not included (D172).
+    pub async fn network_events(&self) -> Result<NetworkEvents, DriverError> {
+        let requests = self.inner.event_listener::<EventRequestWillBeSent>().await?;
+        let responses = self.inner.event_listener::<EventResponseReceived>().await?;
+        let finished = self.inner.event_listener::<EventLoadingFinished>().await?;
+        let failed = self.inner.event_listener::<EventLoadingFailed>().await?;
+        let requests = requests.flat_map(|event| {
+            let id = event.request_id.inner().clone();
+            let mut out = Vec::with_capacity(2);
+            if let Some(redirect) = &event.redirect_response {
+                out.push(NetworkEvent::Response {
+                    id: id.clone(),
+                    url: redirect.url.clone(),
+                    status: redirect.status,
+                });
+            }
+            out.push(NetworkEvent::Request {
+                id,
+                resource_type: event
+                    .r#type
+                    .as_ref()
+                    .map_or_else(|| "other".to_owned(), |kind| kind.as_ref().to_lowercase()),
+                url: event.request.url.clone(),
+            });
+            futures_util::stream::iter(out)
+        });
+        let responses = responses.map(|event| NetworkEvent::Response {
+            id: event.request_id.inner().clone(),
+            url: event.response.url.clone(),
+            status: event.response.status,
+        });
+        let finished = finished.map(|event| NetworkEvent::Finished {
+            id: event.request_id.inner().clone(),
+        });
+        let failed = failed.map(|event| NetworkEvent::Failed {
+            id: event.request_id.inner().clone(),
+            error: event.error_text.clone(),
+        });
+        Ok(NetworkEvents {
+            streams: vec![
+                Some(requests.boxed()),
+                Some(responses.boxed()),
+                Some(finished.boxed()),
+                Some(failed.boxed()),
+            ],
+        })
+    }
+
+    /// `response.body()`: the body of a finished response (`Network.getResponseBody`).
+    pub async fn response_body(&self, id: &str) -> Result<Vec<u8>, DriverError> {
+        use base64::Engine as _;
+        let body = self.inner.execute(GetResponseBodyParams::new(id.to_owned())).await?;
+        if body.result.base64_encoded {
+            base64::engine::general_purpose::STANDARD
+                .decode(body.result.body.as_bytes())
+                .map_err(|error| DriverError::Evaluation(format!("response body is not base64: {error}")))
+        } else {
+            Ok(body.result.body.clone().into_bytes())
+        }
+    }
+
     /// `page.url`.
     pub async fn url(&self) -> Result<String, DriverError> {
         Ok(self.inner.url().await?.unwrap_or_default())
@@ -527,6 +675,22 @@ impl Page {
         }
     }
 
+    /// `page.wait_for_function(function, arg=arg, timeout=...)`: poll `function(arg)` until
+    /// it returns a truthy value.
+    pub async fn wait_for_function_with_arg(&self, function: &str, arg: Value, timeout: Duration, poll: Duration) -> Result<Value, DriverError> {
+        let deadline = Instant::now().checked_add(timeout);
+        loop {
+            let value = self.evaluate_with_arg(function, arg.clone()).await?;
+            if truthy(&value) {
+                return Ok(value);
+            }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(DriverError::Timeout(millis(timeout)));
+            }
+            tokio::time::sleep(poll).await;
+        }
+    }
+
     /// `page.mouse.move(x, y)`.
     pub async fn mouse_move(&self, x: f64, y: f64) -> Result<(), DriverError> {
         self.dispatch_mouse(DispatchMouseEventType::MouseMoved, x, y, None, 0).await
@@ -585,6 +749,14 @@ impl Page {
         .await
     }
 
+    /// `locator(selector).click(timeout=...)` in Playwright's strict mode: the one element
+    /// matching `selector`, clicked once it is actionable; more than one match is an
+    /// error at once rather than a guess.
+    pub async fn click_strict(&self, selector: &str, timeout: Duration) -> Result<(), DriverError> {
+        self.click_located(FIND_STRICT, json!([selector]), timeout, &format!("locator({selector:?})"))
+            .await
+    }
+
     /// `get_by_text(text, exact=True).last.click(timeout=...)`: the last element whose own
     /// text, whitespace collapsed, is exactly `text`.
     pub async fn click_last_with_exact_text(&self, text: &str, timeout: Duration) -> Result<(), DriverError> {
@@ -606,6 +778,12 @@ impl Page {
         let mut last = String::from("no element");
         loop {
             match self.evaluate_with_arg(&script, args.clone()).await {
+                Ok(answer) if answer["state"] == "strict" => {
+                    return Err(DriverError::Locator(format!(
+                        "strict mode violation: {description} resolved to {} elements",
+                        answer["count"]
+                    )));
+                }
                 Ok(answer) if answer["state"] == "ready" => {
                     let (x, y) = (answer["x"].as_f64().unwrap_or(0.0), answer["y"].as_f64().unwrap_or(0.0));
                     return self.mouse_click(x, y).await;
@@ -643,6 +821,64 @@ impl Page {
     pub async fn close(self) -> Result<(), DriverError> {
         self.inner.close().await?;
         Ok(())
+    }
+}
+
+/// One network event of a page, in the order Chromium reports them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkEvent {
+    /// `page.on('request')`: `resource_type` as Playwright names it (`document`, `xhr`,
+    /// `fetch`, `script`, ..., `other`).
+    Request { id: String, resource_type: String, url: String },
+    /// `page.on('response')`: the status line arrived; the body may still be loading.
+    Response { id: String, url: String, status: i64 },
+    /// `page.on('requestfinished')`: the body is complete and can be read.
+    Finished { id: String },
+    /// `page.on('requestfailed')`.
+    Failed { id: String, error: String },
+}
+
+impl NetworkEvent {
+    /// The request the event belongs to.
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Request { id, .. } | Self::Response { id, .. } | Self::Finished { id } | Self::Failed { id, .. } => id,
+        }
+    }
+}
+
+/// The stream [`Page::network_events`] returns; it ends when the page goes away.
+///
+/// chromiumoxide hands each event type to its own channel, so the four are merged here,
+/// always draining requests before responses before completions: what Chromium sent
+/// earlier for one request is then yielded earlier too, except when an event lands in its
+/// channel between two polls of this merge. Consumers that pair a completion with its
+/// response still tolerate the completion arriving first.
+pub struct NetworkEvents {
+    streams: Vec<Option<futures_util::stream::BoxStream<'static, NetworkEvent>>>,
+}
+
+impl std::fmt::Debug for NetworkEvents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NetworkEvents").finish_non_exhaustive()
+    }
+}
+
+impl futures_util::Stream for NetworkEvents {
+    type Item = NetworkEvent;
+
+    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<NetworkEvent>> {
+        use std::task::Poll;
+        let mut open = false;
+        for slot in &mut self.streams {
+            let Some(stream) = slot else { continue };
+            match stream.as_mut().poll_next(cx) {
+                Poll::Ready(Some(event)) => return Poll::Ready(Some(event)),
+                Poll::Ready(None) => *slot = None,
+                Poll::Pending => open = true,
+            }
+        }
+        if open { Poll::Pending } else { Poll::Ready(None) }
     }
 }
 
@@ -699,8 +935,14 @@ const FIND_LAST_WITH_EXACT_TEXT: &str = "(text) => {
     return own.length ? own[own.length - 1] : null;
 }";
 
+const FIND_STRICT: &str = "(selector) => {
+    const all = document.querySelectorAll(selector);
+    return all.length > 1 ? {strictViolation: all.length} : (all[0] || null);
+}";
+
 const ACTIONABILITY: &str = "async (el) => {
     if (!el) { return {state: 'no element'}; }
+    if (el.strictViolation) { return {state: 'strict', count: el.strictViolation}; }
     if (!el.isConnected) { return {state: 'detached'}; }
     el.scrollIntoView({block: 'center', inline: 'center', behavior: 'instant'});
     const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
