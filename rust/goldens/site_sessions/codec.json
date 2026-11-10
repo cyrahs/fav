@@ -1,0 +1,519 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "site_sessions",
+  "cases": [
+    {
+      "function": "cookies",
+      "cookies": [],
+      "encoded": "[]",
+      "netscape": "# Netscape HTTP Cookie File\n\n",
+      "without_values": [],
+      "cookie_value": {
+        "SESSDATA": "",
+        "sessdata": "",
+        "ct0": "",
+        "lang": "",
+        "missing": ""
+      },
+      "cookie_expiry": {
+        "SESSDATA": null,
+        "sessdata": null,
+        "auth_token": null,
+        "ct0": null,
+        "lang": null,
+        "twid": null,
+        "missing": null
+      }
+    },
+    {
+      "function": "cookies",
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "abc%2C123",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1767225600.0
+        }
+      ],
+      "encoded": "[{\"name\": \"SESSDATA\", \"value\": \"abc%2C123\", \"domain\": \".bilibili.com\", \"path\": \"/\", \"expires\": 1767225600.0}]",
+      "netscape": "# Netscape HTTP Cookie File\n\n.bilibili.com\tTRUE\t/\tTRUE\t1767225600\tSESSDATA\tabc%2C123\n",
+      "without_values": [
+        {
+          "name": "SESSDATA",
+          "value": "in-profile",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1767225600.0
+        }
+      ],
+      "cookie_value": {
+        "SESSDATA": "abc%2C123",
+        "sessdata": "abc%2C123",
+        "ct0": "",
+        "lang": "",
+        "missing": ""
+      },
+      "cookie_expiry": {
+        "SESSDATA": "2026-01-01T00:00:00+00:00",
+        "sessdata": "2026-01-01T00:00:00+00:00",
+        "auth_token": null,
+        "ct0": null,
+        "lang": null,
+        "twid": null,
+        "missing": null
+      }
+    },
+    {
+      "function": "cookies",
+      "cookies": [
+        {
+          "name": "auth_token",
+          "value": "tok",
+          "domain": ".x.com",
+          "path": "/",
+          "expires": 1767225600.5
+        },
+        {
+          "name": "ct0",
+          "value": "",
+          "domain": ".x.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "lang",
+          "value": "en",
+          "domain": "x.com",
+          "path": "",
+          "expires": 0.0
+        },
+        {
+          "name": "twid",
+          "value": "u=1",
+          "domain": "",
+          "path": "/",
+          "expires": 10000000000.0
+        },
+        {
+          "name": "名字",
+          "value": "值 \"quoted\" \\ back",
+          "domain": ".example.cn",
+          "path": "/a b",
+          "expires": 1700000000.123456
+        }
+      ],
+      "encoded": "[{\"name\": \"auth_token\", \"value\": \"tok\", \"domain\": \".x.com\", \"path\": \"/\", \"expires\": 1767225600.5}, {\"name\": \"ct0\", \"value\": \"\", \"domain\": \".x.com\", \"path\": \"/\", \"expires\": null}, {\"name\": \"lang\", \"value\": \"en\", \"domain\": \"x.com\", \"path\": \"\", \"expires\": 0.0}, {\"name\": \"twid\", \"value\": \"u=1\", \"domain\": \"\", \"path\": \"/\", \"expires\": 10000000000.0}, {\"name\": \"名字\", \"value\": \"值 \\\"quoted\\\" \\\\ back\", \"domain\": \".example.cn\", \"path\": \"/a b\", \"expires\": 1700000000.123456}]",
+      "netscape": "# Netscape HTTP Cookie File\n\n.x.com\tTRUE\t/\tTRUE\t1767225600\tauth_token\ttok\nx.com\tFALSE\t/\tTRUE\t0\tlang\ten\n.example.cn\tTRUE\t/a b\tTRUE\t1700000000\t名字\t值 \"quoted\" \\ back\n",
+      "without_values": [
+        {
+          "name": "auth_token",
+          "value": "in-profile",
+          "domain": ".x.com",
+          "path": "/",
+          "expires": 1767225600.5
+        },
+        {
+          "name": "ct0",
+          "value": "",
+          "domain": ".x.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "lang",
+          "value": "in-profile",
+          "domain": "x.com",
+          "path": "",
+          "expires": 0.0
+        },
+        {
+          "name": "twid",
+          "value": "in-profile",
+          "domain": "",
+          "path": "/",
+          "expires": 10000000000.0
+        },
+        {
+          "name": "名字",
+          "value": "in-profile",
+          "domain": ".example.cn",
+          "path": "/a b",
+          "expires": 1700000000.123456
+        }
+      ],
+      "cookie_value": {
+        "SESSDATA": "",
+        "sessdata": "",
+        "ct0": "",
+        "lang": "en",
+        "missing": ""
+      },
+      "cookie_expiry": {
+        "SESSDATA": null,
+        "sessdata": null,
+        "auth_token": "2026-01-01T00:00:00.500000+00:00",
+        "ct0": null,
+        "lang": "1970-01-01T00:00:00+00:00",
+        "twid": "2286-11-20T17:46:40+00:00",
+        "missing": null
+      }
+    },
+    {
+      "function": "cookies",
+      "cookies": [
+        {
+          "name": "PHPSESSID",
+          "value": "x",
+          "domain": ".pixiv.net",
+          "path": "/",
+          "expires": 1500000000.0
+        }
+      ],
+      "encoded": "[{\"name\": \"PHPSESSID\", \"value\": \"x\", \"domain\": \".pixiv.net\", \"path\": \"/\", \"expires\": 1500000000.0}]",
+      "netscape": "# Netscape HTTP Cookie File\n\n.pixiv.net\tTRUE\t/\tTRUE\t1500000000\tPHPSESSID\tx\n",
+      "without_values": [
+        {
+          "name": "PHPSESSID",
+          "value": "in-profile",
+          "domain": ".pixiv.net",
+          "path": "/",
+          "expires": 1500000000.0
+        }
+      ],
+      "cookie_value": {
+        "SESSDATA": "",
+        "sessdata": "",
+        "ct0": "",
+        "lang": "",
+        "missing": ""
+      },
+      "cookie_expiry": {
+        "SESSDATA": null,
+        "sessdata": null,
+        "auth_token": null,
+        "ct0": null,
+        "lang": null,
+        "twid": null,
+        "missing": null
+      }
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [],
+      "cookies": []
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "a",
+          "value": "b",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": -1
+        }
+      ],
+      "cookies": [
+        {
+          "name": "a",
+          "value": "b",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "a",
+          "value": "b",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": 1767225600.25
+        }
+      ],
+      "cookies": [
+        {
+          "name": "a",
+          "value": "b",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": 1767225600.25
+        }
+      ]
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "a",
+          "value": "b",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": 1767225600
+        }
+      ],
+      "cookies": [
+        {
+          "name": "a",
+          "value": "b",
+          "domain": ".example.com",
+          "path": "/",
+          "expires": 1767225600.0
+        }
+      ]
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "",
+          "value": "skipped"
+        },
+        {
+          "value": "no name"
+        },
+        {
+          "name": "kept"
+        }
+      ],
+      "cookies": [
+        {
+          "name": "kept",
+          "value": "",
+          "domain": "",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "n",
+          "value": null,
+          "domain": null,
+          "path": null,
+          "expires": null
+        }
+      ],
+      "cookies": [
+        {
+          "name": "n",
+          "value": "",
+          "domain": "",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "n",
+          "value": 5,
+          "domain": "d",
+          "path": "",
+          "expires": 0
+        }
+      ],
+      "cookies": [
+        {
+          "name": "n",
+          "value": "5",
+          "domain": "d",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "n",
+          "value": "v",
+          "expires": true
+        }
+      ],
+      "cookies": [
+        {
+          "name": "n",
+          "value": "v",
+          "domain": "",
+          "path": "/",
+          "expires": 1.0
+        }
+      ]
+    },
+    {
+      "function": "cookies_from_browser",
+      "raw": [
+        {
+          "name": "n",
+          "value": "v",
+          "expires": "1767225600"
+        }
+      ],
+      "cookies": [
+        {
+          "name": "n",
+          "value": "v",
+          "domain": "",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "decode_cookies",
+      "stored": null,
+      "cookies": []
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "",
+      "cookies": []
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "not json",
+      "cookies": []
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "{}",
+      "cookies": []
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[]",
+      "cookies": []
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[1, \"x\", null, {}]",
+      "cookies": []
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[{\"name\": \"a\"}]",
+      "cookies": [
+        {
+          "name": "a",
+          "value": "",
+          "domain": "",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[{\"name\": \"a\", \"value\": \"v\", \"domain\": \".d\", \"path\": \"/p\", \"expires\": 1767225600}]",
+      "cookies": [
+        {
+          "name": "a",
+          "value": "v",
+          "domain": ".d",
+          "path": "/p",
+          "expires": 1767225600.0
+        }
+      ]
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[{\"name\": \"a\", \"value\": null, \"domain\": null, \"path\": \"\", \"expires\": 1.5}]",
+      "cookies": [
+        {
+          "name": "a",
+          "value": "",
+          "domain": "",
+          "path": "/",
+          "expires": 1.5
+        }
+      ]
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[{\"name\": 7, \"value\": 8, \"expires\": \"soon\"}]",
+      "cookies": [
+        {
+          "name": "7",
+          "value": "8",
+          "domain": "",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[{\"name\": \"a\", \"value\": \"v\", \"expires\": true}]",
+      "cookies": [
+        {
+          "name": "a",
+          "value": "v",
+          "domain": "",
+          "path": "/",
+          "expires": 1.0
+        }
+      ]
+    },
+    {
+      "function": "decode_cookies",
+      "stored": "[{\"name\": \"\", \"value\": \"v\"}, {\"name\": 0}, {\"name\": \"b\"}]",
+      "cookies": [
+        {
+          "name": "b",
+          "value": "",
+          "domain": "",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "function": "decode_extra",
+      "stored": null,
+      "extra": {}
+    },
+    {
+      "function": "decode_extra",
+      "stored": "",
+      "extra": {}
+    },
+    {
+      "function": "decode_extra",
+      "stored": "nope",
+      "extra": {}
+    },
+    {
+      "function": "decode_extra",
+      "stored": "[]",
+      "extra": {}
+    },
+    {
+      "function": "decode_extra",
+      "stored": "{}",
+      "extra": {}
+    },
+    {
+      "function": "decode_extra",
+      "stored": "{\"ac_time_value\": \"abc\", \"empty\": \"\", \"zero\": 0, \"none\": null, \"n\": 5, \"f\": false, \"t\": true, \"l\": [1]}",
+      "extra": {
+        "ac_time_value": "abc",
+        "n": "5",
+        "t": "True",
+        "l": "[1]"
+      }
+    }
+  ]
+}

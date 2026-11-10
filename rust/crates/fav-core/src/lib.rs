@@ -2,7 +2,7 @@
 //!
 //! The bootstrap environment ([`env`](mod@env), `src/core/env.py`), the settings models
 //! ([`settings`], `src/core/settings.py`; their `app_settings` store is in fav-db),
-//! logging ([`logging`], `src/core/logger.py`), filename helpers ([`filename`],
+//! logging ([`logging`], `src/core/logger.py`), `mimetypes.guess_type` ([`mimetypes`]), filename helpers ([`filename`],
 //! `src/tool/filename.py`), and the Python-compatible pieces the rest is built on:
 //! JSON read and written like Python ([`pyjson`]), pydantic's coercion and error
 //! entries ([`validate`]) and Python's string predicates ([`pytext`]). `golden` (feature
@@ -13,6 +13,7 @@ pub mod filename;
 #[cfg(any(test, feature = "test-support"))]
 pub mod golden;
 pub mod logging;
+pub mod mimetypes;
 pub mod pyjson;
 pub mod pytext;
 pub mod settings;
