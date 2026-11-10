@@ -1195,7 +1195,8 @@ async fn a_logged_out_wechat_fails_the_run_after_reading_events() {
             502,
             &json!({"error": "bridge unreachable: Remote end closed connection without response"}),
         )),
-        ..Inbox::bridge(vec![event(1, message(45, json!({})))])
+        events: vec![event(1, message(45, json!({})))],
+        ..Inbox::listing(vec![inbox_item(1, json!({}))])
     };
     let env = Env::new(inbox, Sites::default()).await;
 
@@ -1208,8 +1209,9 @@ async fn a_logged_out_wechat_fails_the_run_after_reading_events() {
         "{}",
         error.message()
     );
-    // What the log already held is still saved.
-    assert_eq!(env.image_ids().await, [45]);
+    // What the log already held is still saved, and the inbox still drains.
+    assert_eq!(env.image_ids().await, [45, 1]);
+    assert_eq!(env.inbox().acked, [1]);
     assert_eq!(env.state().await["events_after"], "1");
     env.finish().await;
 }
@@ -1217,16 +1219,40 @@ async fn a_logged_out_wechat_fails_the_run_after_reading_events() {
 // D183.
 #[tokio::test]
 async fn a_status_without_a_logged_in_account_fails_the_run() {
+    // The plugin's `j.put("login_wxid", null)` drops the key, so a missing key is the
+    // likeliest logged-out answer.
+    for status in [
+        json!({"ok": true, "login_wxid": ""}),
+        json!({"ok": true}),
+        json!({"ok": true, "login_wxid": null}),
+    ] {
+        let inbox = Inbox {
+            status: Some(Reply::json(200, &status)),
+            ..Inbox::default()
+        };
+        let env = Env::new(inbox, Sites::default()).await;
+
+        let error = env.run_err().await;
+
+        assert_eq!(error.notification_dedupe_key(), Some("wechat:login"), "{status}");
+        assert!(error.message().contains("no logged-in account"), "{status}: {}", error.message());
+        env.finish().await;
+    }
+}
+
+// D183.
+#[tokio::test]
+async fn a_status_call_that_hangs_up_fails_the_run_as_unreachable() {
     let inbox = Inbox {
-        status: Some(Reply::json(200, &json!({"ok": true, "login_wxid": ""}))),
+        status: Some(Reply::Close),
         ..Inbox::default()
     };
     let env = Env::new(inbox, Sites::default()).await;
 
     let error = env.run_err().await;
 
-    assert_eq!(error.notification_dedupe_key(), Some("wechat:login"));
-    assert!(error.message().contains("no logged-in account"), "{}", error.message());
+    assert_eq!(error.notification_dedupe_key(), Some("wechat:unreachable"));
+    assert!(error.message().contains("is unreachable"), "{}", error.message());
     env.finish().await;
 }
 
