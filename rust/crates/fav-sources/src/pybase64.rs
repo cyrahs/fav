@@ -7,7 +7,7 @@
 //! `binascii.Error` with Python's text and a non-ASCII string the `ValueError` `str`
 //! arguments get.
 //!
-//! Jandan's `crypto.rs` keeps an earlier non-strict copy of this (PLAN.md cleanup notes).
+//! Jandan's `data` field decodes and encodes through here too (`b64encode` is `base64.b64encode`).
 
 use crate::pydecode::PyError;
 
@@ -24,6 +24,29 @@ fn table(byte: u8) -> Option<u8> {
         b'/' => Some(63),
         _ => None,
     }
+}
+
+/// `base64.b64encode(data).decode()`: the standard alphabet, padded.
+pub(crate) fn b64encode(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let bytes = [chunk[0], chunk.get(1).copied().unwrap_or(0), chunk.get(2).copied().unwrap_or(0)];
+        let indices = [
+            bytes[0] >> 2,
+            ((bytes[0] & 0x03) << 4) | (bytes[1] >> 4),
+            ((bytes[1] & 0x0f) << 2) | (bytes[2] >> 6),
+            bytes[2] & 0x3f,
+        ];
+        for (position, index) in indices.into_iter().enumerate() {
+            if position <= chunk.len() {
+                out.push(char::from(ALPHABET[usize::from(index)]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// `base64.b64decode(text, validate=strict)` for a `str` argument.

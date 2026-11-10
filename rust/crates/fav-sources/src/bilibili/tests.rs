@@ -28,13 +28,6 @@ fn json(text: &str) -> Value {
     pyjson::loads(text).expect("test JSON")
 }
 
-fn no_waiting() -> Pacing {
-    Pacing {
-        batch_pause: Duration::ZERO,
-        retry_base_seconds: 0.0,
-    }
-}
-
 /// A database nothing listens on, for tests that must never reach it.
 fn unused_db() -> Db {
     Db::connect_lazy("postgresql://tests@127.0.0.1:1/unused").expect("lazy pool")
@@ -241,16 +234,23 @@ struct Fixture {
     crawler: Bilibili,
     notifier: Arc<RecordingNotifier>,
     runner: Arc<FakeYtDlp>,
+    sleeps: fav_net::retry::RecordingSleeper,
 }
 
 fn fixture(db: Db, endpoints: Endpoints, notifier: RecordingNotifier, runner: FakeYtDlp, config: BilibiliConfig) -> Fixture {
     let notifier = Arc::new(notifier);
     let runner = Arc::new(runner);
     let shared: SharedNotifier = notifier.clone();
+    let sleeps = fav_net::retry::RecordingSleeper::new();
     let crawler = Bilibili::new(db, shared, runner.clone(), config)
         .expect("crawler")
-        .with_test_seams(endpoints, no_waiting(), clock);
-    Fixture { crawler, notifier, runner }
+        .with_test_seams(endpoints, sleeps.sleeper(), clock);
+    Fixture {
+        crawler,
+        notifier,
+        runner,
+        sleeps,
+    }
 }
 
 /// A crawler with an active account (`b.credential = object()` in Python).
@@ -551,6 +551,29 @@ async fn get_toviews_retries_recovery_for_existing_bvids() {
         resolved[0].1.body,
         format!("Download succeeded: Example Title [{BV_A}]\nExample Uploader | toview | 1080p | unknown | 2024-01-01")
     );
+    database.drop_database().await;
+}
+
+/// `limit_gather` checks validity five at a time and pauses a second after each batch.
+#[tokio::test]
+async fn validity_checks_pause_after_each_batch_of_five() {
+    let database = database().await;
+    let toview: Vec<String> = (1..=6).map(|n| format!("BV1xx411c7m{n}")).collect();
+    let server = site(Site {
+        toview: toview.clone(),
+        ..Site::default()
+    })
+    .await;
+    let mut fixture = signed_in(database.db().clone(), &server, RecordingNotifier::default(), FakeYtDlp::default());
+
+    let (videos, has_any_toviews, _) = fixture.crawler.get_toviews().await.expect("toviews");
+    assert!(has_any_toviews);
+    assert_eq!(bvids(&videos), toview.iter().map(String::as_str).collect::<Vec<_>>());
+
+    let valid = fixture.crawler.check_valid_all(&videos).await.expect("checked");
+
+    assert_eq!(valid, [true; 6]);
+    assert_eq!(fixture.sleeps.delays(), [1.0, 1.0]);
     database.drop_database().await;
 }
 
@@ -978,6 +1001,8 @@ fn download_retry_does_not_emit_warning_per_attempt() {
 
     let error = outcome.expect_err("every attempt failed");
     assert_eq!(fixture.runner.commands().len(), 3);
+    // tenacity's `wait_exponential(multiplier=5, min=5, max=30)` between the three tries.
+    assert_eq!(fixture.sleeps.delays(), [5.0, 10.0]);
     assert!(records.iter().all(|record| record.level < Level::Warning), "{records:?}");
     assert_eq!(error.class_name(), "DownloadError");
     assert_eq!(error.notification_dedupe_key(), Some("bilibili:download:BV1TEST1"));
@@ -993,20 +1018,15 @@ fn download_failures_match_the_recorded_ones() {
             stdout: golden::string(golden::get(case, "stdout")),
             stderr: golden::string(golden::get(case, "stderr")),
         };
-        // The ladder Python waits on, 5 s then 10 s, on a paused clock: the log lines name
-        // the waits and the test does not sit through them.
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .start_paused(true)
-            .build()
-            .expect("runtime");
+        // The ladder Python waits on, 5 s then 10 s: the log lines name the waits, and the
+        // recording sleeper keeps the test from sitting through them.
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
         let _entered = runtime.enter();
-        let mut fixture = offline(
+        let fixture = offline(
             BilibiliConfig::default(),
             FakeYtDlp::with_outcomes(vec![completed.clone(), completed.clone(), completed]),
             "/c.txt",
         );
-        fixture.crawler.pacing = Pacing::default();
         let (outcome, records) = download_logged(
             &runtime,
             &fixture,

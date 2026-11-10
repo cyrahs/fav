@@ -741,6 +741,27 @@ fn tool_names(listed: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Registry completeness (WP18): `tools/list` names Python's 18 tools, in Python's order.
+#[tokio::test]
+async fn the_contract_has_python_tools() {
+    let document = golden::load("mcp/protocol.json");
+    let exchanges = golden::list(golden::get(&golden::cases(&document)[0], "exchanges"));
+    let listed = exchanges
+        .iter()
+        .find(|exchange| {
+            golden::get(golden::get(exchange, "request"), "body").as_str().is_some_and(|body| body.contains("\"tools/list\""))
+                && golden::get(golden::get(exchange, "response"), "json").get("result").is_some()
+        })
+        .expect("a tools/list exchange");
+    let python = tool_names(golden::get(golden::get(listed, "response"), "json"));
+    assert_eq!(python.len(), 18);
+
+    let harness = Harness::new().await;
+    let rust = tool_names(&rpc(&harness, "tools/list", &Value::Dict(Dict::new())).await);
+    assert_eq!(rust, python);
+    harness.finish().await;
+}
+
 // py: tests/test_mcp.py::test_mcp_endpoint_lists_tools_over_http
 #[tokio::test]
 async fn endpoint_lists_tools_over_http() {

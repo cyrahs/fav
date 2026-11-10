@@ -26,7 +26,9 @@ use fav_core::pyjson::{Dict, Value};
 use fav_core::pytext::{py_isdigit, py_strip};
 use fav_core::settings::BilibiliAccount;
 use fav_db::Db;
+use fav_net::httpx::HttpError;
 use fav_net::reqwest::{self, header};
+use fav_net::retry::{Sleeper, tokio_sleeper};
 use fav_net::subprocess::{Runner, SystemRunner};
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{NewNotification, Outbox, Resolution, format_job_failure_dedupe_key};
@@ -36,7 +38,7 @@ use fav_runtime::source::{JobError, Registry, Source};
 use sqlx::Row;
 
 use crate::SourceContext;
-use crate::kit::{self, HttpError, OutboxNotifier, SharedNotifier};
+use crate::notifier::{HttpJobError as _, OutboxNotifier, SharedNotifier};
 use crate::pydecode::{self, PyError, py_eq_int};
 
 pub mod api;
@@ -131,8 +133,12 @@ fn session_store_error(error: fav_runtime::Error) -> JobError {
 /// An `OSError` for `path`, with the file name the way Python's message carries it.
 fn os_error(error: &std::io::Error, path: &Path) -> JobError {
     JobError::new(
-        kit::io_class_name(error),
-        format!("{}: {}", kit::py_os_error_text(error), repr_str(&path.to_string_lossy())),
+        fav_net::download::io_class_name(error),
+        format!(
+            "{}: {}",
+            fav_net::download::py_os_error_text(error),
+            repr_str(&path.to_string_lossy())
+        ),
     )
 }
 
@@ -527,22 +533,8 @@ impl From<RenewError> for JobError {
 
 // ---------- the crawler ----------
 
-/// How long the crawl waits: between batches of validity checks, and before download
-/// retries (the base of the 5 s, 10 s ladder).
-#[derive(Debug, Clone)]
-pub struct Pacing {
-    pub batch_pause: Duration,
-    pub retry_base_seconds: f64,
-}
-
-impl Default for Pacing {
-    fn default() -> Self {
-        Self {
-            batch_pause: Duration::from_secs(1),
-            retry_base_seconds: DOWNLOAD_BASE_DELAY_SECONDS,
-        }
-    }
-}
+/// `limit_gather`'s pause after each batch of validity checks.
+const BATCH_PAUSE_SECONDS: f64 = 1.0;
 
 /// The parts of `web.bilibili` a run uses.
 #[derive(Debug, Clone, Default)]
@@ -609,7 +601,8 @@ pub struct Bilibili {
     runner: Arc<dyn Runner>,
     config: BilibiliConfig,
     endpoints: Endpoints,
-    pacing: Pacing,
+    /// `asyncio.sleep`: the batch pause and the download retry waits go through it.
+    sleeper: Sleeper,
     clock: fn() -> f64,
     _tmp_dir: tempfile::TempDir,
     cache_dir: PathBuf,
@@ -630,10 +623,12 @@ impl std::fmt::Debug for Bilibili {
 
 impl Bilibili {
     pub fn new(db: Db, notifier: SharedNotifier, runner: Arc<dyn Runner>, config: BilibiliConfig) -> Result<Self, JobError> {
-        let tmp_dir = tempfile::Builder::new()
-            .prefix("fav-bilibili-")
-            .tempdir()
-            .map_err(|error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error)))?;
+        let tmp_dir = tempfile::Builder::new().prefix("fav-bilibili-").tempdir().map_err(|error| {
+            JobError::new(
+                fav_net::download::io_class_name(&error),
+                fav_net::download::py_os_error_text(&error),
+            )
+        })?;
         let cache_dir = tmp_dir.path().to_path_buf();
         log().debug(format_args!("cache_dir: {}", cache_dir.display()));
         Ok(Self {
@@ -642,7 +637,7 @@ impl Bilibili {
             runner,
             config,
             endpoints: Endpoints::default(),
-            pacing: Pacing::default(),
+            sleeper: tokio_sleeper(),
             clock: now,
             cookie_path: cache_dir.join("bilibili.txt"),
             cache_dir,
@@ -652,11 +647,12 @@ impl Bilibili {
         })
     }
 
-    /// Talk to other origins, wait differently and read another clock (tests).
+    /// Talk to other origins, sleep through `sleeper` (tests record the waits) and read
+    /// another clock (tests).
     #[must_use]
-    pub fn with_test_seams(mut self, endpoints: Endpoints, pacing: Pacing, clock: fn() -> f64) -> Self {
+    pub fn with_test_seams(mut self, endpoints: Endpoints, sleeper: Sleeper, clock: fn() -> f64) -> Self {
         self.endpoints = endpoints;
-        self.pacing = pacing;
+        self.sleeper = sleeper;
         self.clock = clock;
         self
     }
@@ -856,7 +852,7 @@ impl Bilibili {
         let mut valid = Vec::with_capacity(videos.len());
         for batch in videos.chunks(GATHER_LIMIT) {
             valid.extend(self.check_valid_batch(batch).await?);
-            tokio::time::sleep(self.pacing.batch_pause).await;
+            (self.sleeper)(BATCH_PAUSE_SECONDS).await;
         }
         Ok(valid)
     }
@@ -969,11 +965,11 @@ impl Bilibili {
         let mut attempt = 1;
         loop {
             let cache = dirpath.to_owned();
-            kit::blocking(move || cleanup_dir(&cache)).await?;
+            crate::notifier::blocking(move || cleanup_dir(&cache)).await?;
             let result = self.runner.run(command.clone()).await.map_err(|error| {
                 JobError::new(
-                    kit::io_class_name(&error),
-                    format!("{}: {}", kit::py_os_error_text(&error), repr_str(&command[0])),
+                    fav_net::download::io_class_name(&error),
+                    format!("{}: {}", fav_net::download::py_os_error_text(&error), repr_str(&command[0])),
                 )
             })?;
             if result.returncode == 0 {
@@ -996,13 +992,13 @@ impl Bilibili {
                 return Err(JobError::new("DownloadError", message).with_notification_dedupe_key(download_failure_key(bvid)));
             }
             // tenacity's `wait_exponential(multiplier=b, min=b, max=6b)`.
-            let base = self.pacing.retry_base_seconds;
+            let base = DOWNLOAD_BASE_DELAY_SECONDS;
             let wait = (base * 2_f64.powi(i32::try_from(attempt - 1).unwrap_or(0))).clamp(base, base * 6.0);
             // Debug only: a transient failure is not worth an alert.
             log().debug(format_args!(
                 "Retrying download for {bvid} ({attempt}/{DOWNLOAD_ATTEMPTS}), next wait {wait:.1}s: {message}"
             ));
-            tokio::time::sleep(Duration::try_from_secs_f64(wait).unwrap_or(Duration::ZERO)).await;
+            (self.sleeper)(wait).await;
             attempt += 1;
         }
     }
@@ -1067,7 +1063,7 @@ impl Bilibili {
         self.download(&url, &bvid, &video_cache_dir).await?;
         let saved_paths = {
             let (cache, dest, title, bvid, upper) = (video_cache_dir.clone(), path.to_owned(), title.clone(), bvid.clone(), upper.clone());
-            kit::blocking(move || move_downloads(&cache, &dest, &title, &bvid, &upper)).await?
+            crate::notifier::blocking(move || move_downloads(&cache, &dest, &title, &bvid, &upper)).await?
         };
         let resolution = extract_resolution_label(&detail).map_err(py_error)?;
         let mut file_size_bytes: Option<i128> = None;
@@ -1082,7 +1078,7 @@ impl Bilibili {
                 Err(error) => log().debug(format_args!(
                     "Failed to read file size for {}: {}",
                     saved_path.display(),
-                    kit::py_os_error_text(&error)
+                    fav_net::download::py_os_error_text(&error)
                 )),
             }
         }
@@ -1272,7 +1268,7 @@ pub fn move_downloads(source_dir: &Path, dest_dir: &Path, title: &str, bvid: &st
             .unwrap_or_default();
         let filename = format_video_filename(title, bvid, Some(upper), fav_core::pypath::suffix(&name), MAX_TOTAL_BYTES);
         let destination = ensure_unique_path(&dest_dir.join(filename));
-        kit::move_file(&entry, &destination).map_err(|error| os_error(&error, &entry))?;
+        fav_net::download::move_file(&entry, &destination).map_err(|error| os_error(&error, &entry))?;
         saved.push(destination);
     }
     Ok(saved)

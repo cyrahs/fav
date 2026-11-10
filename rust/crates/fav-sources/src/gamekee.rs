@@ -1,11 +1,15 @@
-//! The GameKee helpers BD2 imports from the NIKKE crawler.
+//! The GameKee helpers of the NIKKE crawler that BD2 imports, and the file helpers Azur Lane
+//! has copies of.
 //!
 //! Python origin: `src/web/nikke.py` (`Asset`, `add_asset`, `add_url_list`, `normalize_url`,
 //! `asset_headers`, `response_json`, `parse_spine_atlas_textures`,
 //! `original_filename_from_url` with NIKKE's own `extension_for_kind`, `context_hash`,
-//! `validate_asset_response`, `materialize_blob`, `write_json`, `file_sha256`). WP9 ports the
-//! NIKKE crawler in parallel; until both have merged this is BD2's private copy
-//! (`rust/docs/PLAN.md`, cleanup notes: fold into one GameKee module).
+//! `is_cdn_rejection_body`, `validate_asset_response`, `materialize_blob`, `write_json`,
+//! `file_sha256`, `_verify_file`), which `src/web/bd2.py` imports and `src/web/azurlane.py`
+//! copies. WP18 folded NIKKE's and BD2's ports into this one module; what stays apart:
+//! NIKKE's `Assets` (an indexed map the crawl and manifests share), its `add_asset` on it,
+//! its infallible `context_hash` (NIKKE's `json_dumps` cannot fail) and `write_json`, and Azur
+//! Lane's own `_validate_asset_response` (a different function in Python too).
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
@@ -246,7 +250,7 @@ pub(crate) fn parse_spine_atlas_textures(text: &str) -> Vec<String> {
 }
 
 /// NIKKE's `extension_for_kind` (no `audio`), which its `original_filename_from_url` uses.
-fn nikke_extension_for_kind(kind: &str) -> &'static str {
+pub(crate) fn nikke_extension_for_kind(kind: &str) -> &'static str {
     match kind {
         "video" => ".mp4",
         "live2d_atlas" => ".atlas",
@@ -287,7 +291,7 @@ pub(crate) fn context_hash(context: &Dict) -> Result<String, JobError> {
 }
 
 /// `bytes.lstrip()`: ASCII whitespace.
-fn lstrip_bytes(bytes: &[u8]) -> &[u8] {
+pub(crate) fn lstrip_bytes(bytes: &[u8]) -> &[u8] {
     let start = bytes
         .iter()
         .position(|byte| !matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c))
@@ -299,8 +303,9 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|window| window == needle)
 }
 
-/// `is_cdn_rejection_body(content_type, body_prefix)`.
-fn is_cdn_rejection_body(content_type: &str, body_prefix: &[u8]) -> bool {
+/// `is_cdn_rejection_body(content_type, body_prefix)`: an HTML page or an access-denied text
+/// instead of the file.
+pub(crate) fn is_cdn_rejection_body(content_type: &str, body_prefix: &[u8]) -> bool {
     if content_type.to_lowercase().contains("text/html") {
         return true;
     }
@@ -401,9 +406,27 @@ pub(crate) fn os_error(error: &std::io::Error, path: &Path) -> JobError {
     JobError::new(py.class, py.to_string())
 }
 
+/// `os.link`, replaceable in tests.
+pub(crate) type LinkFn = fn(&Path, &Path) -> std::io::Result<()>;
+
+/// `os.link(src, dst)`.
+pub(crate) fn hard_link(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::hard_link(src, dst)
+}
+
+/// `shutil.copy2(src, dst)`: contents and times.
+pub(crate) fn copy2(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::copy(src, dst)?;
+    let metadata = std::fs::metadata(src)?;
+    let times = std::fs::FileTimes::new()
+        .set_accessed(metadata.accessed()?)
+        .set_modified(metadata.modified()?);
+    std::fs::File::options().write(true).open(dst)?.set_times(times)
+}
+
 /// `materialize_blob(blob_path=..., destination=..., sha256=..., size=...)`: a hard link to
-/// the blob (a copy where linking fails), verified before it replaces the destination.
-pub(crate) fn materialize_blob(blob_path: &Path, destination: &Path, sha256: &str, size: i64) -> Result<(), JobError> {
+/// the blob (`link`, a copy where linking fails), verified before it replaces the destination.
+pub(crate) fn materialize_blob(blob_path: &Path, destination: &Path, sha256: &str, size: i64, link: LinkFn) -> Result<(), JobError> {
     if destination.exists() && verify_file(destination, sha256, size) {
         return Ok(());
     }
@@ -412,8 +435,8 @@ pub(crate) fn materialize_blob(blob_path: &Path, destination: &Path, sha256: &st
     }
     let tmp = temp_sibling(destination);
     let result = (|| {
-        if std::fs::hard_link(blob_path, &tmp).is_err() {
-            copy_with_times(blob_path, &tmp)?;
+        if link(blob_path, &tmp).is_err() {
+            copy2(blob_path, &tmp).map_err(|error| os_error(&error, blob_path))?;
         }
         if !verify_file(&tmp, sha256, size) {
             return Err(JobError::new(
@@ -425,18 +448,6 @@ pub(crate) fn materialize_blob(blob_path: &Path, destination: &Path, sha256: &st
     })();
     let _ = std::fs::remove_file(&tmp);
     result
-}
-
-/// `shutil.copy2(src, dst)`.
-fn copy_with_times(src: &Path, dst: &Path) -> Result<(), JobError> {
-    std::fs::copy(src, dst).map_err(|error| os_error(&error, src))?;
-    if let Ok(metadata) = std::fs::metadata(src)
-        && let (Ok(accessed), Ok(modified)) = (metadata.accessed(), metadata.modified())
-        && let Ok(file) = std::fs::File::options().write(true).open(dst)
-    {
-        let _ = file.set_times(std::fs::FileTimes::new().set_accessed(accessed).set_modified(modified));
-    }
-    Ok(())
 }
 
 /// `write_json(path, data)`: pretty, sorted JSON and a newline, through a temporary file.

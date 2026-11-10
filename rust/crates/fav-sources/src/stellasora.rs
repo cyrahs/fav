@@ -22,7 +22,9 @@ use fav_core::pyjson::{Dict, Value};
 use fav_core::pytext::py_strip;
 use fav_core::pyurl::{UrlError, unquote, urljoin, urlsplit};
 use fav_core::{pyjson, pypath};
+use fav_net::httpx::{HttpError, StreamError as DownloadError};
 use fav_net::reqwest;
+use fav_net::retry::{Sleeper, tokio_sleeper};
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{NewNotification, Outbox};
 use fav_runtime::pystr::str_value;
@@ -30,7 +32,7 @@ use fav_runtime::source::{JobError, Registry, Source};
 use futures_util::StreamExt;
 
 use crate::SourceContext;
-use crate::kit::{self, DownloadError, HttpError, OutboxNotifier, SharedNotifier};
+use crate::notifier::{HttpJobError as _, OutboxNotifier, SharedNotifier};
 
 pub const JOB_KEY: &str = "stellasora";
 pub const BASE_URL: &str = "https://stellasora.miraheze.org";
@@ -716,11 +718,9 @@ pub fn parse_imageinfo_payload(payload: &Value) -> Result<Vec<WikiFile>, JobErro
 
 // ---------- the crawler ----------
 
-/// Seconds to wait after a failed download attempt (`min(10, 2 ** attempt)`).
-pub type Backoff = Arc<dyn Fn(u32) -> Duration + Send + Sync>;
-
-fn python_backoff() -> Backoff {
-    Arc::new(|attempt| Duration::from_secs(10_u64.min(2_u64.pow(attempt))))
+/// Seconds to wait after failed download attempt `attempt`: `min(10, 2 ** attempt)`.
+fn download_backoff_seconds(attempt: u32) -> f64 {
+    f64::from(10_u32.min(2_u32.saturating_pow(attempt)))
 }
 
 /// `StellaSora`: one run's client, settings and notification seam.
@@ -730,7 +730,8 @@ pub struct StellaSora {
     /// `cfg.path` as `str(Path)`.
     path: String,
     notifier: SharedNotifier,
-    backoff: Backoff,
+    /// `asyncio.sleep`: the download backoff goes through it.
+    sleeper: Sleeper,
 }
 
 impl std::fmt::Debug for StellaSora {
@@ -761,14 +762,14 @@ impl StellaSora {
             base_url: base_url.trim_end_matches('/').to_owned(),
             path: path.to_owned(),
             notifier,
-            backoff: python_backoff(),
+            sleeper: tokio_sleeper(),
         }
     }
 
-    /// Replace the wait between download attempts (tests).
+    /// Sleep through `sleeper` (tests record the waits instead of taking them).
     #[must_use]
-    pub fn with_backoff(mut self, backoff: Backoff) -> Self {
-        self.backoff = backoff;
+    pub fn with_sleeper(mut self, sleeper: Sleeper) -> Self {
+        self.sleeper = sleeper;
         self
     }
 
@@ -796,7 +797,7 @@ impl StellaSora {
             .send()
             .await
             .map_err(|error| HttpError::transport(&error))?;
-        kit::raise_for_status(&response)?;
+        fav_net::httpx::raise_for_status(&response)?;
         response.text().await.map_err(|error| HttpError::transport(&error))
     }
 
@@ -866,7 +867,7 @@ impl StellaSora {
                 .send()
                 .await
                 .map_err(|error| HttpError::transport(&error).into_job_error())?;
-            kit::raise_for_status(&response).map_err(HttpError::into_job_error)?;
+            fav_net::httpx::raise_for_status(&response).map_err(HttpError::into_job_error)?;
             let text = response
                 .text()
                 .await
@@ -881,17 +882,23 @@ impl StellaSora {
     async fn download_file(&self, url: &str, dst_path: &str) -> Result<(), JobError> {
         let dst = Path::new(dst_path);
         if let Some(parent) = dst.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error)))?;
+            tokio::fs::create_dir_all(parent).await.map_err(|error| {
+                JobError::new(
+                    fav_net::download::io_class_name(&error),
+                    fav_net::download::py_os_error_text(&error),
+                )
+            })?;
         }
         let part = format!("{dst_path}.part");
         let name = pypath::name(dst_path);
         for attempt in 1..=DOWNLOAD_ATTEMPTS {
             if Path::new(&part).exists() {
-                tokio::fs::remove_file(&part)
-                    .await
-                    .map_err(|error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error)))?;
+                tokio::fs::remove_file(&part).await.map_err(|error| {
+                    JobError::new(
+                        fav_net::download::io_class_name(&error),
+                        fav_net::download::py_os_error_text(&error),
+                    )
+                })?;
             }
             let outcome: Result<(), DownloadError> = async {
                 let response = self
@@ -900,19 +907,22 @@ impl StellaSora {
                     .send()
                     .await
                     .map_err(|error| DownloadError::Http(HttpError::transport(&error)))?;
-                kit::raise_for_status(&response).map_err(DownloadError::Http)?;
-                kit::stream_body_to(response, Path::new(&part)).await
+                fav_net::httpx::raise_for_status(&response).map_err(DownloadError::Http)?;
+                fav_net::httpx::stream_body_to(response, Path::new(&part)).await
             }
             .await;
             match outcome {
                 Ok(()) => {
-                    return tokio::fs::rename(&part, dst_path)
-                        .await
-                        .map_err(|error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error)));
+                    return tokio::fs::rename(&part, dst_path).await.map_err(|error| {
+                        JobError::new(
+                            fav_net::download::io_class_name(&error),
+                            fav_net::download::py_os_error_text(&error),
+                        )
+                    });
                 }
                 Err(error) => {
                     log().warning(format_args!("Download failed ({attempt}/{DOWNLOAD_ATTEMPTS}) {name}: {error}"));
-                    tokio::time::sleep((self.backoff)(attempt)).await;
+                    (self.sleeper)(download_backoff_seconds(attempt)).await;
                 }
             }
         }
@@ -978,11 +988,16 @@ impl StellaSora {
             && let Some(source) = existing.iter().find(|path| parent(path) == disc_dir)
         {
             let (source, dir, dst) = (source.clone(), dst_dir.to_owned(), dst_path.clone());
-            let io_error = |error: std::io::Error| JobError::new(kit::io_class_name(&error), kit::py_os_error_text(&error));
+            let io_error = |error: std::io::Error| {
+                JobError::new(
+                    fav_net::download::io_class_name(&error),
+                    fav_net::download::py_os_error_text(&error),
+                )
+            };
             // A move across file systems copies the whole file: off the async threads.
             tokio::task::spawn_blocking(move || {
                 std::fs::create_dir_all(&dir)?;
-                kit::move_file(Path::new(&source), Path::new(&dst))
+                fav_net::download::move_file(Path::new(&source), Path::new(&dst))
             })
             .await
             .map_err(|error| JobError::new("RuntimeError", error.to_string()))?

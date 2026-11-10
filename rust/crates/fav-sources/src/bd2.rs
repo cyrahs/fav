@@ -3,15 +3,14 @@
 //!
 //! Python origin: `src/web/bd2.py` (the `BD2` job). The pure page parsing is in
 //! [`extract`]; the discovery helpers are [`crate::content_discovery`], shared with NIKKE. The
-//! GameKee helpers Python imports from `src/web/nikke.py` are still BD2's copy in
-//! [`gamekee`] (`rust/docs/PLAN.md`, cleanup notes).
+//! GameKee helpers Python imports from `src/web/nikke.py` are in [`crate::gamekee`], which
+//! NIKKE's crawl uses too.
 //!
 //! Downloads go through a content-addressed blob store under `<root>/_blobs`, each page's
 //! files being hard links to it, as in Python. The run holds the `bd2` advisory lock; the
 //! tables are created by the schema, not by the run (DIVERGENCES.md D96).
 
 pub(crate) mod extract;
-pub(crate) mod gamekee;
 #[cfg(test)]
 mod golden;
 #[cfg(test)]
@@ -46,10 +45,10 @@ use self::extract::{
     row_content_id, row_name, summarize_content, supplement_live2d_models_from_viewer, to_int, video_retry_cooldown_days,
     viewer_extra_live2d_model, viewer_extra_resources, viewer_extra_root, viewer_extra_title, viewer_resource_payload,
 };
-use self::gamekee::{Asset, Assets, add_asset, asset_headers, normalize_url, parse_spine_atlas_textures, response_json, write_json};
 use crate::bd2_l2d_viewer::{self, VIEWER_PAGE_URL, ViewerResource};
 use crate::content_discovery as discovery;
-use crate::kit::{OutboxNotifier, SharedNotifier, blocking};
+use crate::gamekee::{self, Asset, Assets, add_asset, asset_headers, normalize_url, parse_spine_atlas_textures, response_json, write_json};
+use crate::notifier::{OutboxNotifier, SharedNotifier, blocking};
 use crate::{SourceContext, db_job_error, pyerr, settings_job_error};
 
 const API_REQUEST_INTERVAL_SECONDS: f64 = 0.5;
@@ -207,6 +206,10 @@ pub struct Bd2Crawler {
     /// Tests only: send `https://` URLs as `http://` so the fake web, an HTTP proxy, sees
     /// them; status errors still name the `https://` URL.
     plain_http: bool,
+    /// The BD2-L2D-Viewer fetch's own client (Python opens a separate `httpx.AsyncClient`),
+    /// injected by the job; `Err` is why it could not be built, reported as the fetch's
+    /// failure.
+    viewer_http: Result<HttpClient, String>,
     viewer_resources: OnceCell<Vec<ViewerResource>>,
     api_limiter: RateLimiter,
     cdn_limiter: RateLimiter,
@@ -232,11 +235,21 @@ pub fn client_options() -> ClientOptions {
     }
 }
 
+/// The BD2-L2D-Viewer fetch's client: `httpx.AsyncClient(timeout=60, follow_redirects=True)`.
+pub fn viewer_client_options() -> ClientOptions {
+    ClientOptions {
+        timeout: Duration::from_mins(1),
+        follow_redirects: true,
+        ..ClientOptions::default()
+    }
+}
+
 impl Bd2Crawler {
-    pub fn new(root: &str, http: HttpClient, db: Db, notifier: SharedNotifier) -> Self {
+    pub fn new(root: &str, http: HttpClient, viewer_http: Result<HttpClient, String>, db: Db, notifier: SharedNotifier) -> Self {
         Self {
             root: root.to_owned(),
             http,
+            viewer_http,
             db,
             notifier,
             sleeper: tokio_sleeper(),
@@ -451,20 +464,15 @@ impl Bd2Crawler {
     async fn viewer_resources(&self) -> &[ViewerResource] {
         self.viewer_resources
             .get_or_init(|| async {
-                let options = ClientOptions {
-                    timeout: Duration::from_mins(1),
-                    follow_redirects: true,
-                    ..ClientOptions::default()
-                };
-                let fetched = match HttpClient::new(&options) {
+                let fetched = match &self.viewer_http {
                     Ok(client) => bd2_l2d_viewer::fetch_viewer_resources(
-                        &client,
+                        client,
                         bd2_l2d_viewer::VIEWER_CHARACTER_LIST_URL,
                         bd2_l2d_viewer::VIEWER_REPO_TREE_URL,
                     )
                     .await
                     .map_err(|error| error.message),
-                    Err(error) => Err(error.to_string()),
+                    Err(error) => Err(error.clone()),
                 };
                 fetched.unwrap_or_else(|error| {
                     log().warning(format_args!("BD2 L2D Viewer supplement is unavailable for this run: {error}"));
@@ -968,7 +976,7 @@ impl Bd2Crawler {
         {
             let destination = PathBuf::from(pypath::join(root, &asset.local_path));
             let (blob_path, sha256, size) = (blob.path.clone(), blob.sha256.clone(), blob.size);
-            blocking(move || gamekee::materialize_blob(&blob_path, &destination, &sha256, size)).await?;
+            blocking(move || gamekee::materialize_blob(&blob_path, &destination, &sha256, size, gamekee::hard_link)).await?;
         }
         asset.sha256.clone_from(&blob.sha256);
         asset.size = blob.size;
@@ -1459,10 +1467,12 @@ impl Source for Bd2Job {
         Box::pin(async move {
             let settings = self.ctx.settings.load().await.map_err(|error| settings_job_error(&error))?;
             let http = HttpClient::new(&client_options()).map_err(|error| JobError::new("ValueError", error.to_string()))?;
+            let viewer_http = HttpClient::new(&viewer_client_options()).map_err(|error| error.to_string());
             let outbox = Outbox::new(self.ctx.db.clone(), Arc::clone(&self.ctx.settings));
             let crawler = Bd2Crawler::new(
                 settings.web.bd2.path.as_str(),
                 http,
+                viewer_http,
                 self.ctx.db.clone(),
                 Arc::new(OutboxNotifier(outbox)),
             );

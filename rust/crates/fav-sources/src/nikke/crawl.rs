@@ -32,6 +32,7 @@ use super::{
 use crate::content_discovery::{
     CharacterSnapshot, collection_item_names, has_character_snapshot, load_character_snapshot, new_collection_item_names,
 };
+use crate::gamekee::{LinkFn, hard_link, materialize_blob, verify_file};
 use crate::nikke_layer_metadata::{
     self as layer_metadata, LAYER_CAPTURE_RAW_PATH, LIVE2D_LAYER_CAPTURE_FIELD, LIVE2D_LAYER_METADATA_FIELDS, json_dumps, py_eq,
     random_hex, str_or_empty, to_int, value_or_empty, write_json,
@@ -46,7 +47,6 @@ const ASSET_PROCESS_CONCURRENCY: usize = 3;
 const CIRCUIT_LIMITED_FAILURES: u32 = 5;
 const CIRCUIT_PAUSE_SECONDS: f64 = 30.0;
 const BODY_PREFIX_LIMIT: usize = 4096;
-const DOWNLOAD_CHUNK_SIZE: usize = 1024 * 128;
 
 fn log() -> logging::Logger {
     logging::get("nikke")
@@ -141,81 +141,6 @@ impl From<JobError> for AssetFailure {
 enum AttemptError {
     Retry(AssetFailure),
     Fatal(JobError),
-}
-
-fn file_sha256(path: &Path) -> std::io::Result<String> {
-    use sha2::Digest as _;
-    use std::io::Read as _;
-    let mut file = std::fs::File::open(path)?;
-    let mut digest = sha2::Sha256::new();
-    let mut buffer = vec![0_u8; DOWNLOAD_CHUNK_SIZE];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        digest.update(&buffer[..read]);
-    }
-    Ok(digest.finalize().iter().fold(String::with_capacity(64), |mut out, byte| {
-        use std::fmt::Write as _;
-        let _ = write!(out, "{byte:02x}");
-        out
-    }))
-}
-
-/// `_verify_file`: the file has this size and hash (any error is a no).
-pub(crate) fn verify_file(path: &Path, sha256: &str, size: i64) -> bool {
-    match std::fs::metadata(path) {
-        Ok(metadata) if i64::try_from(metadata.len()).ok() == Some(size) => file_sha256(path).is_ok_and(|digest| digest == sha256),
-        _ => false,
-    }
-}
-
-/// `os.link`, replaceable in tests.
-pub(crate) type LinkFn = fn(&Path, &Path) -> std::io::Result<()>;
-
-fn hard_link(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::hard_link(src, dst)
-}
-
-/// `shutil.copy2`: contents and times.
-pub(crate) fn copy2(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::copy(src, dst)?;
-    let metadata = std::fs::metadata(src)?;
-    let times = std::fs::FileTimes::new()
-        .set_accessed(metadata.accessed()?)
-        .set_modified(metadata.modified()?);
-    std::fs::File::options().write(true).open(dst)?.set_times(times)
-}
-
-/// `materialize_blob`: put a blob at `destination` as a hard link (a copy where linking
-/// fails), unless a verified copy is already there.
-pub(crate) fn materialize_blob(blob_path: &Path, destination: &Path, sha256: &str, size: i64, link: LinkFn) -> Result<(), JobError> {
-    if destination.exists() && verify_file(destination, sha256, size) {
-        return Ok(());
-    }
-    if let Some(parent) = destination.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| os_job_error(&error, parent))?;
-    }
-    let name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let tmp = destination.with_file_name(format!(".{name}.tmp-{}-{}", std::process::id(), random_hex(4)));
-    let result = (|| {
-        if link(blob_path, &tmp).is_err() {
-            copy2(blob_path, &tmp).map_err(|error| os_job_error(&error, blob_path))?;
-        }
-        if !verify_file(&tmp, sha256, size) {
-            return Err(JobError::new(
-                "InvalidAssetResponseError",
-                format!("Blob materialization verification failed: {}", destination.display()),
-            ));
-        }
-        std::fs::rename(&tmp, destination).map_err(|error| os_job_error(&error, &tmp))
-    })();
-    let _ = std::fs::remove_file(&tmp);
-    result
 }
 
 fn write_json_file(path: &Path, data: &Value) -> Result<(), JobError> {
@@ -1029,7 +954,7 @@ impl Nikke {
                 .map_err(|error| AttemptError::Fatal(os_job_error(&error, file.temp_path())))?;
             prefix
         };
-        let invalid = validate_asset_response(&asset.kind, &content_type, &prefix, file.len());
+        let invalid = validate_asset_response(&asset.kind, &content_type, &prefix, i64::try_from(file.len()).unwrap_or(i64::MAX));
         if !invalid.is_empty() {
             if invalid == "cdn rejection response" {
                 self.record_limited_failure().await;

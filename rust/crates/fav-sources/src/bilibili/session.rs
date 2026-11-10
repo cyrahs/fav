@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use fav_core::logging::{self, Logger};
 use fav_core::pyjson::{Dict, Value};
+use fav_net::httpx::HttpError;
 use fav_net::reqwest::{self, Method, header};
 use fav_runtime::pystr::str_value;
 use fav_runtime::site_sessions::{StoredCookie, cookie_value};
@@ -25,7 +26,7 @@ use rsa::pkcs8::DecodePublicKey;
 use sha2::Sha256;
 
 use super::cookiejar;
-use crate::kit::HttpError;
+use crate::notifier::HttpJobError as _;
 use crate::pydecode::{self, PyError, py_eq_int, urlencode};
 
 /// The `extra` key the refresh token is stored under.

@@ -368,8 +368,7 @@ pub fn check_origin_proxy(proxy: &str) -> Result<(), BuildError> {
     if proxy.is_empty() {
         return Ok(());
     }
-    let scheme = fav_core::pyurl::urlsplit(proxy, "").map(|split| split.scheme).unwrap_or_default();
-    if ["http", "https", "socks5", "socks5h"].contains(&scheme.as_str()) {
+    if fav_net::proxy::is_httpx_proxy(proxy) {
         Ok(())
     } else {
         Err(BuildError::ProxyUrl)

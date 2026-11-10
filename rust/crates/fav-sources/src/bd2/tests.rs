@@ -20,10 +20,10 @@ use super::extract::{
     max_attempts_for_status, prefer_live2d_model_assets_from_viewer, retry_after_delay_seconds, retry_delay_seconds,
     supplement_live2d_models_from_viewer, video_retry_cooldown_days, viewer_extra_resources,
 };
-use super::gamekee::{Asset, Assets, add_asset, sha256_hex};
 use super::{Bd2Crawler, client_options};
 use crate::bd2_l2d_viewer::{Category, ViewerResource};
 use crate::content_discovery::CharacterSnapshot;
+use crate::gamekee::{Asset, Assets, add_asset, sha256_hex};
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, Reply, Seen};
 
@@ -221,7 +221,7 @@ fn json_reply(text: &str) -> Reply {
 }
 
 fn crawler(root: &std::path::Path, http: HttpClient, db: Db, notifier: Arc<RecordingNotifier>) -> Bd2Crawler {
-    Bd2Crawler::new(&root.to_string_lossy(), http, db, notifier)
+    Bd2Crawler::new(&root.to_string_lossy(), http.clone(), Ok(http), db, notifier)
         .with_sleeper(RecordingSleeper::new().sleeper())
         .with_jitter(Arc::new(|| 0))
         .with_clock(Arc::new(fixed_now))
@@ -1380,6 +1380,7 @@ fn paced_crawler(web: &Web, sleeper: &RecordingSleeper) -> (tempfile::TempDir, B
     let crawler = Bd2Crawler::new(
         &tmp.path().to_string_lossy(),
         web.client(),
+        Ok(web.client()),
         unused_db(),
         Arc::new(RecordingNotifier::default()),
     )
@@ -1451,4 +1452,53 @@ async fn five_throttling_answers_pause_the_run() {
         crawler.circuit_breaker.record_limited_failure(&sleep).await;
     }
     assert_eq!(sleeper.delays(), [30.0]);
+}
+
+// ---------- the BD2-L2D-Viewer client ----------
+
+/// A crawler whose viewer resources are fetched (not preset) through `viewer_http`.
+fn viewer_crawler(root: &std::path::Path, viewer_http: Result<HttpClient, String>) -> Bd2Crawler {
+    let http = HttpClient::new(&client_options()).expect("client");
+    Bd2Crawler::new(
+        &root.to_string_lossy(),
+        http,
+        viewer_http,
+        unused_db(),
+        Arc::new(RecordingNotifier::default()),
+    )
+    .with_sleeper(RecordingSleeper::new().sleeper())
+}
+
+/// The viewer fetch goes through the client the job injects, not one of its own; a failed
+/// fetch leaves the run without the supplement, as Python's warning branch does.
+#[tokio::test]
+async fn the_viewer_supplement_is_fetched_through_the_injected_client() {
+    let web = FakeWeb::start(|_| Reply::status(503)).await;
+    let viewer_http = HttpClient::new(&ClientOptions {
+        proxy: Some(web.proxy.clone()),
+        roots: crate::testutil::test_roots(),
+        timeout: Duration::from_secs(10),
+        ..super::viewer_client_options()
+    })
+    .expect("client");
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let crawler = viewer_crawler(tmp.path(), Ok(viewer_http));
+
+    assert!(crawler.viewer_resources().await.is_empty());
+
+    let hosts: Vec<String> = web.seen().iter().map(|seen| seen.host().to_owned()).collect();
+    assert_eq!(hosts.first().map(String::as_str), Some("raw.githubusercontent.com"), "{hosts:?}");
+    // Fetched once per run.
+    let asked = web.seen().len();
+    assert!(crawler.viewer_resources().await.is_empty());
+    assert_eq!(web.seen().len(), asked);
+}
+
+/// A viewer client that could not be built is the fetch's failure: no supplement, no error.
+#[tokio::test]
+async fn a_viewer_client_that_could_not_be_built_leaves_the_supplement_empty() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let crawler = viewer_crawler(tmp.path(), Err("Invalid proxy URL".to_owned()));
+
+    assert!(crawler.viewer_resources().await.is_empty());
 }

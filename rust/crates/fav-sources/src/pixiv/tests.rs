@@ -36,11 +36,9 @@ fn bookmark_entry(id: &str) -> String {
     )
 }
 
-fn no_waiting() -> Pacing {
-    Pacing {
-        sleep_request: Duration::ZERO,
-        retry_delays: vec![Duration::ZERO; 4],
-    }
+/// A sleeper that returns at once (the waits are asserted where a test cares).
+fn no_waiting() -> fav_net::retry::Sleeper {
+    fav_net::retry::RecordingSleeper::new().sleeper()
 }
 
 fn config(path: &str, user_id: &str) -> PixivConfig {
@@ -491,11 +489,16 @@ async fn throttling_is_retried_and_a_lasting_server_error_is_an_http_status_erro
         }
     })
     .await;
-    let source = pixiv(unused_db(), &server.base_url, "/data/pixiv", "");
+    let sleeps = fav_net::retry::RecordingSleeper::new();
+    let source = Pixiv::new(unused_db(), Arc::new(RecordingNotifier::default()), &config("/data/pixiv", ""))
+        .expect("pixiv")
+        .with_ajax_base(&server.base_url, sleeps.sleeper());
 
     let error = source.get_body(&server.url("/ajax/illust/1/pages"), &[]).await.unwrap_err();
 
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+    // The 429 waits the ladder's first step; `sleep_request_seconds = 0` adds no pacing.
+    assert_eq!(sleeps.delays(), [2.0]);
     assert_eq!(error.class_name(), "HTTPStatusError");
     assert!(
         error.message().starts_with("Server error '500 Internal Server Error' for url '"),
@@ -863,6 +866,26 @@ async fn a_pre_login_cookie_is_rejected_without_asking_pixiv() {
     assert!(server.received().is_empty());
 }
 
+/// D50: a proxy httpx's `Proxy` refuses (no scheme, or one it does not know) fails the
+/// client build as `UnsupportedProtocol`, for the session check and the run, and nothing is
+/// sent; reqwest alone would take `host:port` as an HTTP proxy.
+#[tokio::test]
+async fn a_proxy_httpx_would_refuse_is_reported() {
+    let server = FakeServer::start(|request| panic!("unexpected request {}", request.path)).await;
+    for proxy in ["127.0.0.1:8080", "proxy.example:8080", "ftp://proxy.example", "bogus"] {
+        let check = verify_session_at(&server.base_url, "21029043_abc", "", proxy).await;
+
+        assert!(!check.ok, "{proxy}");
+        assert_eq!(check.message, "pixiv unreachable: UnsupportedProtocol", "{proxy}");
+        let error = build_client(proxy, std::time::Duration::from_secs(1), true).unwrap_err();
+        assert_eq!(error.class_name(), "UnsupportedProtocol", "{proxy}");
+    }
+    for proxy in ["http://127.0.0.1:9", "socks5h://127.0.0.1:9"] {
+        assert!(build_client(proxy, std::time::Duration::from_secs(1), true).is_ok(), "{proxy}");
+    }
+    assert!(server.received().is_empty());
+}
+
 // ---------- goldens from the Python module ----------
 
 use fav_core::golden;
@@ -1020,10 +1043,34 @@ async fn truncating_server() -> (String, Arc<AtomicUsize>) {
 #[tokio::test]
 async fn a_body_cut_short_is_retried_like_a_protocol_error() {
     let (base, calls) = truncating_server().await;
-    let source = pixiv(unused_db(), &base, "/data/pixiv", "");
+    let sleeps = fav_net::retry::RecordingSleeper::new();
+    let mut cfg = config("/data/pixiv", "");
+    cfg.sleep_request_seconds = 1.5;
+    let source = Pixiv::new(unused_db(), Arc::new(RecordingNotifier::default()), &cfg)
+        .expect("pixiv")
+        .with_ajax_base(&base, sleeps.sleeper());
 
     let body = source.get_body(&format!("{base}/ajax/illust/1/pages"), &[]).await.unwrap();
 
     assert_eq!(body, json(r#"{"ok": 1}"#));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+    // `_pace` before each attempt, the ladder's first step between them.
+    assert_eq!(sleeps.delays(), [1.5, 2.0, 1.5]);
+}
+
+/// Every ajax retry waits the next step of `_API_RETRY_DELAYS_SECONDS`, and the last
+/// attempt's answer is final.
+#[tokio::test]
+async fn a_lasting_throttle_walks_the_whole_retry_ladder() {
+    let server = FakeServer::start(|_| Answer::json(503, "{}")).await;
+    let sleeps = fav_net::retry::RecordingSleeper::new();
+    let source = Pixiv::new(unused_db(), Arc::new(RecordingNotifier::default()), &config("/data/pixiv", ""))
+        .expect("pixiv")
+        .with_ajax_base(&server.base_url, sleeps.sleeper());
+
+    let error = source.get_body(&server.url("/ajax/illust/1/pages"), &[]).await.unwrap_err();
+
+    assert_eq!(server.received().len(), 5);
+    assert_eq!(error.class_name(), "HTTPStatusError");
+    assert_eq!(sleeps.delays(), [2.0, 5.0, 15.0, 30.0]);
 }

@@ -27,7 +27,7 @@ use super::{
     ALBUM_SETTLE_SECONDS, Deps, LINK_MAX_ATTEMPTS, LINK_WAIT_SECONDS, Sleeper, Telegram, account_lock_name, build_scan, first_line,
     job_types, owned_routes,
 };
-use crate::kit::SharedNotifier;
+use crate::notifier::SharedNotifier;
 use crate::post_links::{Endpoints, PostClient, PostLinks, SessionStore};
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob};
 use crate::testkit::RecordingNotifier;

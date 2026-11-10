@@ -180,6 +180,39 @@ impl std::fmt::Display for PyOsError {
     }
 }
 
+/// The `OSError` subclass Python raises for an I/O error.
+pub fn io_class_name(error: &io::Error) -> &'static str {
+    PyOsError::from_io(error, None).class
+}
+
+/// `str(OSError)` without the file name: `[Errno 2] No such file or directory`.
+pub fn py_os_error_text(error: &io::Error) -> String {
+    PyOsError::from_io(error, None).message
+}
+
+/// `shutil.move(src, dst)`: a rename, or copy (with times) and delete across file systems.
+pub fn move_file(src: &Path, dst: &Path) -> io::Result<()> {
+    match std::fs::rename(src, dst) {
+        Ok(()) => Ok(()),
+        Err(error) if error.raw_os_error() == Some(18) => {
+            // EXDEV: another file system. `copy2` keeps the times; the copy goes to a
+            // `.part` first so a crash never leaves a truncated file at `dst` (D52).
+            let mut part = dst.as_os_str().to_owned();
+            part.push(".part");
+            let part = std::path::PathBuf::from(part);
+            std::fs::copy(src, &part)?;
+            let metadata = std::fs::metadata(src)?;
+            let times = std::fs::FileTimes::new()
+                .set_accessed(metadata.accessed()?)
+                .set_modified(metadata.modified()?);
+            std::fs::File::options().write(true).open(&part)?.set_times(times)?;
+            std::fs::rename(&part, dst)?;
+            std::fs::remove_file(src)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// `repr(str(path))` for the common case of a printable path.
 fn py_repr_path(path: &Path) -> String {
     let text = path.to_string_lossy();

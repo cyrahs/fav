@@ -28,6 +28,7 @@ pub mod bd2;
 pub mod bd2_l2d_viewer;
 pub mod bilibili;
 pub mod content_discovery;
+pub(crate) mod gamekee;
 pub mod hanime1;
 pub mod hanime1_author;
 #[cfg(test)]
@@ -36,10 +37,10 @@ pub mod hanime1_series;
 pub mod jandan;
 pub mod kemono;
 pub mod kemono_creator;
-mod kit;
 pub mod nga_post;
 pub mod nikke;
 pub mod nikke_layer_metadata;
+mod notifier;
 pub mod opencc;
 pub mod pixiv;
 pub mod post_links;
@@ -58,6 +59,8 @@ pub mod stellasora;
 pub mod telegram;
 pub mod telegram_queue;
 #[cfg(test)]
+mod registry_tests;
+#[cfg(test)]
 mod testkit;
 #[cfg(test)]
 mod testutil;
@@ -72,7 +75,7 @@ pub mod wechat_emoji;
 mod wechat_golden;
 pub mod zhihu_post;
 
-pub use kit::{HttpError, Notifier, OutboxNotifier};
+pub use notifier::{HttpError, HttpJobError, Notifier, OutboxNotifier};
 pub use pydecode::PyError;
 
 /// What every source's factory may use: the database and the settings store. Each run

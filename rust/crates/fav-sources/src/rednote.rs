@@ -44,7 +44,7 @@ use sqlx::Row as _;
 use tokio::io::AsyncWriteExt as _;
 
 use crate::SourceContext;
-use crate::kit::{self, OutboxNotifier, SharedNotifier};
+use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::pydecode::PyError;
 
 pub mod proxy_probe;
@@ -148,8 +148,12 @@ fn py_job_error(error: PyError) -> JobError {
 
 fn os_error(error: &std::io::Error, path: &str) -> JobError {
     JobError::new(
-        kit::io_class_name(error),
-        format!("{}: {}", kit::py_os_error_text(error), fav_runtime::pystr::repr_str(path)),
+        fav_net::download::io_class_name(error),
+        format!(
+            "{}: {}",
+            fav_net::download::py_os_error_text(error),
+            fav_runtime::pystr::repr_str(path)
+        ),
     )
 }
 
@@ -1069,7 +1073,7 @@ impl RedNote {
             class: class.to_owned(),
             message,
         };
-        let io = |error: &std::io::Error| other(kit::io_class_name(error), kit::py_os_error_text(error));
+        let io = |error: &std::io::Error| other(fav_net::download::io_class_name(error), fav_net::download::py_os_error_text(error));
         let mut file = tokio::fs::File::create(part).await.map_err(|error| io(&error))?;
         let mut response = self
             .client

@@ -48,7 +48,7 @@ use self::files::{Extensions, Location};
 use self::history::Scan;
 use self::message::{TgMessage, message_link, message_media_type, unsupported_reason};
 use crate::SourceContext;
-use crate::kit::{OutboxNotifier, SharedNotifier};
+use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::post_links::{self, Needs, PostClient, PostError, PostLinkError, PostLinks, SessionStore};
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob, sql_error};
 use crate::wechat_article::{ArticleLink, ArticlePage, canonical_url};
@@ -1258,7 +1258,7 @@ impl Telegram {
         let (src, dst, dir) = (plan.path.clone(), dst_path.clone(), dst_dir.to_path_buf());
         tokio::task::spawn_blocking(move || {
             std::fs::create_dir_all(&dir)?;
-            crate::kit::move_file(&src, &dst)
+            fav_net::download::move_file(&src, &dst)
         })
         .await
         .map_err(|error| TgError::runtime(error.to_string()))?
@@ -1356,7 +1356,7 @@ impl Telegram {
                 let (src, dst, dir) = (partial.clone(), dst_path.clone(), video_dir.to_path_buf());
                 tokio::task::spawn_blocking(move || {
                     std::fs::create_dir_all(&dir)?;
-                    crate::kit::move_file(&src, &dst)
+                    fav_net::download::move_file(&src, &dst)
                 })
                 .await
                 .map_err(|error| TgError::runtime(error.to_string()))?

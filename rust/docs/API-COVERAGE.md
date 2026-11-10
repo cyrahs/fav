@@ -2,13 +2,13 @@
 
 The plan flags four replacements as risks: Telethon, Playwright, the `mcp` package and Pillow's animated
 webp. WP0 checked each candidate crate against what the Python code actually calls, in compiled code
-(`rust/probes/api-coverage`) and with offline tests. Nothing contacted Telegram, a website or a real account.
+(`rust/probes/api-coverage`, deleted in WP18 once every check lived in the real crates) and with offline tests. Nothing contacted Telegram, a website or a real account.
 
 | Python | Crate (pinned) | Verdict |
 | --- | --- | --- |
 | Telethon 1.43 | `grammers-client` / `-session` / `-mtsender` / `-tl-types` **0.12.0** | Sufficient, with raw-API fallbacks for two gaps |
 | Playwright 1.61 (`uv.lock`) | `chromiumoxide` **0.9.1** (CDP client only) | Sufficient as a CDP client; do not use its launcher |
-| `mcp` 1.30 (FastMCP) | `rmcp` **3.9.0** | Sufficient |
+| `mcp` 1.30 (FastMCP) | `rmcp` **3.9.0** | Sufficient, but not used (D31); unpinned in WP18 |
 | Pillow 11 (animated webp) | `webp-animation` **0.10.0** (bundled static libwebp) + `image` 0.25 | Sufficient |
 
 The probe crate is a workspace member outside `default-members`; CI builds, lints and tests it. It is deleted
@@ -112,7 +112,9 @@ Notes for WP16:
 
 ## rmcp 3.9.0 (WP4)
 
-Probe: `probes/api-coverage/src/mcp.rs`. Tests send JSON-RPC to the axum router in process.
+Probe: `probes/api-coverage/src/mcp.rs` until WP18, which deleted it with the probe crate and the `rmcp` pin (it is
+still in the history: `git show cc7b7ae:rust/probes/api-coverage/src/mcp.rs`). Tests sent JSON-RPC to the axum
+router in process.
 
 | Python (`src/api/mcp_server.py`) | rmcp | Checked |
 | --- | --- | --- |
@@ -126,7 +128,7 @@ Probe: `probes/api-coverage/src/mcp.rs`. Tests send JSON-RPC to the axum router 
 Outcome (WP4): the endpoint does not use `rmcp`. Matching FastMCP's answers to malformed requests (its
 error envelopes, pydantic's validation texts, the `-32602` with empty data, the 4 MiB limit) needed overrides
 at every layer, so `fav-api/src/mcp` implements the stateless JSON transport directly and golden-checks it
-byte for byte (`DIVERGENCES.md` D31). The pin and the probe stay as the record of this check.
+byte for byte (`DIVERGENCES.md` D31). This section and the probe in the history are the record of this check.
 
 Notes for WP4:
 

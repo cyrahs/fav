@@ -16,9 +16,9 @@ use sha2::{Digest as _, Sha256};
 use sqlx::Row as _;
 
 use super::extract;
-use super::gamekee::{self, Asset, Assets};
 use crate::PyError;
 use crate::bd2_l2d_viewer::{self, Category, GameKeeResource, ViewerResource};
+use crate::gamekee::{self, Asset, Assets};
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, Reply};
 
@@ -487,7 +487,7 @@ async fn crawl_matches_the_baseline() {
         .expect("client");
         let notifier = Arc::new(RecordingNotifier::default());
         let sleeper = RecordingSleeper::new();
-        let crawler = super::Bd2Crawler::new(&root_text, http, database.db().clone(), notifier.clone())
+        let crawler = super::Bd2Crawler::new(&root_text, http.clone(), Ok(http), database.db().clone(), notifier.clone())
             .with_sleeper(sleeper.sleeper())
             .with_jitter(Arc::new(|| 0))
             .with_clock(Arc::new(|| Utc.with_ymd_and_hms(2026, 5, 1, 0, 0, 0).single().expect("time")))

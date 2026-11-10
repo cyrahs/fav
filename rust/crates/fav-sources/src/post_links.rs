@@ -28,6 +28,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use fav_db::{Db, SettingsStore};
 use fav_net::client::{BuildError, header_text};
+use fav_net::download::{io_class_name, py_os_error_text};
 use fav_net::reqwest::header::HeaderMap;
 use fav_net::{ClientOptions, HttpClient, Request, StatusError, TransportError};
 use fav_runtime::BoxFuture;
@@ -35,7 +36,6 @@ use fav_runtime::site_sessions::{self, SiteSession};
 use tokio::io::AsyncWriteExt as _;
 use url::Url;
 
-use crate::kit::{io_class_name, py_os_error_text};
 use crate::nga_post::{self, NgaError};
 use crate::pydecode::PyError;
 use crate::pyre::compile;

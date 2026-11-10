@@ -239,7 +239,11 @@ impl TgError {
 
     /// An `OSError` from the file system, with Python's text.
     pub fn io(error: &std::io::Error) -> Self {
-        Self::new(crate::kit::io_class_name(error), crate::kit::py_os_error_text(error), ErrorKind::Os)
+        Self::new(
+            fav_net::download::io_class_name(error),
+            fav_net::download::py_os_error_text(error),
+            ErrorKind::Os,
+        )
     }
 
     /// A connection failure (`ConnectionError`).
