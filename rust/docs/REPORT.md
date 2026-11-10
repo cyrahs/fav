@@ -219,10 +219,10 @@ version check, plus a headless Chromium launch on amd64.
 
 ## Choices for Max
 
-These differences are deliberate copies or calls that Max may want to reverse; everything else in the table
-below follows the plan or fixes a Python bug.
+These differences are deliberate copies or calls that Max may want to reverse (or, where marked, has decided);
+everything else in the table below follows the plan or fixes a Python bug.
 
-- **D97, D15, D53** were copies of Python bugs; Max chose on 2026-11-10 to fix all three, and Rust now fixes
+- **D97, D15, D53 (decided)** were copies of Python bugs; Max chose on 2026-11-10 to fix all three, and Rust now fixes
   them: a superscript digit in a BD2 manifest or tree row is no number, as for NIKKE (D97; the same rule reaches
   the BD2-L2D-Viewer and Azur Lane's API reader, which share the helpers); a run follows the job's `notify`
   toggle as it is when the run starts (D15); Stella Sora's index follows a file moved out of `disc/` (D53).

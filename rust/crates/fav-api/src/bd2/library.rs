@@ -6,8 +6,8 @@
 //! `str(value)` (a number becomes its digits, a list its `repr`), and `_to_int` takes ints and
 //! digit strings only. A digit string `int()` cannot read (`'²'`) is not a number here (and
 //! sorts as 0), where Python's `ValueError` fails the request (D97, as NIKKE's D83/D87).
-//! `get_asset_file` has no route (the static files are
-//! served beside the API), so it is not ported (D100).
+//! `get_asset_file` has no route (the static files are served beside the API), so it is
+//! not ported (D100).
 
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt as _;

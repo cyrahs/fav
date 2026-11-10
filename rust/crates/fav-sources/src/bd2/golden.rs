@@ -360,7 +360,7 @@ fn parsing_matches_the_baseline() {
             assert_eq!(
                 golden::get(expected, "error"),
                 &Value::from("ValueError: invalid literal for int() with base 10: '¹'"),
-                "the golden case D97 departs from changed"
+                "the golden case D97 departs from has changed"
             );
             expected = &Value::Null;
         }
