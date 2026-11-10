@@ -3,21 +3,31 @@
 //! Scope (filled in by WP5 to WP17, see `rust/docs/PLAN.md`). Every source
 //! implements the runtime's `Source` trait and receives its HTTP client,
 //! database, browser, Telegram client and subprocess runner by injection.
+//!
+//! Ported so far: [`stellasora`] and [`pixiv`] (WP6); [`jandan`] and [`kemono`] (with
+//! [`kemono_creator`], which the API's creator-resolve route uses), WP5.
 
 use std::sync::Arc;
 
 use fav_db::{Db, SettingsStore};
-use fav_runtime::source::Registry;
+use fav_runtime::source::{JobError, Registry};
 
+pub mod jandan;
+pub mod kemono;
+pub mod kemono_creator;
 mod kit;
 pub mod pixiv;
+mod pyerr;
 pub mod stellasora;
 #[cfg(test)]
 mod testkit;
+#[cfg(test)]
+mod testutil;
 
 pub use kit::{HttpError, Notifier, OutboxNotifier};
 
-/// What every source's factory may use: the database and the settings store.
+/// What every source's factory may use: the database and the settings store. Each run
+/// reads its own section of the settings when it starts, as Python's constructors do.
 #[derive(Debug, Clone)]
 pub struct SourceContext {
     pub db: Db,
@@ -32,5 +42,30 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     let mut registry = Registry::new();
     stellasora::register(&mut registry, ctx);
     pixiv::register(&mut registry, ctx);
+    jandan::register(&mut registry, ctx);
+    kemono::register(&mut registry, ctx);
     registry
+}
+
+/// A database failure as the job error the runner reports.
+pub(crate) fn db_job_error(error: &fav_db::DbError) -> JobError {
+    pyerr::db_error(error)
+}
+
+/// One statement on a pooled connection; its rows, or the error as the job reports it.
+pub(crate) async fn execute(db: &fav_db::Db, sql: &str, params: Vec<fav_db::Param>) -> Result<Vec<sqlx::postgres::PgRow>, JobError> {
+    let mut rows = db
+        .query_batch(
+            vec![fav_db::Statement::new(sql, params)],
+            fav_db::batch::DEFAULT_QUERY_CHUNK_SIZE,
+            fav_db::batch::DEFAULT_MAX_BIND_PARAMS,
+        )
+        .await
+        .map_err(|error| db_job_error(&error))?;
+    Ok(rows.pop().unwrap_or_default())
+}
+
+/// A settings-store failure as the job error the runner reports.
+pub(crate) fn settings_job_error(error: &fav_db::settings_store::SettingsStoreError) -> JobError {
+    JobError::new("RuntimeError", error.to_string())
 }

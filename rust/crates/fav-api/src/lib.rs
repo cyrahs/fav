@@ -24,6 +24,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use fav_db::{Db, SettingsStore};
 use fav_runtime::telegram_bot::BotClient;
+use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
 
 pub mod archive;
 pub mod config;
@@ -66,6 +67,8 @@ pub struct ApiState {
     pub clock: Clock,
     /// What the MCP tools read beyond the rest: bootstrap secrets, logs, zone, worker.
     pub mcp: mcp::McpState,
+    /// Resolves pasted Kemono creator URLs (`POST /api/v2/kemono/creators/resolve`).
+    pub kemono_creators: Arc<dyn ResolveCreator>,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -94,13 +97,14 @@ impl ApiState {
         Ok(Self {
             token: config.token.clone(),
             db,
-            settings,
             bot,
             credential_clients: credentials::parse_clients(&config.credential_clients)?,
             cors: cors::Cors::new(config.cors_origins.clone(), config.cors_allow_credentials),
             web_dist,
             clock: system_clock(),
             mcp,
+            kemono_creators: Arc::new(KemonoCreatorResolver::new(Arc::clone(&settings))?),
+            settings,
         })
     }
 }

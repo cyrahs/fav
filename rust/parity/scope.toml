@@ -49,7 +49,7 @@ tests = ["tests/test_mcp.py"]
 
 [WP5]
 title = "Jandan, Kemono"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_jandan.py",
     "tests/test_kemono.py",

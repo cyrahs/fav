@@ -1,0 +1,121 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "jandan",
+  "cases": [
+    {
+      "encrypt": "",
+      "result": "L7nPaRa31xC9foxxvw9mLQ%3D%3D",
+      "roundtrip": ""
+    },
+    {
+      "encrypt": "{\"fav\":{\"favType\":\"1\",\"favNumLimit\":45,\"actionType\":\"get\",\"userID\":42920}}",
+      "result": "GpFPEqwHelUqJmW9%2FhWzsaCmP6y1zOD6Zms4gj%2BrHsv2PvvSTrUwu2Lfv1PvgZby%2BzhFZ267x6ov8A9qpSQsPGgyiLr7x2DCwF7Ke%2F4NgAM%3D",
+      "roundtrip": "{\"fav\":{\"favType\":\"1\",\"favNumLimit\":45,\"actionType\":\"get\",\"userID\":42920}}"
+    },
+    {
+      "encrypt": "exactly sixteen!",
+      "result": "2f0hx%2BnQhCXRU29%2FrvXK2%2BLvd8mLN%2BqjccSO0xQ%2FFSo%3D",
+      "roundtrip": "exactly sixteen!"
+    },
+    {
+      "encrypt": "中文 and emoji 🎉",
+      "result": "8iY3b7vlkThU9M44L8HgEXrCX2XOz71qpG%2B5RQergZo%3D",
+      "roundtrip": "中文 and emoji 🎉"
+    },
+    {
+      "encrypt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "result": "lAkqcYqKGKoP6LeDm7st9dfmmIImTiM5c%2FIORdCvpx8nWMHGaa1dW7Xm0hSrjiDe",
+      "roundtrip": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "decrypt": "IqXSPr6fnp0TttXCVbKsRA%3D%3D",
+      "result": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"
+    },
+    {
+      "decrypt": "shG6jWgCRwB8XXtEX5hD1Q==",
+      "result": "ValueError: invalid PKCS7 padding bytes"
+    },
+    {
+      "decrypt": "tNY4Lflz8gGBl0J1n+nutw==",
+      "result": "ValueError: invalid PKCS7 padding length"
+    },
+    {
+      "decrypt": "RdNCDESvcSkY4od8lj+Cyg==",
+      "result": "ValueError: invalid PKCS7 padding length"
+    },
+    {
+      "decrypt": "",
+      "result": "ValueError: invalid AES payload size"
+    },
+    {
+      "decrypt": "a",
+      "result": "Error: Invalid base64-encoded string: number of data characters (1) cannot be 1 more than a multiple of 4"
+    },
+    {
+      "decrypt": "ab",
+      "result": "ValueError: Data must be padded to 16 byte boundary in CBC mode"
+    },
+    {
+      "decrypt": "QUJD",
+      "result": "ValueError: Data must be padded to 16 byte boundary in CBC mode"
+    },
+    {
+      "decrypt": "QUJDREVGR0hJSktMTU5PUA",
+      "result": "ValueError: invalid PKCS7 padding length"
+    },
+    {
+      "decrypt": "QUJDREVGR0hJSktMTU5PUA%3D%3D",
+      "result": "ValueError: invalid PKCS7 padding length"
+    },
+    {
+      "decrypt": "not base64!!",
+      "result": "Error: Invalid base64-encoded string: number of data characters (9) cannot be 1 more than a multiple of 4"
+    },
+    {
+      "decrypt": "é",
+      "result": "ValueError: string argument should contain only ASCII characters"
+    },
+    {
+      "decrypt": "%C3%A9",
+      "result": "ValueError: string argument should contain only ASCII characters"
+    },
+    {
+      "decrypt": "QUJD%ZZ",
+      "result": "Error: Incorrect padding"
+    },
+    {
+      "decrypt": "QU=JD",
+      "result": "ValueError: Data must be padded to 16 byte boundary in CBC mode"
+    },
+    {
+      "decrypt": "=QUJD",
+      "result": "ValueError: Data must be padded to 16 byte boundary in CBC mode"
+    },
+    {
+      "decrypt": "QUJ=====",
+      "result": "ValueError: Data must be padded to 16 byte boundary in CBC mode"
+    },
+    {
+      "decrypt": "Q===",
+      "result": "Error: Invalid base64-encoded string: number of data characters (1) cannot be 1 more than a multiple of 4"
+    },
+    {
+      "decrypt": "QUJDREVGR0hJSktMTU5PUA==trailing",
+      "result": "ValueError: invalid PKCS7 padding length"
+    },
+    {
+      "decrypt": "  QUJD REVG\nR0hJ\tSktM TU5PUA==  ",
+      "result": "ValueError: invalid PKCS7 padding length"
+    },
+    {
+      "decrypt": "AAAAAAAAAAAAAAAAAAAAAA==",
+      "result": "ValueError: invalid PKCS7 padding bytes"
+    },
+    {
+      "decrypt": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "result": "ValueError: invalid PKCS7 padding bytes"
+    }
+  ]
+}
