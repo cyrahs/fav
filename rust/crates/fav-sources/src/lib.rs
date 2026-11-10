@@ -13,7 +13,8 @@
 //! and health report in [`azurlane`] (its crawl follows in WP12), WP11. The post-link parsers
 //! WeChat and Telegram share (WP13), which are not sources of their own: [`post_links`] over
 //! [`wechat_article`], [`tieba_post`], [`nga_post`] and [`zhihu_post`], and the TikHub account
-//! check [`tikhub`] the API's settings page uses.
+//! check [`tikhub`] the API's settings page uses. [`wechat`] with its sticker and 视频号
+//! parsers [`wechat_emoji`] and [`wechat_channels`], WP14.
 
 use std::sync::Arc;
 
@@ -44,6 +45,7 @@ pub mod post_links;
 mod post_links_golden;
 #[cfg(test)]
 mod post_links_tests;
+mod pybase64;
 mod pydecode;
 mod pyerr;
 mod pyre;
@@ -57,7 +59,12 @@ mod testutil;
 pub mod tieba_post;
 pub mod tikhub;
 pub mod twitter;
+pub mod wechat;
 pub mod wechat_article;
+pub mod wechat_channels;
+pub mod wechat_emoji;
+#[cfg(test)]
+mod wechat_golden;
 pub mod zhihu_post;
 
 pub use kit::{HttpError, Notifier, OutboxNotifier};
@@ -86,6 +93,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     hanime1::register(&mut registry, ctx);
     nikke::register(&mut registry, ctx);
     bd2::register(&mut registry, ctx);
+    wechat::register(&mut registry, ctx);
     registry
 }
 

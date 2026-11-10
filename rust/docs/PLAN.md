@@ -141,7 +141,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | done |
 | WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | pending |
 | WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | done |
-| WP14 | 5 message sources | WeChat with Channels videos and stickers | 1,700 | pending |
+| WP14 | 5 message sources | WeChat with Channels videos and stickers | 1,700 | done |
 | WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | pending |
 | WP16 | 6 browser | CDP driver layer, login window (Xvnc, VNC relay, cookie polling) | 1,100 | pending |
 | WP17 | 6 browser | RedNote, Nikke runtime capture | 3,100 | pending |
@@ -241,6 +241,14 @@ Shared pieces that parallel work packages built twice, to fold together once bot
   sources keep `true`, as their Python clients do. `post_links::Fetched` reads a whole response as
   `await client.get()` does and keeps its `raise_for_status()` error; WP14 and WP15 read posts through
   `post_links::PostLinks` and `PostClient` rather than building clients of their own.
+- WP14 (`fav-sources/src/pybase64.rs`): `base64.b64decode` with `validate=` both ways, for the WeChat
+  sticker and 视频号 parsers. Jandan's `crypto.rs` keeps an earlier non-strict copy; move it onto `pybase64`
+  (keeping Jandan's golden) when a package touches either.
+- WP14 (`fav-sources/src/testutil.rs`, `fav-net` `ClientOptions::roots`): `FakeWeb` answers `CONNECT` and
+  serves the tunnel over TLS with a certificate for the requested host from a test CA, and a client built
+  with `roots` trusts only those roots, so tests can use the fixed `https://` addresses a source names
+  (`Endpoints::default()`) instead of rewriting them to plain HTTP. WP13's `Endpoints` overrides could move
+  onto it.
 - WP9 (`fav-api/src/openapi.rs`): `Op` gained `bare_responses` (responses without a JSON body, the sidebar's
   304); `mcp::fromisoformat` is re-exported for the sidebar sort key. Move `fromisoformat` to `fav-core` if a
   third caller appears.

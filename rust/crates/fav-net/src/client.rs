@@ -48,6 +48,9 @@ pub struct ClientOptions {
     /// `transport=ConnectToTransport(...)`: requests for one host go to another while the
     /// host does not resolve ([`crate::connect_to`]).
     pub connect_to: Option<ConnectTo>,
+    /// Trust only these root certificates (DER) instead of the system's. Tests hand in the
+    /// fake web's own authority; empty, the default, keeps the usual verification.
+    pub roots: Vec<Vec<u8>>,
 }
 
 impl Default for ClientOptions {
@@ -62,6 +65,7 @@ impl Default for ClientOptions {
             max_keepalive_connections: 20,
             trust_env: true,
             connect_to: None,
+            roots: Vec::new(),
         }
     }
 }
@@ -78,6 +82,7 @@ impl fmt::Debug for ClientOptions {
             .field("max_keepalive_connections", &self.max_keepalive_connections)
             .field("trust_env", &self.trust_env)
             .field("connect_to", &self.connect_to)
+            .field("roots", &self.roots.len())
             .finish()
     }
 }
@@ -374,7 +379,7 @@ impl fmt::Display for StatusError {
 }
 
 /// `httpx.AsyncClient`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpClient {
     client: reqwest::Client,
     headers: HeaderMap,
@@ -382,6 +387,17 @@ pub struct HttpClient {
     /// The cookie jar, shared by reqwest and the connect-to route.
     jar: Arc<reqwest::cookie::Jar>,
     connect_to: Option<Arc<Route>>,
+}
+
+impl fmt::Debug for HttpClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Header values (a bearer token, a cookie) and reqwest's proxy URLs can carry credentials.
+        f.debug_struct("HttpClient")
+            .field("headers", &self.headers.keys().map(HeaderName::as_str).collect::<Vec<_>>())
+            .field("follow_redirects", &self.follow_redirects)
+            .field("connect_to", &self.connect_to.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 fn header_pair(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), BuildError> {
@@ -406,6 +422,14 @@ impl HttpClient {
             .connect_timeout(options.connect_timeout.unwrap_or(options.timeout))
             .read_timeout(options.timeout)
             .pool_max_idle_per_host(options.max_keepalive_connections);
+        if !options.roots.is_empty() {
+            let roots = options
+                .roots
+                .iter()
+                .map(|der| reqwest::Certificate::from_der(der).map_err(BuildError::Client))
+                .collect::<Result<Vec<_>, _>>()?;
+            builder = builder.tls_certs_only(roots);
+        }
         if let Some(proxy) = options.proxy.as_deref().filter(|proxy| !proxy.is_empty()) {
             builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(BuildError::Proxy)?);
         } else if !options.trust_env {
