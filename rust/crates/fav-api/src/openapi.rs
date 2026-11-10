@@ -32,7 +32,6 @@ pub const APP_VERSION: &str = "2.0.0";
 /// Every path of Python's document that is missing here must be listed.
 pub const PENDING: &[(&str, &str)] = &[
     ("/api/v2/services/tikhub/test", "WP13"),
-    ("/api/v2/azurlane/proxy/test", "WP11"),
     ("/api/v2/rednote/proxy/test", "WP17"),
     ("/api/v2/azurlane/characters", "WP12"),
     ("/api/v2/azurlane/sidebar/characters", "WP12"),
@@ -931,6 +930,32 @@ fn schemas_d() -> Vec<(&'static str, RefOr<Schema>)> {
             ),
         ),
         (
+            "AzurLaneProxyTestRequest",
+            model(
+                "AzurLaneProxyTestRequest",
+                None,
+                true,
+                vec![
+                    ("origin_proxy", defaulted_string("Origin Proxy"), false),
+                    ("origin_connect_host", defaulted_string("Origin Connect Host"), false),
+                ],
+            ),
+        ),
+        (
+            "AzurLaneProxyTestResult",
+            model(
+                "AzurLaneProxyTestResult",
+                None,
+                true,
+                vec![
+                    ("ok", boolean("Ok"), true),
+                    ("code", string("Code"), true),
+                    ("message", string("Message"), true),
+                    ("exit_ip", defaulted_string("Exit Ip"), false),
+                ],
+            ),
+        ),
+        (
             "TelegramNotificationTestResponse",
             model(
                 "TelegramNotificationTestResponse",
@@ -1333,6 +1358,17 @@ fn paths_b() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
                         "testTelegramNotification",
                         "TelegramNotificationTestResponse",
                     )
+                },
+            )],
+        ),
+        (
+            "/api/v2/azurlane/proxy/test",
+            vec![(
+                HttpMethod::Post,
+                Op {
+                    description: Some("Check that the l2d.su origin is reachable through a proxy, without saving it."),
+                    body: Some(reference("AzurLaneProxyTestRequest")),
+                    ..Op::new("settings", "Test Azurlane Proxy", "testAzurLaneProxy", "AzurLaneProxyTestResult")
                 },
             )],
         ),

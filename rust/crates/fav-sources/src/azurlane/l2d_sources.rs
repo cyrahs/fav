@@ -217,4 +217,4 @@ pub fn request_headers() -> Vec<(String, String)> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

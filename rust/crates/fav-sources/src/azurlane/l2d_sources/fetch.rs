@@ -383,6 +383,22 @@ pub async fn probe_l2d_su_origin(proxy: &str, connect_host: &str) -> Result<L2DS
     Ok(run_origin_probe(&client, &l2d_su_primary_ship_index_url()).await)
 }
 
+/// `probe_l2d_su_origin` as a service the API holds, so its tests can stand in for it.
+/// `Err` is the text of a client that could not be built.
+pub trait ProbeOrigin: Send + Sync {
+    fn probe<'a>(&'a self, proxy: &'a str, connect_host: &'a str) -> BoxFuture<'a, Result<L2DSuOriginProbe, String>>;
+}
+
+/// The real probe: [`probe_l2d_su_origin`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OriginProbe;
+
+impl ProbeOrigin for OriginProbe {
+    fn probe<'a>(&'a self, proxy: &'a str, connect_host: &'a str) -> BoxFuture<'a, Result<L2DSuOriginProbe, String>> {
+        Box::pin(async move { probe_l2d_su_origin(proxy, connect_host).await.map_err(|error| error.to_string()) })
+    }
+}
+
 /// The probe's client: the crawler's own route (proxy, and `connect_host` while l2d.su has
 /// no DNS record), so the settings page never reports a dead origin the crawler gets past.
 pub(crate) fn origin_probe_client_options(proxy: &str, connect_host: &str) -> ClientOptions {

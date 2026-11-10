@@ -192,3 +192,63 @@ fn from_hex_matches_bytes_fromhex() {
         "non-hexadecimal number found in fromhex() arg at position 1"
     );
 }
+
+fn attempt<T>(result: Result<T, PyError>, render: impl FnOnce(T) -> fav_core::pyjson::Value) -> fav_core::pyjson::Value {
+    use fav_core::pyjson::{Dict, Value};
+    let mut out = Dict::new();
+    match result {
+        Ok(value) => out.insert("ok", render(value)),
+        Err(error) => {
+            let mut detail = Dict::new();
+            detail.insert("class", Value::Str(error.class));
+            detail.insert("message", Value::Str(error.message));
+            out.insert("error", Value::Dict(detail));
+        }
+    }
+    Value::Dict(out)
+}
+
+fn descriptor_value(descriptor: Option<Azp2Descriptor>) -> fav_core::pyjson::Value {
+    use fav_core::pyjson::{Dict, Value};
+    descriptor.map_or(Value::Null, |descriptor| {
+        let mut out = Dict::new();
+        out.insert("key", Value::Str(descriptor.key));
+        out.insert("identity", Value::Str(descriptor.identity));
+        Value::Dict(out)
+    })
+}
+
+fn hex_text(bytes: &[u8]) -> fav_core::pyjson::Value {
+    fav_core::pyjson::Value::Str(hex(bytes))
+}
+
+#[test]
+fn the_envelope_matches_the_python_baseline() {
+    use fav_core::golden;
+    use fav_core::pyjson::Value;
+
+    use crate::azurlane::l2d_sources::tests::golden::{assert_same, decode_hex};
+
+    let document = golden::load("azurlane/protected.json");
+    let [paths, urls, envelopes] = golden::cases(&document) else { panic!("three cases") };
+    for case in golden::list(golden::get(paths, "data_descriptor")) {
+        let path = golden::string(golden::get(case, "path"));
+        let actual = attempt(data_descriptor(&path), |descriptor| descriptor_value(Some(descriptor)));
+        assert_same(&actual, golden::get(case, "result"), &format!("data_descriptor({path:?})"));
+    }
+    for case in golden::list(golden::get(urls, "urls")) {
+        let url = golden::string(golden::get(case, "url"));
+        let check = |key: &str, actual: Value| assert_same(&actual, golden::get(case, key), &format!("{url}: {key}"));
+        check("fragment_descriptor", attempt(fragment_descriptor(&url), descriptor_value));
+        check("data_url_descriptor", attempt(data_url_descriptor(&url), descriptor_value));
+        check("is_protected_url", attempt(is_protected_url(&url), Value::Bool));
+        check("strip_fragment", Value::Str(strip_fragment(&url).to_owned()));
+    }
+    for case in golden::list(golden::get(envelopes, "decrypt_for_url")) {
+        let name = golden::string(golden::get(case, "name"));
+        let url = golden::string(golden::get(case, "url"));
+        let content = decode_hex(&golden::string(golden::get(case, "content_hex")));
+        let actual = attempt(decrypt_for_url(content, &url), |plain| hex_text(&plain));
+        assert_same(&actual, golden::get(case, "result"), &name);
+    }
+}

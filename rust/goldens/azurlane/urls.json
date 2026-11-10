@@ -1,0 +1,892 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "azurlane",
+  "cases": [
+    {
+      "url": "https://static.l2d.su/al/assets/painting/Z28_3.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/painting/z28_3.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/painting/Z28_3.webp",
+        "https://static.l2d.su/al/assets/webp/painting/Z28_3.webp",
+        "https://static.l2d.su/al/assets/original/painting/Z28_3.webp",
+        "https://static.l2d.su/azurlane/painting/Z28_3.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/painting/Z28_3.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/Z28_3.webp/Z28_3.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "Z28_3.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/painting/Z28_3.webp/Z28_3.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/painting/Z28_3.webp/Z28_3.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/Z28_3.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/painting/u47_5.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/painting/U47_5.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/painting/u47_5.webp",
+        "https://static.l2d.su/al/assets/webp/painting/u47_5.webp",
+        "https://static.l2d.su/al/assets/original/painting/u47_5.webp",
+        "https://static.l2d.su/azurlane/painting/u47_5.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/painting/u47_5.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/u47_5.webp/u47_5.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "u47_5.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/painting/u47_5.webp/u47_5.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/painting/u47_5.webp/u47_5.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/u47_5.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/paintingface/Z28_3/1.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/paintingface/z28_3/1.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/paintingface/Z28_3/1.webp",
+        "https://static.l2d.su/al/assets/webp/paintingface/Z28_3/1.webp",
+        "https://static.l2d.su/al/assets/original/paintingface/Z28_3/1.webp",
+        "https://static.l2d.su/azurlane/paintingface/Z28_3/1.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/paintingface/Z28_3/1.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/paintingface/Z28_3/1.webp/1.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "1.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/paintingface/Z28_3/1.webp/1.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/paintingface/Z28_3/1.webp/1.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/1.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/squareicon/U96_2.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/squareicon/u96_2.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/squareicon/U96_2.webp",
+        "https://static.l2d.su/al/assets/webp/squareicon/U96_2.webp",
+        "https://static.l2d.su/al/assets/original/squareicon/U96_2.webp",
+        "https://static.l2d.su/azurlane/squareicon/U96_2.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/squareicon/U96_2.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/squareicon/U96_2.webp/U96_2.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "U96_2.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/squareicon/U96_2.webp/U96_2.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/squareicon/U96_2.webp/U96_2.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/U96_2.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/painting/biaoqiang.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/painting/Biaoqiang.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/painting/biaoqiang.webp",
+        "https://static.l2d.su/al/assets/webp/painting/biaoqiang.webp",
+        "https://static.l2d.su/al/assets/original/painting/biaoqiang.webp",
+        "https://static.l2d.su/azurlane/painting/biaoqiang.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/painting/biaoqiang.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/biaoqiang.webp/biaoqiang.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "biaoqiang.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/painting/biaoqiang.webp/biaoqiang.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/painting/biaoqiang.webp/biaoqiang.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/biaoqiang.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/painting/ABC.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/painting/abc.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/painting/ABC.webp",
+        "https://static.l2d.su/al/assets/webp/painting/ABC.webp",
+        "https://static.l2d.su/al/assets/original/painting/ABC.webp",
+        "https://static.l2d.su/azurlane/painting/ABC.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/painting/ABC.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/ABC.webp/ABC.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "ABC.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/painting/ABC.webp/ABC.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/painting/ABC.webp/ABC.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/ABC.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/live2d/z23/z23.model3.json",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/live2d/z23/Z23.model3.json"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/live2d/z23/z23.model3.json",
+        "https://static.l2d.su/al/assets/webp/live2d/z23/z23.model3.json",
+        "https://static.l2d.su/al/assets/original/live2d/z23/z23.model3.json",
+        "https://static.l2d.su/azurlane/live2d/z23/z23.model3.json"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/live2d/z23/z23.model3.json",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/live2d/z23/z23.model3.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "z23.model3",
+              "skeleton_url": "https://static.l2d.su/al/assets/live2d/z23/z23.model3.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/live2d/z23/z23.model3.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/z23.model3.json.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/live2d/Z23_g/z23_g.model3.json",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/live2d/Z23_g/Z23_g.model3.json"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/live2d/Z23_g/z23_g.model3.json",
+        "https://static.l2d.su/al/assets/webp/live2d/Z23_g/z23_g.model3.json",
+        "https://static.l2d.su/al/assets/original/live2d/Z23_g/z23_g.model3.json",
+        "https://static.l2d.su/azurlane/live2d/Z23_g/z23_g.model3.json"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/live2d/Z23_g/z23_g.model3.json",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/live2d/Z23_g/z23_g.model3.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "z23_g.model3",
+              "skeleton_url": "https://static.l2d.su/al/assets/live2d/Z23_g/z23_g.model3.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/live2d/Z23_g/z23_g.model3.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/z23_g.model3.json.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/spinepainting/lafei_12",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/spinepainting/Lafei_12"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/spinepainting/lafei_12",
+        "https://static.l2d.su/al/assets/webp/spinepainting/lafei_12",
+        "https://static.l2d.su/al/assets/original/spinepainting/lafei_12",
+        "https://static.l2d.su/azurlane/spinepainting/lafei_12"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/spinepainting/lafei_12",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "lafei_12",
+              "skeleton_url": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/lafei_12.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/spinepainting/lafei_12/",
+      "case_variant_urls": {
+        "ok": []
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/spinepainting/lafei_12/",
+        "https://static.l2d.su/al/assets/webp/spinepainting/lafei_12/",
+        "https://static.l2d.su/al/assets/original/spinepainting/lafei_12/",
+        "https://static.l2d.su/azurlane/spinepainting/lafei_12/"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/spinepainting/lafei_12/",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "lafei_12",
+              "skeleton_url": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/lafei_12.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.atlas",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/spinepainting/lafei_12/Lafei_12.atlas"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/spinepainting/lafei_12/lafei_12.atlas",
+        "https://static.l2d.su/al/assets/webp/spinepainting/lafei_12/lafei_12.atlas",
+        "https://static.l2d.su/al/assets/original/spinepainting/lafei_12/lafei_12.atlas",
+        "https://static.l2d.su/azurlane/spinepainting/lafei_12/lafei_12.atlas"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.atlas",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "lafei_12",
+              "skeleton_url": "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/spinepainting/lafei_12/lafei_12.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/lafei_12.atlas.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/spinepainting/aerbien_4-spine",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/spinepainting/Aerbien_4-spine"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/spinepainting/aerbien_4-spine",
+        "https://static.l2d.su/al/assets/webp/spinepainting/aerbien_4-spine",
+        "https://static.l2d.su/al/assets/original/spinepainting/aerbien_4-spine",
+        "https://static.l2d.su/azurlane/spinepainting/aerbien_4-spine"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/spinepainting/aerbien_4-spine",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/spinepainting/aerbien_4-spine/aerbien_4.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "aerbien_4",
+              "skeleton_url": "https://static.l2d.su/al/assets/spinepainting/aerbien_4-spine/aerbien_4.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/spinepainting/aerbien_4-spine/aerbien_4.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/aerbien_4-spine.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/Cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "https://static.l2d.su/al/assets/webp/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "https://static.l2d.su/al/assets/original/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "https://static.l2d.su/azurlane/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "22222222222222222222222222222222.json",
+              "skeleton_url": "https://static.l2d.su/al/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3/22222222222222222222222222222222.json.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/cd34/22222222222222222222222222222222.json#azp2=5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a.c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3/22222222222222222222222222222222.json.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/22222222222222222222222222222222.json.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/cc33/00000000000000000000000000000000.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/Cc33/00000000000000000000000000000000.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/cc33/00000000000000000000000000000000.webp",
+        "https://static.l2d.su/al/assets/webp/cc33/00000000000000000000000000000000.webp",
+        "https://static.l2d.su/al/assets/original/cc33/00000000000000000000000000000000.webp",
+        "https://static.l2d.su/azurlane/cc33/00000000000000000000000000000000.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/cc33/00000000000000000000000000000000.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/cc33/00000000000000000000000000000000.webp/00000000000000000000000000000000.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "00000000000000000000000000000000.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/cc33/00000000000000000000000000000000.webp/00000000000000000000000000000000.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/cc33/00000000000000000000000000000000.webp/00000000000000000000000000000000.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/00000000000000000000000000000000.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/cue/cv-1/detail.ogg",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/cue/cv-1/Detail.ogg"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/cue/cv-1/detail.ogg",
+        "https://static.l2d.su/al/assets/webp/cue/cv-1/detail.ogg",
+        "https://static.l2d.su/al/assets/original/cue/cv-1/detail.ogg",
+        "https://static.l2d.su/azurlane/cue/cv-1/detail.ogg"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/cue/cv-1/detail.ogg",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/cue/cv-1/detail.ogg/detail.ogg.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "detail.ogg",
+              "skeleton_url": "https://static.l2d.su/al/assets/cue/cv-1/detail.ogg/detail.ogg.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/cue/cv-1/detail.ogg/detail.ogg.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/detail.ogg.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al-b/assets/live2d/z23/z23.model3.json",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al-b/assets/live2d/z23/Z23.model3.json"
+        ]
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/live2d/z23/z23.model3.json",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al-b/assets/live2d/z23/z23.model3.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "z23.model3",
+              "skeleton_url": "https://static.l2d.su/al-b/assets/live2d/z23/z23.model3.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al-b/assets/live2d/z23/z23.model3.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/z23.model3.json.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/webp/painting/x.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/webp/painting/X.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/webp/painting/x.webp",
+        "https://static.l2d.su/al/assets/webp/webp/painting/x.webp",
+        "https://static.l2d.su/al/assets/original/webp/painting/x.webp",
+        "https://static.l2d.su/azurlane/webp/painting/x.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/painting/x.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/webp/painting/x.webp/x.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "x.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/webp/painting/x.webp/x.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/webp/painting/x.webp/x.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/x.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/al/assets/original/painting/x.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/al/assets/original/painting/X.webp"
+        ]
+      },
+      "legacy_asset_urls": [
+        "https://static.l2d.su/al-b/assets/original/painting/x.webp",
+        "https://static.l2d.su/al/assets/webp/original/painting/x.webp",
+        "https://static.l2d.su/al/assets/original/original/painting/x.webp",
+        "https://static.l2d.su/azurlane/original/painting/x.webp"
+      ],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/painting/x.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/al/assets/original/painting/x.webp/x.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "x.webp",
+              "skeleton_url": "https://static.l2d.su/al/assets/original/painting/x.webp/x.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/al/assets/original/painting/x.webp/x.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/x.json"
+      }
+    },
+    {
+      "url": "https://static.l2d.su/azurlane/painting/x.webp",
+      "case_variant_urls": {
+        "ok": [
+          "https://static.l2d.su/azurlane/painting/X.webp"
+        ]
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "https://static.l2d.su/al/assets/painting/x.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://static.l2d.su/azurlane/painting/x.webp/x.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "x.webp",
+              "skeleton_url": "https://static.l2d.su/azurlane/painting/x.webp/x.webp.skel",
+              "atlas_urls": [
+                "https://static.l2d.su/azurlane/painting/x.webp/x.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/x.json"
+      }
+    },
+    {
+      "url": "https://cdn.nagami.moe/live2d/z23/z23.model3.json",
+      "case_variant_urls": {
+        "ok": [
+          "https://cdn.nagami.moe/live2d/z23/Z23.model3.json"
+        ]
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "https://cdn.nagami.moe/live2d/z23/z23.model3.json",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://cdn.nagami.moe/live2d/z23/z23.model3.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "z23.model3",
+              "skeleton_url": "https://cdn.nagami.moe/live2d/z23/z23.model3.skel",
+              "atlas_urls": [
+                "https://cdn.nagami.moe/live2d/z23/z23.model3.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/z23.model3.json.json"
+      }
+    },
+    {
+      "url": "https://cdn.nagami.moe/live2d/z23",
+      "case_variant_urls": {
+        "ok": [
+          "https://cdn.nagami.moe/live2d/Z23"
+        ]
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "https://cdn.nagami.moe/live2d/z23",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://cdn.nagami.moe/live2d/z23/z23.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "z23",
+              "skeleton_url": "https://cdn.nagami.moe/live2d/z23/z23.skel",
+              "atlas_urls": [
+                "https://cdn.nagami.moe/live2d/z23/z23.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/z23.json"
+      }
+    },
+    {
+      "url": "https://example.test/no-path",
+      "case_variant_urls": {
+        "ok": [
+          "https://example.test/No-path"
+        ]
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "https://example.test/no-path",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://example.test/no-path/no-path.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "no-path",
+              "skeleton_url": "https://example.test/no-path/no-path.skel",
+              "atlas_urls": [
+                "https://example.test/no-path/no-path.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/no-path.json"
+      }
+    },
+    {
+      "url": "https://example.test",
+      "case_variant_urls": {
+        "ok": []
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "https://example.test",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "https://example.test/.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "",
+              "skeleton_url": "https://example.test/.skel",
+              "atlas_urls": [
+                "https://example.test/.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/.json"
+      }
+    },
+    {
+      "url": "https://[::1/painting/x.webp",
+      "case_variant_urls": {
+        "error": {
+          "class": "ValueError",
+          "message": "Invalid IPv6 URL"
+        }
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "https://[::1/painting/x.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "error": {
+          "class": "ValueError",
+          "message": "Invalid IPv6 URL"
+        }
+      },
+      "spine_resource_manifest": {
+        "error": {
+          "class": "ValueError",
+          "message": "Invalid IPv6 URL"
+        }
+      },
+      "painting_index_url": {
+        "error": {
+          "class": "ValueError",
+          "message": "Invalid IPv6 URL"
+        }
+      }
+    },
+    {
+      "url": "painting/relative.webp",
+      "case_variant_urls": {
+        "ok": [
+          "painting/Relative.webp"
+        ]
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "painting/relative.webp",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "painting/relative.webp/relative.webp.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "relative.webp",
+              "skeleton_url": "painting/relative.webp/relative.webp.skel",
+              "atlas_urls": [
+                "painting/relative.webp/relative.webp.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/relative.json"
+      }
+    },
+    {
+      "url": "",
+      "case_variant_urls": {
+        "ok": []
+      },
+      "legacy_asset_urls": [],
+      "asset_url_from_legacy": "",
+      "is_hashed_asset_url": false,
+      "spine_parts_manifest_url": {
+        "ok": "/.json"
+      },
+      "spine_resource_manifest": {
+        "ok": {
+          "parts": [
+            {
+              "name": "",
+              "skeleton_url": "/.skel",
+              "atlas_urls": [
+                "/.atlas"
+              ]
+            }
+          ],
+          "parts_manifest_url": ""
+        }
+      },
+      "painting_index_url": {
+        "ok": "https://static.l2d.su/al/assets/painting/.json"
+      }
+    }
+  ]
+}

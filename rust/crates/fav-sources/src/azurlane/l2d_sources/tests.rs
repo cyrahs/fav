@@ -87,6 +87,7 @@ macro_rules! list {
 mod catalog;
 mod enumerate;
 mod fetch;
+pub(crate) mod golden;
 mod hashed;
 mod health;
 mod index;

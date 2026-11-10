@@ -29,6 +29,7 @@ use fav_db::{Db, SettingsStore};
 use fav_runtime::telegram_bot::BotClient;
 use fav_sources::hanime1_author::{AuthorSubscriptions, Hanime1AuthorService};
 use fav_sources::hanime1_series::{Hanime1SeriesService, SeriesSubscriptions};
+use fav_sources::azurlane::l2d_sources::{OriginProbe, ProbeOrigin};
 use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
 
 pub mod archive;
@@ -93,6 +94,8 @@ pub struct ApiState {
     pub bd2: bd2::Bd2Libraries,
     /// The saved Live2D view overrides.
     pub live2d_overrides: Arc<dyn live2d_overrides::Live2DViewOverrideStore>,
+    /// Checks the l2d.su origin through a draft proxy (`POST /api/v2/azurlane/proxy/test`).
+    pub azurlane_origin: Arc<dyn ProbeOrigin>,
 }
 
 impl std::fmt::Debug for ApiState {
@@ -137,6 +140,7 @@ impl ApiState {
             nikke: nikke::NikkeLibraries::default(),
             bd2: bd2::Bd2Libraries::default(),
             live2d_overrides: live2d_overrides::postgres_store(db_for_overrides),
+            azurlane_origin: Arc::new(OriginProbe),
             settings,
         })
     }
