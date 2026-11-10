@@ -780,17 +780,8 @@ pub(crate) fn read_logs(log_dir: &Path, query: &LogQuery, zone: Tz, redact: &Red
     ]))
 }
 
-/// `str.casefold()` of Python 3.12 (`casefold::FOLDS`).
-pub(crate) fn casefold(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match super::casefold::FOLDS.binary_search_by_key(&ch, |(from, _)| *from) {
-            Ok(index) => out.push_str(super::casefold::FOLDS[index].1),
-            Err(_) => out.push(ch),
-        }
-    }
-    out
-}
+/// `str.casefold()` of Python 3.12.
+pub(crate) use fav_core::pycasefold::casefold;
 
 // ---------- control requests ----------
 

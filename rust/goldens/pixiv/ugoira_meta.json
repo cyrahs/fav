@@ -1,0 +1,175 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "pixiv",
+  "cases": [
+    {
+      "body": {
+        "originalSrc": "https://i.pximg.net/img-zip-ugoira/img/x/2_ugoira1920x1080.zip",
+        "frames": [
+          {
+            "file": "000000.jpg",
+            "delay": 45
+          },
+          {
+            "file": "000001.jpg",
+            "delay": 90
+          }
+        ]
+      },
+      "result": [
+        "https://i.pximg.net/img-zip-ugoira/img/x/2_ugoira1920x1080.zip",
+        [
+          [
+            "000000.jpg",
+            45
+          ],
+          [
+            "000001.jpg",
+            90
+          ]
+        ]
+      ]
+    },
+    {
+      "body": {
+        "originalSrc": "z.zip",
+        "frames": [
+          {
+            "file": "a.jpg",
+            "delay": 0
+          },
+          {
+            "file": "b.jpg",
+            "delay": -5
+          },
+          {
+            "file": "",
+            "delay": 10
+          },
+          {
+            "file": null,
+            "delay": 10
+          },
+          {
+            "file": "c.jpg",
+            "delay": "30"
+          },
+          {
+            "file": "d.jpg",
+            "delay": null
+          },
+          {
+            "file": "e.jpg",
+            "delay": true
+          },
+          {
+            "file": "f.jpg",
+            "delay": 1.5
+          },
+          "not a dict",
+          {
+            "file": 7,
+            "delay": 20
+          }
+        ]
+      },
+      "result": [
+        "z.zip",
+        [
+          [
+            "c.jpg",
+            30
+          ],
+          [
+            "7",
+            20
+          ]
+        ]
+      ]
+    },
+    {
+      "body": {
+        "originalSrc": "",
+        "frames": []
+      },
+      "error": [
+        "ValueError",
+        "ugoira_meta payload is missing the frame zip or the frame list"
+      ]
+    },
+    {
+      "body": {
+        "originalSrc": "z.zip",
+        "frames": []
+      },
+      "error": [
+        "ValueError",
+        "ugoira_meta payload is missing the frame zip or the frame list"
+      ]
+    },
+    {
+      "body": {
+        "originalSrc": "",
+        "frames": [
+          {
+            "file": "a.jpg",
+            "delay": 10
+          }
+        ]
+      },
+      "error": [
+        "ValueError",
+        "ugoira_meta payload is missing the frame zip or the frame list"
+      ]
+    },
+    {
+      "body": {
+        "originalSrc": null,
+        "frames": null
+      },
+      "error": [
+        "ValueError",
+        "ugoira_meta payload is missing the frame zip or the frame list"
+      ]
+    },
+    {
+      "body": {
+        "originalSrc": "z.zip",
+        "frames": "text"
+      },
+      "error": [
+        "ValueError",
+        "ugoira_meta payload is missing the frame zip or the frame list"
+      ]
+    },
+    {
+      "body": {
+        "originalSrc": 12,
+        "frames": [
+          {
+            "file": "a.jpg",
+            "delay": 10
+          }
+        ]
+      },
+      "result": [
+        "12",
+        [
+          [
+            "a.jpg",
+            10
+          ]
+        ]
+      ]
+    },
+    {
+      "body": {},
+      "error": [
+        "ValueError",
+        "ugoira_meta payload is missing the frame zip or the frame list"
+      ]
+    }
+  ]
+}

@@ -444,7 +444,7 @@ mod tests {
     use fav_core::golden;
     use fav_core::pyjson::Value;
 
-    use super::{ARCHIVE_SOURCES, Row, build_note_url, serialize, source};
+    use super::{ARCHIVE_SOURCES, Row, build_note_url, external_url, serialize, source};
     use crate::json;
 
     fn row_from_golden(value: &Value) -> Row {
@@ -494,5 +494,27 @@ mod tests {
             let row = row_from_golden(golden::get(case, "row"));
             assert_eq!(serialize(source, &row, &settings), *golden::get(case, "item"), "{case:?}");
         }
+    }
+
+    // py: tests/test_pixiv.py::test_the_archive_links_a_row_back_to_the_artwork
+    #[test]
+    fn the_archive_links_a_pixiv_row_back_to_the_artwork() {
+        let source = source("pixiv").expect("pixiv is archived");
+        assert_eq!(source.table, "pixiv");
+        let row: Row = vec![
+            ("illust_id".to_owned(), Value::from(96_461_036_i64)),
+            ("num".to_owned(), Value::from(0_i64)),
+        ];
+        let settings = fav_db::settings_store::default_settings();
+        assert_eq!(
+            external_url(source, &row, &settings).as_deref(),
+            Some("https://www.pixiv.net/artworks/96461036")
+        );
+    }
+
+    // py: tests/test_pixiv.py::test_api_job_enum_includes_pixiv
+    #[test]
+    fn api_job_enum_includes_pixiv() {
+        assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"pixiv"));
     }
 }

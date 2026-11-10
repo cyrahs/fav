@@ -16,3 +16,20 @@ fav-db.workspace = true
 fav-net.workspace = true
 fav-runtime.workspace = true
 fav-browser.workspace = true
+futures-util.workspace = true
+# Only to tell a body cut short from other read failures (`kit::HttpError::transport`).
+hyper = { version = "1", default-features = false }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+reqwest = { workspace = true, features = ["query", "stream"] }
+sqlx.workspace = true
+tempfile = "3"
+tokio = { workspace = true, features = ["fs", "io-util", "time"] }
+webp-animation = { workspace = true, features = ["static"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+axum.workspace = true
+fav-core = { workspace = true, features = ["test-support"] }
+fav-db = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["net", "test-util"] }
+url.workspace = true

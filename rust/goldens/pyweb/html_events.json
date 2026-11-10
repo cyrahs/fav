@@ -1,0 +1,1495 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "pyweb",
+  "cases": [
+    {
+      "html": "<table id=\"trekker-table\" class=\"wikitable sortable\"><tr><td><a href=\"/wiki/Freesia\" title=\"Freesia\">Freesia</a></td></tr></table>",
+      "events": [
+        [
+          "start",
+          "table",
+          [
+            [
+              "id",
+              "trekker-table"
+            ],
+            [
+              "class",
+              "wikitable sortable"
+            ]
+          ]
+        ],
+        [
+          "start",
+          "tr",
+          []
+        ],
+        [
+          "start",
+          "td",
+          []
+        ],
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/wiki/Freesia"
+            ],
+            [
+              "title",
+              "Freesia"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "Freesia"
+        ],
+        [
+          "end",
+          "a"
+        ],
+        [
+          "end",
+          "td"
+        ],
+        [
+          "end",
+          "tr"
+        ],
+        [
+          "end",
+          "table"
+        ]
+      ]
+    },
+    {
+      "html": "<div class=\"mw-heading\"><h2 id=\"CGs\">CGs</h2><span class=\"mw-editsection\">[<a href=\"/w/index.php?title=X&amp;action=edit&amp;section=1\">edit</a>]</span></div>",
+      "events": [
+        [
+          "start",
+          "div",
+          [
+            [
+              "class",
+              "mw-heading"
+            ]
+          ]
+        ],
+        [
+          "start",
+          "h2",
+          [
+            [
+              "id",
+              "CGs"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "CGs"
+        ],
+        [
+          "end",
+          "h2"
+        ],
+        [
+          "start",
+          "span",
+          [
+            [
+              "class",
+              "mw-editsection"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "["
+        ],
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/w/index.php?title=X&action=edit&section=1"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "edit"
+        ],
+        [
+          "end",
+          "a"
+        ],
+        [
+          "data",
+          "]"
+        ],
+        [
+          "end",
+          "span"
+        ],
+        [
+          "end",
+          "div"
+        ]
+      ]
+    },
+    {
+      "html": "<li class=\"gallerybox\"><a href=\"/wiki/File:Disc_Good_Night.png\" class=\"mw-file-description\"><img src=\"//static.wikitide.net/x.png\" decoding=\"async\" width=\"120\"></a></li>",
+      "events": [
+        [
+          "start",
+          "li",
+          [
+            [
+              "class",
+              "gallerybox"
+            ]
+          ]
+        ],
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/wiki/File:Disc_Good_Night.png"
+            ],
+            [
+              "class",
+              "mw-file-description"
+            ]
+          ]
+        ],
+        [
+          "start",
+          "img",
+          [
+            [
+              "src",
+              "//static.wikitide.net/x.png"
+            ],
+            [
+              "decoding",
+              "async"
+            ],
+            [
+              "width",
+              "120"
+            ]
+          ]
+        ],
+        [
+          "end",
+          "a"
+        ],
+        [
+          "end",
+          "li"
+        ]
+      ]
+    },
+    {
+      "html": "<aside class=\"portable-infobox pi-theme-default\"><figure><a href=\"//static.wikitide.net/a/b/F.png\" class=\"image image-thumbnail\" title=\"Profile Image\"><img/></a></figure></aside>",
+      "events": [
+        [
+          "start",
+          "aside",
+          [
+            [
+              "class",
+              "portable-infobox pi-theme-default"
+            ]
+          ]
+        ],
+        [
+          "start",
+          "figure",
+          []
+        ],
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "//static.wikitide.net/a/b/F.png"
+            ],
+            [
+              "class",
+              "image image-thumbnail"
+            ],
+            [
+              "title",
+              "Profile Image"
+            ]
+          ]
+        ],
+        [
+          "start",
+          "img",
+          []
+        ],
+        [
+          "end",
+          "img"
+        ],
+        [
+          "end",
+          "a"
+        ],
+        [
+          "end",
+          "figure"
+        ],
+        [
+          "end",
+          "aside"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=/wiki/Bare title=bare>x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/wiki/Bare"
+            ],
+            [
+              "title",
+              "bare"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href='/wiki/Single' title='it&#39;s'>x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/wiki/Single"
+            ],
+            [
+              "title",
+              "it's"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a HREF=\"/wiki/Upper\" Title=\"T\">x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/wiki/Upper"
+            ],
+            [
+              "title",
+              "T"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<A href=\"/x\">Upper tag</A>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/x"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "Upper tag"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=\"/x\" href=\"/y\" disabled>dup</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/x"
+            ],
+            [
+              "href",
+              "/y"
+            ],
+            [
+              "disabled",
+              null
+            ]
+          ]
+        ],
+        [
+          "data",
+          "dup"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href = \"/spaced\" title =  bare >x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/spaced"
+            ],
+            [
+              "title",
+              "bare"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=  >empty after spaces</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              ""
+            ]
+          ]
+        ],
+        [
+          "data",
+          "empty after spaces"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=>empty</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              ""
+            ]
+          ]
+        ],
+        [
+          "data",
+          "empty"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=\"/x\"title=\"no space\">x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/x"
+            ],
+            [
+              "title",
+              "no space"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=\"&amp;&lt;&#x41;&bogus;\">refs</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "&<A&bogus;"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "refs"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a b='x>y</a> after",
+      "events": []
+    },
+    {
+      "html": "<a b= 'unclosed>text</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "b",
+              ""
+            ],
+            [
+              "'unclosed",
+              null
+            ]
+          ]
+        ],
+        [
+          "data",
+          "text"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a b ='unclosed>text</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "b",
+              null
+            ],
+            [
+              "='unclosed",
+              null
+            ]
+          ]
+        ],
+        [
+          "data",
+          "text"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a \"quoted-name\"=1>x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "\"quoted-name\"",
+              "1"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a =eq>x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "=eq",
+              null
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a b=\"1\"/>selfclose",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "b",
+              "1"
+            ]
+          ]
+        ],
+        [
+          "end",
+          "a"
+        ],
+        [
+          "data",
+          "selfclose"
+        ]
+      ]
+    },
+    {
+      "html": "<br/><br /><img src=x/>",
+      "events": [
+        [
+          "start",
+          "br",
+          []
+        ],
+        [
+          "end",
+          "br"
+        ],
+        [
+          "start",
+          "br",
+          []
+        ],
+        [
+          "end",
+          "br"
+        ],
+        [
+          "start",
+          "img",
+          [
+            [
+              "src",
+              "x/"
+            ]
+          ]
+        ]
+      ]
+    },
+    {
+      "html": "<a/b/c>slashes</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "b",
+              null
+            ],
+            [
+              "c",
+              null
+            ]
+          ]
+        ],
+        [
+          "data",
+          "slashes"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a\tb=\"1\"\nc='2'\rd=3\fe>ws</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "b",
+              "1"
+            ],
+            [
+              "c",
+              "2"
+            ],
+            [
+              "d",
+              "3"
+            ],
+            [
+              "e",
+              null
+            ]
+          ]
+        ],
+        [
+          "data",
+          "ws"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=\"/x\"<b>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/x"
+            ],
+            [
+              "<b",
+              null
+            ]
+          ]
+        ]
+      ]
+    },
+    {
+      "html": "<a b=\"c\" d e=f g=\"h\"i=\"j\">x</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "b",
+              "c"
+            ],
+            [
+              "d",
+              null
+            ],
+            [
+              "e",
+              "f"
+            ],
+            [
+              "g",
+              "h"
+            ],
+            [
+              "i",
+              "j"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<div data-x=\"a>b\">gt in value</div>",
+      "events": [
+        [
+          "start",
+          "div",
+          [
+            [
+              "data-x",
+              "a>b"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "gt in value"
+        ],
+        [
+          "end",
+          "div"
+        ]
+      ]
+    },
+    {
+      "html": "<p class=a/>bare slash value</p>",
+      "events": [
+        [
+          "start",
+          "p",
+          [
+            [
+              "class",
+              "a/"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "bare slash value"
+        ],
+        [
+          "end",
+          "p"
+        ]
+      ]
+    },
+    {
+      "html": "text &amp; more &lt;tag&gt; &copy 2024 &#169;",
+      "events": [
+        [
+          "data",
+          "text & more <tag> © 2024 ©"
+        ]
+      ]
+    },
+    {
+      "html": "a<3b <  c < d",
+      "events": [
+        [
+          "data",
+          "a"
+        ],
+        [
+          "data",
+          "<"
+        ],
+        [
+          "data",
+          "3b "
+        ],
+        [
+          "data",
+          "<"
+        ],
+        [
+          "data",
+          "  c "
+        ],
+        [
+          "data",
+          "<"
+        ],
+        [
+          "data",
+          " d"
+        ]
+      ]
+    },
+    {
+      "html": "<p>&amp;lt; double</p>",
+      "events": [
+        [
+          "start",
+          "p",
+          []
+        ],
+        [
+          "data",
+          "&lt; double"
+        ],
+        [
+          "end",
+          "p"
+        ]
+      ]
+    },
+    {
+      "html": "tail without tags &amp; ok",
+      "events": [
+        [
+          "data",
+          "tail without tags & ok"
+        ]
+      ]
+    },
+    {
+      "html": "tail cut &am",
+      "events": []
+    },
+    {
+      "html": "tail cut &amp;x &#12",
+      "events": []
+    },
+    {
+      "html": "<!DOCTYPE html><html><!-- a <a href=\"/hidden\">x</a> --><a href=\"/shown\">y</a></html>",
+      "events": [
+        [
+          "start",
+          "html",
+          []
+        ],
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/shown"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "y"
+        ],
+        [
+          "end",
+          "a"
+        ],
+        [
+          "end",
+          "html"
+        ]
+      ]
+    },
+    {
+      "html": "<!-- unterminated <a href=\"/never\">",
+      "events": []
+    },
+    {
+      "html": "<!--> abrupt <b>x</b>",
+      "events": [
+        [
+          "data",
+          " abrupt "
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<!---> abrupt <b>y</b>",
+      "events": [
+        [
+          "data",
+          " abrupt "
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "y"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<!-- ok --!> bang <b>z</b>",
+      "events": [
+        [
+          "data",
+          " bang "
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "z"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<!-- a -- b --> <i>c</i>",
+      "events": [
+        [
+          "data",
+          " "
+        ],
+        [
+          "start",
+          "i",
+          []
+        ],
+        [
+          "data",
+          "c"
+        ],
+        [
+          "end",
+          "i"
+        ]
+      ]
+    },
+    {
+      "html": "<![CDATA[ <a href=\"/in-cdata\"> ]]><b>after</b>",
+      "events": [
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "after"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<![if !IE]><b>cond</b><![endif]>",
+      "events": [
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "cond"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<!bogus decl><b>after bogus</b>",
+      "events": [
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "after bogus"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<?xml version=\"1.0\"?><b>after pi</b>",
+      "events": [
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "after pi"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "</><b>empty end</b></ b>bogus end</1>x",
+      "events": [
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "empty end"
+        ],
+        [
+          "end",
+          "b"
+        ],
+        [
+          "data",
+          "bogus end"
+        ],
+        [
+          "data",
+          "x"
+        ]
+      ]
+    },
+    {
+      "html": "</a",
+      "events": []
+    },
+    {
+      "html": "<a href=\"/x\"",
+      "events": []
+    },
+    {
+      "html": "<script>if (a < b && c > d) { x = \"</div>\"; }</script><a href=\"/after-script\">x</a>",
+      "events": [
+        [
+          "start",
+          "script",
+          []
+        ],
+        [
+          "data",
+          "if (a < b && c > d) { x = \"</div>\"; }"
+        ],
+        [
+          "end",
+          "script"
+        ],
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/after-script"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<SCRIPT type=\"x\">a</Script ><b>y</b>",
+      "events": [
+        [
+          "start",
+          "script",
+          [
+            [
+              "type",
+              "x"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "a"
+        ],
+        [
+          "end",
+          "script"
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "y"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<script>never closed <a href=\"/no\">",
+      "events": [
+        [
+          "start",
+          "script",
+          []
+        ]
+      ]
+    },
+    {
+      "html": "<style>p{color:red}</style><b>s</b>",
+      "events": [
+        [
+          "start",
+          "style",
+          []
+        ],
+        [
+          "data",
+          "p{color:red}"
+        ],
+        [
+          "end",
+          "style"
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "s"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<title>A &amp; B <b>not a tag</b></title><b>t</b>",
+      "events": [
+        [
+          "start",
+          "title",
+          []
+        ],
+        [
+          "data",
+          "A & B <b>not a tag</b>"
+        ],
+        [
+          "end",
+          "title"
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "t"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<textarea>&lt;x&gt;</textarea>",
+      "events": [
+        [
+          "start",
+          "textarea",
+          []
+        ],
+        [
+          "data",
+          "<x>"
+        ],
+        [
+          "end",
+          "textarea"
+        ]
+      ]
+    },
+    {
+      "html": "<script>a</scriptx>b</script><b>c</b>",
+      "events": [
+        [
+          "start",
+          "script",
+          []
+        ],
+        [
+          "data",
+          "a</scriptx>b"
+        ],
+        [
+          "end",
+          "script"
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "c"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<xmp><b></xmp><i>i</i>",
+      "events": [
+        [
+          "start",
+          "xmp",
+          []
+        ],
+        [
+          "data",
+          "<b>"
+        ],
+        [
+          "end",
+          "xmp"
+        ],
+        [
+          "start",
+          "i",
+          []
+        ],
+        [
+          "data",
+          "i"
+        ],
+        [
+          "end",
+          "i"
+        ]
+      ]
+    },
+    {
+      "html": "<plaintext><a href=\"/x\">raw to the end",
+      "events": [
+        [
+          "start",
+          "plaintext",
+          []
+        ],
+        [
+          "data",
+          "<a href=\"/x\">raw to the end"
+        ]
+      ]
+    },
+    {
+      "html": "<script/>self-closed script<b>x</b>",
+      "events": [
+        [
+          "start",
+          "script",
+          []
+        ],
+        [
+          "end",
+          "script"
+        ],
+        [
+          "data",
+          "self-closed script"
+        ],
+        [
+          "start",
+          "b",
+          []
+        ],
+        [
+          "data",
+          "x"
+        ],
+        [
+          "end",
+          "b"
+        ]
+      ]
+    },
+    {
+      "html": "<a href=\"/wiki/%E4%B8%AD%E6%96%87\" title=\"中文\">中文</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "href",
+              "/wiki/%E4%B8%AD%E6%96%87"
+            ],
+            [
+              "title",
+              "中文"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "中文"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<a title=\"😀\">emoji &#x1F600;</a>",
+      "events": [
+        [
+          "start",
+          "a",
+          [
+            [
+              "title",
+              "😀"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "emoji 😀"
+        ],
+        [
+          "end",
+          "a"
+        ]
+      ]
+    },
+    {
+      "html": "<tağ attr=\"v\">unicode tag</tağ>",
+      "events": [
+        [
+          "start",
+          "tağ",
+          [
+            [
+              "attr",
+              "v"
+            ]
+          ]
+        ],
+        [
+          "data",
+          "unicode tag"
+        ],
+        [
+          "end",
+          "tağ"
+        ]
+      ]
+    }
+  ]
+}

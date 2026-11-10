@@ -1,0 +1,202 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "stellasora",
+  "cases": [
+    {
+      "html": "\n    <table id=\"trekker-table\">\n      <tr><th>Profile</th><th>Name</th><th>x</th></tr>\n      <tr><td><a href=\"/wiki/File:Foo.png\">Foo</a></td><td><a href=\"/wiki/Freesia\">Free&amp;sia</a></td></tr>\n      <tr><td></td><td><b><a href=\"Relative_Page\">  Spaced   Name  </a></b></td></tr>\n      <tr><td></td><td><a href=\"/wiki/No_Text\"></a></td></tr>\n      <tr><td></td><td>no link</td></tr>\n      <tr><td></td><td><a>no href</a></td></tr>\n      <tr><td></td><td><a href=\"https://other.example/wiki/Abs\">Absolute</a><a href=\"/wiki/Second\">Second</a></td></tr>\n      <TR><TD></TD><TD><A HREF=\"/wiki/Upper\">Upper</A></TD></TR>\n    </table>\n    <table id=\"other\"><tr><td></td><td><a href=\"/wiki/Outside\">Outside</a></td></tr></table>\n    ",
+      "characters": {
+        "result": [
+          [
+            "Free&sia",
+            "https://stellasora.miraheze.org/wiki/Freesia"
+          ],
+          [
+            "Second",
+            "https://stellasora.miraheze.org/wiki/Second"
+          ],
+          [
+            "Upper",
+            "https://stellasora.miraheze.org/wiki/Upper"
+          ]
+        ]
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [],
+      "images": [],
+      "memory_snapshots": [],
+      "awakened": [],
+      "skins": [],
+      "discs": {
+        "result": []
+      }
+    },
+    {
+      "html": "\n    <table id=\"trekker-table\"><tr><td></td><td>\n      <table><tr><td><a href=\"/wiki/Inner\">Inner</a></td></tr></table>\n      <a href=\"/wiki/After_Inner\">After</a></td></tr>\n    </table>\n    <table id=\"trekker-table\"><tr><td></td><td><a href=\"/wiki/Again\">Again</a></td></tr></table>\n    ",
+      "characters": {
+        "result": [
+          [
+            "Again",
+            "https://stellasora.miraheze.org/wiki/Again"
+          ]
+        ]
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [],
+      "images": [],
+      "memory_snapshots": [],
+      "awakened": [],
+      "skins": [],
+      "discs": {
+        "result": []
+      }
+    },
+    {
+      "html": "\n    <aside class=\"portable-infobox\">\n      <figure class=\"pi-item pi-image\"><a href=\"//static.example/a.png\" title=\"Profile Image\">x</a></figure>\n      <figure><a href=\"/w/b.png\" title=\"Artwork\"></a></figure>\n      <figure><a href=\"c.png\">no title</a><a title=\"no href\">x</a></figure>\n      <a href=\"/outside.png\" title=\"Outside\">x</a>\n      <figure><a href=\"/first.png\" title=\"Twice\"></a><a href=\"/second.png\" title=\"Twice\"></a></figure>\n    </aside>\n    ",
+      "characters": {
+        "result": []
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [],
+      "images": [],
+      "memory_snapshots": [],
+      "awakened": [],
+      "skins": [],
+      "discs": {
+        "result": []
+      }
+    },
+    {
+      "html": "<div class=\"mw-heading\"><h2 id=\"Intro\">Intro</h2></div><a href=\"/wiki/File:Intro.png\">x</a><div class=\"mw-heading\"><h2 id=\"CGs\">CGs</h2></div><a href=\"/wiki/File:Cg_1.png\">x</a><a href=\"/wiki/File:Cg_1.png\">dup</a><a href=\"https://stellasora.miraheze.org/wiki/File:Cg_Abs.png\">x</a><a href=\"/wiki/Not_A_File\">x</a><a href=\"/wiki/file:lower.png\">x</a><a href=\"/wiki/File:Encoded%20Space.png\">x</a><div class=\"mw-heading\"><h2 id=\"Images\">Images</h2></div><a href=\"/wiki/File:Snap.png\" title=\"Memory Snapshot\">x</a><a href=\"/wiki/File:Snap_Old.png\" title=\"memory snapshot (old)\">x</a><a href=\"/wiki/File:Intro_EN.jpg\" title=\"English Introduction\">x</a><a href=\"/wiki/File:No_Title.png\">x</a><div class=\"mw-heading\"><h2 id=\"Sprites\">Sprites</h2></div><div class=\"mw-heading mw-heading3\"><h3 id=\"Default\">Default</h3></div><a href=\"/wiki/File:Default.png\">x</a><div class=\"mw-heading mw-heading3\"><h3 id=\"Awakened\">Awakened</h3></div><a href=\"/wiki/File:Awake_1.png\">x</a><div class=\"mw-heading mw-heading3\"><h3 id=\"Skin1\">Skin1</h3></div><a href=\"/wiki/File:Skin1.png\">x</a><div class=\"mw-heading mw-heading3\"><h3 id=\"skin2\">skin2</h3></div><a href=\"/wiki/File:Skin2_lower.png\">x</a><div class=\"mw-heading mw-heading3\"><h3 id=\"Skin_Extra\">Skin_Extra</h3></div><a href=\"/wiki/File:Skin_Extra.png\">x</a><div class=\"mw-heading mw-heading3\"><h3 id=\"Awakened\">Awakened</h3></div><a href=\"/wiki/File:Awake_2.png\">x</a><div class=\"mw-heading\"><h2 id=\"Other\">Other</h2></div><div class=\"mw-heading mw-heading3\"><h3 id=\"Awakened\">Awakened</h3></div><a href=\"/wiki/File:Not_Sprites.png\">x</a>",
+      "characters": {
+        "result": []
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [
+        "File:Cg_1.png",
+        "File:Encoded Space.png"
+      ],
+      "images": [
+        "File:Snap.png",
+        "File:Snap_Old.png",
+        "File:Intro_EN.jpg",
+        "File:No_Title.png"
+      ],
+      "memory_snapshots": [],
+      "awakened": [
+        "File:Awake_1.png"
+      ],
+      "skins": [
+        "File:Skin1.png",
+        "File:Skin2_lower.png",
+        "File:Skin_Extra.png"
+      ],
+      "discs": {
+        "result": []
+      }
+    },
+    {
+      "html": "<h2><span id=\"CGs\">CGs</span></h2><a href=\"/wiki/File:Span_Cg.png\">x</a><h2 id=\"CGs\">CGs</h2><a href=\"/wiki/File:H2_Cg.png\">x</a><h4 id=\"Images\">Images</h4><a href=\"/wiki/File:H4.png\" title=\"Memory Snapshot\">x</a><h2>No id</h2><a href=\"/wiki/File:After_No_Id.png\">x</a><h2 id=\"Sprites\">Sprites</h2><h3>No id</h3><a href=\"/wiki/File:Sprite_No_Id.png\">x</a><h3 id=\"Awakened\">Awakened</h3><a href=\"/wiki/File:Awake_H3.png\">x</a><h2 id=\"Images\">Images</h2><a href=\"/wiki/File:Late_Snap.png\" title=\"Memory Snapshot\">x</a>",
+      "characters": {
+        "result": []
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [
+        "File:H2_Cg.png",
+        "File:H4.png",
+        "File:After_No_Id.png"
+      ],
+      "images": [
+        "File:Late_Snap.png"
+      ],
+      "memory_snapshots": [],
+      "awakened": [
+        "File:Awake_H3.png"
+      ],
+      "skins": [],
+      "discs": {
+        "result": []
+      }
+    },
+    {
+      "html": "\n    <table id=\"disc-table\">\n      <tr><td><a href=\"/wiki/File:Disc_A.png\">D</a></td><td><a href=\"/wiki/File:BGM_A.ogg\">B</a></td></tr>\n      <tr><td><a href=\"/wiki/File:Disc_B.JPG\">D</a></td><td><a href=\"/wiki/File:Disc_A.png\">dup</a></td></tr>\n      <tr><td><a href=\"/wiki/File:Disc_C.webp\">D</a></td><td><a href=\"/wiki/File:Disc_D.gif\">G</a></td></tr>\n      <tr><td><a href=\"/wiki/File:Disc%20E.jpeg\">E</a></td><td><a href=\"/wiki/Element\">Aqua</a></td></tr>\n      <tr><td><table><tr><td><a href=\"/wiki/File:Nested.png\">n</a></td></tr></table></td></tr>\n      <tr><td><a href=\"/wiki/File:After_Nested.png\">n</a></td></tr>\n    </table>\n    <table id=\"disc-table-2\"><tr><td><a href=\"/wiki/File:Other_Table.png\">x</a></td></tr></table>\n    ",
+      "characters": {
+        "result": []
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [],
+      "images": [],
+      "memory_snapshots": [],
+      "awakened": [],
+      "skins": [],
+      "discs": {
+        "result": [
+          "File:Disc_A.png",
+          "File:Disc_B.JPG",
+          "File:Disc_A.png",
+          "File:Disc_C.webp",
+          "File:Disc_D.gif",
+          "File:Disc E.jpeg"
+        ]
+      }
+    },
+    {
+      "html": "<table id=\"trekker-table\"><tr><td><td><a href=\"/wiki/A&amp;B\">A &lt;B&gt;</a><!-- <a href=\"/wiki/C\">C</a> --><script>\"<a href='/wiki/File:Script.png'>\"</script><h2 id=CGs>CGs</h2><a href=/wiki/File:Unquoted.png>u</a><a href=\"/wiki/File:Unclosed.png\"",
+      "characters": {
+        "result": [
+          [
+            "A <B>",
+            "https://stellasora.miraheze.org/wiki/A&B"
+          ],
+          [
+            "u",
+            "https://stellasora.miraheze.org/wiki/File:Unquoted.png"
+          ]
+        ]
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [
+        "File:Unquoted.png"
+      ],
+      "images": [],
+      "memory_snapshots": [],
+      "awakened": [],
+      "skins": [],
+      "discs": {
+        "result": []
+      }
+    },
+    {
+      "html": "",
+      "characters": {
+        "result": []
+      },
+      "infobox": {
+        "result": []
+      },
+      "cgs": [],
+      "images": [],
+      "memory_snapshots": [],
+      "awakened": [],
+      "skins": [],
+      "discs": {
+        "result": []
+      }
+    }
+  ]
+}

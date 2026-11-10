@@ -1,0 +1,195 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "stellasora",
+  "cases": [
+    {
+      "payload": {
+        "query": {
+          "pages": [
+            {
+              "title": "File:A.png",
+              "imageinfo": [
+                {
+                  "url": "https://static.example/a.png",
+                  "descriptionurl": "https://wiki/A"
+                }
+              ]
+            },
+            {
+              "title": "File:B.png",
+              "imageinfo": [
+                {
+                  "url": "https://static.example/b.png"
+                }
+              ]
+            },
+            {
+              "title": "File:Missing.png",
+              "missing": true
+            },
+            {
+              "title": "",
+              "imageinfo": [
+                {
+                  "url": "x"
+                }
+              ]
+            },
+            {
+              "title": "File:NoUrl.png",
+              "imageinfo": [
+                {
+                  "descriptionurl": "d"
+                }
+              ]
+            },
+            {
+              "title": "File:EmptyInfo.png",
+              "imageinfo": []
+            },
+            {
+              "title": "File:NullInfo.png",
+              "imageinfo": [
+                null
+              ]
+            },
+            {
+              "title": 12,
+              "imageinfo": [
+                {
+                  "url": 34,
+                  "descriptionurl": ""
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "result": [
+        [
+          "File:A.png",
+          "https://static.example/a.png",
+          "https://wiki/A"
+        ],
+        [
+          "File:B.png",
+          "https://static.example/b.png",
+          null
+        ],
+        [
+          "12",
+          "34",
+          null
+        ]
+      ]
+    },
+    {
+      "payload": {},
+      "result": []
+    },
+    {
+      "payload": {
+        "query": {}
+      },
+      "result": []
+    },
+    {
+      "payload": {
+        "query": {
+          "pages": []
+        }
+      },
+      "result": []
+    },
+    {
+      "payload": {
+        "query": {
+          "pages": null
+        }
+      },
+      "error": [
+        "TypeError",
+        "'NoneType' object is not iterable"
+      ]
+    },
+    {
+      "payload": {
+        "query": {
+          "pages": {
+            "1": {
+              "title": "File:Dict.png"
+            }
+          }
+        }
+      },
+      "error": [
+        "AttributeError",
+        "'str' object has no attribute 'get'"
+      ]
+    },
+    {
+      "payload": {
+        "query": {
+          "pages": [
+            "not a dict"
+          ]
+        }
+      },
+      "error": [
+        "AttributeError",
+        "'str' object has no attribute 'get'"
+      ]
+    },
+    {
+      "payload": {
+        "query": []
+      },
+      "error": [
+        "AttributeError",
+        "'list' object has no attribute 'get'"
+      ]
+    },
+    {
+      "payload": [],
+      "error": [
+        "AttributeError",
+        "'list' object has no attribute 'get'"
+      ]
+    },
+    {
+      "payload": {
+        "query": {
+          "pages": [
+            {
+              "title": "File:X.png",
+              "imageinfo": "text"
+            }
+          ]
+        }
+      },
+      "error": [
+        "AttributeError",
+        "'str' object has no attribute 'get'"
+      ]
+    },
+    {
+      "payload": {
+        "query": {
+          "pages": [
+            {
+              "title": "File:X.png",
+              "imageinfo": [
+                {
+                  "url": null
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "result": []
+    }
+  ]
+}

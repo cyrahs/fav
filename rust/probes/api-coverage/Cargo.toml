@@ -14,10 +14,8 @@ workspace = true
 grammers-client.workspace = true
 chromiumoxide.workspace = true
 rmcp = { workspace = true, features = ["server", "macros", "transport-streamable-http-server"] }
-webp-animation = { workspace = true, features = ["static"] }
 axum.workspace = true
 futures = "0.3"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 serde_json = { workspace = true, features = ["preserve_order"] }
 tokio = { workspace = true, features = ["fs", "io-util", "net", "process", "time"] }
 
