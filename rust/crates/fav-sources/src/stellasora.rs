@@ -987,7 +987,7 @@ impl StellaSora {
         if dst_dir != disc_dir
             && let Some(source) = existing.iter().find(|path| parent(path) == disc_dir)
         {
-            let (source, dir, dst) = (source.clone(), dst_dir.to_owned(), dst_path.clone());
+            let (from, dir, dst) = (source.clone(), dst_dir.to_owned(), dst_path.clone());
             let io_error = |error: std::io::Error| {
                 JobError::new(
                     fav_net::download::io_class_name(&error),
@@ -997,13 +997,15 @@ impl StellaSora {
             // A move across file systems copies the whole file: off the async threads.
             tokio::task::spawn_blocking(move || {
                 std::fs::create_dir_all(&dir)?;
-                fav_net::download::move_file(Path::new(&source), Path::new(&dst))
+                fav_net::download::move_file(Path::new(&from), Path::new(&dst))
             })
             .await
             .map_err(|error| JobError::new("RuntimeError", error.to_string()))?
             .map_err(io_error)?;
-            // As in Python, the old location stays in the index too.
-            index.push(key, dst_path);
+            // The file is no longer at its old location: the index follows it there. Python
+            // keeps the old path too, so a later title with the same case-folded name going to
+            // another folder tries to move it again and fails the run (D53).
+            index.replace(&key, source, dst_path);
             return Ok((false, 1, 0));
         }
         Ok((false, 0, 1))
@@ -1178,6 +1180,13 @@ impl ExistingIndex {
 
     fn push(&mut self, key: String, path: String) {
         self.by_name.entry(key).or_default().push(path);
+    }
+
+    /// `old`, a file just moved to `new`, is listed under `key` as `new` (D53).
+    fn replace(&mut self, key: &str, old: &str, new: String) {
+        let paths = self.by_name.entry(key.to_owned()).or_default();
+        paths.retain(|path| path != old);
+        paths.push(new);
     }
 }
 
