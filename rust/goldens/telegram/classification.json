@@ -1,0 +1,519 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "telegram",
+  "cases": [
+    {
+      "message": {
+        "id": 1,
+        "text": "Caption",
+        "media": {
+          "kind": "photo"
+        }
+      },
+      "media_type": {
+        "image": "image",
+        "video": null,
+        "image,video,link": "image",
+        "video,link,unsupported": null,
+        "image,video,link,unsupported": "image"
+      },
+      "reason": "Nothing to download: a photo message"
+    },
+    {
+      "message": {
+        "id": 2,
+        "media": {
+          "kind": "photo_empty"
+        }
+      },
+      "media_type": {
+        "image": "image",
+        "video": null,
+        "image,video,link": "image",
+        "video,link,unsupported": null,
+        "image,video,link,unsupported": "image"
+      },
+      "reason": "Nothing to download: a photo message"
+    },
+    {
+      "message": {
+        "id": 3,
+        "media": {
+          "kind": "document",
+          "mime": "video/mp4",
+          "attributes": [
+            {
+              "kind": "video"
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": "video",
+        "image,video,link": "video",
+        "video,link,unsupported": "video",
+        "image,video,link,unsupported": "video"
+      },
+      "reason": "Nothing to download: a file (video/mp4)"
+    },
+    {
+      "message": {
+        "id": 4,
+        "media": {
+          "kind": "document",
+          "mime": "video/mp4",
+          "attributes": [
+            {
+              "kind": "video",
+              "round": true
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": "video",
+        "image,video,link": "video",
+        "video,link,unsupported": "video",
+        "image,video,link,unsupported": "video"
+      },
+      "reason": "Nothing to download: a file (video/mp4)"
+    },
+    {
+      "message": {
+        "id": 5,
+        "media": {
+          "kind": "document",
+          "mime": "image/png"
+        }
+      },
+      "media_type": {
+        "image": "image",
+        "video": null,
+        "image,video,link": "image",
+        "video,link,unsupported": null,
+        "image,video,link,unsupported": "image"
+      },
+      "reason": "Nothing to download: a file (image/png)"
+    },
+    {
+      "message": {
+        "id": 6,
+        "media": {
+          "kind": "document",
+          "mime": "image/webp",
+          "attributes": [
+            {
+              "kind": "sticker"
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a sticker"
+    },
+    {
+      "message": {
+        "id": 7,
+        "media": {
+          "kind": "document",
+          "mime": "image/webp",
+          "attributes": [
+            {
+              "kind": "custom_emoji"
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a file (image/webp)"
+    },
+    {
+      "message": {
+        "id": 8,
+        "media": {
+          "kind": "document",
+          "mime": "video/mp4",
+          "attributes": [
+            {
+              "kind": "animated"
+            },
+            {
+              "kind": "video"
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": "video",
+        "image,video,link": "video",
+        "video,link,unsupported": "video",
+        "image,video,link,unsupported": "video"
+      },
+      "reason": "Nothing to download: a file (video/mp4)"
+    },
+    {
+      "message": {
+        "id": 9,
+        "media": {
+          "kind": "document",
+          "mime": "application/octet-stream",
+          "attributes": [
+            {
+              "kind": "filename",
+              "name": "clip.mkv"
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a file (clip.mkv)"
+    },
+    {
+      "message": {
+        "id": 10,
+        "media": {
+          "kind": "document",
+          "mime": "application/pdf"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a file (application/pdf)"
+    },
+    {
+      "message": {
+        "id": 11,
+        "media": {
+          "kind": "document"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a file (unknown type)"
+    },
+    {
+      "message": {
+        "id": 12,
+        "media": {
+          "kind": "document_empty"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a file (unknown type)"
+    },
+    {
+      "message": {
+        "id": 13,
+        "text": "see",
+        "media": {
+          "kind": "webpage",
+          "url": "https://example.com/a",
+          "photo": {}
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Link not supported: https://example.com/a"
+    },
+    {
+      "message": {
+        "id": 14,
+        "media": {
+          "kind": "webpage",
+          "url": "https://example.com/b",
+          "document": {
+            "kind": "document",
+            "mime": "video/mp4",
+            "attributes": [
+              {
+                "kind": "video"
+              }
+            ]
+          }
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": "video",
+        "image,video,link": "video",
+        "video,link,unsupported": "video",
+        "image,video,link,unsupported": "video"
+      },
+      "reason": "Link not supported: https://example.com/b"
+    },
+    {
+      "message": {
+        "id": 15,
+        "media": {
+          "kind": "webpage",
+          "url": "https://tieba.baidu.com/p/9876543210?share=1"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": "link",
+        "video,link,unsupported": "link",
+        "image,video,link,unsupported": "link"
+      },
+      "reason": "Link not supported: https://tieba.baidu.com/p/9876543210?share=1"
+    },
+    {
+      "message": {
+        "id": 16,
+        "media": {
+          "kind": "webpage",
+          "loaded": false,
+          "url": "https://bbs.nga.cn/read.php?tid=1"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": "link",
+        "video,link,unsupported": "link",
+        "image,video,link,unsupported": "link"
+      },
+      "reason": "Link not supported: https://bbs.nga.cn/read.php?tid=1"
+    },
+    {
+      "message": {
+        "id": 17,
+        "text": "高跟鞋配白丝真的很难看吗？ - 知乎用户的回答 - 知乎\nhttps://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240"
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": "link",
+        "video,link,unsupported": "link",
+        "image,video,link,unsupported": "link"
+      },
+      "reason": "Link not supported: https://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240"
+    },
+    {
+      "message": {
+        "id": 18,
+        "text": "just a note"
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a text message: just a note"
+    },
+    {
+      "message": {
+        "id": 19,
+        "text": "  "
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: an empty message"
+    },
+    {
+      "message": {
+        "id": 20,
+        "text": "https://example.com/post/1"
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Link not supported: https://example.com/post/1"
+    },
+    {
+      "message": {
+        "id": 21,
+        "media": {
+          "kind": "geo"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a geo message"
+    },
+    {
+      "message": {
+        "id": 22,
+        "media": {
+          "kind": "dice"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a dice message"
+    },
+    {
+      "message": {
+        "id": 23,
+        "media": {
+          "kind": "unsupported"
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a unsupported message"
+    },
+    {
+      "message": {
+        "id": 24,
+        "action": true
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": null,
+        "image,video,link,unsupported": null
+      },
+      "reason": "Nothing to download: an empty message"
+    },
+    {
+      "message": {
+        "id": 25,
+        "text": "高跟鞋配白丝真的很难看吗？ - 知乎用户的回答 - 知乎\nhttps://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240",
+        "media": {
+          "kind": "photo"
+        }
+      },
+      "media_type": {
+        "image": "image",
+        "video": null,
+        "image,video,link": "image",
+        "video,link,unsupported": null,
+        "image,video,link,unsupported": "image"
+      },
+      "reason": "Link not supported: https://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240"
+    },
+    {
+      "message": {
+        "id": 26,
+        "media": {
+          "kind": "document",
+          "mime": "audio/ogg",
+          "attributes": [
+            {
+              "kind": "audio",
+              "voice": true
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a file (audio/ogg)"
+    },
+    {
+      "message": {
+        "id": 27,
+        "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": null,
+        "video,link,unsupported": "unsupported",
+        "image,video,link,unsupported": "unsupported"
+      },
+      "reason": "Nothing to download: a text message: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "message": {
+        "id": 28,
+        "text": "看看 https://mp.weixin.qq.com/s/abc",
+        "media": {
+          "kind": "document",
+          "mime": "image/gif",
+          "attributes": [
+            {
+              "kind": "sticker"
+            }
+          ]
+        }
+      },
+      "media_type": {
+        "image": null,
+        "video": null,
+        "image,video,link": "link",
+        "video,link,unsupported": "link",
+        "image,video,link,unsupported": "link"
+      },
+      "reason": "Link not supported: https://mp.weixin.qq.com/s/abc"
+    }
+  ]
+}

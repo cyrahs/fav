@@ -1,5 +1,5 @@
 //! WP0 API-coverage probe for the crates the plan flags as risks (the webp check moved
-//! into the ugoira port in WP6).
+//! into the ugoira port in WP6, the CDP check into WP16 and the grammers check into WP15).
 //!
 //! Each module names, in compiled code, the API surface the matching Python
 //! feature needs, so `cargo check` fails if a pinned version does not provide
@@ -12,4 +12,3 @@
 //! crate is deleted once they do.
 
 pub mod mcp;
-pub mod telegram;
