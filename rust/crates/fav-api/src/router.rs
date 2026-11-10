@@ -25,7 +25,7 @@ use crate::web::{self, latin1};
 use crate::{ApiState, json};
 
 /// The largest body read; FastAPI has no limit, but nothing fav accepts comes close.
-const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// One request, as the handlers see it.
 #[derive(Debug)]
@@ -309,10 +309,12 @@ pub fn app(state: Arc<ApiState>) -> Router {
     Router::new().fallback(serve).with_state(state)
 }
 
-async fn serve(State(state): State<Arc<ApiState>>, request: HttpRequest<Body>) -> Response {
+pub(crate) async fn serve(State(state): State<Arc<ApiState>>, request: HttpRequest<Body>) -> Response {
     let (parts, body) = request.into_parts();
-    // The MCP endpoint refuses large bodies itself (`RequestBodyLimitMiddleware`).
-    let is_mcp = parts.uri.path() == crate::mcp::MCP_PATH;
+    // The MCP endpoint refuses large bodies itself (`RequestBodyLimitMiddleware`). Routes
+    // match the percent-decoded path, so `/%6Dcp` is the endpoint too.
+    let path = percent_decode_str(parts.uri.path()).decode_utf8_lossy().into_owned();
+    let is_mcp = path == crate::mcp::MCP_PATH;
     let limit = if is_mcp { crate::mcp::MAX_BODY_BYTES + 1 } else { MAX_BODY_BYTES };
     let Ok(body) = axum::body::to_bytes(body, limit).await else {
         if is_mcp {
@@ -323,7 +325,7 @@ async fn serve(State(state): State<Arc<ApiState>>, request: HttpRequest<Body>) -
     let query_string = parts.uri.query().unwrap_or_default().to_owned();
     let request = Request {
         method: parts.method.as_str().to_owned(),
-        path: percent_decode_str(parts.uri.path()).decode_utf8_lossy().into_owned(),
+        path,
         query: form_urlencoded::parse(query_string.as_bytes()).into_owned().collect(),
         query_string,
         headers: parts.headers,

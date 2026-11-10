@@ -37,7 +37,10 @@ const JSON_HEADERS: [(&str, &str); 2] = [
 /// The response headers Python's replay records (`_RESPONSE_HEADERS`).
 const RECORDED_HEADERS: [&str; 4] = ["content-type", "allow", "location", "mcp-session-id"];
 
-/// Drive `future` to completion and return the `fav-mcp` lines it logged, formatted as
+/// The loggers whose lines the goldens record (`_LOGGERS`).
+const LOGGERS: [&str; 3] = ["embyx.fav-mcp", "mcp.server.transport_security", "mcp.server.lowlevel.server"];
+
+/// Drive `future` to completion and return the lines it logged to [`LOGGERS`], formatted as
 /// the golden's handler formats them (`<name> <level> <message>`).
 async fn logged<F: Future>(future: F) -> (F::Output, Vec<String>) {
     // `capture` collects per thread: poll the future inside it.
@@ -55,7 +58,7 @@ async fn logged<F: Future>(future: F) -> (F::Output, Vec<String>) {
         if let Some(output) = output {
             let lines = records
                 .iter()
-                .filter(|record| record.name == "embyx.fav-mcp")
+                .filter(|record| LOGGERS.contains(&record.name.as_str()))
                 .map(|record| format!("{} {} {}", record.name, record.level.name(), record.message))
                 .collect();
             return (output, lines);
@@ -254,19 +257,19 @@ fn statement_value(statement: &Statement) -> Value {
 async fn pin_database_times(harness: &Harness) {
     harness
         .execute(
-            "UPDATE control_requests SET requested_at = '2026-03-02T00:00:00Z' WHERE requested_at > now() - interval '1 hour';",
+            "UPDATE control_requests SET requested_at = '2026-03-02T00:00:00Z' WHERE requested_at BETWEEN now() - interval '10 minutes' AND now();",
             &[],
         )
         .await;
     harness
         .execute(
-            "UPDATE notifications SET next_attempt_at = '2026-03-02T12:00:00Z' WHERE next_attempt_at > now() - interval '1 hour';",
+            "UPDATE notifications SET next_attempt_at = '2026-03-02T12:00:00Z' WHERE next_attempt_at BETWEEN now() - interval '10 minutes' AND now();",
             &[],
         )
         .await;
     harness
         .execute(
-            "UPDATE wechat_events SET updated_at = '2026-03-02 12:00:00' WHERE updated_at > LOCALTIMESTAMP - interval '1 hour';",
+            "UPDATE wechat_events SET updated_at = '2026-03-02 12:00:00' WHERE updated_at BETWEEN LOCALTIMESTAMP - interval '10 minutes' AND LOCALTIMESTAMP;",
             &[],
         )
         .await;
@@ -655,9 +658,46 @@ fn ops_helpers_replay_python() {
                     assert_eq!(value, *golden::get(entry, "value"), "{entry:?}");
                 }
             }
+            "zoned" => zoned_case_replays(case),
+            "casefold" => casefold_replays(case),
             other => panic!("unknown case kind {other}"),
         }
     }
+}
+
+/// A `zoned` case of `ops.json`: log stamps and schedules read in one `TZ`.
+fn zoned_case_replays(case: &Value) {
+    let tz = golden::string(golden::get(case, "tz"));
+    let (zone, _) = ops::local_timezone(Some(&tz));
+    let logs = tempfile::tempdir().expect("a log directory");
+    let text = golden::string(golden::get(case, "log_text"));
+    std::fs::write(logs.path().join("20260308.log"), text).expect("a log file");
+    let query = LogQuery {
+        min_level: "DEBUG".to_owned(),
+        limit: 200,
+        ..LogQuery::default()
+    };
+    let value = ops::read_logs(logs.path(), &query, zone, &Redactor::default()).expect("the records");
+    assert_eq!(value, *golden::get(case, "read_logs"), "{tz}");
+    for entry in golden::list(golden::get(case, "next_fire_time")) {
+        let now = time(&golden::string(golden::get(entry, "now")));
+        let value = ops::next_fire_time(&golden::string(golden::get(entry, "cron")), zone, now);
+        assert_eq!(value, *golden::get(entry, "value"), "{tz} {entry:?}");
+    }
+}
+
+/// The `casefold` case: every character folds as Python 3.12 folds it.
+fn casefold_replays(case: &Value) {
+    let folds = golden::get(case, "value").as_dict().expect("the folds");
+    let mut wrong = Vec::new();
+    for ch in (0..=0x10_FFFF_u32).filter_map(char::from_u32) {
+        let expected = folds.get(&ch.to_string()).map_or_else(|| ch.to_string(), golden::string);
+        let ours = ops::casefold(&ch.to_string());
+        if ours != expected {
+            wrong.push(format!("U+{:04X} {ours:?} != {expected:?}", u32::from(ch)));
+        }
+    }
+    assert!(wrong.is_empty(), "{} characters fold differently: {wrong:?}", wrong.len());
 }
 
 // ---------- tests/test_mcp.py ----------
@@ -768,6 +808,14 @@ async fn run_job_queues_a_control_request() {
 // py: tests/test_mcp.py::test_update_settings_merges_only_the_given_fields
 #[tokio::test]
 async fn update_settings_merges_only_the_given_fields() {
+    async fn saved(harness: &Harness, section: &str) -> Value {
+        let text: String = sqlx::query_scalar("SELECT value::text FROM app_settings WHERE section = $1;")
+            .bind(section)
+            .fetch_one(harness.state.db.pool())
+            .await
+            .expect("the stored section");
+        pyjson::loads(&text).expect("JSON")
+    }
     let harness = Harness::new().await;
     let stored =
         pyjson::loads(r#"{"enabled": true, "cron": "*/15 * * * *", "token": "wechat-secret-token", "api_url": "http://a"}"#).expect("JSON");
@@ -780,17 +828,36 @@ async fn update_settings_merges_only_the_given_fields() {
         )
         .await,
     );
-
-    let saved: String = sqlx::query_scalar("SELECT value::text FROM app_settings WHERE section = 'web.wechat';")
-        .fetch_one(harness.state.db.pool())
-        .await
-        .expect("the stored section");
-    let saved = pyjson::loads(&saved).expect("JSON");
-    assert_eq!(saved.get("cron"), Some(&Value::from("*/30 * * * *")));
+    let wechat = saved(&harness, "web.wechat").await;
+    assert_eq!(wechat.get("cron"), Some(&Value::from("*/30 * * * *")));
     // The masked token the merge started from is kept as stored, and the rest is unchanged.
-    assert_eq!(saved.get("token"), Some(&Value::from("wechat-secret-token")));
-    assert_eq!(saved.get("api_url"), Some(&Value::from("http://a")));
-    assert_eq!(saved.get("enabled"), Some(&Value::Bool(true)));
+    assert_eq!(wechat.get("token"), Some(&Value::from("wechat-secret-token")));
+    assert_eq!(wechat.get("api_url"), Some(&Value::from("http://a")));
+    assert_eq!(wechat.get("enabled"), Some(&Value::Bool(true)));
+
+    // Python's case: a nested object merges key by key (`proxy: {timeout}` there).
+    let stored = pyjson::loads(
+        r#"{"cron": "0 1 * * *", "ranking": {"enabled": true, "pages": 3, "deep_scan": {"enabled": true, "quota": 0.5, "max_extra_pages": 7}}}"#,
+    )
+    .expect("JSON");
+    harness.store_settings("web.hanime1", &stored).await;
+    tool_payload(
+        &call_tool(
+            &harness,
+            "update_settings",
+            r#"{"section": "web.hanime1", "values": {"cron": "0 2 * * *", "ranking": {"deep_scan": {"max_extra_pages": 9}}}}"#,
+        )
+        .await,
+    );
+    let hanime1 = saved(&harness, "web.hanime1").await;
+    assert_eq!(hanime1.get("cron"), Some(&Value::from("0 2 * * *")));
+    let ranking = hanime1.get("ranking").expect("ranking");
+    assert_eq!(ranking.get("enabled"), Some(&Value::Bool(true)));
+    assert_eq!(ranking.get("pages"), Some(&Value::from(3)));
+    let deep_scan = ranking.get("deep_scan").expect("deep_scan");
+    assert_eq!(deep_scan.get("enabled"), Some(&Value::Bool(true)));
+    assert_eq!(deep_scan.get("quota"), Some(&Value::Float(0.5)));
+    assert_eq!(deep_scan.get("max_extra_pages"), Some(&Value::from(9)));
     harness.finish().await;
 }
 
@@ -1149,6 +1216,29 @@ async fn undecodable_and_oversized_bodies_are_refused() {
 }
 
 #[tokio::test]
+async fn the_body_limit_matches_the_decoded_path() {
+    // `RequestBodyLimitMiddleware` sits on the mount, which matches `scope["path"]`.
+    let Harness { database, state } = Harness::new().await;
+    let state = Arc::new(state);
+    let body = vec![b' '; crate::router::MAX_BODY_BYTES + 1];
+    for path in ["/mcp", "/%6Dcp"] {
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("accept", "application/json")
+            .body(axum::body::Body::from(body.clone()))
+            .expect("a request");
+        let response = crate::router::serve(axum::extract::State(Arc::clone(&state)), request).await;
+        // Past the router's own limit too: the MCP answer, not the API's 400.
+        assert_eq!(response.status(), 413, "{path}");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.expect("a body");
+        assert_eq!(body, "Request body too large", "{path}");
+    }
+    database.drop_database().await;
+}
+
+#[tokio::test]
 async fn get_opens_an_event_stream_of_pings() {
     let harness = Harness::new().await;
     let answer_headers = |response: &axum::response::Response, name: &str| {
@@ -1176,5 +1266,10 @@ async fn get_opens_an_event_stream_of_pings() {
         Some("no-cache, no-transform")
     );
     assert_eq!(answer_headers(&response, "x-accel-buffering").as_deref(), Some("no"));
+    // `if last_event_id := ...`: an empty Last-Event-ID is no replay request.
+    let mut request = request;
+    request.headers.insert("last-event-id", axum::http::HeaderValue::from_static(""));
+    let response = super::handle(&harness.state, &request).await;
+    assert_eq!(answer_headers(&response, "content-type").as_deref(), Some("text/event-stream"));
     harness.finish().await;
 }

@@ -273,12 +273,18 @@ def _dump_row(row: dict[str, Any]) -> dict[str, Any]:
 # ---------- the app ----------
 
 
+# fav's own MCP lines and the SDK's warnings with a fixed text (DIVERGENCES.md D38).
+_LOGGERS = ['embyx.fav-mcp', 'mcp.server.transport_security', 'mcp.server.lowlevel.server']
+
+
 class _Captured(logging.Handler):
     def __init__(self) -> None:
         super().__init__(logging.DEBUG)
         self.lines: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
+        if record.name.startswith('mcp.') and record.levelno != logging.WARNING:
+            return  # "Received exception from stream: ..." shows an object's address (D38).
         self.lines.append(f'{record.name} {record.levelname} {record.getMessage()}')
 
 
@@ -342,19 +348,21 @@ def _client(setup: dict[str, Any]) -> Iterator[tuple[TestClient, _FakeDb, _Table
         credential_clients='',
     )
     captured = _Captured()
-    mcp_logger = logging.getLogger('embyx.fav-mcp')
+    loggers = [logging.getLogger(name) for name in _LOGGERS]
     with tempfile.TemporaryDirectory() as raw_dir, api_area._patched(state):  # noqa: SLF001
         log_dir = Path(raw_dir)
         _write_logs(log_dir, setup.get('logs', []))
         with _patched_ops(tables, state, log_dir, env) as fake:
             service = api_area._service(state)  # noqa: SLF001
             app = create_app(config=config, service=service, browser_login=BrowserLoginManager(login_sites))
-            mcp_logger.addHandler(captured)
+            for logger in loggers:
+                logger.addHandler(captured)
             try:
                 with TestClient(app, raise_server_exceptions=True, follow_redirects=False) as client:
                     yield client, fake, tables, state, captured
             finally:
-                mcp_logger.removeHandler(captured)
+                for logger in loggers:
+                    logger.removeHandler(captured)
 
 
 def _response(response: Any) -> dict[str, Any]:
@@ -519,6 +527,11 @@ def _protocol_requests() -> list[dict[str, Any]]:
         _call('get_run', {'run_id': long_text}),
         _call('get_run', {'run_id': {'a': long_text}}),
         _call('get_run', [1]),
+        # model_dump(mode='json') writes non-finite floats in the parameters as None.
+        _post('{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_run", "arguments": {"run_id": NaN}}}'),
+        _post('{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_runs", "arguments": {"limit": [Infinity]}}}'),
+        _post('{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_runs", "arguments": {"job": -Infinity}}}'),
+        _post('{"jsonrpc": "2.0", "id": NaN, "method": "ping"}'),
         _rpc('tools/call', {'arguments': {}}),
         _rpc('tools/call'),
         _call('list_runs', {'limit': 'many', 'job': 5, 'status': ['failed']}),
@@ -1140,6 +1153,47 @@ def _ops() -> list[dict[str, Any]]:  # noqa: C901
             ],
         },
     )
+    cases.extend(_zoned_ops())
+    # str.casefold() of every character it changes; any other character folds to itself.
+    folds = {chr(code): chr(code).casefold() for code in range(0x110000) if chr(code).casefold() != chr(code)}
+    cases.append({'kind': 'casefold', 'value': folds})
+    return cases
+
+
+# Log lines and schedules around the 2026 daylight-saving changes of each zone (TZ).
+_ZONED_LOG_TEXT = (
+    '2026-03-08 01:59:59,999 - embyx.wechat - INFO - before spring forward\n'
+    '2026-03-08 02:30:00,000 - embyx.wechat - INFO - a skipped local time\n'
+    '2026-03-08 03:00:00,000 - embyx.wechat - INFO - after spring forward\n'
+    '2026-11-01 01:30:00,000 - embyx.wechat - INFO - an ambiguous local time\n'
+    '2026-11-01 02:00:00,000 - embyx.wechat - INFO - after fall back\n'
+    '2026-10-25 02:30:00,000 - embyx.wechat - INFO - the European change\n'
+)
+_ZONED_NOWS = ['2026-03-07T12:00:00+00:00', '2026-03-08T06:59:00+00:00', '2026-10-31T12:00:00+00:00', '2026-11-01T05:59:00+00:00']
+_ZONED_CRONS = ['30 2 * * *', '30 1 * * *', '0 * * * *', '*/15 * * * *', '0 3 * * 0']
+
+
+def _zoned_ops() -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    saved = os.environ.get('TZ')
+    try:
+        for zone in ['America/New_York', 'Europe/Berlin', 'Asia/Kolkata', 'Australia/Lord_Howe', 'No/Such_Zone', '']:
+            os.environ['TZ'] = zone
+            with tempfile.TemporaryDirectory() as raw_dir:
+                directory = Path(raw_dir)
+                _write_logs(directory, [{'name': '20260308.log', 'text': _ZONED_LOG_TEXT, 'mtime': '2026-11-02T00:00:00+00:00'}])
+                value = ops.read_logs(directory, since=None, redact=ops.Redactor([]))
+            fires = [
+                {'cron': cron, 'now': now, 'value': ops.next_fire_time(cron, now=datetime.fromisoformat(now))}
+                for now in _ZONED_NOWS
+                for cron in _ZONED_CRONS
+            ]
+            cases.append({'kind': 'zoned', 'tz': zone, 'log_text': _ZONED_LOG_TEXT, 'read_logs': value, 'next_fire_time': fires})
+    finally:
+        if saved is None:
+            os.environ.pop('TZ', None)
+        else:
+            os.environ['TZ'] = saved
     return cases
 
 

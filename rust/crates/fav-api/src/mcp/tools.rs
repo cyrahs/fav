@@ -561,10 +561,14 @@ async fn run(state: &ApiState, name: &str, args: &Args) -> Result<Returned, Stri
                 min_level: args.str("level").to_owned(),
                 limit: args.int("limit"),
             };
+            // Reading and merging the log files is blocking file I/O: keep it off the
+            // async workers.
             let log_dir = state.mcp.log_dir.clone();
-            ops::read_logs(&log_dir, &query, zone, &redact)
-                .map(Returned::Dict)
-                .map_err(ops_error)
+            let read = tokio::task::spawn_blocking(move || ops::read_logs(&log_dir, &query, zone, &redact));
+            match read.await {
+                Ok(result) => result.map(Returned::Dict).map_err(ops_error),
+                Err(error) => std::panic::resume_unwind(error.into_panic()),
+            }
         }
         "get_settings" => {
             let section = args.str("section");
@@ -712,6 +716,8 @@ fn text_content(text: String) -> Value {
 /// `tools/call`'s result: the tool's output, or the error a failure becomes.
 pub(crate) async fn call(state: &ApiState, name: &str, arguments: &Dict) -> Value {
     let Some(tool) = TOOLS.iter().find(|tool| tool.name == name) else {
+        fav_core::logging::get_external("mcp.server.lowlevel.server")
+            .warning(format_args!("Tool '{name}' not listed, no validation will be performed"));
         return error_result(format!("Unknown tool: {name}"));
     };
     let outcome = match validate_arguments(tool, arguments) {

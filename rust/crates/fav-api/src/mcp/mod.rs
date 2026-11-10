@@ -25,6 +25,7 @@ use fav_core::validate::{self, ErrorItem, Errors, Fields, LocItem};
 use crate::router::Request;
 use crate::{ApiState, json};
 
+mod casefold;
 mod isoformat;
 mod json_text;
 mod ops;
@@ -193,6 +194,12 @@ pub(crate) async fn handle(state: &ApiState, request: &Request) -> Response {
     if request.method == "POST" {
         let content_type = request.header("content-type").unwrap_or_default();
         if !content_type.to_lowercase().starts_with("application/json") {
+            let logger = fav_core::logging::get_external("mcp.server.transport_security");
+            if content_type.is_empty() {
+                logger.warning("Missing Content-Type header in POST request");
+            } else {
+                logger.warning(format_args!("Invalid Content-Type header: {content_type}"));
+            }
             return plain(StatusCode::BAD_REQUEST, "Invalid Content-Type header");
         }
     }
@@ -230,7 +237,8 @@ fn get(request: &Request) -> Response {
     if let Some(response) = protocol_version_error(request) {
         return response;
     }
-    if request.header("last-event-id").is_some() {
+    if request.header("last-event-id").is_some_and(|id| !id.is_empty()) {
+        // `if last_event_id := ...`: an empty header opens the stream. With one,
         // `_replay_events` returns without answering when there is no event store.
         return no_response();
     }
@@ -298,6 +306,7 @@ async fn post(state: &ApiState, request: &Request) -> Response {
     match message {
         Message::Other => json_body(StatusCode::ACCEPTED, None),
         Message::Request { id, method, params } => {
+            let params = params.map(|params| json_mode_dict(&params));
             let answer = answer(state, &method, params.as_ref()).await;
             let mut reply = Dict::new();
             reply.insert("jsonrpc", Value::from("2.0"));
@@ -491,6 +500,25 @@ fn error_data(value: &Value, loc: &[LocItem]) -> Result<(), Errors> {
     let code = fields.required("code", validate::int_unbounded);
     let message = fields.required("message", validate::string);
     fields.finish(|| code.zip(message), |_| Ok(())).map(|_| ())
+}
+
+/// The session re-validates `model_dump(mode="json")` of the request, which writes a
+/// non-finite float in the parameters as `None`.
+fn json_mode_dict(dict: &Dict) -> Dict {
+    let mut out = Dict::new();
+    for (key, value) in dict.iter() {
+        out.insert(key.clone(), json_mode(value));
+    }
+    out
+}
+
+fn json_mode(value: &Value) -> Value {
+    match value {
+        Value::Float(number) if !number.is_finite() => Value::Null,
+        Value::List(items) => Value::List(items.iter().map(json_mode).collect()),
+        Value::Dict(dict) => Value::Dict(json_mode_dict(dict)),
+        other => other.clone(),
+    }
 }
 
 fn request(value: &Value) -> Result<Message, Errors> {

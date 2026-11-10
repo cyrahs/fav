@@ -780,17 +780,13 @@ pub(crate) fn read_logs(log_dir: &Path, query: &LogQuery, zone: Tz, redact: &Red
     ]))
 }
 
-/// `str.casefold()`: full case folding, which for the text logs hold is lowercasing plus
-/// the few characters whose folds differ from their lowercase forms.
-fn casefold(text: &str) -> String {
+/// `str.casefold()` of Python 3.12 (`casefold::FOLDS`).
+pub(crate) fn casefold(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
-        match ch {
-            'ß' | 'ẞ' => out.push_str("ss"),
-            'ς' => out.push('σ'),
-            'ſ' => out.push('s'),
-            'ﬅ' | 'ﬆ' => out.push_str("st"),
-            _ => out.extend(ch.to_lowercase()),
+        match super::casefold::FOLDS.binary_search_by_key(&ch, |(from, _)| *from) {
+            Ok(index) => out.push_str(super::casefold::FOLDS[index].1),
+            Err(_) => out.push(ch),
         }
     }
     out
