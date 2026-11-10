@@ -15,9 +15,9 @@ otherwise. Nothing was deployed, published or pushed outside the `rust` branch.
   the Python and Rust APIs; the 2 others are explained below. Azur Lane manifests regenerated from the data are
   byte-identical to production's in both implementations.
 - Level 3 (capped live run, anonymous sources): Jandan, Kemono, BD2 and Nikke work end to end. Stella Sora could
-  not be reached from the sandbox by either implementation. **Hanime1 fails in Rust only**: Cloudflare answers the
-  Rust client 403 where Python's client gets 200 from the same network (D182). This blocks running Hanime1 on the
-  Rust build until it is fixed.
+  not be reached from the sandbox by either implementation. Hanime1 first failed in Rust only (Cloudflare 403
+  where Python got 200, D182); the cause was the HTTP/1.1 header order and name case, fixed after this report:
+  the Rust client now writes httpx's request head and the live ranking and watch pages answer 200.
 - Memory (same machine, same data, same load): Rust 24 MiB idle against Python's 327 MiB (three processes);
   peak under load 264 against 397 MiB; settled after load 76 against 387 MiB. jemalloc is the allocator, chosen
   by this measurement.
@@ -85,7 +85,7 @@ and compared with Python's answers. Level 3: a capped live run against the real 
 | BD2 | 3 | One character crawled with assets (37 assets, 61 files, 3.8 MB, 13.5 s); API and manifests at level 2 |
 | Nikke | 3 | One character crawled with assets (102 assets, the same count production stores; 134 files, 12 MB, 29 s); runtime capture off (its default); API and manifests at level 2 |
 | Azur Lane | 2 | Manifests regenerated from production data byte-identical (903 `manifest.json`, 903 `character.json`, 898 `detail.json`); API identical. Its origin is never called (brief) |
-| Hanime1 | 2, level 3 failed | API routes and seeds identical at level 2. Live: Cloudflare 403 for the Rust client on the ranking and watch pages while Python got 200 (D182). Parse only, nothing downloaded |
+| Hanime1 | 3 (parse only) | API routes and seeds identical at level 2. Live: first Cloudflare 403 for the Rust client while Python got 200 (D182); after the header fix the weekly ranking (41 ids) and a watch page parsed live. Parse only, nothing downloaded |
 | Stella Sora | 1 | Live run not possible from the sandbox: the wiki answers 403 with a bot-check page to Python and Rust alike |
 | Bilibili | 1 (+2 for its archive rows) | Account-bound: never run live |
 | X | 1 (+2) | Account-bound: never run live |
@@ -157,6 +157,9 @@ harness was scratch code and is not in the repository; the database and files we
   sandbox's TLS-terminating egress proxy. A local capture shows the same header values except
   `Accept-Encoding` spacing, with Rust's header names lowercase, `Host` last and no `Connection: keep-alive`.
   Switching to title-case names alone still got 403, and the experiment was reverted. Recorded as D182.
+  Fixed afterwards: Cloudflare wants both title-case names and `Host` first (heads replayed over Python's TLS
+  stack: either alone is 403, both 200; rustls with both is 200, so the handshake is not the cause). The client
+  now writes httpx's head byte for byte, and the Rust ranking and watch requests answer 200.
 
 ## Memory benchmark
 
@@ -229,21 +232,22 @@ below follows the plan or fixes a Python bug.
   seen on the wiki). Choice: keep or fix.
 - **D19 / allocator**: jemalloc replaces Python's `malloc_trim`; chosen by measurement, listed so it is a known
   change in the image.
-- **D182 is not a choice**: it is a defect to fix before Hanime1 runs on the Rust build.
+- **D182** was a defect, now fixed: the client writes httpx's header order and title-case names.
 
 ## Open risks
 
-1. **Hanime1 behind Cloudflare (D182)**: the Rust client was refused where Python's was accepted. Until the
-   cause is found and fixed (request shape, header order, HTTP/1.1 details, or something not yet seen), Hanime1
-   would stop working on the Rust build. Testing it needs a few live requests from the production network,
-   ideally from the pod.
+1. **Hanime1 behind Cloudflare (D182)**: fixed (header order and case). Verified live from the sandbox, whose
+   egress passes hanime1.me's TLS through untouched (the site's own certificate reaches the client), so Cloudflare
+   saw rustls' handshake and accepted it. A check from the production network on the first Rust run is still
+   worthwhile, since Cloudflare's rules can differ by network.
 2. **Account-bound sources were never run live** (Bilibili, X, Pixiv, RedNote, WeChat, Telegram). Their
    behaviour rests on ported tests and fakes. Telegram in particular was verified under mocks only; grammers'
    behaviour against real Telegram (sessions, flood waits, file references) is untested.
 3. **Stella Sora live untested**: the wiki's bot check blocks the sandbox for both builds; production reaches
    it today with Python, so the Rust request from production is the open question.
 4. **Same TLS-fingerprint family of risk for other Cloudflare-fronted sites**: the plan noted reqwest/rustls vs
-   httpx/OpenSSL. In the sandbox the egress proxy re-terminates TLS, so this was not measurable here; in
+   httpx/OpenSSL. For hanime1.me the sandbox's egress passes TLS through and rustls was accepted (D182); other
+   hosts may be re-terminated by the egress proxy and were not measured; in
    production the site sees fav's own handshake. The client is built in one factory (`fav-net`), so the TLS
    backend can be swapped.
 5. **Level 2 covered reads only**: write endpoints and MCP write tools are covered by level 1 tests, not by a

@@ -521,6 +521,8 @@ impl Route {
             connect_timeout: options.connect_timeout,
         };
         let client = Client::builder(TokioExecutor::new())
+            // Title-cased names, as `HttpClient`'s reqwest side writes them (D182).
+            .http1_title_case_headers(true)
             .pool_max_idle_per_host(options.max_keepalive_connections)
             .build(connector);
         Ok(Self {
