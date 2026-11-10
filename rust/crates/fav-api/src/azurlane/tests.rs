@@ -995,16 +995,44 @@ async fn character_route_returns_not_found() {
 }
 
 // py: tests/test_azurlane_api.py::test_azurlane_asset_resolution_is_static_and_root_safe
-// `get_asset_file` is not ported (D117); what remains is the root safety of the asset
-// references the routes serve: a symlink out of the collection is not available.
+// `get_asset_file` is not ported (D117); what remains is the path check it shared with
+// the asset references (`_normalize_asset_path`, its unsafe paths plus the empty and `.`
+// segments Azur Lane rejects and BD2 collapses) and the root safety of those references:
+// a symlink out of the collection is not available.
 #[test]
 fn asset_resolution_is_static_and_root_safe() {
+    use super::library::normalize_asset_path;
+    for unsafe_path in [
+        "../outside.txt",
+        "/assets/live2d/javelin/javelin.moc3",
+        "assets/../outside.txt",
+        "assets/%2e%2e/outside.txt",
+        "assets/./a.png",
+        "assets//a.png",
+        "assets/a/",
+        "assetsx/a",
+        "",
+    ] {
+        assert_eq!(normalize_asset_path(unsafe_path), None, "{unsafe_path:?}");
+    }
+    assert_eq!(normalize_asset_path("assets\\a\\b.png").as_deref(), Some("assets/a/b.png"));
+    assert_eq!(normalize_asset_path(" assets/a%20b.png ").as_deref(), Some("assets/a b.png"));
+
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("azurlane");
     create_fixture(&root);
     let outside = tmp.path().join("outside.txt");
     std::fs::write(&outside, "outside").unwrap();
     std::os::unix::fs::symlink(&outside, root.join("javelin - Javelin/assets/live2d/javelin/escape.txt")).unwrap();
+    // A `.` segment is not collapsed: the reference keeps its raw path and has no URL.
+    let manifest = root.join("javelin - Javelin/manifest.json");
+    let text_before = std::fs::read_to_string(&manifest).unwrap();
+    let dotted = "assets/spine/javelin_spine/./javelin_spine.webp";
+    std::fs::write(
+        &manifest,
+        text_before.replace("assets/spine/javelin_spine/javelin_spine.webp", dotted),
+    )
+    .unwrap();
 
     let payload = Value::Dict(library(&root).get_character("javelin").unwrap());
     let assets = golden::list(get(&payload, &["assets"]));
@@ -1018,4 +1046,7 @@ fn asset_resolution_is_static_and_root_safe() {
         text(escape, &["url"]),
         format!("{STATIC_CHARACTER_PREFIX}/assets/live2d/javelin/escape.txt?v={A64}")
     );
+    let dotted_asset = by_path(dotted);
+    assert_eq!(get(dotted_asset, &["available"]), &Value::Bool(false));
+    assert_eq!(text(dotted_asset, &["url"]), "");
 }

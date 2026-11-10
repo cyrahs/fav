@@ -720,7 +720,9 @@ impl AzurLaneCrawler {
     // ---------- catalog state ----------
 
     /// `_archived_models()`: every model the archive has a row for, as the catalog last
-    /// described it. Streamed: one row's metadata is parsed at a time.
+    /// described it. Streamed: one row's metadata is parsed at a time. The parsed entries are
+    /// kept, because pinning them needs the whole set; that is one entry per archived model
+    /// (catalog-sized), not the table's assets or payloads.
     async fn archived_models(&self) -> Result<Vec<ArchivedModel>, JobError> {
         use futures_util::TryStreamExt as _;
 
@@ -1603,14 +1605,15 @@ impl AzurLaneCrawler {
     /// `_sync_ship_details(snapshots, client=...)`: fetch the detail of every ship whose
     /// index entry changed since its detail was stored.
     async fn sync_ship_details(&self, snapshots: &AzurLaneSourceSnapshots) -> Result<(), JobError> {
-        let rows = self
-            .execute("SELECT ship_group_id, fingerprint FROM azurlane_ship_details;", Vec::new())
-            .await?;
+        use futures_util::TryStreamExt as _;
+
+        let mut rows = sqlx::query("SELECT ship_group_id, fingerprint FROM azurlane_ship_details;").fetch(self.db.pool());
         let mut stored: HashMap<i128, String> = HashMap::new();
-        for row in &rows {
-            let ship_id: i64 = column(row, "ship_group_id")?;
-            stored.insert(i128::from(ship_id), row_text(row, "fingerprint")?);
+        while let Some(row) = rows.try_next().await.map_err(|error| db_job_error(&fav_db::DbError::Sqlx(error)))? {
+            let ship_id: i64 = column(&row, "ship_group_id")?;
+            stored.insert(i128::from(ship_id), row_text(&row, "fingerprint")?);
         }
+        drop(rows);
         let mut stale = Vec::new();
         {
             let mut run = self.state();
@@ -1696,16 +1699,14 @@ impl AzurLaneCrawler {
 
     /// `_stored_ship_classes()`: ship class names extracted by the server from stored details.
     async fn stored_ship_classes(&self) -> Result<HashMap<i128, String>, JobError> {
-        let rows = self
-            .execute(
-                "SELECT ship_group_id, payload->'ship'->>'className' AS class_name FROM azurlane_ship_details;",
-                Vec::new(),
-            )
-            .await?;
+        use futures_util::TryStreamExt as _;
+
+        let mut rows = sqlx::query("SELECT ship_group_id, payload->'ship'->>'className' AS class_name FROM azurlane_ship_details;")
+            .fetch(self.db.pool());
         let mut classes = HashMap::new();
-        for row in &rows {
-            let ship_id: i64 = column(row, "ship_group_id")?;
-            let class_name = row_text(row, "class_name")?;
+        while let Some(row) = rows.try_next().await.map_err(|error| db_job_error(&fav_db::DbError::Sqlx(error)))? {
+            let ship_id: i64 = column(&row, "ship_group_id")?;
+            let class_name = row_text(&row, "class_name")?;
             if !class_name.is_empty() {
                 classes.insert(i128::from(ship_id), class_name);
             }
@@ -2082,6 +2083,7 @@ impl AzurLaneCrawler {
         rows.iter()
             .map(|row| {
                 Ok(CharacterRow {
+                    raw_key: column::<Option<String>>(row, "character_key")?.unwrap_or_default(),
                     character_key: row_text(row, "character_key")?,
                     source_id: column(row, "source_id")?,
                     name_zh: row_text(row, "name_zh")?,
@@ -2096,7 +2098,8 @@ impl AzurLaneCrawler {
             .collect()
     }
 
-    /// The active models of `character_keys`.
+    /// The active models of `character_keys` (stored keys, unstripped; the caller matches
+    /// the rows to characters by their stripped keys, as Python does).
     async fn manifest_model_rows(&self, character_keys: &[String]) -> Result<Vec<ModelRow>, JobError> {
         let keys = Value::List(character_keys.iter().cloned().map(Value::Str).collect());
         let rows = self
@@ -2206,8 +2209,8 @@ impl AzurLaneCrawler {
         loop {
             let batch = self.manifest_character_batch(after.as_deref()).await?;
             let Some(last) = batch.last() else { break };
-            after = Some(last.character_key.clone());
-            let character_keys: Vec<String> = batch.iter().map(|row| row.character_key.clone()).collect();
+            after = Some(last.raw_key.clone());
+            let character_keys: Vec<String> = batch.iter().map(|row| row.raw_key.clone()).collect();
             let model_rows = self.manifest_model_rows(&character_keys).await?;
             let model_ids: Vec<String> = model_rows.iter().map(|row| row.model_id.clone()).collect();
             let asset_rows = self.manifest_asset_rows(&model_ids).await?;

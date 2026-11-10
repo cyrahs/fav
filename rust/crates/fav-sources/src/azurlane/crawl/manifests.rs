@@ -18,6 +18,9 @@ const ASSET_AVAILABLE_STATUS: &str = "downloaded";
 /// An `azurlane_characters` row (text columns stripped, as `_row_text` reads them).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CharacterRow {
+    /// The stored `character_key`, unstripped: the batch cursor and the model join compare
+    /// it with the column itself.
+    pub(crate) raw_key: String,
     pub(crate) character_key: String,
     pub(crate) source_id: Option<i64>,
     pub(crate) name_zh: String,

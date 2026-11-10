@@ -18,15 +18,31 @@ use fav_core::pycasefold::casefold;
 use fav_core::pyjson::{Dict, Value};
 use fav_core::pytext::py_strip;
 use fav_runtime::pystr::str_value;
+use percent_encoding::percent_decode_str;
 
-use crate::bd2::library::{
-    self as bd2, clean_text, directory_name, freshness_le, normalize_asset_path, read_json_object, sort_timestamp, static_url,
-};
+use crate::bd2::library::{self as bd2, clean_text, directory_name, freshness_le, read_json_object, sort_timestamp, static_url};
 use crate::summary_cache::{
     ManifestEntry, Signature, SummaryRecord, SummaryRecordsData, manifest_signature, read_summary_records, write_summary_records,
 };
 
 const STATIC_PREFIX: &str = "/static/azurlane";
+
+/// `AzurLaneLibrary._normalize_asset_path(asset_path)`: a relative path under `assets/`,
+/// or `None` (`AzurLaneAssetNotFoundError`). Stricter than BD2's: the raw string's own
+/// `/`-separated parts are checked, so an empty or `.` segment (`assets//a`, `assets/./a`,
+/// a trailing `/`) is rejected rather than collapsed.
+pub(crate) fn normalize_asset_path(asset_path: &str) -> Option<String> {
+    let decoded = percent_decode_str(asset_path).decode_utf8_lossy().replace('\\', "/");
+    let raw = py_strip(&decoded);
+    if raw.is_empty() || raw.starts_with('/') {
+        return None;
+    }
+    let mut parts = raw.split('/');
+    if parts.next() != Some("assets") || raw.split('/').any(|part| matches!(part, "" | "." | "..")) {
+        return None;
+    }
+    Some(raw.to_owned())
+}
 
 /// `_REPRESENTATIVE_ASSET_KINDS`.
 const REPRESENTATIVE_ASSET_KINDS: [&str; 3] = ["live2d.texture", "spine.texture", "painting.image"];
