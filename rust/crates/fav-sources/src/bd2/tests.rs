@@ -18,7 +18,7 @@ use sqlx::Row as _;
 use super::extract::{
     add_viewer_model_assets, assign_asset_paths, extract_resources, filter_bd2_character_rows, live2d_atlas_texture_context,
     max_attempts_for_status, prefer_live2d_model_assets_from_viewer, retry_after_delay_seconds, retry_delay_seconds,
-    supplement_live2d_models_from_viewer, video_retry_cooldown_days, viewer_extra_resources,
+    supplement_live2d_models_from_viewer, to_int, video_retry_cooldown_days, viewer_extra_resources,
 };
 use super::{Bd2Crawler, client_options};
 use crate::bd2_l2d_viewer::{Category, ViewerResource};
@@ -365,7 +365,7 @@ fn filter_bd2_character_rows_keeps_positive_character_descendants_only() {
     )
     .expect("JSON");
 
-    let rows = filter_bd2_character_rows(&tree).expect("rows");
+    let rows = filter_bd2_character_rows(&tree);
 
     assert_eq!(rows.iter().map(|row| text_at(row, &["name"])).collect::<Vec<_>>(), ["Alice", "Bea"]);
     assert_eq!(rows[0].get("content_id"), Some(&s("1001")));
@@ -373,6 +373,34 @@ fn filter_bd2_character_rows_keeps_positive_character_descendants_only() {
     assert!(rows.iter().all(|row| row.get("_bd2_group_id") == Some(&Value::Int(122_323))));
     assert!(rows.iter().all(|row| row.get("_bd2_group_name") == Some(&s("5-star"))));
     assert!(rows.iter().all(|row| row.get("child").is_none()));
+}
+
+/// D97 (Python: `ValueError`, the crawl fails): a tree id, sort or content id `int()`
+/// cannot read (a superscript digit) is not a number, as any other non-number is.
+#[test]
+fn a_superscript_digit_in_the_tree_is_not_a_number() {
+    let tree = pyjson::loads(
+        r#"[
+        {"id": "122323", "name": "5-star characters", "content_id": 0, "child": [
+            {"id": 1, "name": "Superscript id", "content_id": "²", "sort": 1},
+            {"id": "³", "name": "Alice", "content_id": "1001", "sort": "¹"},
+            {"id": 2, "name": "Bea", "content_id": 1002, "sort": 0}
+        ]}
+    ]"#,
+    )
+    .expect("JSON");
+
+    let rows = filter_bd2_character_rows(&tree);
+
+    // Alice's sort is no number, so she sorts by her place in the list, after Bea's 0.
+    assert_eq!(rows.iter().map(|row| text_at(row, &["name"])).collect::<Vec<_>>(), ["Bea", "Alice"]);
+    assert_eq!(
+        rows.iter().map(|row| row.get("_bd2_group_id").cloned()).collect::<Vec<_>>(),
+        [Some(Value::Int(122_323)), Some(Value::Int(122_323))]
+    );
+    // `_bd2_group_id` and the viewer's ids go through the same `_to_int`.
+    assert_eq!(to_int(&s(" ¹² ")), None);
+    assert_eq!(to_int(&s(" 12 ")), Some(12));
 }
 
 // py: tests/test_bd2.py::test_extract_resources_collects_all_page_media_and_column_contexts

@@ -252,17 +252,17 @@ fn sidebar_payload(character: &Dict) -> Value {
 }
 
 /// `_bd2_sidebar_sort_key(item)`.
-fn sidebar_sort_key(item: &Value) -> Result<(f64, f64, i128), LibraryError> {
+fn sidebar_sort_key(item: &Value) -> (f64, f64, i128) {
     let field = |name: &str| item.get(name).cloned().unwrap_or(Value::Null);
     let content_id = match item.get("content_id") {
         Some(Value::Int(content_id)) => *content_id,
         _ => 0,
     };
-    Ok((
-        library::route_sort_timestamp(&field("updated_at"))?,
-        library::route_sort_timestamp(&field("fetched_at"))?,
+    (
+        library::route_sort_timestamp(&field("updated_at")),
+        library::route_sort_timestamp(&field("fetched_at")),
         content_id,
-    ))
+    )
 }
 
 /// `_etag_matches(header_value, etag)`.
@@ -288,11 +288,7 @@ pub(crate) async fn sidebar(state: &ApiState, request: &Request) -> Result<Respo
     let mut keyed = Vec::with_capacity(characters.len());
     for character in &characters {
         let item = schema::validate(&models::BD2_SIDEBAR_CHARACTER, &sidebar_payload(character)).map_err(|error| invalid(&error))?;
-        let key = sidebar_sort_key(&item).map_err(|error| match error {
-            LibraryError::Failed(message) => unhandled(&message),
-            LibraryError::NotFound => ApiError::internal(),
-        })?;
-        keyed.push((key, item));
+        keyed.push((sidebar_sort_key(&item), item));
     }
     // `sorted(reverse=True)` keeps equal keys in their order.
     keyed.sort_by(|left, right| right.0.partial_cmp(&left.0).unwrap_or(std::cmp::Ordering::Equal));

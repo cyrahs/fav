@@ -219,17 +219,13 @@ version check, plus a headless Chromium launch on amd64.
 
 ## Choices for Max
 
-These differences are deliberate copies or calls that Max may want to reverse; everything else in the table
-below follows the plan or fixes a Python bug.
+These differences are deliberate copies or calls that Max may want to reverse (or, where marked, has decided);
+everything else in the table below follows the plan or fixes a Python bug.
 
-- **D97 (BD2 `isdigit()` then `int()`)**: Rust copies Python's bug: a superscript digit in a BD2 manifest or
-  tree row answers 500 on the list, sidebar or detail, and fails the crawl. NIKKE's copy of the same pattern is
-  fixed (D83). Choice: keep the copy (parity) or fix it as NIKKE does.
-- **D15 (a job's `notify` toggle)**: Rust copies Python: a change to a job's `notify` toggle reaches its runs
-  only after a worker restart (enablement and cron are re-read). Choice: keep, or rebuild runners on change.
-- **D53 (Stella Sora moved-file index)**: Rust copies Python's stale index entry after moving a file out of
-  `disc/`, which would fail a run only for two titles differing in case and going to different folders (never
-  seen on the wiki). Choice: keep or fix.
+- **D97, D15, D53 (decided)** were copies of Python bugs; Max chose on 2026-11-10 to fix all three, and Rust now fixes
+  them: a superscript digit in a BD2 manifest or tree row is no number, as for NIKKE (D97; the same rule reaches
+  the BD2-L2D-Viewer and Azur Lane's API reader, which share the helpers); a run follows the job's `notify`
+  toggle as it is when the run starts (D15); Stella Sora's index follows a file moved out of `disc/` (D53).
 - **D19 / allocator**: jemalloc replaces Python's `malloc_trim`; chosen by measurement, listed so it is a known
   change in the image.
 - **D182** was a defect, now fixed: the client writes httpx's header order and title-case names.
@@ -321,7 +317,7 @@ experiment log.
 131 entries (D1-D182; numbers a package did not use are skipped). "Visible" means a user, the front end, an API
 client, an operator or stored data can tell the difference (kinds `observable` and `dropped`, and Python bugs
 Rust fixes); "internal" means the same observable behaviour by other means (kind `mechanism`, and Python bugs
-Rust copies). Full text in DIVERGENCES.md. Counts: 90 visible, 41 internal.
+Rust copies). Full text in DIVERGENCES.md. Counts: 93 visible, 38 internal.
 
 | ID | WP | Kind | Visibility | Summary (Rust side, first sentence) |
 | --- | --- | --- | --- | --- |
@@ -339,7 +335,7 @@ Rust copies). Full text in DIVERGENCES.md. Counts: 90 visible, 41 internal.
 | D12 | WP2 | dropped | visible | Neither runs; `ensure_schema` creates the columns and the index only |
 | D13 | WP2 | observable | visible | Numbers and names are ASCII only; a number beyond `i64` is refused with `Number too large in cron expression: N`. |
 | D14 | WP2 | python-bug | visible | Rust fixes it: the error is logged (`Control request loop failed: ...`), a request it had claimed is marked failed (`Failed to record control request N: ...` if that fails too), and the loop polls aga... |
-| D15 | WP2 | python-bug | internal | Rust copies it: runners are built once from the startup snapshot, enablement and triggers are re-read per control request and on every settings change |
+| D15 | WP2 | python-bug | visible | Rust fixes it: a run reads the job's `notify` toggle as the settings say when it starts (the shared snapshot, cached for at most 2 s like every settings read) and keeps that value until it ends, so a run already in flight is not affected. |
 | D16 | WP2 | observable | visible | Tasks stop cooperatively on the stop flag. |
 | D17 | WP2 | observable (transitional) | visible | Sources register with `fav_sources::registry()` as their work package lands. |
 | D18 | WP2, WP5 | mechanism | internal | `fav_net::httpx_error_class` maps reqwest errors onto httpx's names (timeout during connect: `ConnectTimeout`, other timeouts: `ReadTimeout`, connect: `ConnectError`, redirect: `TooManyRedirects`, bui... |
@@ -371,7 +367,7 @@ Rust copies). Full text in DIVERGENCES.md. Counts: 90 visible, 41 internal.
 | D50 | WP6 | observable | visible | `raise_for_status` text is built as httpx 0.28 builds it, always with httpx's reason table (golden `pyweb/httpx_status_errors.json`); transport errors use D18's class names with the innermost OS or pr... |
 | D51 | WP6 | observable | visible | `webp-animation` 0.10 (bundled libwebp) with the same quality, method, key-frame range (3 to 5), `allow_mixed` off and `minimize_size` off; frames decoded one at a time as RGBA. |
 | D52 | WP6 | python-bug | visible | Rust fixes it: originals are streamed to `<name>.part` and renamed into place; a failed download removes the `.part`. |
-| D53 | WP6 | python-bug | internal | Rust copies it |
+| D53 | WP6 | python-bug | visible | Rust fixes it: the index follows the moved file (the old path is dropped, the new one added), so the later title finds the moved copy and is skipped under the single-copy policy, as a title whose file already sits in another character folder is (`stellasora/tests.rs`, `a_file_moved_out_of_disc_leaves_the_index_at_its_new_path`) |
 | D54 | WP6 | observable | visible | Same rule, implemented on `urlsplit` (`StellaSora::absolute`); a URL that `urlsplit` refuses is sent as given, and a URL the client cannot use fails as a transport error, so it is retried and ends as ... |
 | D55 | WP6 | observable | visible | Integers are `i64`: a larger one counts as no int (the entry is skipped). |
 | D56 | WP6 | dropped | visible | No progress bar; the start, retries and summary are logged as in Python |
@@ -400,7 +396,7 @@ Rust copies). Full text in DIVERGENCES.md. Counts: 90 visible, 41 internal.
 | D94 | WP10 | dropped | visible | Not ported. What the crawler uses from the module is (the viewer's character list and tree, `compare_resources` and the pure helpers, with their tests) |
 | D95 | WP10 | python-bug | visible | The path is read at each request; when it changes, the library and its in-memory summary cache are rebuilt for the new root (as D86 for NIKKE) |
 | D96 | WP10 | mechanism | internal | `fav-db`'s `schema.sql` creates all five at startup (D6) |
-| D97 | WP10 | python-bug | internal | Copied in both: the same requests answer 500 (unit tests in `fav-api/src/bd2/library.rs`) and the same tree fails the crawl. |
+| D97 | WP10 | python-bug | visible | Rust fixes it as NIKKE does (D83, D87): a digit string `int()` or `float()` refuses is not a number. |
 | D98 | WP10 | observable | visible | Keeps the characters Rust's `char::is_alphanumeric()` accepts (`Alphabetic` or `Numeric`), which adds combining marks with `Other_Alphabetic` (for example Devanagari vowel signs), so such a label's `k... |
 | D99 | WP10 | observable | visible | An `offset` past `i64::MAX` is echoed exactly up to 128 bits and as the largest 128-bit integer beyond (the page is empty either way), as D87 for NIKKE |
 | D100 | WP10 | dropped | visible | Not ported |

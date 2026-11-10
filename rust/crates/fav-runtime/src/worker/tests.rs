@@ -860,6 +860,110 @@ async fn a_runner_skips_a_trigger_while_its_job_runs() {
     database.drop_database().await;
 }
 
+/// Settings with `key`'s `notify` toggle set to `notify`.
+fn notify_settings(key: &str, notify: bool) -> Settings {
+    let mut settings = default_settings();
+    settings.job_schedule_mut(key).expect("a job").notify = notify;
+    settings
+}
+
+/// A per-run source that fails with `RuntimeError: boom` once `gate` is opened (at once
+/// when `gate` is `None`).
+fn failing_kind(gate: Option<Arc<tokio::sync::Notify>>, calls: &Arc<StdMutex<Vec<String>>>) -> SourceKind {
+    struct Gated {
+        gate: Option<Arc<tokio::sync::Notify>>,
+        calls: Arc<StdMutex<Vec<String>>>,
+    }
+    impl Source for Gated {
+        fn update(&mut self) -> BoxFuture<'_, Result<(), JobError>> {
+            self.calls.lock().expect("calls").push("update".to_owned());
+            let gate = self.gate.clone();
+            Box::pin(async move {
+                if let Some(gate) = gate {
+                    gate.notified().await;
+                }
+                Err(JobError::new("RuntimeError", "boom"))
+            })
+        }
+
+        fn close(&mut self) -> BoxFuture<'_, Result<(), JobError>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    let calls = Arc::clone(calls);
+    SourceKind::PerRun(Arc::new(move || {
+        Box::new(Gated {
+            gate: gate.clone(),
+            calls: Arc::clone(&calls),
+        }) as Box<dyn Source>
+    }))
+}
+
+/// D15 (Python needs a worker restart): a run follows the `notify` toggle as it is when the
+/// run starts, not as it was when the runner was built at startup.
+#[tokio::test]
+async fn a_run_follows_a_notify_toggle_changed_after_startup() {
+    let database = database().await;
+    let db = database.db();
+    let store = Arc::new(SettingsStore::pinned(notify_settings("bilibili", true)));
+    let (_handle, stop) = stop_signal();
+    let worker = Worker::new(db.clone(), Arc::clone(&store), offline_bot(), stop);
+    // Built with notifications on, as the startup snapshot described the job.
+    let runner = worker.runner(job("bilibili", true, &[]), failing_kind(None, &calls()), None);
+
+    // Muted after startup: the next failure is not announced.
+    store.pin(Some(notify_settings("bilibili", false)));
+    let muted = runner().await;
+    assert!(!muted.success);
+    assert_eq!(muted.error, "RuntimeError: boom");
+    assert!(notifications(db).await.is_empty());
+
+    // Turned back on: the next failure is.
+    store.pin(Some(notify_settings("bilibili", true)));
+    assert!(!runner().await.success);
+    let [row] = notifications(db).await.try_into().expect("one notification");
+    assert_eq!(row.dedupe_key, "job_failed:bilibili:run");
+
+    // And the other way round: a job muted at startup and turned on later is announced.
+    let mut muted_at_startup = job("nikke", true, &[]);
+    muted_at_startup.notify = false;
+    store.pin(Some(notify_settings("nikke", true)));
+    let runner = worker.runner(muted_at_startup, failing_kind(None, &calls()), None);
+    assert!(!runner().await.success);
+    let rows = notifications(db).await;
+    assert_eq!(
+        rows.iter().map(|row| row.dedupe_key.as_str()).collect::<Vec<_>>(),
+        ["job_failed:bilibili:run", "job_failed:nikke:run"]
+    );
+    database.drop_database().await;
+}
+
+/// D15: a run already in flight keeps the `notify` value it started with.
+#[tokio::test]
+async fn a_run_keeps_the_notify_toggle_it_started_with() {
+    let database = database().await;
+    let db = database.db();
+    let store = Arc::new(SettingsStore::pinned(notify_settings("bilibili", true)));
+    // The handle is kept: dropping it would stop the worker and cancel the run.
+    let (_handle, stop) = stop_signal();
+    let worker = Worker::new(db.clone(), Arc::clone(&store), offline_bot(), stop);
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let log = calls();
+    let runner = worker.runner(job("bilibili", true, &[]), failing_kind(Some(Arc::clone(&gate)), &log), None);
+    let run = tokio::spawn(async move { runner().await });
+    while recorded(&log).is_empty() {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    // Muted while the run is under way; the run started with notifications on.
+    store.pin(Some(notify_settings("bilibili", false)));
+    gate.notify_one();
+    let result = run.await.expect("run");
+    assert!(!result.success && !result.cancelled, "{result:?}");
+    let [row] = notifications(db).await.try_into().expect("one notification");
+    assert_eq!(row.dedupe_key, "job_failed:bilibili:run");
+    database.drop_database().await;
+}
+
 // ---------- notification delivery ----------
 
 fn telegram_settings(enabled: bool) -> Settings {

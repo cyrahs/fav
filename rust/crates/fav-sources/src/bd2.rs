@@ -442,7 +442,7 @@ impl Bd2Crawler {
     /// `_fetch_tree_rows(client)`.
     async fn fetch_tree_rows(&self) -> Result<Vec<Dict>, JobError> {
         let payload = self.fetch_json(&format!("/v1/entry/treesByPid?pid={TREE_ROOT_PID}"), None).await?;
-        filter_bd2_character_rows(get(&payload, "data"))
+        Ok(filter_bd2_character_rows(get(&payload, "data")))
     }
 
     /// `_fetch_detail_response(client, content_id)`.
@@ -555,7 +555,7 @@ impl Bd2Crawler {
     async fn upsert_tree_pages(&self, rows: &[Dict], deactivate_missing: bool) -> Result<(), JobError> {
         let mut statements = Vec::new();
         for row in rows {
-            let Some(content_id) = row_content_id(row)? else { continue };
+            let Some(content_id) = row_content_id(row) else { continue };
             statements.push(Statement::new(
                 "INSERT INTO bd2_pages (
                     content_id, name, source_url, rarity_group_id, rarity_group_name,
@@ -574,7 +574,7 @@ impl Bd2Crawler {
                     Param::from(bigint(content_id)?),
                     text_param(row_name(row)),
                     text_param(format!("{GAMEKEE_BASE_URL}/{GAME_ALIAS}/tj/{content_id}.html")),
-                    Param::from(bigint(group_id(row)?)?),
+                    Param::from(bigint(group_id(row))?),
                     text_param(group_name(row)),
                     json_param(&Value::Dict(row.clone()))?,
                 ],
@@ -625,7 +625,7 @@ impl Bd2Crawler {
                 text_param(format!("{GAMEKEE_BASE_URL}/{GAME_ALIAS}/tj/{content_id}.html")),
                 text_param(manifest_path),
                 text_param(hash_value),
-                Param::from(bigint(group_id(row_dict)?)?),
+                Param::from(bigint(group_id(row_dict))?),
                 text_param(group_name(row_dict)),
                 json_param(&Value::Dict(row_dict.clone()))?,
                 json_param(&Value::Dict(detail_response.clone()))?,
@@ -1364,7 +1364,7 @@ impl Bd2Crawler {
             let rows = self.fetch_tree_rows().await?;
             let mut row = None;
             for item in &rows {
-                if row_content_id(item)? == Some(content_id) {
+                if row_content_id(item) == Some(content_id) {
                     row = Some(item.clone());
                     break;
                 }
@@ -1413,7 +1413,7 @@ impl Bd2Crawler {
         log().info(format_args!("Found {total} GameKee BD2 character pages"));
         let mut failed_content_ids: Vec<i128> = Vec::new();
         for (index, row) in rows.iter().enumerate() {
-            let Some(content_id) = row_content_id(row)? else { continue };
+            let Some(content_id) = row_content_id(row) else { continue };
             log().info(format_args!("Crawling BD2 {content_id} ({}/{total})", index + 1));
             if let Err(error) = self.crawl_page(Some(row), content_id, false).await {
                 log().error(format_args!("Failed to crawl BD2 content_id={content_id}\n{}", error.formatted()));
@@ -1433,8 +1433,8 @@ impl Bd2Crawler {
 }
 
 /// `_to_int(row.get('_bd2_group_id')) or 0`.
-fn group_id(row: &Dict) -> Result<i128, JobError> {
-    Ok(to_int(get(row, "_bd2_group_id"))?.unwrap_or(0))
+fn group_id(row: &Dict) -> i128 {
+    to_int(get(row, "_bd2_group_id")).unwrap_or(0)
 }
 
 /// `str(row.get('_bd2_group_name') or '')`.

@@ -175,9 +175,9 @@ fn py_error(error: PyError) -> JobError {
 
 // ---------- ids and headers ----------
 
-/// `_to_int(value)`.
-pub(crate) fn to_int(value: &Value) -> Result<Option<i128>, JobError> {
-    bd2_l2d_viewer::to_int(Some(value)).map_err(py_error)
+/// `_to_int(value)`: a superscript digit string is `None`, where Python raises (D97).
+pub(crate) fn to_int(value: &Value) -> Option<i128> {
+    bd2_l2d_viewer::to_int(Some(value))
 }
 
 /// `parse_content_id(target)`: a bare id or a GameKee page or detail URL.
@@ -524,8 +524,8 @@ pub(crate) fn base_info_from_summary(content_summary: &Dict) -> Dict {
 // ---------- the character tree ----------
 
 /// `row_content_id(row)`: a positive id, else `None`.
-pub(crate) fn row_content_id(row: &Dict) -> Result<Option<i128>, JobError> {
-    Ok(to_int(get(row, "content_id"))?.filter(|id| *id > 0))
+pub(crate) fn row_content_id(row: &Dict) -> Option<i128> {
+    to_int(get(row, "content_id")).filter(|id| *id > 0)
 }
 
 /// `row_name(row)`.
@@ -564,27 +564,21 @@ fn character_group(id: i128) -> Option<&'static str> {
 
 /// `_walk_tree_rows(rows, state)`: character rows under a star group, with their group and
 /// sort path, each with the path it sorts by.
-fn walk_tree_rows(
-    rows: &Value,
-    group_id: i128,
-    group_name: &str,
-    sort_path: &[i128],
-    out: &mut Vec<(Vec<i128>, Dict)>,
-) -> Result<(), JobError> {
-    let Value::List(rows) = rows else { return Ok(()) };
+fn walk_tree_rows(rows: &Value, group_id: i128, group_name: &str, sort_path: &[i128], out: &mut Vec<(Vec<i128>, Dict)>) {
+    let Value::List(rows) = rows else { return };
     for (fallback_sort, item) in rows.iter().enumerate() {
         let Value::Dict(item) = item else { continue };
-        let node_id = to_int(get(item, "id"))?.unwrap_or(0);
+        let node_id = to_int(get(item, "id")).unwrap_or(0);
         let (mut group_id, mut group_name) = (group_id, group_name);
         if let Some(name) = character_group(node_id) {
             group_id = node_id;
             group_name = name;
         }
-        let sort_value = to_int(get(item, "sort"))?;
+        let sort_value = to_int(get(item, "sort"));
         let mut next_path = sort_path.to_vec();
         next_path.push(sort_value.unwrap_or(i128::try_from(fallback_sort).unwrap_or(i128::MAX)));
 
-        let content_id = row_content_id(item)?;
+        let content_id = row_content_id(item);
         if character_group(group_id).is_some() && content_id.is_some() {
             let mut row = with(
                 item,
@@ -600,26 +594,25 @@ fn walk_tree_rows(
             row.remove("child");
             out.push((next_path.clone(), row));
         }
-        walk_tree_rows(get(item, "child"), group_id, group_name, &next_path, out)?;
+        walk_tree_rows(get(item, "child"), group_id, group_name, &next_path, out);
     }
-    Ok(())
 }
 
 /// `filter_bd2_character_rows(tree_rows)`: one row per positive content id (the first
 /// found), sorted by the tree's sort path.
-pub(crate) fn filter_bd2_character_rows(tree_rows: &Value) -> Result<Vec<Dict>, JobError> {
+pub(crate) fn filter_bd2_character_rows(tree_rows: &Value) -> Vec<Dict> {
     let mut rows = Vec::new();
-    walk_tree_rows(tree_rows, 0, "", &[], &mut rows)?;
+    walk_tree_rows(tree_rows, 0, "", &[], &mut rows);
     let mut seen = HashSet::new();
     let mut deduped = Vec::new();
     for (path, row) in rows {
-        let Some(content_id) = row_content_id(&row)? else { continue };
+        let Some(content_id) = row_content_id(&row) else { continue };
         if seen.insert(content_id) {
             deduped.push((path, row));
         }
     }
     deduped.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(deduped.into_iter().map(|(_, row)| row).collect())
+    deduped.into_iter().map(|(_, row)| row).collect()
 }
 
 // ---------- media contexts ----------

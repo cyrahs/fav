@@ -449,6 +449,38 @@ async fn a_download_that_keeps_failing_ends_the_run_after_three_attempts() {
     assert!(!Path::new(&pypath::join(&disc, "Foo.png")).exists());
 }
 
+/// D53 (Python fails the run with `FileNotFoundError`): a file moved out of `disc/` leaves
+/// the index at its new path only, so a later title with the same case-folded name going to
+/// another character folder finds the moved copy and skips, instead of moving the old path.
+#[tokio::test]
+async fn a_file_moved_out_of_disc_leaves_the_index_at_its_new_path() {
+    let (_dir, root) = temp_root();
+    let disc = pypath::join(&root, "disc");
+    std::fs::create_dir_all(&disc).unwrap();
+    std::fs::write(pypath::join(&disc, "Foo.png"), b"old").unwrap();
+    let ss = StellaSora::new(
+        build_client().expect("client"),
+        "http://127.0.0.1:1",
+        &root,
+        Arc::<RecordingNotifier>::default(),
+    );
+    let mut index = ExistingIndex::scan(&root);
+
+    let freesia = pypath::join(&root, "Freesia");
+    let moved = ss.handle_existing_file("File:Foo.png", &freesia, &mut index).await.unwrap();
+    assert_eq!(moved, (false, 1, 0));
+    assert_eq!(index.paths("foo.png"), [pypath::join(&freesia, "Foo.png")]);
+
+    // The same name in other case, for another character: one copy is kept, and it is
+    // where the first title moved it.
+    let chitose = pypath::join(&root, "Chitose");
+    let second = ss.handle_existing_file("File:FOO.png", &chitose, &mut index).await.unwrap();
+    assert_eq!(second, (false, 0, 1));
+    assert_eq!(std::fs::read(pypath::join(&freesia, "Foo.png")).unwrap(), b"old");
+    assert!(!Path::new(&pypath::join(&disc, "Foo.png")).exists());
+    assert!(!Path::new(&chitose).exists());
+}
+
 // ---------- goldens from the Python module ----------
 
 use fav_core::golden;

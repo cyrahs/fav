@@ -704,6 +704,48 @@ async fn get_bd2_character_returns_costumes_assets_and_live2d_refs() {
     harness.finish().await;
 }
 
+/// D97 (Python: `ValueError`, each of these answers 500): superscript digits in a
+/// manifest's id, times and style index are not numbers. The id falls back to the
+/// directory's, the times sort as 0, the style index is `null`.
+#[tokio::test]
+async fn superscript_digits_in_a_manifest_are_not_numbers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("bd2");
+    create_fixture(&root);
+    write_json(
+        &root.join("303 - Superscript BD2").join("manifest.json"),
+        &parse(
+            r#"{"source_url": "https://www.gamekee.com/zsca2/tj/303.html", "fetched_at": "¹²",
+                "content_id": "²", "title": "Superscript BD2", "updated_at": "²",
+                "tree_row": {"content_id": 303, "_bd2_group_name": "4-star"}, "base_info": {},
+                "costumes": [{"title": "Base", "style_index": "³"}], "live2d_models": [], "assets": []}"#,
+        ),
+    );
+    let now = utc(2026, 5, 1, 0, 0, 0);
+    let harness = harness(&root, FakeStore::new(now, now)).await;
+
+    let list = get(&harness, "/api/v2/bd2/characters").await;
+    let sidebar = get(&harness, "/api/v2/bd2/sidebar/characters").await;
+    let detail = get(&harness, "/api/v2/bd2/characters/303").await;
+
+    let ids = |answer: &Answer| -> Vec<i128> {
+        golden::list(golden::get(&answer.json(), "items"))
+            .iter()
+            .map(|item| golden::int(golden::get(item, "content_id")))
+            .collect()
+    };
+    assert_eq!(list.status, 200);
+    assert!(ids(&list).contains(&303), "{:?}", ids(&list));
+    assert_eq!(sidebar.status, 200);
+    // No time to sort by: last.
+    assert_eq!(ids(&sidebar).last(), Some(&303));
+    assert_eq!(detail.status, 200);
+    let payload = detail.json();
+    assert_eq!(golden::int(golden::get(&payload, "content_id")), 303);
+    assert_eq!(at(&payload, &["costumes", "0", "style_index"]), &Value::Null);
+    harness.finish().await;
+}
+
 // py: tests/test_bd2_api.py::test_get_bd2_asset_endpoint_is_removed
 #[tokio::test]
 async fn get_bd2_asset_endpoint_is_removed() {
