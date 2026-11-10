@@ -152,7 +152,7 @@ tests = ["tests/test_wechat.py"]
 
 [WP15]
 title = "Telegram: grammers client, durable queue, realtime listener"
-status = "pending"
+status = "done"
 tests = ["tests/test_telegram.py", "tests/test_telegram_queue.py"]
 
 [WP16]

@@ -55,6 +55,14 @@ Notes for WP15:
 - The album debounce has to reproduce Telethon's `events.Album` timing closely enough that the
   `test_telegram.py` album tests pass; that is the most likely place for a divergence.
 
+Outcome (WP15): the Rust build keeps writing Telethon's `.session` format (true drop-in, both directions):
+`fav-sources/src/telegram/session.rs` implements grammers' `Session` over sqlx SQLite and is checked against a
+file Telethon wrote and the file Telethon writes (golden `telegram/session.json`; `DIVERGENCES.md` D149).
+Requests are the raw calls Telethon makes, with `_call`'s retries, flood-wait memory and error table
+(D150). The albums need no divergence: `albums.rs` dispatches half a second after an album's last part, as
+`events.Album` does, and the ported album tests pass. Downloads use `Client::iter_download` (one worker per
+file, as Telethon). Verified under mocks and goldens only; no real account or Bot API was used.
+
 ## chromiumoxide 0.9.1 (WP16, WP17)
 
 Probe: `probes/api-coverage/src/cdp.rs`. Two tests drive a real headless Chromium against loopback servers

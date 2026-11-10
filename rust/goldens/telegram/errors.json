@@ -1,0 +1,288 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "telegram",
+  "cases": [
+    {
+      "code": 420,
+      "message": "FLOOD_WAIT_12",
+      "request": "GetChannelsRequest",
+      "inner": null,
+      "class": "FloodWaitError",
+      "text": "A wait of 12 seconds is required (caused by GetChannelsRequest)",
+      "seconds": 12,
+      "server": false
+    },
+    {
+      "code": 420,
+      "message": "FLOOD_WAIT_0",
+      "request": "GetChannelsRequest",
+      "inner": null,
+      "class": "FloodWaitError",
+      "text": "A wait of 0 seconds is required (caused by GetChannelsRequest)",
+      "seconds": 0,
+      "server": false
+    },
+    {
+      "code": 420,
+      "message": "FLOOD_WAIT_05",
+      "request": "GetChannelsRequest",
+      "inner": null,
+      "class": "FloodWaitError",
+      "text": "A wait of 5 seconds is required (caused by GetChannelsRequest)",
+      "seconds": 5,
+      "server": false
+    },
+    {
+      "code": 420,
+      "message": "FLOOD_PREMIUM_WAIT_5",
+      "request": "GetChannelsRequest",
+      "inner": null,
+      "class": "FloodPremiumWaitError",
+      "text": "A wait of 5 seconds is required in non-premium accounts (caused by GetChannelsRequest)",
+      "seconds": 5,
+      "server": false
+    },
+    {
+      "code": 420,
+      "message": "FLOOD_TEST_PHONE_WAIT_7",
+      "request": null,
+      "inner": null,
+      "class": "FloodTestPhoneWaitError",
+      "text": "A wait of 7 seconds is required in the test servers (caused by NoneType)",
+      "seconds": 7,
+      "server": false
+    },
+    {
+      "code": 420,
+      "message": "SLOWMODE_WAIT_9",
+      "request": null,
+      "inner": null,
+      "class": "SlowModeWaitError",
+      "text": "A wait of 9 seconds is required before sending another message in this chat (caused by NoneType)",
+      "seconds": 9,
+      "server": false
+    },
+    {
+      "code": 420,
+      "message": "2FA_CONFIRM_WAIT_86400",
+      "request": null,
+      "inner": null,
+      "class": "TwoFaConfirmWaitError",
+      "text": "The account is 2FA protected so it will be deleted in a week. Otherwise it can be reset in 86400 (caused by NoneType)",
+      "seconds": 86400,
+      "server": false
+    },
+    {
+      "code": 400,
+      "message": "MESSAGE_ID_INVALID",
+      "request": "GetMessagesRequest",
+      "inner": null,
+      "class": "MessageIdInvalidError",
+      "text": "The specified message ID is invalid or you can't do that operation on such message (caused by GetMessagesRequest)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 400,
+      "message": "CHANNEL_INVALID",
+      "request": null,
+      "inner": null,
+      "class": "ChannelInvalidError",
+      "text": "Invalid channel object. Make sure to pass the right types, for instance making sure that the request is designed for channels or otherwise look for a different one more suited (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 400,
+      "message": "CHANNEL_PRIVATE",
+      "request": "GetChannelsRequest",
+      "inner": null,
+      "class": "ChannelPrivateError",
+      "text": "The channel specified is private and you lack permission to access it. Another reason may be that you were banned from it (caused by GetChannelsRequest)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 400,
+      "message": "FILE_REFERENCE_EXPIRED",
+      "request": "GetHistoryRequest",
+      "inner": null,
+      "class": "FileReferenceExpiredError",
+      "text": "The file reference has expired and is no longer valid or it belongs to self-destructing media and cannot be resent (caused by GetHistoryRequest)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 400,
+      "message": "FILE_PART_3_MISSING",
+      "request": null,
+      "inner": null,
+      "class": "FilePartMissingError",
+      "text": "Part 3 of the file is missing from storage (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 400,
+      "message": "SOMETHING_NEW_AND_UNKNOWN",
+      "request": null,
+      "inner": null,
+      "class": "BadRequestError",
+      "text": "RPCError 400: SOMETHING_NEW_AND_UNKNOWN (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 400,
+      "message": "SOMETHING_NEW_42",
+      "request": null,
+      "inner": null,
+      "class": "BadRequestError",
+      "text": "RPCError 400: SOMETHING_NEW_42 (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 406,
+      "message": "PREVIOUS_CHAT_IMPORT_ACTIVE_WAIT_5MIN",
+      "request": null,
+      "inner": null,
+      "class": "PreviousChatImportActiveWaitMinError",
+      "text": "Similar to a flood wait, must wait 5 minutes (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 500,
+      "message": "SOMETHING_ON_FIRE",
+      "request": null,
+      "inner": null,
+      "class": "ServerError",
+      "text": "RPCError 500: SOMETHING_ON_FIRE (caused by NoneType)",
+      "seconds": null,
+      "server": true
+    },
+    {
+      "code": 500,
+      "message": "INTERDC_2_CALL_ERROR",
+      "request": null,
+      "inner": null,
+      "class": "InterdcCallErrorError",
+      "text": "An error occurred while communicating with DC 2 (caused by NoneType)",
+      "seconds": null,
+      "server": true
+    },
+    {
+      "code": 500,
+      "message": "INTERDC_4_CALL_RICH_ERROR",
+      "request": null,
+      "inner": null,
+      "class": "InterdcCallRichErrorError",
+      "text": "A rich error occurred while communicating with DC 4 (caused by NoneType)",
+      "seconds": null,
+      "server": true
+    },
+    {
+      "code": -500,
+      "message": "No workers running",
+      "request": null,
+      "inner": null,
+      "class": "ServerError",
+      "text": "RPCError -500: No workers running (caused by NoneType)",
+      "seconds": null,
+      "server": true
+    },
+    {
+      "code": -503,
+      "message": "Timeout",
+      "request": null,
+      "inner": null,
+      "class": "TimeoutError",
+      "text": "Timeout while fetching data (caused by NoneType)",
+      "seconds": null,
+      "server": true
+    },
+    {
+      "code": 500,
+      "message": "RPC_CALL_FAIL",
+      "request": null,
+      "inner": null,
+      "class": "RpcCallFailError",
+      "text": "Telegram is having internal issues, please try again later. (caused by NoneType)",
+      "seconds": null,
+      "server": true
+    },
+    {
+      "code": 303,
+      "message": "FILE_MIGRATE_5",
+      "request": null,
+      "inner": null,
+      "class": "FileMigrateError",
+      "text": "The file to be accessed is currently stored in DC 5 (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 303,
+      "message": "SOMEWHERE_ELSE",
+      "request": null,
+      "inner": null,
+      "class": "InvalidDCError",
+      "text": "RPCError 303: SOMEWHERE_ELSE (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 401,
+      "message": "AUTH_KEY_UNREGISTERED",
+      "request": null,
+      "inner": null,
+      "class": "AuthKeyUnregisteredError",
+      "text": "The key is not registered in the system (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 401,
+      "message": "auth_key_unregistered",
+      "request": null,
+      "inner": null,
+      "class": "AuthKeyUnregisteredError",
+      "text": "The key is not registered in the system (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 403,
+      "message": "CHAT_WRITE_FORBIDDEN",
+      "request": "InvokeWithoutUpdatesRequest",
+      "inner": "GetHistoryRequest",
+      "class": "ChatWriteForbiddenError",
+      "text": "You can't write in this chat (caused by InvokeWithoutUpdatesRequest(GetHistoryRequest))",
+      "seconds": null,
+      "server": false
+    },
+    {
+      "code": 420,
+      "message": "FLOOD_WAIT_30",
+      "request": "InvokeWithoutUpdatesRequest",
+      "inner": "GetHistoryRequest",
+      "class": "FloodWaitError",
+      "text": "A wait of 30 seconds is required (caused by InvokeWithoutUpdatesRequest(GetHistoryRequest))",
+      "seconds": 30,
+      "server": false
+    },
+    {
+      "code": 418,
+      "message": "I_AM_A_TEAPOT",
+      "request": null,
+      "inner": null,
+      "class": "RPCError",
+      "text": "RPCError 418: I_AM_A_TEAPOT (caused by NoneType)",
+      "seconds": null,
+      "server": false
+    }
+  ]
+}

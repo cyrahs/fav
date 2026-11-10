@@ -142,7 +142,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | done |
 | WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | done |
 | WP14 | 5 message sources | WeChat with Channels videos and stickers | 1,700 | done |
-| WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | pending |
+| WP15 | 5 message sources | Telegram: grammers client, durable queue, realtime listener | 1,800 | done |
 | WP16 | 6 browser | CDP driver layer, login window (Xvnc, VNC relay, cookie polling) | 1,100 | pending |
 | WP17 | 6 browser | RedNote, Nikke runtime capture | 3,100 | pending |
 | WP18 | 7 wrap-up | Dockerfile (build only, never published), memory benchmark, parity audit, final report | new | pending |
