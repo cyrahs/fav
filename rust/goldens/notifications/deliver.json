@@ -1,0 +1,1627 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "notifications",
+  "cases": [
+    {
+      "label": "text message to a topic",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "no topic",
+      "thread": null,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "remote photo with caption",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "image_url": " https://images.example/test.png ",
+        "disable_web_page_preview": false
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "remote",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "remote photo rejected falls back to text",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png"
+      },
+      "responses": {
+        "sendPhoto": [
+          {
+            "status": 200,
+            "json": {
+              "ok": false,
+              "error_code": 400,
+              "description": "wrong file identifier"
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "remote photo 413 and 415 fall back",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png"
+      },
+      "responses": {
+        "sendPhoto": [
+          {
+            "status": 413,
+            "json": {
+              "ok": false,
+              "error_code": 413,
+              "description": "too big"
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "remote photo server error is not a fallback",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png"
+      },
+      "responses": {
+        "sendPhoto": [
+          {
+            "status": 502,
+            "text": "Bad Gateway"
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 502",
+        "retryable": true,
+        "retry_after_seconds": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "remote photo forbidden is not a fallback",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png"
+      },
+      "responses": {
+        "sendPhoto": [
+          {
+            "status": 200,
+            "json": {
+              "ok": false,
+              "error_code": 403,
+              "description": "bot was blocked"
+            }
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 403: bot was blocked",
+        "retryable": false,
+        "retry_after_seconds": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "local png then remote",
+      "thread": 42,
+      "image": [
+        "cover.png",
+        64
+      ],
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png"
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "local",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "form": {
+            "chat_id": "-100123",
+            "message_thread_id": "42",
+            "disable_notification": "false",
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          },
+          "files": [
+            {
+              "field": "photo",
+              "filename": "cover.png",
+              "content_type": "image/png",
+              "size": 64
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "local png rejected then remote accepted",
+      "thread": 42,
+      "image": [
+        "cover.png",
+        64
+      ],
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png"
+      },
+      "responses": {
+        "sendPhoto": [
+          {
+            "status": 400,
+            "json": {
+              "ok": false,
+              "error_code": 400,
+              "description": "IMAGE_PROCESS_FAILED"
+            }
+          },
+          {
+            "status": 200,
+            "json": {
+              "ok": true,
+              "result": {
+                "message_id": 99
+              }
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "remote",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "form": {
+            "chat_id": "-100123",
+            "message_thread_id": "42",
+            "disable_notification": "false",
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          },
+          "files": [
+            {
+              "field": "photo",
+              "filename": "cover.png",
+              "content_type": "image/png",
+              "size": 64
+            }
+          ]
+        },
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "local gif as animation",
+      "thread": 42,
+      "image": [
+        "sticker.gif",
+        13
+      ],
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "local",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendAnimation",
+          "path": "/bot123:secret-token/sendAnimation",
+          "form": {
+            "chat_id": "-100123",
+            "message_thread_id": "42",
+            "disable_notification": "false",
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          },
+          "files": [
+            {
+              "field": "animation",
+              "filename": "sticker.gif",
+              "content_type": "image/gif",
+              "size": 13
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "local jpeg uppercase extension",
+      "thread": 42,
+      "image": [
+        "photo.JPG",
+        10
+      ],
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "local",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "form": {
+            "chat_id": "-100123",
+            "message_thread_id": "42",
+            "disable_notification": "false",
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          },
+          "files": [
+            {
+              "field": "photo",
+              "filename": "photo.JPG",
+              "content_type": "image/jpeg",
+              "size": 10
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "local file that is not an image",
+      "thread": 42,
+      "image": [
+        "notes.txt",
+        10
+      ],
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "local image too large",
+      "thread": 42,
+      "image": [
+        "huge.png",
+        9500001
+      ],
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "local image of a type the defaults do not know",
+      "thread": 42,
+      "image": [
+        "photo.webp",
+        10
+      ],
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "local image at the size limit",
+      "thread": 42,
+      "image": [
+        "big.png",
+        9500000
+      ],
+      "missing_image": null,
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "local",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "form": {
+            "chat_id": "-100123",
+            "message_thread_id": "42",
+            "disable_notification": "false",
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          },
+          "files": [
+            {
+              "field": "photo",
+              "filename": "big.png",
+              "content_type": "image/png",
+              "size": 9500000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "missing local image",
+      "thread": 42,
+      "image": null,
+      "missing_image": "gone.png",
+      "notification": {},
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "caption too long sends photo then text",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png",
+        "markdown": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "remote",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false
+          }
+        },
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "caption at the limit",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "image_url": "https://images.example/test.png",
+        "markdown": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "remote",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "rate limited with retry_after and the token in the description",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 429,
+            "json": {
+              "ok": false,
+              "error_code": 429,
+              "description": "Too Many Requests: retry for 123:secret-token",
+              "parameters": {
+                "retry_after": 17
+              }
+            }
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 429: Too Many Requests: retry for [redacted]",
+        "retryable": true,
+        "retry_after_seconds": 17
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "error without json",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 500,
+            "text": "<html>oops</html>"
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 500",
+        "retryable": true,
+        "retry_after_seconds": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "ok false without error_code keeps the HTTP status",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": false,
+              "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 200: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "retryable": false,
+        "retry_after_seconds": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "conflict is retryable",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 409,
+            "json": {
+              "ok": false,
+              "error_code": 409,
+              "description": "Conflict"
+            }
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 409: Conflict",
+        "retryable": true,
+        "retry_after_seconds": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "bad request is permanent",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 400,
+            "json": {
+              "ok": false,
+              "error_code": 400,
+              "description": "can't parse entities"
+            }
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 400: can't parse entities",
+        "retryable": false,
+        "retry_after_seconds": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "result that is not an object",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": true,
+              "result": [
+                1,
+                2
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": null,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "message id that is not an integer",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": true,
+              "result": {
+                "message_id": "99"
+              }
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": null,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "retry_after that is not an integer",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {},
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 429,
+            "json": {
+              "ok": false,
+              "error_code": 429,
+              "description": "slow",
+              "parameters": {
+                "retry_after": "5"
+              }
+            }
+          }
+        ]
+      },
+      "error": {
+        "message": "Telegram Bot API responded with error 429: slow",
+        "retryable": true,
+        "retry_after_seconds": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        }
+      ]
+    },
+    {
+      "label": "pin",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": 99
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "pinChatMessage",
+          "path": "/bot123:secret-token/pinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 99,
+            "disable_notification": true
+          }
+        }
+      ]
+    },
+    {
+      "label": "pin forbidden",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true
+      },
+      "responses": {
+        "pinChatMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": false,
+              "error_code": 403,
+              "description": "not enough rights"
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [
+          "Pinning failed: Telegram Bot API responded with error 403: not enough rights"
+        ],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "pinChatMessage",
+          "path": "/bot123:secret-token/pinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 99,
+            "disable_notification": true
+          }
+        }
+      ]
+    },
+    {
+      "label": "pin replaces the previous pin",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true,
+        "telegram_pinned_message_id": 55
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": 99
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "pinChatMessage",
+          "path": "/bot123:secret-token/pinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 99,
+            "disable_notification": true
+          }
+        },
+        {
+          "method": "unpinChatMessage",
+          "path": "/bot123:secret-token/unpinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 55
+          }
+        }
+      ]
+    },
+    {
+      "label": "pin of the same message",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true,
+        "telegram_pinned_message_id": 99
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": 99
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "pinChatMessage",
+          "path": "/bot123:secret-token/pinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 99,
+            "disable_notification": true
+          }
+        }
+      ]
+    },
+    {
+      "label": "resolve unpins",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "webhook_action": "resolve",
+        "telegram_pinned_message_id": 55
+      },
+      "responses": {},
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "unpinChatMessage",
+          "path": "/bot123:secret-token/unpinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 55
+          }
+        }
+      ]
+    },
+    {
+      "label": "unpin of a message that is gone",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "webhook_action": "resolve",
+        "telegram_pinned_message_id": 55
+      },
+      "responses": {
+        "unpinChatMessage": [
+          {
+            "status": 400,
+            "json": {
+              "ok": false,
+              "error_code": 400,
+              "description": "message to unpin not found"
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "unpinChatMessage",
+          "path": "/bot123:secret-token/unpinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 55
+          }
+        }
+      ]
+    },
+    {
+      "label": "unpin forbidden keeps the old pin",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "webhook_action": "resolve",
+        "telegram_pinned_message_id": 55
+      },
+      "responses": {
+        "unpinChatMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": false,
+              "error_code": 403,
+              "description": "not enough rights"
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [
+          "Unpinning message 55 failed: Telegram Bot API responded with error 403: not enough rights"
+        ],
+        "pinned_message_id": 55
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "unpinChatMessage",
+          "path": "/bot123:secret-token/unpinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 55
+          }
+        }
+      ]
+    },
+    {
+      "label": "unpin forbidden after a new pin",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true,
+        "telegram_pinned_message_id": 55
+      },
+      "responses": {
+        "unpinChatMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": false,
+              "error_code": 403,
+              "description": "not enough rights"
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [
+          "Unpinning message 55 failed: Telegram Bot API responded with error 403: not enough rights"
+        ],
+        "pinned_message_id": 99
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "pinChatMessage",
+          "path": "/bot123:secret-token/pinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 99,
+            "disable_notification": true
+          }
+        },
+        {
+          "method": "unpinChatMessage",
+          "path": "/bot123:secret-token/unpinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 55
+          }
+        }
+      ]
+    },
+    {
+      "label": "unpin server error after a new pin failed",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true,
+        "telegram_pinned_message_id": 55
+      },
+      "responses": {
+        "pinChatMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": false,
+              "error_code": 400,
+              "description": "message not found"
+            }
+          }
+        ],
+        "unpinChatMessage": [
+          {
+            "status": 503,
+            "json": {
+              "ok": false,
+              "error_code": 503,
+              "description": "busy"
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 99,
+        "media_status": "none",
+        "warnings": [
+          "Pinning failed: Telegram Bot API responded with error 400: message not found",
+          "Unpinning message 55 failed: Telegram Bot API responded with error 503: busy"
+        ],
+        "pinned_message_id": 55
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "pinChatMessage",
+          "path": "/bot123:secret-token/pinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 99,
+            "disable_notification": true
+          }
+        },
+        {
+          "method": "unpinChatMessage",
+          "path": "/bot123:secret-token/unpinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 55
+          }
+        }
+      ]
+    },
+    {
+      "label": "no message id means nothing to pin",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true,
+        "telegram_pinned_message_id": 55
+      },
+      "responses": {
+        "sendMessage": [
+          {
+            "status": 200,
+            "json": {
+              "ok": true,
+              "result": {}
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": null,
+        "media_status": "none",
+        "warnings": [],
+        "pinned_message_id": null
+      },
+      "requests": [
+        {
+          "method": "sendMessage",
+          "path": "/bot123:secret-token/sendMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "text": "FAV · Test\n*Job failed*\nboom",
+            "disable_notification": false,
+            "link_preview_options": {
+              "is_disabled": true
+            },
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "unpinChatMessage",
+          "path": "/bot123:secret-token/unpinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 55
+          }
+        }
+      ]
+    },
+    {
+      "label": "photo pinned",
+      "thread": 42,
+      "image": null,
+      "missing_image": null,
+      "notification": {
+        "pin": true,
+        "image_url": "https://images.example/test.png"
+      },
+      "responses": {
+        "sendPhoto": [
+          {
+            "status": 200,
+            "json": {
+              "ok": true,
+              "result": {
+                "message_id": 7
+              }
+            }
+          }
+        ]
+      },
+      "result": {
+        "message_id": 7,
+        "media_status": "remote",
+        "warnings": [],
+        "pinned_message_id": 7
+      },
+      "requests": [
+        {
+          "method": "sendPhoto",
+          "path": "/bot123:secret-token/sendPhoto",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "photo": "https://images.example/test.png",
+            "disable_notification": false,
+            "caption": "FAV · Test\n*Job failed*\nboom",
+            "parse_mode": "MarkdownV2"
+          }
+        },
+        {
+          "method": "pinChatMessage",
+          "path": "/bot123:secret-token/pinChatMessage",
+          "json": {
+            "chat_id": "-100123",
+            "message_thread_id": 42,
+            "message_id": 7,
+            "disable_notification": true
+          }
+        }
+      ]
+    }
+  ]
+}

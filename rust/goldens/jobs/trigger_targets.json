@@ -1,0 +1,188 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "jobs",
+  "cases": [
+    {
+      "enabled": [],
+      "target": "all",
+      "exit": "No enabled jobs available for --trigger all"
+    },
+    {
+      "enabled": [],
+      "target": "ALL",
+      "exit": "No enabled jobs available for --trigger all"
+    },
+    {
+      "enabled": [],
+      "target": " Jandan ",
+      "selected": [
+        "jandan"
+      ]
+    },
+    {
+      "enabled": [],
+      "target": "jandan",
+      "selected": [
+        "jandan"
+      ]
+    },
+    {
+      "enabled": [],
+      "target": "kemono",
+      "selected": [
+        "kemono"
+      ]
+    },
+    {
+      "enabled": [],
+      "target": "twitter",
+      "selected": [
+        "twitter"
+      ]
+    },
+    {
+      "enabled": [],
+      "target": "",
+      "exit": "Trigger target cannot be empty"
+    },
+    {
+      "enabled": [],
+      "target": "   ",
+      "exit": "Trigger target cannot be empty"
+    },
+    {
+      "enabled": [],
+      "target": "nope",
+      "exit": "Unknown --trigger target: 'nope'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat"
+    },
+    {
+      "enabled": [],
+      "target": "Azur Lane",
+      "exit": "Unknown --trigger target: 'Azur Lane'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat"
+    },
+    {
+      "enabled": [],
+      "target": "azurlane",
+      "selected": [
+        "azurlane"
+      ]
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "all",
+      "selected": [
+        "hanime1",
+        "nikke"
+      ]
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "ALL",
+      "selected": [
+        "hanime1",
+        "nikke"
+      ]
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": " Jandan ",
+      "selected": [
+        "jandan"
+      ]
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "jandan",
+      "selected": [
+        "jandan"
+      ]
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "kemono",
+      "selected": [
+        "kemono"
+      ]
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "twitter",
+      "selected": [
+        "twitter"
+      ]
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "",
+      "exit": "Trigger target cannot be empty"
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "   ",
+      "exit": "Trigger target cannot be empty"
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "nope",
+      "exit": "Unknown --trigger target: 'nope'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat"
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "Azur Lane",
+      "exit": "Unknown --trigger target: 'Azur Lane'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat"
+    },
+    {
+      "enabled": [
+        "hanime1",
+        "nikke",
+        "jandan"
+      ],
+      "target": "azurlane",
+      "selected": [
+        "azurlane"
+      ]
+    }
+  ]
+}

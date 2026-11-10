@@ -12,3 +12,8 @@ workspace = true
 
 [dependencies]
 fav-core.workspace = true
+reqwest = { workspace = true, features = ["rustls-no-provider", "charset", "http2", "system-proxy", "json", "multipart"] }
+rustls.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

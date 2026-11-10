@@ -25,7 +25,7 @@ tests = [
 
 [WP2]
 title = "Notifications, control queue, site sessions, scheduler, worker"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_notifications.py",
     "tests/test_telegram_bot.py",
