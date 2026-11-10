@@ -22,6 +22,7 @@ use utoipa::openapi::{
 
 use crate::handlers::{JOB_REQUEST_STATUSES, JOB_REQUEST_TARGETS, SETTINGS_SECTION_PATTERN, SITE_PATTERN};
 use crate::hanime1::NUMERIC_ID_PATTERN;
+use crate::live2d_overrides::{MODEL_ID_PATTERN, PROFILE_PATTERN};
 
 pub const API_TITLE: &str = "fav API";
 pub const API_DESCRIPTION: &str = "Internal control and Hanime1 scan-target creation API for fav.";
@@ -38,19 +39,6 @@ pub const PENDING: &[(&str, &str)] = &[
     ("/api/v2/azurlane/skin-updates", "WP12"),
     ("/api/v2/azurlane/characters/{character_key}", "WP12"),
     ("/api/v2/azurlane/characters/{character_key}/ship-detail", "WP12"),
-    ("/api/v2/bd2/characters", "WP10"),
-    ("/api/v2/bd2/sidebar/characters", "WP10"),
-    ("/api/v2/bd2/characters/{content_id}", "WP10"),
-    (
-        "/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}",
-        "WP10",
-    ),
-    // The Nikke view overrides need WP10's override store; whichever of WP9 and WP10
-    // merges second serves them.
-    (
-        "/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}",
-        "WP10",
-    ),
     ("/api/v2/site-sessions/{site}/login", "WP16"),
     ("/api/v2/site-sessions/login", "WP16"),
 ];
@@ -163,11 +151,352 @@ fn create_model(name: &str, field: &'static str, title: &str) -> RefOr<Schema> {
     )
 }
 
-/// The components, alphabetically, as FastAPI lists them.
+/// The components, alphabetically (by code point), as FastAPI lists them.
 fn schemas() -> Vec<(&'static str, RefOr<Schema>)> {
-    let mut schemas = [schemas_a(), schemas_hanime1(), schemas_b(), schemas_c(), schemas_c2(), schemas_d()].concat();
-    schemas.extend(crate::nikke::schema::components());
+    let mut schemas = [
+        schemas_a(),
+        schemas_bd2(),
+        schemas_live2d(),
+        schemas_hanime1(),
+        schemas_b(),
+        schemas_c(),
+        schemas_c2(),
+        schemas_d(),
+        crate::nikke::schema::components(),
+    ]
+    .concat();
+    schemas.sort_by_key(|(name, _)| *name);
     schemas
+}
+
+/// `T | None` of a referenced model: `anyOf` of the reference and null, without a title.
+fn nullable_ref(name: &str) -> RefOr<Schema> {
+    AnyOfBuilder::new()
+        .item(Ref::from_schema_name(name))
+        .item(ObjectBuilder::new().schema_type(Type::Null))
+        .into()
+}
+
+fn defaulted_string(title: &str) -> RefOr<Schema> {
+    with_default(typed(Type::String, title), json!(""))
+}
+
+fn free_object_list(title: &str) -> RefOr<Schema> {
+    array_of(
+        ObjectBuilder::new()
+            .schema_type(Type::Object)
+            .additional_properties(Some(AdditionalProperties::FreeForm(true)))
+            .into(),
+        title,
+    )
+}
+
+/// `int | str | None`.
+fn int_or_str(title: &str) -> RefOr<Schema> {
+    AnyOfBuilder::new()
+        .item(ObjectBuilder::new().schema_type(Type::Integer))
+        .item(ObjectBuilder::new().schema_type(Type::String))
+        .item(ObjectBuilder::new().schema_type(Type::Null))
+        .extensions(Some(extensions(&[("title", json!(title))])))
+        .into()
+}
+
+/// `dict[str, T]` of a simple type.
+fn typed_map(kind: Type, title: &str) -> RefOr<Schema> {
+    typed(Type::Object, title)
+        .additional_properties(Some(AdditionalProperties::RefOr(ObjectBuilder::new().schema_type(kind).into())))
+        .into()
+}
+
+fn bd2_summary_fields() -> Vec<Field> {
+    vec![
+        ("content_id", integer("Content Id"), true),
+        ("title", string("Title"), true),
+        ("directory_name", defaulted_string("Directory Name"), false),
+        ("source_url", defaulted_string("Source Url"), false),
+        ("updated_at", int_or_str("Updated At"), false),
+        ("fetched_at", nullable(Type::String, "Fetched At"), false),
+        ("asset_counts", typed_map(Type::Integer, "Asset Counts"), false),
+        ("tags", typed_map(Type::String, "Tags"), false),
+        ("profile", array_of(reference("BD2ProfileItem"), "Profile"), false),
+        ("icon", nullable_ref("BD2Asset"), false),
+        ("portrait", nullable_ref("BD2Asset"), false),
+        (
+            "costume_count",
+            with_default(typed(Type::Integer, "Costume Count"), json!(0)),
+            false,
+        ),
+        (
+            "live2d_model_count",
+            with_default(typed(Type::Integer, "Live2D Model Count"), json!(0)),
+            false,
+        ),
+        ("search_terms", string_list("Search Terms"), false),
+    ]
+}
+
+/// The BD2 models (`schemas.py`).
+#[allow(clippy::too_many_lines)] // One entry per model, as the other lists.
+fn schemas_bd2() -> Vec<(&'static str, RefOr<Schema>)> {
+    let mut detail = bd2_summary_fields();
+    detail.extend([
+        (
+            "tree_row",
+            AnyOfBuilder::new()
+                .item(
+                    ObjectBuilder::new()
+                        .schema_type(Type::Object)
+                        .additional_properties(Some(AdditionalProperties::FreeForm(true))),
+                )
+                .item(ObjectBuilder::new().schema_type(Type::Null))
+                .extensions(Some(extensions(&[("title", json!("Tree Row"))])))
+                .into(),
+            false,
+        ),
+        ("base_info", free_object("Base Info"), false),
+        ("costumes", array_of(reference("BD2Costume"), "Costumes"), false),
+        ("live2d_models", array_of(reference("BD2Live2DModel"), "Live2D Models"), false),
+        ("assets", array_of(reference("BD2Asset"), "Assets"), false),
+    ]);
+    let mut live2d_model: Vec<Field> = vec![
+        ("model_id", defaulted_string("Model Id"), false),
+        ("label", defaulted_string("Label"), false),
+        ("section", defaulted_string("Section"), false),
+        ("style_index", nullable(Type::Integer, "Style Index"), false),
+        ("style_name", defaulted_string("Style Name"), false),
+        ("costume_title", defaulted_string("Costume Title"), false),
+        ("costume_category", defaulted_string("Costume Category"), false),
+        ("row_index", nullable(Type::Integer, "Row Index"), false),
+        ("column_index", nullable(Type::Integer, "Column Index"), false),
+        ("field", defaulted_string("Field"), false),
+        ("is_art_row", with_default(typed(Type::Boolean, "Is Art Row"), json!(false)), false),
+    ];
+    for (name, title) in [
+        ("column_name", "Column Name"),
+        ("column_category", "Column Category"),
+        ("column_role", "Column Role"),
+        ("column_header", "Column Header"),
+        ("key", "Key"),
+        ("stable_id", "Stable Id"),
+        ("live2d_key", "Live2D Key"),
+        ("animation", "Animation"),
+        ("skin", "Skin"),
+    ] {
+        live2d_model.push((name, defaulted_string(title), false));
+    }
+    live2d_model.push(("limit_age", with_default(typed(Type::Boolean, "Limit Age"), json!(false)), false));
+    for (name, title) in [
+        ("source", "Source"),
+        ("variant", "Variant"),
+        ("supplement_reason", "Supplement Reason"),
+        ("viewer_entry_id", "Viewer Entry Id"),
+        ("viewer_stem", "Viewer Stem"),
+        ("source_page_url", "Source Page Url"),
+    ] {
+        live2d_model.push((name, defaulted_string(title), false));
+    }
+    live2d_model.extend([
+        ("position", free_object("Position"), false),
+        ("bg_position", free_object("Bg Position"), false),
+        (
+            "view_overrides",
+            typed(Type::Object, "View Overrides")
+                .additional_properties(Some(AdditionalProperties::RefOr(reference("Live2DViewOverrideValue"))))
+                .into(),
+            false,
+        ),
+        ("source_urls", free_object("Source Urls"), false),
+        ("spine_version", nullable(Type::String, "Spine Version"), false),
+        ("assets", free_object("Assets"), false),
+    ]);
+    let mut asset: Vec<Field> = vec![
+        ("kind", string("Kind"), true),
+        ("path", string("Path"), true),
+        ("url", string("Url"), true),
+        ("content_type", defaulted_string("Content Type"), false),
+        ("size", with_default(typed(Type::Integer, "Size"), json!(0)), false),
+    ];
+    for (name, title) in [("sha256", "Sha256"), ("status", "Status"), ("label", "Label"), ("field", "Field")] {
+        asset.push((name, defaulted_string(title), false));
+    }
+    asset.push(("style_index", nullable(Type::Integer, "Style Index"), false));
+    for (name, title) in [
+        ("style_name", "Style Name"),
+        ("costume_title", "Costume Title"),
+        ("costume_category", "Costume Category"),
+        ("column_role", "Column Role"),
+        ("live2d_key", "Live2D Key"),
+    ] {
+        asset.push((name, defaulted_string(title), false));
+    }
+    asset.push(("available", with_default(typed(Type::Boolean, "Available"), json!(false)), false));
+    asset.push(("contexts", free_object_list("Contexts"), false));
+    vec![
+        ("BD2Asset", model("BD2Asset", None, true, asset)),
+        ("BD2CharacterDetail", model("BD2CharacterDetail", None, true, detail)),
+        (
+            "BD2CharacterListResponse",
+            model(
+                "BD2CharacterListResponse",
+                None,
+                true,
+                vec![
+                    ("items", array_of(reference("BD2CharacterSummary"), "Items"), true),
+                    ("total", integer("Total"), true),
+                    ("limit", nullable(Type::Integer, "Limit"), false),
+                    ("offset", with_default(typed(Type::Integer, "Offset"), json!(0)), false),
+                ],
+            ),
+        ),
+        (
+            "BD2CharacterSummary",
+            model("BD2CharacterSummary", None, true, bd2_summary_fields()),
+        ),
+        (
+            "BD2Costume",
+            model(
+                "BD2Costume",
+                None,
+                true,
+                vec![
+                    ("style_index", nullable(Type::Integer, "Style Index"), false),
+                    ("style_name", defaulted_string("Style Name"), false),
+                    ("title", defaulted_string("Title"), false),
+                    ("category", defaulted_string("Category"), false),
+                    ("sprite", nullable_ref("BD2Asset"), false),
+                    ("portrait", nullable_ref("BD2Asset"), false),
+                    ("full_portrait", nullable_ref("BD2Asset"), false),
+                    ("gallery", array_of(reference("BD2Asset"), "Gallery"), false),
+                    ("videos", array_of(reference("BD2Asset"), "Videos"), false),
+                    ("audio", array_of(reference("BD2Asset"), "Audio"), false),
+                    ("live2d_models", array_of(reference("BD2Live2DModel"), "Live2D Models"), false),
+                    ("rows", free_object_list("Rows"), false),
+                ],
+            ),
+        ),
+        ("BD2Live2DModel", model("BD2Live2DModel", None, true, live2d_model)),
+        (
+            "BD2ProfileItem",
+            model(
+                "BD2ProfileItem",
+                None,
+                true,
+                vec![
+                    ("key", string("Key"), true),
+                    ("label", string("Label"), true),
+                    ("value", defaulted_string("Value"), false),
+                    ("asset", nullable_ref("BD2Asset"), false),
+                ],
+            ),
+        ),
+        (
+            "BD2SidebarCharacter",
+            model(
+                "BD2SidebarCharacter",
+                None,
+                true,
+                vec![
+                    ("content_id", integer("Content Id"), true),
+                    ("title", string("Title"), true),
+                    ("icon", reference("BD2SidebarIcon"), true),
+                    ("updated_at", int_or_str("Updated At"), false),
+                    ("fetched_at", nullable(Type::String, "Fetched At"), false),
+                ],
+            ),
+        ),
+        (
+            "BD2SidebarCharacterListResponse",
+            list_model("BD2SidebarCharacterListResponse", "BD2SidebarCharacter"),
+        ),
+        (
+            "BD2SidebarIcon",
+            model(
+                "BD2SidebarIcon",
+                None,
+                true,
+                vec![
+                    ("url", string("Url"), true),
+                    ("available", boolean("Available"), true),
+                    ("sha256", string("Sha256"), true),
+                    ("content_type", string("Content Type"), true),
+                ],
+            ),
+        ),
+    ]
+}
+
+/// A `float` field with `gt=0`; pydantic writes the bound as the float `0.0`.
+fn positive_number() -> ObjectBuilder {
+    ObjectBuilder::new()
+        .schema_type(Type::Number)
+        .extensions(Some(extensions(&[("exclusiveMinimum", json!(0.0))])))
+}
+
+fn override_value_fields() -> Vec<Field> {
+    vec![
+        ("position", reference("Live2DVector2"), true),
+        ("scale", typed(Type::Number, "Scale").into(), true),
+        ("background_position", nullable_ref("Live2DVector2"), false),
+        ("background_scale", nullable(Type::Number, "Background Scale"), false),
+        ("created_at", string("Created At"), true),
+        ("updated_at", string("Updated At"), true),
+    ]
+}
+
+/// The Live2D view-override models.
+fn schemas_live2d() -> Vec<(&'static str, RefOr<Schema>)> {
+    let mut full = override_value_fields();
+    full.extend([
+        (
+            "source",
+            typed(Type::String, "Source").enum_values(Some(["bd2", "nikke"])).into(),
+            true,
+        ),
+        ("content_id", integer("Content Id"), true),
+        ("model_id", string("Model Id"), true),
+        ("profile", string("Profile"), true),
+    ]);
+    vec![
+        (
+            "Live2DVector2",
+            model(
+                "Live2DVector2",
+                None,
+                true,
+                vec![
+                    ("x", typed(Type::Number, "X").into(), true),
+                    ("y", typed(Type::Number, "Y").into(), true),
+                ],
+            ),
+        ),
+        ("Live2DViewOverride", model("Live2DViewOverride", None, true, full)),
+        (
+            "Live2DViewOverrideUpsert",
+            model(
+                "Live2DViewOverrideUpsert",
+                None,
+                true,
+                vec![
+                    ("position", reference("Live2DVector2"), true),
+                    ("scale", positive_number().title(Some("Scale")).into(), true),
+                    ("background_position", nullable_ref("Live2DVector2"), false),
+                    (
+                        "background_scale",
+                        AnyOfBuilder::new()
+                            .item(positive_number())
+                            .item(ObjectBuilder::new().schema_type(Type::Null))
+                            .extensions(Some(extensions(&[("title", json!("Background Scale"))])))
+                            .into(),
+                        false,
+                    ),
+                ],
+            ),
+        ),
+        (
+            "Live2DViewOverrideValue",
+            model("Live2DViewOverrideValue", None, true, override_value_fields()),
+        ),
+    ]
 }
 
 fn schemas_a() -> Vec<(&'static str, RefOr<Schema>)> {
@@ -766,9 +1095,145 @@ fn paths() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
     paths.extend(paths_b());
     paths.extend(paths_hanime1());
     paths.extend(paths_kemono());
+    paths.extend(paths_bd2());
     paths.extend(paths_nikke());
     paths.extend(paths_c());
     paths
+}
+
+fn search_parameter() -> utoipa::openapi::path::Parameter {
+    parameter(
+        "q",
+        ParameterIn::Query,
+        false,
+        AnyOfBuilder::new()
+            .item(ObjectBuilder::new().schema_type(Type::String).min_length(Some(1)))
+            .item(ObjectBuilder::new().schema_type(Type::Null))
+            .extensions(Some(extensions(&[("title", json!("Q"))])))
+            .into(),
+    )
+}
+
+fn content_id_parameter() -> utoipa::openapi::path::Parameter {
+    parameter(
+        "content_id",
+        ParameterIn::Path,
+        true,
+        typed(Type::Integer, "Content Id").exclusive_minimum(Some(0)).into(),
+    )
+}
+
+fn override_parameters() -> Vec<utoipa::openapi::path::Parameter> {
+    vec![
+        content_id_parameter(),
+        parameter(
+            "model_id",
+            ParameterIn::Path,
+            true,
+            typed(Type::String, "Model Id")
+                .min_length(Some(1))
+                .max_length(Some(160))
+                .pattern(Some(MODEL_ID_PATTERN))
+                .into(),
+        ),
+        parameter(
+            "profile",
+            ParameterIn::Path,
+            true,
+            typed(Type::String, "Profile")
+                .min_length(Some(1))
+                .max_length(Some(64))
+                .pattern(Some(PROFILE_PATTERN))
+                .into(),
+        ),
+    ]
+}
+
+/// The BD2 paths.
+fn paths_bd2() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
+    vec![
+        (
+            "/api/v2/bd2/characters",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![
+                        search_parameter(),
+                        parameter("limit", ParameterIn::Query, false, bounded_int("Limit", Some(1), Some(500), 200)),
+                        parameter("offset", ParameterIn::Query, false, bounded_int("Offset", Some(0), None, 0)),
+                    ],
+                    ..Op::new("bd2", "List Bd2 Characters", "listBD2Characters", "BD2CharacterListResponse")
+                },
+            )],
+        ),
+        (
+            "/api/v2/bd2/sidebar/characters",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![search_parameter()],
+                    bare_responses: vec![("304", "Not modified")],
+                    ..Op::new(
+                        "bd2",
+                        "List Bd2 Sidebar Characters",
+                        "listBD2SidebarCharacters",
+                        "BD2SidebarCharacterListResponse",
+                    )
+                },
+            )],
+        ),
+        (
+            "/api/v2/bd2/characters/{content_id}",
+            vec![(
+                HttpMethod::Get,
+                Op {
+                    parameters: vec![content_id_parameter()],
+                    ..Op::new("bd2", "Get Bd2 Character", "getBD2Character", "BD2CharacterDetail")
+                },
+            )],
+        ),
+        (
+            "/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}",
+            override_ops(
+                "bd2",
+                [
+                    ("Get Bd2 Live2D View Override", "getBD2Live2DViewOverride"),
+                    ("Put Bd2 Live2D View Override", "putBD2Live2DViewOverride"),
+                    ("Delete Bd2 Live2D View Override", "deleteBD2Live2DViewOverride"),
+                ],
+            ),
+        ),
+    ]
+}
+
+/// The get, put and delete of a game's view-override path: `(summary, operationId)` each.
+fn override_ops(tag: &'static str, names: [(&'static str, &'static str); 3]) -> Vec<(HttpMethod, Op)> {
+    let [(get, get_id), (put, put_id), (delete, delete_id)] = names;
+    vec![
+        (
+            HttpMethod::Get,
+            Op {
+                parameters: override_parameters(),
+                ..Op::new(tag, get, get_id, "Live2DViewOverride")
+            },
+        ),
+        (
+            HttpMethod::Put,
+            Op {
+                parameters: override_parameters(),
+                body: Some(reference("Live2DViewOverrideUpsert")),
+                ..Op::new(tag, put, put_id, "Live2DViewOverride")
+            },
+        ),
+        (
+            HttpMethod::Delete,
+            Op {
+                status: "204",
+                parameters: override_parameters(),
+                ..Op::new(tag, delete, delete_id, "")
+            },
+        ),
+    ]
 }
 
 fn paths_a() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
@@ -1076,6 +1541,17 @@ fn paths_nikke() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
                     ..Op::new("nikke", "Get Nikke Character", "getNikkeCharacter", "NikkeCharacterDetail")
                 },
             )],
+        ),
+        (
+            "/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}",
+            override_ops(
+                "nikke",
+                [
+                    ("Get Nikke Live2D View Override", "getNikkeLive2DViewOverride"),
+                    ("Put Nikke Live2D View Override", "putNikkeLive2DViewOverride"),
+                    ("Delete Nikke Live2D View Override", "deleteNikkeLive2DViewOverride"),
+                ],
+            ),
         ),
     ]
 }

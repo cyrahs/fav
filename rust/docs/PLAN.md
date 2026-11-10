@@ -137,7 +137,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP7 | 3 HTTP sources | Bilibili, X, with the yt-dlp and gallery-dl subprocess wrappers | 1,500 | done |
 | WP8 | 3 HTTP sources | Hanime1 with series, author subscriptions, ranking discovery and its endpoints | 2,600 | done |
 | WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | done |
-| WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | pending |
+| WP10 | 4 game sources | BD2 crawl, manifests, API reader, Live2D view overrides | 4,200 | done |
 | WP11 | 4 game sources | Azur Lane source parsing, AZP2, `connect_to` | 3,900 | pending |
 | WP12 | 4 game sources | Azur Lane crawl, manifests, API reader | 3,400 | pending |
 | WP13 | 5 message sources | Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub | 1,300 | pending |
@@ -214,15 +214,26 @@ Shared pieces that parallel work packages built twice, to fold together once bot
 - WP8 (`fav-sources/src/pyre.rs`): Python `re` translation (`\s`, `fancy-regex` for back-references) and
   small `int()`/`parse_qs` helpers, local to `fav-sources`; move to `fav-core` if a later source needs them.
 - WP9 (`fav-api/src/summary_cache.rs`, `fav-api/src/spine.rs`): the summary cache (version 1 only) and the
-  Spine version probe are crate-level in `fav-api`; WP10 (BD2), built in parallel, may keep private copies.
-  Fold BD2 onto these, and add version 2 (`read_summary_records`) here for WP12. `fav-sources`'
-  `content_discovery` (newly archived characters and cosmetic items) is likewise WP9's for WP10 to reuse.
-- WP9 (`fav-api/src/nikke/schema.rs`): `LIVE2D_VECTOR2` and `LIVE2D_VIEW_OVERRIDE_VALUE` are declared there
-  for the OpenAPI components; WP10's override store owns them. Keep one declaration. The Nikke detail's
-  `model_id` (`assign_live2d_model_ids`) and `view_overrides`, and the `/nikke/characters/{id}/live2d/
-  view-overrides/{profile}` routes (still `PENDING` in `openapi.rs`), are wired by whichever of WP9 and WP10
-  merges second; until then `model_id` is `""` and `view_overrides` `{}`, and
-  `test_nikke_live2d_view_override_save_and_detail_overlay` is in WP10's scope.
+  Spine version probe are crate-level in `fav-api`, and WP10 folded BD2 onto them (and onto `fav-sources`'
+  `content_discovery`). Add version 2 (`read_summary_records`) here for WP12.
+- WP10 (`fav-api/src/live2d_overrides.rs`): the view-override store, model ids, overlay and routes serve both
+  games (`Live2DSource::{Bd2, Nikke}`); `Live2DVector2`, `Live2DViewOverrideValue` and the request and
+  response models are declared once there (`nikke::schema` refers to `Live2DViewOverrideValue` through
+  `Ty::External`).
+- WP10 (`fav-api/src/response_models.rs`): BD2's response models are validated by small closures and their
+  OpenAPI components written by hand in `openapi.rs`, while NIKKE's come from one field table
+  (`nikke::schema`) that drives both. Move that table to crate level and put BD2's and the Live2D models on it
+  when a later package (Azur Lane, WP12) adds models of the same kind.
+- WP10 (`fav-sources/src/bd2/gamekee.rs`): BD2's copy of the GameKee helpers Python imports from
+  `src/web/nikke.py` (`Asset`, `add_asset`, `normalize_url`, `asset_headers`, `parse_spine_atlas_textures`,
+  `original_filename_from_url`, `context_hash`, `materialize_blob`, `write_json`, ...), built while WP9 ported
+  the same functions in `fav-sources/src/nikke.rs`. Fold both onto one GameKee module, keeping each side's
+  golden tests (their signatures differ slightly: NIKKE's `context_hash` cannot fail, BD2's returns the JSON
+  error Python would raise).
+- WP10 (`fav-sources/src/bd2.rs`, `Bd2Crawler::viewer_resources`): the BD2-L2D-Viewer fetch builds its own
+  `HttpClient` (as Python builds its own `httpx.Client`), against the CONVENTIONS rule that a source never
+  builds its client. Inject a second client (or a factory) through `SourceContext` when a later package adds
+  the same need.
 - WP9 (`fav-api/src/openapi.rs`): `Op` gained `bare_responses` (responses without a JSON body, the sidebar's
   304); `mcp::fromisoformat` is re-exported for the sidebar sort key. Move `fromisoformat` to `fav-core` if a
   third caller appears.
@@ -244,3 +255,4 @@ the independent review found; review findings are summarised with a link to the 
 | WP7 | #140 | 1 push after review | 1 blocker, 7 should-fix, 6 nits: `run_lines` lost a last line without a newline when the other pipe won the `select!` race (now flushed at the end, with a scripted race test that fails without the fix); the fake server swallowed handler panics and recorded a request only after its handler, so "nothing is asked" checks were vacuous (now recorded first, and a handler panic fails the test when the server is dropped); the renewal tests did not check that a renewed ticket is stored on its own, nor take Python's "ticket not due" path, and nothing caught a lost `ON CONFLICT ... DO UPDATE` (tests added, each checked by mutation); D67 was wrong (reqwest takes `host:port` and unknown schemes; now httpx's scheme rule, tested); file moves and cache cleanup ran on the async threads (now `spawn_blocking`, as Python's `to_thread`); crate-local `hmac`/`rsa`/`sha2` versions (now workspace dependencies, sha2 0.11 everywhere fav uses it). Nits fixed: `{"bvid": null}` is bilibili-api's `ArgsException`, D62/D63/D65 corrected, D68 added, no-request tests point at an unroutable host. Left: sleeps do not go through `retry::Sleeper` (as Pixiv and Stella Sora), so the batch pause and the 30 s lookup delay are not asserted | Bilibili's web API calls are made directly (bilibili-api-python's request shapes held to goldens); yt-dlp and gallery-dl run through a `Runner` trait, scripted in tests; WP8 ran in parallel |
 | WP8 | #141 | 1 push after review | 0 blockers, 1 should-fix, 7 nits: `/readyz` loaded its targets through the pool, whose connect retries outlast the 12 s budget, so a refused database answered `upstream_timeout` after 12 s instead of `database_unavailable` at once (now a connection of its own, as Python's `psycopg.connect`, with a test). Nits fixed: a malformed link on a seed's watch page (`urlsplit`'s `ValueError`) is 422 `invalid_seed` as in Python, not 500; `strip_uploader_prefix` matched through a regex built from the page's uploader, which panicked on a huge one (now matched by hand, golden cases unchanged); golden arms that only record Python's answer for non-string arguments are marked as such; the cache directory, `ensure_unique_path` and the move run off the async threads; a missing watch URL in the download notification raises as in Python. Left as recorded (D77): a `/readyz` whose client disconnects is not cached | t2s held to every dictionary key of the Python package; 576 parser cases; ran in parallel with WP7, so `yt-dlp` uses a private runner (cleanup note) |
 | WP9 | #142 | 1 push after review | 0 blockers, 2 should-fix, 3 nits: the asset concurrency test measured the CDN's own limit of 3, not the asset-group limit, so it passed with any group limit (now the CDN limit is lifted in the test, checked by mutation); D84/D85 named a `runtime-capture` command the script does not have (now `capture-missing` and `backfill-runtime-layers`); D83 left out that the same `to_int` also changes the crawl's tj-list filter and the script's content-id lookups; D87 said "64 bits" for "past `i64::MAX`". Left: the crawl's manifest and snapshot reads and writes run on the async threads as Python's do on its event loop (hashing and blob links already go through `spawn_blocking`) | API responses shaped by a schema table that also generates their OpenAPI components; goldens replay the Python routes through TestClient; ran in parallel with WP10, which wires the Live2D view overrides (cleanup notes) |
+| WP10 | #143 | 1 push after review | 0 blockers, 2 should-fix, 5 nits: the ported `update_reports_failures_after_attempting_remaining_pages` lost Python's check that the run upserts the tree with `deactivate_missing=True`, so a crawl that never retires vanished pages passed (now a seeded vanished page must end inactive, checked by mutation); a huge `offset` on `/bd2/characters` was echoed as `i64::MAX` without an entry (now echoed up to 128 bits, D99). Nits fixed: the dropped `get_asset_file` gets its own entry (D100); D94 lists `_filter_gamekee_character_rows`; a doc comment named a `bd2-l2d-viewer` command that does not exist; request pacing (limiter spacing, `Retry-After`, backoff) and the circuit-breaker pause are now asserted through the recording sleeper; the cooldown test checks the asset row was touched; D97 also covers the crawl's `_to_int`. Left as a cleanup note: the BD2-L2D-Viewer fetch builds its own `HttpClient`, as Python does | Merged second after WP9: folded onto WP9's summary cache, Spine probe and content discovery, and wired the Nikke view overrides and detail overlay on the shared `live2d_overrides` module (the Nikke golden now replays Python's overlay) |

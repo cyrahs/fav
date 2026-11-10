@@ -92,7 +92,7 @@ tests = [
 
 [WP10]
 title = "BD2 crawl, manifests, API reader, Live2D view overrides"
-status = "pending"
+status = "done"
 tests = [
     "tests/test_bd2.py",
     "tests/test_bd2_api.py",

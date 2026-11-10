@@ -13,9 +13,9 @@
 //! cache) is rebuilt when it changes (DIVERGENCES.md D86).
 //!
 //! Not ported: `NikkeLibrary.get_asset_file`, whose route was removed (assets are served
-//! by the static sidecar under `/static/nikke`). The Live2D view overrides (`model_id`,
-//! `view_overrides` and the `/view-overrides/{profile}` routes) come with WP10's
-//! override store; until then `model_id` is `""` and `view_overrides` `{}` (PLAN.md).
+//! by the static sidecar under `/static/nikke`). The detail's Live2D view overrides
+//! (`model_id` and `view_overrides`) and the `/view-overrides/{profile}` routes are
+//! [`crate::live2d_overrides`]'s, shared with BD2.
 
 pub(crate) mod schema;
 
@@ -36,6 +36,7 @@ use fav_sources::nikke_layer_metadata::{infer_live2d_model_kind, read_json_objec
 
 use crate::error::ApiError;
 use crate::handlers::{internal, unhandled};
+use crate::live2d_overrides::{self, Live2DSource};
 use crate::params::{self, BigInt, Errors, IntBounds, Source, StrRules};
 use crate::router::{Request, json_response};
 use crate::summary_cache::{self, ManifestEntry, Signature, SummaryCacheData};
@@ -1905,13 +1906,26 @@ pub(crate) async fn get_character(state: &ApiState, raw_content_id: Option<&str>
         return Err(not_found());
     };
     let failure = format!("Failed to get Nikke character content_id={content_id}");
-    let library = library(state, &failure).await?;
-    let character = blocking(&failure, move || library.get_character(i128::from(content_id))).await?;
-    match character {
-        Ok(character) => Ok(json_response(200, &validated(&schema::NIKKE_CHARACTER_DETAIL, character)?)),
-        Err(LibraryError::NotFound) => Err(not_found()),
-        Err(LibraryError::Other(error)) => Err(internal(&failure, &error)),
+    let mut character = load_character(state, i128::from(content_id), &failure).await?;
+    let overrides = live2d_overrides::overrides_for_character(state, Live2DSource::Nikke, i128::from(content_id)).await?;
+    live2d_overrides::apply_live2d_view_overrides(&mut character, &overrides);
+    Ok(json_response(200, &validated(&schema::NIKKE_CHARACTER_DETAIL, character)?))
+}
+
+/// `NikkeLibrary.get_character(content_id)`, its errors as the API answers them.
+async fn load_character(state: &ApiState, content_id: i128, failure: &str) -> Result<Dict, ApiError> {
+    let library = library(state, failure).await?;
+    match blocking(failure, move || library.get_character(content_id)).await? {
+        Ok(character) => Ok(character),
+        Err(LibraryError::NotFound) => Err(ApiError::new(404, "nikke_character_not_found", "Nikke character not found.")),
+        Err(LibraryError::Other(error)) => Err(internal(failure, &error)),
     }
+}
+
+/// `_load_character_for_live2d_source('nikke', content_id)`.
+pub(crate) async fn character_for_live2d(state: &ApiState, content_id: i128) -> Result<Dict, ApiError> {
+    let failure = format!("Failed to load Live2D source character source=nikke content_id={content_id}");
+    load_character(state, content_id, &failure).await
 }
 
 #[cfg(test)]

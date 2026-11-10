@@ -25,7 +25,7 @@ use fav_core::validate::{self, ErrorItem, Errors, Fields, LocItem};
 use crate::router::Request;
 use crate::{ApiState, json};
 
-mod isoformat;
+pub(crate) mod isoformat;
 mod json_text;
 mod ops;
 mod pydantic;

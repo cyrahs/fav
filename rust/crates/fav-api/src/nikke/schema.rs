@@ -1,7 +1,7 @@
 //! The Nikke response models: their pydantic validation and their JSON Schema.
 //!
-//! Python origin: the `Nikke*` models of `src/api/schemas.py` (and `Live2DVector2` /
-//! `Live2DViewOverrideValue`, which `NikkeLive2DModel.view_overrides` refers to). Python
+//! Python origin: the `Nikke*` models of `src/api/schemas.py` (`NikkeLive2DModel.view_overrides` refers to
+//! `Live2DViewOverrideValue`, which [`crate::live2d_overrides`] declares). Python
 //! builds a payload as plain dicts and validates it into the response model
 //! (`NikkeCharacterSummary.model_validate(payload)`); the response then carries every field
 //! in the model's order, defaults filled in, values coerced the lax way (`"3"` for an
@@ -20,7 +20,6 @@ use utoipa::openapi::{Ref, RefOr};
 pub(crate) enum Ty {
     Str,
     Int,
-    Number,
     Bool,
     /// `int` with `ge=0`.
     NonNegInt,
@@ -35,6 +34,9 @@ pub(crate) enum Ty {
     /// `list[T]`.
     ListOf(&'static Ty),
     Model(&'static Model),
+    /// A model declared elsewhere: its component name and its validation
+    /// (`Live2DViewOverrideValue`, which [`crate::live2d_overrides`] owns).
+    External(&'static str, fn(&Value) -> Result<Value, String>),
     /// `T | None`.
     Nullable(&'static Ty),
 }
@@ -218,27 +220,6 @@ pub(crate) static NIKKE_SIDEBAR_CHARACTER_LIST_RESPONSE: Model = Model {
     ],
 };
 
-/// `Live2DVector2` (WP10's view overrides own it; Nikke's model refers to it).
-pub(crate) static LIVE2D_VECTOR2: Model = Model {
-    name: "Live2DVector2",
-    base: None,
-    fields: &[field("x", Ty::Number, Default::Required), field("y", Ty::Number, Default::Required)],
-};
-
-/// `Live2DViewOverrideValue` (WP10's view overrides own it).
-pub(crate) static LIVE2D_VIEW_OVERRIDE_VALUE: Model = Model {
-    name: "Live2DViewOverrideValue",
-    base: None,
-    fields: &[
-        field("position", Ty::Model(&LIVE2D_VECTOR2), Default::Required),
-        field("scale", Ty::Number, Default::Required),
-        field("background_position", Ty::Nullable(&Ty::Model(&LIVE2D_VECTOR2)), Default::Null),
-        field("background_scale", Ty::Nullable(&Ty::Number), Default::Null),
-        field("created_at", Ty::Str, Default::Required),
-        field("updated_at", Ty::Str, Default::Required),
-    ],
-};
-
 pub(crate) static NIKKE_LIVE2D_MODEL: Model = Model {
     name: "NikkeLive2DModel",
     base: None,
@@ -280,7 +261,10 @@ pub(crate) static NIKKE_LIVE2D_MODEL: Model = Model {
         field("bg_position", Ty::FreeDict, Default::EmptyDict),
         field(
             "view_overrides",
-            Ty::DictOf(&Ty::Model(&LIVE2D_VIEW_OVERRIDE_VALUE)),
+            Ty::DictOf(&Ty::External(
+                "Live2DViewOverrideValue",
+                crate::live2d_overrides::override_value_model,
+            )),
             Default::EmptyDict,
         ),
         field("source_urls", Ty::FreeDict, Default::EmptyDict),
@@ -363,9 +347,7 @@ pub(crate) static NIKKE_CHARACTER_DETAIL: Model = Model {
 };
 
 /// Every model of the document, for [`components`].
-const MODELS: [&Model; 16] = [
-    &LIVE2D_VECTOR2,
-    &LIVE2D_VIEW_OVERRIDE_VALUE,
+const MODELS: [&Model; 14] = [
     &NIKKE_ASSET,
     &NIKKE_CHARACTER_DETAIL,
     &NIKKE_CHARACTER_LIST_RESPONSE,
@@ -457,9 +439,6 @@ fn validate_ty(ty: &Ty, value: &Value, loc: &str) -> Result<Value, String> {
             Ok(_) => Err(failure(loc, "Input should be greater than or equal to 0")),
             Err(errors) => Err(from_errors(loc, &errors)),
         },
-        Ty::Number => validate::float(value, &[])
-            .map(Value::Float)
-            .map_err(|errors| from_errors(loc, &errors)),
         Ty::Bool => validate::boolean(value, &[])
             .map(Value::Bool)
             .map_err(|errors| from_errors(loc, &errors)),
@@ -501,6 +480,7 @@ fn validate_ty(ty: &Ty, value: &Value, loc: &str) -> Result<Value, String> {
             _ => Err(failure(loc, "Input should be a valid list")),
         },
         Ty::Model(model) => validate_model(model, value, loc).map(Value::Dict),
+        Ty::External(_, convert) => convert(value).map_err(|error| failure(loc, &error)),
         Ty::Nullable(inner) => match value {
             Value::Null => Ok(Value::Null),
             other => validate_ty(inner, other, loc),
@@ -538,7 +518,6 @@ fn item_schema(ty: &Ty) -> RefOr<Schema> {
     match ty {
         Ty::Str => bare(Type::String).into(),
         Ty::Int | Ty::IntOrStr => bare(Type::Integer).into(),
-        Ty::Number => bare(Type::Number).into(),
         Ty::Bool => bare(Type::Boolean).into(),
         // pydantic writes `ge=0` as the float `0.0`, which utoipa's `minimum` would turn
         // into an integer.
@@ -554,6 +533,7 @@ fn item_schema(ty: &Ty) -> RefOr<Schema> {
             .into(),
         Ty::ListOf(item) => ArrayBuilder::new().items(item_schema(item)).into(),
         Ty::Model(model) => reference(model),
+        Ty::External(name, _) => Ref::from_schema_name(*name).into(),
     }
 }
 
@@ -583,7 +563,6 @@ fn field_schema(field: &Field) -> RefOr<Schema> {
     match &field.ty {
         Ty::Str => titled(bare(Type::String)),
         Ty::Int => titled(bare(Type::Integer)),
-        Ty::Number => titled(bare(Type::Number)),
         Ty::Bool => titled(bare(Type::Boolean)),
         Ty::NonNegInt => titled(bare(Type::Integer).extensions(Some(super_extensions(&[("minimum", json!(0.0))])))),
         Ty::Literal(values) => titled(bare(Type::String).enum_values(Some(values.iter().copied()))),
@@ -592,6 +571,7 @@ fn field_schema(field: &Field) -> RefOr<Schema> {
         Ty::ListOf(item) => ArrayBuilder::new().items(item_schema(item)).title(Some(title)).into(),
         // A model field is a bare reference; a model-or-null is a union without a title.
         Ty::Model(model) => reference(model),
+        Ty::External(name, _) => Ref::from_schema_name(*name).into(),
         Ty::Nullable(Ty::Model(model)) => AnyOfBuilder::new().item(reference(model)).item(bare(Type::Null)).into(),
         Ty::Nullable(inner) => {
             let mut union = AnyOfBuilder::new();

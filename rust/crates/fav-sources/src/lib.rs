@@ -8,13 +8,16 @@
 //! [`kemono_creator`], which the API's creator-resolve route uses), WP5; [`hanime1`] with
 //! [`hanime1_series`], [`hanime1_author`] and [`runtime_config`] (the API's seed, author and
 //! readiness routes use the first two) and the t2s conversion [`opencc`], WP8; [`nikke`] with
-//! [`nikke_layer_metadata`] and [`content_discovery`], WP9.
+//! [`nikke_layer_metadata`] and [`content_discovery`], WP9; [`bd2`] with the
+//! BD2-L2D-Viewer helpers [`bd2_l2d_viewer`], WP10.
 
 use std::sync::Arc;
 
 use fav_db::{Db, SettingsStore};
 use fav_runtime::source::{JobError, Registry};
 
+pub mod bd2;
+pub mod bd2_l2d_viewer;
 pub mod bilibili;
 pub mod content_discovery;
 pub mod hanime1;
@@ -66,6 +69,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     kemono::register(&mut registry, ctx);
     hanime1::register(&mut registry, ctx);
     nikke::register(&mut registry, ctx);
+    bd2::register(&mut registry, ctx);
     registry
 }
 
