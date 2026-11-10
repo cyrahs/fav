@@ -60,7 +60,7 @@ tests = [
 
 [WP6]
 title = "Stella Sora, Pixiv"
-status = "pending"
+status = "done"
 tests = ["tests/test_stellasora.py", "tests/test_stellasora_notifications.py", "tests/test_pixiv.py"]
 
 [WP7]

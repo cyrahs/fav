@@ -125,7 +125,8 @@ Notes for WP4:
 
 ## webp-animation 0.10.0 (WP6)
 
-Probe: `probes/api-coverage/src/webp.rs`.
+Probe: `probes/api-coverage/src/webp.rs` until WP6, which deleted it; the check now lives in
+`fav-sources/src/pixiv.rs` (`synthesize_ugoira_webp`) and its tests.
 
 | Python (`src/web/pixiv.py::synthesize_ugoira_webp`) | Rust | Checked |
 | --- | --- | --- |
@@ -135,3 +136,8 @@ Probe: `probes/api-coverage/src/webp.rs`.
 Notes for WP6: the output is not byte-identical to Pillow (the plan accepts that); compare frame count,
 dimensions and per-frame durations by decoding both with `webp_animation::Decoder`. The `static` feature
 builds libwebp from source, so the image needs no system libwebp.
+
+Outcome (WP6): ugoira encode with `kmin 3`, `kmax 5`, `allow_mixed false` and `minimize_size false` as
+Pillow passes them; frames are decoded one at a time. Tests decode the result with `webp_animation::Decoder`
+and check frame count and end times; a single frame comes out as a still image, as Pillow's `_save` path
+writes it. The bytes and the background colour metadata differ (`DIVERGENCES.md` D51).

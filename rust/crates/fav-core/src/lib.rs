@@ -14,8 +14,12 @@ pub mod filename;
 pub mod golden;
 pub mod logging;
 pub mod mimetypes;
+pub mod pycasefold;
+pub mod pyhtml;
 pub mod pyjson;
+pub mod pypath;
 pub mod pytext;
+pub mod pyurl;
 pub mod settings;
 pub mod validate;
 

@@ -97,7 +97,10 @@ impl Base {
         WorkerOptions {
             settings: Arc::clone(&self.settings),
             db: self.db.clone(),
-            registry: fav_sources::registry(),
+            registry: fav_sources::registry(&fav_sources::SourceContext {
+                db: self.db.clone(),
+                settings: Arc::clone(&self.settings),
+            }),
             bot: self.bot.clone(),
             timezone: worker::resolve_scheduler_timezone(std::env::var("TZ").ok().as_deref()),
         }

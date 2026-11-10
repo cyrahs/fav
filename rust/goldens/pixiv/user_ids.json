@@ -1,0 +1,48 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "pixiv",
+  "cases": [
+    [
+      "21029043_AbCdEf0123456789AbCdEf0123456789",
+      "21029043"
+    ],
+    [
+      "21029043_",
+      "21029043"
+    ],
+    [
+      "_abc",
+      ""
+    ],
+    [
+      "no-underscore",
+      ""
+    ],
+    [
+      "prefix_notdigits",
+      ""
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "١٢٣_arabic-indic",
+      "١٢٣"
+    ],
+    [
+      "²_superscript",
+      "²"
+    ],
+    [
+      " 123_space",
+      ""
+    ],
+    [
+      "123_456_789",
+      "123"
+    ]
+  ]
+}

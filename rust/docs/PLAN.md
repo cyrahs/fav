@@ -133,7 +133,7 @@ Stella Sora, BD2, Nikke, Hanime1 (parse only, no downloads).
 | WP3 | 2 API and MCP | axum skeleton, auth, settings, jobs, archive, credentials, health endpoints, serving the front end | 3,700 | done |
 | WP4 | 2 API and MCP | 18 MCP tools and ops queries | 900 | done |
 | WP5 | 3 HTTP sources | Jandan, Kemono | 1,700 | pending |
-| WP6 | 3 HTTP sources | Stella Sora, Pixiv | 1,700 | pending |
+| WP6 | 3 HTTP sources | Stella Sora, Pixiv | 1,700 | done |
 | WP7 | 3 HTTP sources | Bilibili, X, with the yt-dlp and gallery-dl subprocess wrappers | 1,500 | pending |
 | WP8 | 3 HTTP sources | Hanime1 with series, author subscriptions, ranking discovery and its endpoints | 2,600 | pending |
 | WP9 | 4 game sources | Nikke crawl, layer metadata, manifests, API reader | 4,300 | pending |
@@ -183,6 +183,16 @@ split into "crawl" and "manifests + API" if one thread cannot finish them.
   the t2s dictionaries, filename sanitising.
 - reqwest vs httpx TLS fingerprint: keep the client in one factory so the TLS backend can be swapped.
 - Size: an estimated 50-60k lines of Rust plus tests, about 19 threads.
+
+## Cleanup notes
+
+Shared pieces that parallel work packages built twice, to fold together once both have merged:
+
+- WP6 (`fav-sources/src/kit.rs`): private copies of what WP5 adds to `fav-net` (httpx-shaped HTTP errors and
+  `raise_for_status` text, streamed download to `.part`, `shutil.move`). Move callers to `fav-net`'s versions,
+  keeping `kit::status_error_message`'s golden test (`pyweb/httpx_status_errors.json`) on whichever survives.
+- WP6 moved the `str.casefold` table from `fav-api/src/mcp/casefold.rs` to `fav_core::pycasefold`; nothing to
+  fold, noted so a later search for the old path finds it.
 
 ## Experiment log
 

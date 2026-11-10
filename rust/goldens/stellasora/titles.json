@@ -1,0 +1,257 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "stellasora",
+  "cases": [
+    {
+      "title": "File:Disc_Good_Night.png",
+      "normalized": {
+        "result": "File:Disc_Good_Night.png"
+      },
+      "local_name": {
+        "result": "Disc_Good_Night.png"
+      }
+    },
+    {
+      "title": "File:Disc Good Night.png",
+      "normalized": {
+        "result": "File:Disc_Good_Night.png"
+      },
+      "local_name": {
+        "result": "Disc_Good_Night.png"
+      }
+    },
+    {
+      "title": "file:disc_good_night.png",
+      "normalized": {
+        "result": "File:disc_good_night.png"
+      },
+      "local_name": {
+        "result": "disc_good_night.png"
+      }
+    },
+    {
+      "title": "FILE:Upper.PNG",
+      "normalized": {
+        "result": "File:Upper.PNG"
+      },
+      "local_name": {
+        "result": "Upper.PNG"
+      }
+    },
+    {
+      "title": "Image:Not a file prefix.png",
+      "normalized": {
+        "result": "File:Image:Not_a_file_prefix.png"
+      },
+      "local_name": {
+        "result": "Image_Not_a_file_prefix.png"
+      }
+    },
+    {
+      "title": "Plain name.jpg",
+      "normalized": {
+        "result": "File:Plain_name.jpg"
+      },
+      "local_name": {
+        "result": "Plain_name.jpg"
+      }
+    },
+    {
+      "title": "  File:Padded.png  ",
+      "normalized": {
+        "result": "File:Padded.png"
+      },
+      "local_name": {
+        "result": "Padded.png"
+      }
+    },
+    {
+      "title": "",
+      "normalized": {
+        "result": ""
+      },
+      "local_name": {
+        "result": ""
+      }
+    },
+    {
+      "title": "   ",
+      "normalized": {
+        "result": ""
+      },
+      "local_name": {
+        "result": ""
+      }
+    },
+    {
+      "title": "/wiki/File:Disc_Good_Night.png",
+      "normalized": {
+        "result": "File:Disc_Good_Night.png"
+      },
+      "local_name": {
+        "result": "Disc_Good_Night.png"
+      }
+    },
+    {
+      "title": "/wiki/File:Encoded%20Name%E4%B8%AD.png",
+      "normalized": {
+        "result": "File:Encoded_Name中.png"
+      },
+      "local_name": {
+        "result": "Encoded_Name中.png"
+      }
+    },
+    {
+      "title": "https://stellasora.miraheze.org/wiki/File:Disc_Good_Night.png",
+      "normalized": {
+        "result": "File:Disc_Good_Night.png"
+      },
+      "local_name": {
+        "result": "Disc_Good_Night.png"
+      }
+    },
+    {
+      "title": "https://stellasora.miraheze.org/w/index.php?title=File:X.png",
+      "normalized": {
+        "result": "File:https://stellasora.miraheze.org/w/index.php"
+      },
+      "local_name": {
+        "result": "index.php"
+      }
+    },
+    {
+      "title": "http://example.com/wiki/File:Other_Host.png#frag",
+      "normalized": {
+        "result": "File:Other_Host.png"
+      },
+      "local_name": {
+        "result": "Other_Host.png"
+      }
+    },
+    {
+      "title": "File:With#fragment.png",
+      "normalized": {
+        "result": "File:With"
+      },
+      "local_name": {
+        "result": "With"
+      }
+    },
+    {
+      "title": "File:With?query=1.png",
+      "normalized": {
+        "result": "File:With"
+      },
+      "local_name": {
+        "result": "With"
+      }
+    },
+    {
+      "title": "File:Dots.in.name.tar.gz",
+      "normalized": {
+        "result": "File:Dots.in.name.tar.gz"
+      },
+      "local_name": {
+        "result": "Dots.in.name.tar.gz"
+      }
+    },
+    {
+      "title": "File:No_extension",
+      "normalized": {
+        "result": "File:No_extension"
+      },
+      "local_name": {
+        "result": "No_extension"
+      }
+    },
+    {
+      "title": "File:.hidden",
+      "normalized": {
+        "result": "File:.hidden"
+      },
+      "local_name": {
+        "result": ".hidden"
+      }
+    },
+    {
+      "title": "File:Trailing.",
+      "normalized": {
+        "result": "File:Trailing."
+      },
+      "local_name": {
+        "result": "Trailing."
+      }
+    },
+    {
+      "title": "File:中文 名字.png",
+      "normalized": {
+        "result": "File:中文_名字.png"
+      },
+      "local_name": {
+        "result": "中文_名字.png"
+      }
+    },
+    {
+      "title": "File:Bad<chars>:here|?.png",
+      "normalized": {
+        "result": "File:Bad<chars>:here|"
+      },
+      "local_name": {
+        "result": "Bad_chars__here_"
+      }
+    },
+    {
+      "title": "File:longlonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong.png",
+      "normalized": {
+        "result": "File:longlonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong.png"
+      },
+      "local_name": {
+        "result": "longlonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglonglong.png"
+      }
+    },
+    {
+      "title": "File:中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中.webp",
+      "normalized": {
+        "result": "File:中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中.webp"
+      },
+      "local_name": {
+        "result": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中.webp"
+      }
+    },
+    {
+      "title": "File:%zz-not-escape.png",
+      "normalized": {
+        "result": "File:%zz-not-escape.png"
+      },
+      "local_name": {
+        "result": "%zz-not-escape.png"
+      }
+    },
+    {
+      "title": "File:a/b/c.png",
+      "normalized": {
+        "result": "File:a/b/c.png"
+      },
+      "local_name": {
+        "result": "c.png"
+      }
+    },
+    {
+      "title": "https://[::1/wiki/File:Broken.png",
+      "normalized": {
+        "error": [
+          "ValueError",
+          "Invalid IPv6 URL"
+        ]
+      },
+      "local_name": {
+        "error": [
+          "ValueError",
+          "Invalid IPv6 URL"
+        ]
+      }
+    }
+  ]
+}

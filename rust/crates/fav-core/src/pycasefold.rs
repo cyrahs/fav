@@ -1,5 +1,7 @@
 //! `str.casefold()` as Python 3.12 does it, character by character.
 //!
+//! Moved from fav-api's MCP module in WP6, which needs it for Stella Sora's file-name keys.
+//!
 //! Generated with Python 3.12 (Unicode 15.0.0):
 //! `[(c, c.casefold()) for c in map(chr, range(0x110000)) if c.casefold() != c]`.
 //! Rust's own `to_lowercase` follows a newer Unicode, which lowercases letters Python 3.12
@@ -7,7 +9,7 @@
 //! case of `goldens/mcp/ops.json` checks every character against Python.
 
 /// Sorted by character, for a binary search: 1530 characters.
-pub(super) const FOLDS: &[(char, &str)] = &[
+const FOLDS: &[(char, &str)] = &[
     ('\u{41}', "\u{61}"),
     ('\u{42}', "\u{62}"),
     ('\u{43}', "\u{63}"),
@@ -1539,3 +1541,15 @@ pub(super) const FOLDS: &[(char, &str)] = &[
     ('\u{1e920}', "\u{1e942}"),
     ('\u{1e921}', "\u{1e943}"),
 ];
+
+/// `text.casefold()`.
+pub fn casefold(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match FOLDS.binary_search_by_key(&ch, |(from, _)| *from) {
+            Ok(index) => out.push_str(FOLDS[index].1),
+            Err(_) => out.push(ch),
+        }
+    }
+    out
+}
