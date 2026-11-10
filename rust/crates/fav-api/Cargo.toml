@@ -11,15 +11,20 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+async-tungstenite.workspace = true
 axum.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
+fav-browser.workspace = true
 fav-core.workspace = true
 fav-db.workspace = true
 fav-runtime.workspace = true
 fav-sources.workspace = true
 form_urlencoded = "1"
 futures-util.workspace = true
+# The VNC relay's WebSocket upgrade (WP16): the connection axum's server hands over.
+hyper = { workspace = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio"] }
 percent-encoding = "2"
 regex.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }

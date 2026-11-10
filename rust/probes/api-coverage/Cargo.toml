@@ -12,15 +12,12 @@ workspace = true
 
 [dependencies]
 grammers-client.workspace = true
-chromiumoxide.workspace = true
 rmcp = { workspace = true, features = ["server", "macros", "transport-streamable-http-server"] }
 axum.workspace = true
-futures = "0.3"
 serde_json = { workspace = true, features = ["preserve_order"] }
 tokio = { workspace = true, features = ["fs", "io-util", "net", "process", "time"] }
 
 [dev-dependencies]
 http = "1"
 http-body-util = "0.1"
-tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

@@ -11,6 +11,5 @@
 //! packages (Telegram in WP15, the CDP driver in WP16, MCP in WP4) and this
 //! crate is deleted once they do.
 
-pub mod cdp;
 pub mod mcp;
 pub mod telegram;

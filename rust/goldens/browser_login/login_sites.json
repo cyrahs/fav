@@ -1,0 +1,268 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "browser_login",
+  "cases": [
+    {
+      "bilibili_accounts": [],
+      "sites": [
+        {
+          "key": "pixiv",
+          "label": "Pixiv",
+          "login_url": "https://accounts.pixiv.net/login?return_to=https%3A%2F%2Fwww.pixiv.net%2F",
+          "cookie_urls": [
+            "https://www.pixiv.net/"
+          ],
+          "session_cookie": "PHPSESSID",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": ""
+        },
+        {
+          "key": "twitter",
+          "label": "X",
+          "login_url": "https://x.com/i/flow/login",
+          "cookie_urls": [
+            "https://x.com/"
+          ],
+          "session_cookie": "auth_token",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。"
+        },
+        {
+          "key": "nga",
+          "label": "NGA",
+          "login_url": "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login",
+          "cookie_urls": [
+            "https://bbs.nga.cn/"
+          ],
+          "session_cookie": "ngaPassportCid",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。"
+        },
+        {
+          "key": "rednote",
+          "label": "小红书",
+          "login_url": "https://www.xiaohongshu.com/explore",
+          "cookie_urls": [
+            "https://www.xiaohongshu.com"
+          ],
+          "session_cookie": "web_session",
+          "controlled": true,
+          "store_cookie_values": false,
+          "verifies_in_browser": true,
+          "has_profile_dir": true,
+          "has_lock_name": true,
+          "has_after_login": false,
+          "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。"
+        }
+      ]
+    },
+    {
+      "bilibili_accounts": [
+        "main"
+      ],
+      "sites": [
+        {
+          "key": "pixiv",
+          "label": "Pixiv",
+          "login_url": "https://accounts.pixiv.net/login?return_to=https%3A%2F%2Fwww.pixiv.net%2F",
+          "cookie_urls": [
+            "https://www.pixiv.net/"
+          ],
+          "session_cookie": "PHPSESSID",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": ""
+        },
+        {
+          "key": "twitter",
+          "label": "X",
+          "login_url": "https://x.com/i/flow/login",
+          "cookie_urls": [
+            "https://x.com/"
+          ],
+          "session_cookie": "auth_token",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。"
+        },
+        {
+          "key": "nga",
+          "label": "NGA",
+          "login_url": "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login",
+          "cookie_urls": [
+            "https://bbs.nga.cn/"
+          ],
+          "session_cookie": "ngaPassportCid",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。"
+        },
+        {
+          "key": "rednote",
+          "label": "小红书",
+          "login_url": "https://www.xiaohongshu.com/explore",
+          "cookie_urls": [
+            "https://www.xiaohongshu.com"
+          ],
+          "session_cookie": "web_session",
+          "controlled": true,
+          "store_cookie_values": false,
+          "verifies_in_browser": true,
+          "has_profile_dir": true,
+          "has_lock_name": true,
+          "has_after_login": false,
+          "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。"
+        },
+        {
+          "key": "bilibili-main",
+          "label": "Bilibili",
+          "login_url": "https://passport.bilibili.com/login",
+          "cookie_urls": [
+            "https://www.bilibili.com/"
+          ],
+          "session_cookie": "SESSDATA",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": true,
+          "hint": "用要给账号 main 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。"
+        }
+      ]
+    },
+    {
+      "bilibili_accounts": [
+        "main",
+        "alt"
+      ],
+      "sites": [
+        {
+          "key": "pixiv",
+          "label": "Pixiv",
+          "login_url": "https://accounts.pixiv.net/login?return_to=https%3A%2F%2Fwww.pixiv.net%2F",
+          "cookie_urls": [
+            "https://www.pixiv.net/"
+          ],
+          "session_cookie": "PHPSESSID",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": ""
+        },
+        {
+          "key": "twitter",
+          "label": "X",
+          "login_url": "https://x.com/i/flow/login",
+          "cookie_urls": [
+            "https://x.com/"
+          ],
+          "session_cookie": "auth_token",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。"
+        },
+        {
+          "key": "nga",
+          "label": "NGA",
+          "login_url": "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login",
+          "cookie_urls": [
+            "https://bbs.nga.cn/"
+          ],
+          "session_cookie": "ngaPassportCid",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。"
+        },
+        {
+          "key": "rednote",
+          "label": "小红书",
+          "login_url": "https://www.xiaohongshu.com/explore",
+          "cookie_urls": [
+            "https://www.xiaohongshu.com"
+          ],
+          "session_cookie": "web_session",
+          "controlled": true,
+          "store_cookie_values": false,
+          "verifies_in_browser": true,
+          "has_profile_dir": true,
+          "has_lock_name": true,
+          "has_after_login": false,
+          "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。"
+        },
+        {
+          "key": "bilibili-main",
+          "label": "Bilibili（main）",
+          "login_url": "https://passport.bilibili.com/login",
+          "cookie_urls": [
+            "https://www.bilibili.com/"
+          ],
+          "session_cookie": "SESSDATA",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": true,
+          "hint": "用要给账号 main 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。"
+        },
+        {
+          "key": "bilibili-alt",
+          "label": "Bilibili（alt）",
+          "login_url": "https://passport.bilibili.com/login",
+          "cookie_urls": [
+            "https://www.bilibili.com/"
+          ],
+          "session_cookie": "SESSDATA",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": true,
+          "hint": "用要给账号 alt 抓取的 B 站账号登录：B 站 App 扫码，或手机号加验证码。"
+        }
+      ]
+    }
+  ]
+}

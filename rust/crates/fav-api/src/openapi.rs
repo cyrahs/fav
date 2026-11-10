@@ -30,14 +30,7 @@ pub const APP_VERSION: &str = "2.0.0";
 
 /// Routes Python has and this build does not yet, with the work package that ports each.
 /// Every path of Python's document that is missing here must be listed.
-pub const PENDING: &[(&str, &str)] = &[
-    ("/api/v2/rednote/proxy/test", "WP17"),
-    ("/api/v2/site-sessions/{site}/login", "WP16"),
-    ("/api/v2/site-sessions/login", "WP16"),
-];
-
-/// Routes outside the document that are pending too: the VNC relay.
-pub const PENDING_UNDOCUMENTED: &[(&str, &str)] = &[("/api/v2/site-sessions/vnc", "WP16")];
+pub const PENDING: &[(&str, &str)] = &[("/api/v2/rednote/proxy/test", "WP17")];
 
 // ---------- schema helpers ----------
 
@@ -170,6 +163,15 @@ fn nullable_ref(name: &str) -> RefOr<Schema> {
     AnyOfBuilder::new()
         .item(Ref::from_schema_name(name))
         .item(ObjectBuilder::new().schema_type(Type::Null))
+        .into()
+}
+
+/// `T | None` of a referenced model as a route's return annotation: titled after the route.
+fn titled_nullable_ref(name: &str, title: &str) -> RefOr<Schema> {
+    AnyOfBuilder::new()
+        .item(Ref::from_schema_name(name))
+        .item(ObjectBuilder::new().schema_type(Type::Null))
+        .extensions(Some(extensions(&[("title", json!(title))])))
         .into()
 }
 
@@ -1445,6 +1447,38 @@ fn paths_c() -> Vec<(&'static str, Vec<(HttpMethod, Op)>)> {
                 Op {
                     description: Some("Each login-backed site with its stored session, plus the browser login in progress, if any."),
                     ..Op::new("site-sessions", "List Site Sessions", "listSiteSessions", "SiteSessionListResponse")
+                },
+            )],
+        ),
+        (
+            "/api/v2/site-sessions/{site}/login",
+            vec![(
+                HttpMethod::Post,
+                Op {
+                    description: Some("Open a browser on the site's login page; the session is saved once the login verifies."),
+                    status: "202",
+                    parameters: vec![parameter(
+                        "site",
+                        ParameterIn::Path,
+                        true,
+                        typed(Type::String, "Site")
+                            .min_length(Some(1))
+                            .max_length(Some(96))
+                            .pattern(Some(SITE_PATTERN))
+                            .into(),
+                    )],
+                    ..Op::new("site-sessions", "Start Site Login", "startSiteLogin", "LoginAttemptView")
+                },
+            )],
+        ),
+        (
+            "/api/v2/site-sessions/login",
+            vec![(
+                HttpMethod::Delete,
+                Op {
+                    description: Some("Close the login browser without saving anything."),
+                    inline_response: Some(titled_nullable_ref("LoginAttemptView", "Response Cancelsitelogin")),
+                    ..Op::new("site-sessions", "Cancel Site Login", "cancelSiteLogin", "")
                 },
             )],
         ),
