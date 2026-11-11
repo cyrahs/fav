@@ -1,0 +1,51 @@
+name: Keep-safes (one-off, removed before merge)
+
+# Tags the last Python commit and the last Python image as `python-final` before the
+# Python app is deleted, and lists the image's versions. Runs once on this branch.
+
+on:
+  push:
+    branches: [ claude/project-thread-b5isjn ]
+
+jobs:
+  keep-safe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+    - name: Git tag python-final on 67609f6
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/python-final" >/dev/null 2>&1; then
+          echo "tag exists"
+        else
+          tag_sha="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+            -f tag=python-final \
+            -f message='Last commit of the Python app, before the Rust build replaced it (2026-11-11)' \
+            -f object=67609f60ab9fd1065601aaaa60ac04a22044c406 -f type=commit --jq .sha)"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref=refs/tags/python-final -f sha="$tag_sha"
+        fi
+        gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/python-final"
+
+    - name: Log in to GHCR
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Image tag python-final on the last Python digest
+      run: |
+        src=ghcr.io/cyrahs/fav@sha256:713ecc84f78163fb55043b7ee084f81f41165cd12c214aefe32b20f6c9e9e4fe
+        docker buildx imagetools create -t ghcr.io/cyrahs/fav:python-final "$src"
+        docker buildx imagetools inspect ghcr.io/cyrahs/fav:python-final | head -5
+
+    - name: List image versions
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh api --paginate "users/cyrahs/packages/container/fav/versions?per_page=100" \
+          --jq '.[] | select(.metadata.container.tags | length > 0) | [.id, .name, (.metadata.container.tags | join(","))] | @tsv'
