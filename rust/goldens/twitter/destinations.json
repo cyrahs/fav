@@ -1,0 +1,100 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "twitter",
+  "cases": [
+    {
+      "path": "/data/twitter",
+      "video_path": null,
+      "media_type": "video",
+      "media_path": "/data/twitter/artist/clip.mp4",
+      "root": "/data/twitter",
+      "destination": "/data/twitter/artist/clip.mp4",
+      "warnings": []
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": null,
+      "media_type": "photo",
+      "media_path": "/data/twitter/artist/pic.jpg",
+      "root": "/data/twitter",
+      "destination": "/data/twitter/artist/pic.jpg",
+      "warnings": []
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": "/media/vid",
+      "media_type": "video",
+      "media_path": "/data/twitter/artist/clip.mp4",
+      "root": "/media/vid",
+      "destination": "/media/vid/artist/clip.mp4",
+      "warnings": []
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": "/media/vid",
+      "media_type": "animated_gif",
+      "media_path": "/data/twitter/artist/loop.mp4",
+      "root": "/media/vid",
+      "destination": "/media/vid/artist/loop.mp4",
+      "warnings": []
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": "/media/vid",
+      "media_type": "photo",
+      "media_path": "/data/twitter/artist/pic.jpg",
+      "root": "/data/twitter",
+      "destination": "/data/twitter/artist/pic.jpg",
+      "warnings": []
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": "/media/vid",
+      "media_type": "",
+      "media_path": "/data/twitter/artist/x",
+      "root": "/data/twitter",
+      "destination": "/data/twitter/artist/x",
+      "warnings": []
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": "/media/vid",
+      "media_type": "video",
+      "media_path": "/elsewhere/clip.mp4",
+      "root": "/media/vid",
+      "destination": "/elsewhere/clip.mp4",
+      "warnings": [
+        "Leaving /elsewhere/clip.mp4 where it is: not under the collection directory"
+      ]
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": "/data/twitter",
+      "media_type": "video",
+      "media_path": "/data/twitter/a/clip.mp4",
+      "root": "/data/twitter",
+      "destination": "/data/twitter/a/clip.mp4",
+      "warnings": []
+    },
+    {
+      "path": "collection/twitter",
+      "video_path": "collection/videos",
+      "media_type": "video",
+      "media_path": "collection/twitter/a/b/c.mp4",
+      "root": "collection/videos",
+      "destination": "collection/videos/a/b/c.mp4",
+      "warnings": []
+    },
+    {
+      "path": "/data/twitter",
+      "video_path": "/media/vid",
+      "media_type": "Video",
+      "media_path": "/data/twitter/a.mp4",
+      "root": "/data/twitter",
+      "destination": "/data/twitter/a.mp4",
+      "warnings": []
+    }
+  ]
+}

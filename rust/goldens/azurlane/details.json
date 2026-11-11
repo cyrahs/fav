@@ -1,0 +1,182 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "azurlane",
+  "cases": [
+    {
+      "payload": "{\"ship\": {\"shipGroupId\": 1, \"className\": \"  J Class \", \"skins\": [{\"id\": 10, \"model\": {\"type\": \"live2d\", \"path\": \"live2d/a/a.model3.json\"}, \"words\": [{\"key\": \"k\", \"voicePath\": \"cue/a\"}]}, {\"id\": 11, \"model\": {\"type\": \"spine\", \"path\": \" https://mirror.example/x \"}}, {\"id\": 12, \"model\": {\"path\": \"\"}}, {\"id\": true, \"model\": {\"path\": \"live2d/b/b.model3.json\"}}, {\"id\": 13, \"model\": \"junk\", \"words\": \"junk\", \"extraWords\": [{\"voicePath\": \"cue/e\"}, \"junk\", {\"voicePath\": 3}]}, {\"model\": {\"path\": \"live2d/c/c.model3.json\"}}, \"junk\"]}}",
+      "models": {
+        "ok": [
+          [
+            10,
+            "https://static.l2d.su/al/assets/live2d/a/a.model3.json"
+          ],
+          [
+            11,
+            "https://mirror.example/x"
+          ]
+        ]
+      },
+      "voices": {
+        "ok": [
+          [
+            10,
+            [
+              {
+                "key": "k",
+                "voice_name": "",
+                "resource_key": "",
+                "voice_path": "cue/a",
+                "text": "",
+                "face_id": "",
+                "l2d_action": "",
+                "spine_action": "",
+                "is_extra": false
+              }
+            ]
+          ],
+          [
+            13,
+            [
+              {
+                "key": "",
+                "voice_name": "",
+                "resource_key": "",
+                "voice_path": "cue/e",
+                "text": "",
+                "face_id": "",
+                "l2d_action": "",
+                "spine_action": "",
+                "is_extra": true
+              }
+            ]
+          ]
+        ]
+      },
+      "class": {
+        "ok": "J Class"
+      }
+    },
+    {
+      "payload": "{\"ship\": {\"className\": 7}}",
+      "models": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail must contain a skins list"
+        }
+      },
+      "voices": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail must contain a skins list"
+        }
+      },
+      "class": {
+        "ok": ""
+      }
+    },
+    {
+      "payload": "{\"ship\": {\"skins\": \"x\"}}",
+      "models": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail must contain a skins list"
+        }
+      },
+      "voices": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail must contain a skins list"
+        }
+      },
+      "class": {
+        "ok": ""
+      }
+    },
+    {
+      "payload": "{\"ship\": []}",
+      "models": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail must contain a ship object"
+        }
+      },
+      "voices": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail must contain a ship object"
+        }
+      },
+      "class": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail must contain a ship object"
+        }
+      }
+    },
+    {
+      "payload": "[]",
+      "models": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail root must be an object"
+        }
+      },
+      "voices": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail root must be an object"
+        }
+      },
+      "class": {
+        "error": {
+          "class": "SourceSchemaError",
+          "message": "l2d.su ship detail root must be an object"
+        }
+      }
+    },
+    {
+      "payload": "<!doctype html>",
+      "models": {
+        "error": {
+          "class": "SourceParseError",
+          "message": "l2d.su ship detail is not valid JSON: Expecting value"
+        }
+      },
+      "voices": {
+        "error": {
+          "class": "SourceParseError",
+          "message": "l2d.su ship detail is not valid JSON: Expecting value"
+        }
+      },
+      "class": {
+        "error": {
+          "class": "SourceParseError",
+          "message": "l2d.su ship detail is not valid JSON: Expecting value"
+        }
+      }
+    },
+    {
+      "payload": "",
+      "models": {
+        "error": {
+          "class": "SourceParseError",
+          "message": "l2d.su ship detail is not valid JSON: Expecting value"
+        }
+      },
+      "voices": {
+        "error": {
+          "class": "SourceParseError",
+          "message": "l2d.su ship detail is not valid JSON: Expecting value"
+        }
+      },
+      "class": {
+        "error": {
+          "class": "SourceParseError",
+          "message": "l2d.su ship detail is not valid JSON: Expecting value"
+        }
+      }
+    }
+  ]
+}

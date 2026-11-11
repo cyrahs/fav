@@ -1,0 +1,1038 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": null,
+      "requests": [],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "cookies not set yet: buvid3",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [],
+      "answer": null,
+      "requests": [],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "cookies not set yet: SESSDATA, bili_jct, buvid3, DedeUserID",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "sessdata",
+          "value": "x",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "BILI_JCT",
+          "value": "y",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "Buvid3",
+          "value": "z",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "dedeuserid",
+          "value": "1",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":true,\"uname\":\"u\",\"mid\":1}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "sessdata=x; BILI_JCT=y; Buvid3=z; dedeuserid=1",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "u (1)",
+        "message": "",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":true,\"uname\":\"某人\",\"mid\":42}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "某人 (42)",
+        "message": "",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":true,\"uname\":\"\",\"mid\":42}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "42",
+        "message": "",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":true,\"uname\":\"only\",\"mid\":0}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "only",
+        "message": "",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":true}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "",
+        "message": "",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":1,\"uname\":7,\"mid\":1.5}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "7 (1.5)",
+        "message": "",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":-101,\"message\":\"账号未登录\",\"data\":{\"isLogin\":false}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili says these cookies are not signed in",
+        "rejected": true
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":false}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili says these cookies are not signed in",
+        "rejected": true
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili says these cookies are not signed in",
+        "rejected": true
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":\"x\"}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili says these cookies are not signed in",
+        "rejected": true
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 412,
+        "body": "{\"code\":-412}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili nav answered HTTP 412, code -412",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 412,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":true,\"uname\":\"u\"}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili nav answered HTTP 412, code 0",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":-352}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili nav answered HTTP 200, code -352",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "[1]"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili nav answered HTTP 200, code None",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "\"text\""
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili nav answered HTTP 200, code None",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "<html>"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili unreachable: JSONDecodeError",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "ÿþ"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": false,
+        "account": "",
+        "message": "Bilibili unreachable: JSONDecodeError",
+        "rejected": false
+      }
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v-SESSDATA",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "v-bili_jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "v-buvid3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "v-DedeUserID",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "extra",
+          "value": "",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "more",
+          "value": "m",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "body": "{\"code\":0,\"data\":{\"isLogin\":true,\"uname\":\"u\",\"mid\":1}}"
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "https://api.bilibili.com/x/web-interface/nav",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": null,
+          "cookie": "SESSDATA=v-SESSDATA; bili_jct=v-bili_jct; buvid3=v-buvid3; DedeUserID=v-DedeUserID; more=m",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "check": {
+        "ok": true,
+        "account": "u (1)",
+        "message": "",
+        "rejected": false
+      }
+    }
+  ]
+}

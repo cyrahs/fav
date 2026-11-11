@@ -1,0 +1,347 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "helper": "format_file_size",
+      "input": null,
+      "output": null
+    },
+    {
+      "helper": "format_file_size",
+      "input": -1,
+      "output": null
+    },
+    {
+      "helper": "format_file_size",
+      "input": 0,
+      "output": "0 B"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 1,
+      "output": "1 B"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 1023,
+      "output": "1023 B"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 1024,
+      "output": "1.0 KB"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 1536,
+      "output": "1.5 KB"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 20971520,
+      "output": "20.0 MB"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 1073741823,
+      "output": "1024.0 MB"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 5497558138880,
+      "output": "5.0 TB"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 3377699720527872,
+      "output": "3072.0 TB"
+    },
+    {
+      "helper": "format_file_size",
+      "input": 100000000000000000000,
+      "output": "90949470.2 TB"
+    },
+    {
+      "helper": "to_positive_int",
+      "input": null,
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": true,
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": false,
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": 0,
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": 1,
+      "output": 1
+    },
+    {
+      "helper": "to_positive_int",
+      "input": -5,
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": 1.9,
+      "output": 1
+    },
+    {
+      "helper": "to_positive_int",
+      "input": 0.5,
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": -0.5,
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "12",
+      "output": 12
+    },
+    {
+      "helper": "to_positive_int",
+      "input": " 34 ",
+      "output": 34
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "0",
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "-3",
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "1.5",
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "",
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "٣",
+      "output": 3
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "²",
+      "output": {
+        "error_class": "ValueError",
+        "error": "invalid literal for int() with base 10: '²'"
+      }
+    },
+    {
+      "helper": "to_positive_int",
+      "input": [
+        1
+      ],
+      "output": null
+    },
+    {
+      "helper": "to_positive_int",
+      "input": "1e+30",
+      "output": 1000000000000000019884624838656
+    },
+    {
+      "helper": "detail",
+      "input": {},
+      "resolution": null,
+      "release_date": null
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": null
+      },
+      "resolution": null,
+      "release_date": null
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "dimension": {
+            "height": 1080
+          },
+          "pubdate": 1704067200
+        }
+      },
+      "resolution": "1080p",
+      "release_date": "2024-01-01"
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "dimension": {
+            "height": 0
+          },
+          "pages": [
+            {
+              "dimension": {
+                "height": 720
+              }
+            },
+            {
+              "dimension": {
+                "height": "2160"
+              }
+            },
+            "x",
+            {}
+          ]
+        }
+      },
+      "resolution": "2160p",
+      "release_date": null
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "dimension": "x",
+          "pages": [
+            {
+              "dimension": null
+            }
+          ]
+        }
+      },
+      "resolution": null,
+      "release_date": null
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "pages": null,
+          "ctime": "1700000000"
+        }
+      },
+      "resolution": null,
+      "release_date": "2023-11-14"
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "pubdate": 0,
+          "ctime": 1700000000.7
+        }
+      },
+      "resolution": null,
+      "release_date": "2023-11-14"
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "pubdate": true,
+          "ctime": null
+        }
+      },
+      "resolution": null,
+      "release_date": null
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "pubdate": 253402300800
+        }
+      },
+      "resolution": null,
+      "release_date": {
+        "error_class": "ValueError",
+        "error": "year 10000 is out of range"
+      }
+    },
+    {
+      "helper": "detail",
+      "input": {
+        "View": {
+          "pubdate": -5,
+          "ctime": "٣"
+        }
+      },
+      "resolution": null,
+      "release_date": "1970-01-01"
+    },
+    {
+      "helper": "cover",
+      "input": "//i0.hdslb.com/bfs/archive/a.jpg",
+      "normalized": "https://i0.hdslb.com/bfs/archive/a.jpg",
+      "placeholder": false
+    },
+    {
+      "helper": "cover",
+      "input": "https://i0.hdslb.com/bfs/archive/transparent.png",
+      "normalized": "https://i0.hdslb.com/bfs/archive/transparent.png",
+      "placeholder": true
+    },
+    {
+      "helper": "cover",
+      "input": "https://i0.hdslb.com/bfs/ARCHIVE/Transparent.GIF?x=1",
+      "normalized": "https://i0.hdslb.com/bfs/ARCHIVE/Transparent.GIF?x=1",
+      "placeholder": true
+    },
+    {
+      "helper": "cover",
+      "input": "https://i0.hdslb.com/archive/transparent-old.jpg",
+      "normalized": "https://i0.hdslb.com/archive/transparent-old.jpg",
+      "placeholder": true
+    },
+    {
+      "helper": "cover",
+      "input": "https://example.com/transparent.png.jpg",
+      "normalized": "https://example.com/transparent.png.jpg",
+      "placeholder": false
+    },
+    {
+      "helper": "cover",
+      "input": "http://x/a/transparent.gif#frag",
+      "normalized": "http://x/a/transparent.gif#frag",
+      "placeholder": true
+    },
+    {
+      "helper": "cover",
+      "input": "",
+      "normalized": "",
+      "placeholder": false
+    },
+    {
+      "helper": "cover",
+      "input": "////x",
+      "normalized": "https:////x",
+      "placeholder": false
+    },
+    {
+      "helper": "cover",
+      "input": "not a url",
+      "normalized": "not a url",
+      "placeholder": false
+    }
+  ]
+}

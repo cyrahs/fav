@@ -1,0 +1,36 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "json_dumps",
+  "cases": [
+    {
+      "name": "hash",
+      "mirrors": "src/web/{bd2,nikke,azurlane,nikke_layer_metadata}.py _json_dumps: sort_keys, separators=(',', ':'), ensure_ascii=False, default=str"
+    },
+    {
+      "name": "pretty",
+      "mirrors": "manifest writers in src/web/{nikke,azurlane,nikke_layer_metadata}.py: indent=2, sort_keys, ensure_ascii=False, default=str, plus a newline"
+    },
+    {
+      "name": "compact",
+      "mirrors": "src/tool/{control_queue,notifications}.py payloads: separators=(',', ':'), ensure_ascii=False, insertion order"
+    },
+    {
+      "name": "plain",
+      "mirrors": "src/core/settings.py rows, src/web/wechat.py: ensure_ascii=False, default separators, insertion order"
+    },
+    {
+      "name": "pretty_unsorted",
+      "mirrors": "src/web/wechat.py article.json on disk: indent=2, ensure_ascii=False, insertion order, no trailing newline"
+    },
+    {
+      "name": "sorted_plain",
+      "mirrors": "src/api/routes.py search haystack: ensure_ascii=False, sort_keys, default separators"
+    },
+    {
+      "name": "ascii",
+      "mirrors": "src/tool/site_sessions.py extra: json.dumps defaults (ensure_ascii=True)"
+    }
+  ]
+}

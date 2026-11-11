@@ -1,0 +1,1118 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":\"fresh\",\"created_at\":1799999900,\"ttl\":3600}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "renewed": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "fresh",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800003500.0
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800003500",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800003500.0
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":\"fresh\"}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "renewed": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "fresh",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800259200",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":\"fresh\",\"created_at\":0,\"ttl\":0}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "renewed": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "fresh",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800259200",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":\"fresh\",\"created_at\":\"1800000000\",\"ttl\":\"10\"}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "renewed": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "fresh",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800000010.0
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800000010",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800000010.0
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":\"\"}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "error_class": "RenewalError",
+      "error": "GenWebTicket: no ticket in the answer"
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":[]}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "error_class": "RenewalError",
+      "error": "GenWebTicket: no ticket in the answer"
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "error_class": "RenewalError",
+      "error": "GenWebTicket: no ticket in the answer"
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":-400,\"message\":\"bad\"}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "error_class": "RenewalError",
+      "error": "GenWebTicket: HTTP 200, code -400"
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "[1]"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "error_class": "RenewalError",
+      "error": "GenWebTicket: HTTP 200, code None"
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 503,
+        "headers": [
+          [
+            "content-type",
+            "text/plain; charset=utf-8"
+          ]
+        ],
+        "body": "<html>busy</html>"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "error_class": "RenewalError",
+      "error": "GenWebTicket: HTTP 503, not JSON"
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":\"0\"}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "error_class": "RenewalError",
+      "error": "GenWebTicket: HTTP 200, code 0"
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":5,\"created_at\":1.5,\"ttl\":2.5}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "renewed": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "old",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800259200",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 500,
+        "headers": [],
+        "body": ""
+      },
+      "requests": [],
+      "renewed": null
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "old",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800000600",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":\"n\"}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=old-jct",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=old-sess; bili_jct=old-jct; buvid3=b3; DedeUserID=42; bili_ticket=old; bili_ticket_expires=1800000600",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "renewed": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "n",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800259200",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "s",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "empty",
+          "value": "",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "answer": {
+        "status": 200,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ]
+        ],
+        "body": "{\"code\":0,\"data\":{\"ticket\":\"n\",\"ttl\":259200}}"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket?key_id=ec02&hexsign=666e2d0e452c31230305bf40e3870452c7477e366bf38c37a3e362ce97f53916&context%5Bts%5D=1800000000&csrf=",
+          "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "referer": "https://www.bilibili.com/",
+          "origin": "https://www.bilibili.com",
+          "cookie": "SESSDATA=s; buvid3=b",
+          "content_type": null,
+          "body": ""
+        }
+      ],
+      "renewed": [
+        {
+          "name": "SESSDATA",
+          "value": "s",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket",
+          "value": "n",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800259200",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        }
+      ]
+    }
+  ]
+}

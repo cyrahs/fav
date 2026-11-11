@@ -1,0 +1,507 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "pixiv",
+  "cases": [
+    {
+      "body": {
+        "works": [
+          {
+            "id": "96461036",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "2",
+            "title": "anim",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 2,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "3",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 1,
+            "pageCount": "4",
+            "isMasked": false
+          }
+        ]
+      },
+      "result": [
+        [
+          96461036,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          1,
+          false
+        ],
+        [
+          2,
+          "anim",
+          "the artist",
+          "50944445",
+          2,
+          1,
+          false
+        ],
+        [
+          3,
+          "a title",
+          "the artist",
+          "50944445",
+          1,
+          4,
+          false
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": 130954211,
+            "title": "-----",
+            "isMasked": true
+          }
+        ]
+      },
+      "result": [
+        [
+          130954211,
+          "-----",
+          "",
+          "",
+          0,
+          1,
+          true
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": "96461036",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 7,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "5",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "6",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": null,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "7",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": "1",
+            "pageCount": 1,
+            "isMasked": false
+          }
+        ]
+      },
+      "result": [
+        [
+          5,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          1,
+          false
+        ],
+        [
+          7,
+          "a title",
+          "the artist",
+          "50944445",
+          1,
+          1,
+          false
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": true,
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": 1.5,
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": " 42 ",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": null,
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "x1",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          }
+        ]
+      },
+      "result": [
+        [
+          42,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          1,
+          false
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": "8",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": 1
+          },
+          {
+            "id": "9",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 9,
+            "pageCount": 1,
+            "isMasked": "yes"
+          },
+          {
+            "id": "10",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 9,
+            "pageCount": 1,
+            "isMasked": 0
+          }
+        ]
+      },
+      "result": [
+        [
+          8,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          1,
+          true
+        ],
+        [
+          9,
+          "a title",
+          "the artist",
+          "50944445",
+          9,
+          1,
+          true
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": "11",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 0,
+            "isMasked": false
+          },
+          {
+            "id": "12",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": null,
+            "isMasked": false
+          },
+          {
+            "id": "13",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": "0",
+            "isMasked": false
+          },
+          {
+            "id": "14",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": -2,
+            "isMasked": false
+          }
+        ]
+      },
+      "result": [
+        [
+          11,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          1,
+          false
+        ],
+        [
+          12,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          1,
+          false
+        ],
+        [
+          13,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          1,
+          false
+        ],
+        [
+          14,
+          "a title",
+          "the artist",
+          "50944445",
+          0,
+          -2,
+          false
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": "15",
+            "title": null,
+            "userId": 12345,
+            "userName": 0,
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "16",
+            "title": 0,
+            "userId": "",
+            "userName": "",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          }
+        ]
+      },
+      "result": [
+        [
+          15,
+          "",
+          "",
+          "12345",
+          0,
+          1,
+          false
+        ],
+        [
+          16,
+          "",
+          "",
+          "",
+          0,
+          1,
+          false
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": "17",
+            "title": [
+              "list"
+            ],
+            "userId": "50944445",
+            "userName": {
+              "a": 1
+            },
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          "not a dict",
+          null,
+          5
+        ]
+      },
+      "result": [
+        [
+          17,
+          "['list']",
+          "{'a': 1}",
+          "50944445",
+          0,
+          1,
+          false
+        ]
+      ]
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": "18",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": true,
+            "pageCount": 1,
+            "isMasked": false
+          },
+          {
+            "id": "19",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 2.0,
+            "pageCount": 1,
+            "isMasked": false
+          }
+        ]
+      },
+      "result": []
+    },
+    {
+      "body": {
+        "works": [
+          {
+            "id": "²",
+            "title": "a title",
+            "userId": "50944445",
+            "userName": "the artist",
+            "illustType": 0,
+            "pageCount": 1,
+            "isMasked": false
+          }
+        ]
+      },
+      "error": [
+        "ValueError",
+        "invalid literal for int() with base 10: '²'"
+      ]
+    },
+    {
+      "body": {
+        "works": []
+      },
+      "result": []
+    },
+    {
+      "body": {
+        "works": null
+      },
+      "result": []
+    },
+    {
+      "body": {
+        "works": "text"
+      },
+      "result": []
+    },
+    {
+      "body": {},
+      "result": []
+    },
+    {
+      "body": {
+        "total": 3
+      },
+      "result": []
+    }
+  ]
+}

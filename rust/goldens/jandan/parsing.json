@@ -1,0 +1,640 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "jandan",
+  "cases": [
+    {
+      "to_int": 0,
+      "result": 0
+    },
+    {
+      "to_int": 7,
+      "result": 7
+    },
+    {
+      "to_int": -3,
+      "result": -3
+    },
+    {
+      "to_int": 2.9,
+      "result": 2
+    },
+    {
+      "to_int": -2.9,
+      "result": -2
+    },
+    {
+      "to_int": true,
+      "result": null
+    },
+    {
+      "to_int": null,
+      "result": null
+    },
+    {
+      "to_int": "42",
+      "result": 42
+    },
+    {
+      "to_int": " 42 ",
+      "result": 42
+    },
+    {
+      "to_int": "-1",
+      "result": null
+    },
+    {
+      "to_int": "٤٢",
+      "result": 42
+    },
+    {
+      "to_int": "²",
+      "result": "ValueError: invalid literal for int() with base 10: '²'"
+    },
+    {
+      "to_int": "4.2",
+      "result": null
+    },
+    {
+      "to_int": "",
+      "result": null
+    },
+    {
+      "to_int": [
+        1
+      ],
+      "result": null
+    },
+    {
+      "to_int": {
+        "a": 1
+      },
+      "result": null
+    },
+    {
+      "extract_pic_images": [
+        {
+          "id": 6095815,
+          "date": "2026-02-25T02:14:46.000Z",
+          "author": "author-a",
+          "contents": [
+            {
+              "contentType": "image",
+              "content": " http://img.wangmoyu.com/mw600/demo-a.jpg ",
+              "md5": " abc ",
+              "imageType": "JPEG"
+            },
+            {
+              "contentType": "video",
+              "content": "http://img.wangmoyu.com/demo.mp4"
+            },
+            {
+              "contentType": "IMAGE",
+              "content": "//img.wangmoyu.com/mw600/demo-b.png",
+              "md5": "",
+              "imageType": ""
+            },
+            {
+              "contentType": "image",
+              "content": "   "
+            },
+            {
+              "contentType": "image",
+              "content": 5
+            },
+            "not a dict"
+          ]
+        },
+        {
+          "id": "6095816",
+          "date": "",
+          "author": "",
+          "contents": [
+            {
+              "contentType": "image",
+              "content": "https://x/a.gif"
+            }
+          ]
+        },
+        {
+          "id": "abc",
+          "contents": [
+            {
+              "contentType": "image",
+              "content": "https://x/skipped.gif"
+            }
+          ]
+        },
+        {
+          "id": 1.9,
+          "author": 7,
+          "date": 0,
+          "contents": [
+            {
+              "contentType": "image",
+              "content": "https://x/float-id.gif"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "contents": "not a list"
+        },
+        {
+          "id": true,
+          "contents": [
+            {
+              "contentType": "image",
+              "content": "https://x/bool-id.gif"
+            }
+          ]
+        }
+      ],
+      "result": [
+        {
+          "fav_type": 1,
+          "pic_id": 6095815,
+          "content_index": 1,
+          "content_url": "http://img.wangmoyu.com/mw600/demo-a.jpg",
+          "content_md5": "abc",
+          "author": "author-a",
+          "post_date": "2026-02-25T02:14:46.000Z",
+          "image_type": "jpeg"
+        },
+        {
+          "fav_type": 1,
+          "pic_id": 6095815,
+          "content_index": 3,
+          "content_url": "https://img.wangmoyu.com/mw600/demo-b.png",
+          "content_md5": null,
+          "author": "author-a",
+          "post_date": "2026-02-25T02:14:46.000Z",
+          "image_type": null
+        },
+        {
+          "fav_type": 1,
+          "pic_id": 6095816,
+          "content_index": 1,
+          "content_url": "https://x/a.gif",
+          "content_md5": null,
+          "author": "unknown",
+          "post_date": null,
+          "image_type": null
+        },
+        {
+          "fav_type": 1,
+          "pic_id": 1,
+          "content_index": 1,
+          "content_url": "https://x/float-id.gif",
+          "content_md5": null,
+          "author": "7",
+          "post_date": null,
+          "image_type": null
+        }
+      ],
+      "last_date": "2026-02-25T02:14:46.000Z"
+    },
+    {
+      "extract_pic_images": [
+        {
+          "id": "²",
+          "contents": []
+        }
+      ],
+      "result": "ValueError: invalid literal for int() with base 10: '²'",
+      "last_date": null
+    },
+    {
+      "extract_fav_items": {
+        "pics": [
+          {
+            "id": 1
+          },
+          "skip",
+          {
+            "id": 2
+          }
+        ]
+      },
+      "fav_type": 1,
+      "result": [
+        {
+          "id": 1
+        },
+        {
+          "id": 2
+        }
+      ]
+    },
+    {
+      "extract_fav_items": {
+        "girls": [
+          {
+            "id": 1
+          }
+        ],
+        "pics": [
+          {
+            "id": 2
+          }
+        ]
+      },
+      "fav_type": 2,
+      "result": [
+        {
+          "id": 1
+        }
+      ]
+    },
+    {
+      "extract_fav_items": {
+        "nzs": "not a list",
+        "pics": [
+          {
+            "id": 3
+          }
+        ]
+      },
+      "fav_type": 6,
+      "result": [
+        {
+          "id": 3
+        }
+      ]
+    },
+    {
+      "extract_fav_items": {
+        "other": [
+          {
+            "id": 4
+          }
+        ],
+        "more": [
+          {
+            "id": 5
+          }
+        ]
+      },
+      "fav_type": 6,
+      "result": [
+        {
+          "id": 4
+        }
+      ]
+    },
+    {
+      "extract_fav_items": {
+        "meta": {
+          "a": 1
+        }
+      },
+      "fav_type": 9,
+      "result": []
+    },
+    {
+      "extract_fav_items": {},
+      "fav_type": 1,
+      "result": []
+    },
+    {
+      "url": "http://wx1.sinaimg.cn/mw600/abc.jpg",
+      "candidates": [
+        "http://wx1.sinaimg.cn/large/abc.jpg",
+        "http://wx1.sinaimg.cn/mw600/abc.jpg"
+      ],
+      "shards": [
+        "http://wx2.sinaimg.cn/mw600/abc.jpg",
+        "http://wx3.sinaimg.cn/mw600/abc.jpg",
+        "http://wx4.sinaimg.cn/mw600/abc.jpg"
+      ],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "http://wx4.sinaimg.cn/mw1024/abc.jpg?x=1&y=2",
+      "candidates": [
+        "http://wx4.sinaimg.cn/large/abc.jpg?x=1&y=2",
+        "http://wx4.sinaimg.cn/mw1024/abc.jpg?x=1&y=2"
+      ],
+      "shards": [
+        "http://wx1.sinaimg.cn/mw1024/abc.jpg?x=1&y=2",
+        "http://wx2.sinaimg.cn/mw1024/abc.jpg?x=1&y=2",
+        "http://wx3.sinaimg.cn/mw1024/abc.jpg?x=1&y=2"
+      ],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "http://img.wangmoyu.com/mw600/mw600/abc.png",
+      "candidates": [
+        "http://img.wangmoyu.com/large/mw600/abc.png",
+        "http://img.wangmoyu.com/mw600/mw600/abc.png"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ],
+        [
+          "Referer",
+          "https://jandan.net/"
+        ]
+      ]
+    },
+    {
+      "url": "http://WX1.SINAIMG.CN/MW600/abc.jpg",
+      "candidates": [
+        "http://WX1.SINAIMG.CN/MW600/abc.jpg"
+      ],
+      "shards": [
+        "http://wx2.sinaimg.cn/MW600/abc.jpg",
+        "http://wx3.sinaimg.cn/MW600/abc.jpg",
+        "http://wx4.sinaimg.cn/MW600/abc.jpg"
+      ],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "//tvax3.sinaimg.cn/mw2000/abc.jpg#frag",
+      "candidates": [
+        "https://tvax3.sinaimg.cn/large/abc.jpg#frag",
+        "https://tvax3.sinaimg.cn/mw2000/abc.jpg#frag"
+      ],
+      "shards": [
+        "//tvax1.sinaimg.cn/mw2000/abc.jpg#frag",
+        "//tvax2.sinaimg.cn/mw2000/abc.jpg#frag",
+        "//tvax4.sinaimg.cn/mw2000/abc.jpg#frag"
+      ],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "https://sinaimg.cn/mw600/abc.jpg",
+      "candidates": [
+        "https://sinaimg.cn/large/abc.jpg",
+        "https://sinaimg.cn/mw600/abc.jpg"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "https://cdn.example.com/mw600/abc.jpg",
+      "candidates": [
+        "https://cdn.example.com/mw600/abc.jpg"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "https://img.wangmoyu.com/large/abc.jpg",
+      "candidates": [
+        "https://img.wangmoyu.com/large/abc.jpg"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ],
+        [
+          "Referer",
+          "https://jandan.net/"
+        ]
+      ]
+    },
+    {
+      "url": "https://notwangmoyu.com/mw600/abc.jpg",
+      "candidates": [
+        "https://notwangmoyu.com/large/abc.jpg",
+        "https://notwangmoyu.com/mw600/abc.jpg"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ],
+        [
+          "Referer",
+          "https://jandan.net/"
+        ]
+      ]
+    },
+    {
+      "url": "https://x.sinaimg.cn.evil/mw600/abc.jpg",
+      "candidates": [
+        "https://x.sinaimg.cn.evil/mw600/abc.jpg"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "http://wx5.sinaimg.cn/large/abc.jpg",
+      "candidates": [
+        "http://wx5.sinaimg.cn/large/abc.jpg"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "http://wx12.sinaimg.cn/large/abc.jpg",
+      "candidates": [
+        "http://wx12.sinaimg.cn/large/abc.jpg"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "http://Wx2.Sinaimg.cn:8080/large/abc.jpg",
+      "candidates": [
+        "http://Wx2.Sinaimg.cn:8080/large/abc.jpg"
+      ],
+      "shards": [
+        "http://wx1.sinaimg.cn/large/abc.jpg",
+        "http://wx3.sinaimg.cn/large/abc.jpg",
+        "http://wx4.sinaimg.cn/large/abc.jpg"
+      ],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "http://[::1/abc.jpg",
+      "candidates": "ValueError: Invalid IPv6 URL",
+      "shards": "ValueError: Invalid IPv6 URL",
+      "headers": "ValueError: Invalid IPv6 URL"
+    },
+    {
+      "url": "not a url",
+      "candidates": [
+        "not a url"
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "url": "",
+      "candidates": [
+        ""
+      ],
+      "shards": [],
+      "headers": [
+        [
+          "Accept",
+          "image/*,*/*;q=0.8"
+        ],
+        [
+          "Connection",
+          "keep-alive"
+        ]
+      ]
+    },
+    {
+      "extension": "https://img.example.com/path/abc.unknown",
+      "image_type": "jpeg",
+      "result": "jpg"
+    },
+    {
+      "extension": "https://img.example.com/path/abc.gif?token=1",
+      "image_type": null,
+      "result": "gif"
+    },
+    {
+      "extension": "https://img.example.com/path/no-ext",
+      "image_type": null,
+      "result": "jpg"
+    },
+    {
+      "extension": "https://img.example.com/path/ABC.WEBP",
+      "image_type": "",
+      "result": "webp"
+    },
+    {
+      "extension": "https://img.example.com/path/abc.png",
+      "image_type": " PNG ",
+      "result": "png"
+    },
+    {
+      "extension": "https://img.example.com/path/abc.png",
+      "image_type": "tiff",
+      "result": "png"
+    },
+    {
+      "extension": "https://img.example.com/path/abc.jpeg/",
+      "image_type": null,
+      "result": "jpg"
+    },
+    {
+      "extension": "https://img.example.com/",
+      "image_type": null,
+      "result": "jpg"
+    }
+  ]
+}

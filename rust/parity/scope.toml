@@ -1,0 +1,186 @@
+# Which work package ports which Python tests. Read by rust/tools/parity/parity.py.
+#
+# Every Python test must match exactly one package. A pattern without `::` names a whole
+# file; `file::test_*` (fnmatch) or `file::test_name` claims tests out of a file another
+# package owns, because a more specific pattern wins. A package splitting a file adds
+# the specific patterns here in its own PR.
+#
+# status: pending | in-progress | done. Set `done` in the PR that finishes the package;
+# from then on CI requires every test in scope to be ported or waived.
+
+[WP0]
+title = "Foundation"
+status = "done"
+tests = []
+
+[WP1]
+title = "Env, settings, DB layer, logging, filenames, JSON"
+status = "done"
+tests = [
+    "tests/test_config_env.py",
+    "tests/test_settings_store.py",
+    "tests/test_schedule_config.py",
+    "tests/test_database.py",
+]
+
+[WP2]
+title = "Notifications, control queue, site sessions, scheduler, worker"
+status = "done"
+tests = [
+    "tests/test_notifications.py",
+    "tests/test_telegram_bot.py",
+    "tests/test_control_queue.py",
+    "tests/test_run_control_requests.py",
+]
+
+[WP3]
+title = "API skeleton, auth, settings, jobs, archive, credentials, front end"
+status = "done"
+tests = [
+    "tests/test_api_server.py",
+    "tests/test_settings_masking.py",
+    "tests/test_credentials_api.py",
+]
+
+[WP4]
+title = "MCP tools and ops queries"
+status = "done"
+tests = ["tests/test_mcp.py"]
+
+[WP5]
+title = "Jandan, Kemono"
+status = "done"
+tests = [
+    "tests/test_jandan.py",
+    "tests/test_kemono.py",
+    "tests/test_kemono_creator.py",
+    # The creator-resolve endpoint arrives with the Kemono port.
+    "tests/test_api_server.py::test_*kemono*",
+]
+
+[WP6]
+title = "Stella Sora, Pixiv"
+status = "done"
+tests = ["tests/test_stellasora.py", "tests/test_stellasora_notifications.py", "tests/test_pixiv.py"]
+
+[WP7]
+title = "Bilibili, X, yt-dlp and gallery-dl wrappers"
+status = "done"
+tests = ["tests/test_bilibili.py", "tests/test_bilibili_session.py", "tests/test_twitter.py"]
+
+[WP8]
+title = "Hanime1"
+status = "done"
+tests = [
+    "tests/test_hanime1.py",
+    "tests/test_hanime1_author.py",
+    # The Hanime1 endpoints and /readyz (its probe) arrive with the Hanime1 port.
+    "tests/test_api_server.py::test_*hanime1*",
+    "tests/test_api_server.py::test_readiness_*",
+]
+
+[WP9]
+title = "Nikke crawl, layer metadata, manifests, API reader"
+status = "done"
+tests = [
+    "tests/test_nikke.py",
+    "tests/test_nikke_api.py",
+    "tests/test_nikke_layer_metadata.py",
+    "tests/test_nikke_layer_metadata_script.py",
+    "tests/test_game_content_notifications.py",
+]
+
+[WP10]
+title = "BD2 crawl, manifests, API reader, Live2D view overrides"
+status = "done"
+tests = [
+    "tests/test_bd2.py",
+    "tests/test_bd2_api.py",
+    "tests/test_bd2_l2d_viewer.py",
+    # The BD2 discovery notifications (the file's Nikke tests are WP9's).
+    "tests/test_game_content_notifications.py::test_bd2_existing_character_notification_includes_new_skin_name",
+    "tests/test_game_content_notifications.py::test_discovery_notifications_are_suppressed_without_an_existing_archive_baseline",
+    # The Nikke view-override routes and detail overlay run on WP10's override store.
+    "tests/test_nikke_api.py::test_nikke_live2d_view_override_save_and_detail_overlay",
+]
+
+[WP11]
+title = "Azur Lane source parsing, AZP2, connect_to"
+status = "done"
+tests = [
+    "tests/test_azurlane_l2d_sources.py",
+    "tests/test_azurlane_protected.py",
+    "tests/test_azurlane_hashed_build.py",
+    "tests/test_connect_to.py",
+]
+
+[WP12]
+title = "Azur Lane crawl, manifests, API reader"
+status = "done"
+tests = [
+    "tests/test_azurlane.py",
+    "tests/test_azurlane_api.py",
+    # Asserts Hanime1, Nikke, BD2 and Azur Lane paths in /openapi.json; WP12 serves the last of them.
+    "tests/test_api_server.py::test_docs_and_openapi_are_public_and_v2_only",
+]
+
+[WP13]
+title = "Post links: WeChat articles, Tieba, NGA, Zhihu, TikHub"
+status = "done"
+tests = [
+    "tests/test_post_links.py",
+    "tests/test_zhihu_post.py",
+    # The article, Tieba and NGA parsing tests of the WeChat file, which need nothing of the
+    # WeChat source itself.
+    "tests/test_wechat.py::test_an_article_share_is_recognised_from_its_appmsg_xml",
+    "tests/test_wechat.py::test_an_article_page_yields_its_body_images_once_each",
+    "tests/test_wechat.py::test_an_image_post_takes_its_pictures_from_the_picture_list",
+    "tests/test_wechat.py::test_a_picture_list_yields_each_picture_and_not_its_nested_urls",
+    "tests/test_wechat.py::test_an_image_post_share_names_its_cover_and_picture_count",
+    "tests/test_wechat.py::test_a_tieba_share_names_its_post",
+    "tests/test_wechat.py::test_nga_pictures_are_the_uploads_behind_the_first_floor_s_renditions",
+    "tests/test_wechat.py::test_an_nga_login_is_verified_against_the_notification_list",
+    "tests/test_wechat.py::test_nga_turning_the_session_away_is_not_a_login",
+    "tests/test_wechat.py::test_an_nga_login_needs_both_passport_cookies",
+    "tests/test_wechat.py::test_nga_answering_oddly_does_not_hold_the_login_up",
+]
+
+[WP14]
+title = "WeChat, Channels videos, stickers"
+status = "done"
+tests = ["tests/test_wechat.py"]
+
+[WP15]
+title = "Telegram: grammers client, durable queue, realtime listener"
+status = "done"
+tests = ["tests/test_telegram.py", "tests/test_telegram_queue.py"]
+
+[WP16]
+title = "CDP driver layer, login window"
+status = "done"
+tests = [
+    "tests/test_browser_login.py",
+    # The browser helpers the login window shares with RedNote: proxy splitting, the
+    # profile lock, and reading the profile id and client hints off a page.
+    "tests/test_rednote.py::test_proxy_credentials_are_split_out_of_the_url",
+    "tests/test_rednote.py::test_an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous",
+    "tests/test_rednote.py::test_a_killed_chromium_does_not_lock_the_profile_forever",
+    "tests/test_rednote.py::test_the_profile_id_is_never_taken_from_a_signed_out_page",
+    "tests/test_rednote.py::test_a_client_hints_read_cut_short_by_the_error_page_is_tried_again",
+    "tests/test_rednote.py::test_hints_that_never_come_back_cost_the_metadata_and_not_the_run",
+]
+
+[WP17]
+title = "RedNote, Nikke runtime capture"
+status = "done"
+tests = ["tests/test_rednote.py", "tests/test_rednote_missing_db.py", "tests/test_nikke_runtime.py"]
+
+[WP18]
+title = "Dockerfile, memory benchmark, parity audit, final report"
+status = "done"
+tests = [
+    "tests/test_dependencies.py",
+    # Reads the Python Dockerfile (the layer-metadata script and the Playwright smoke run);
+    # the Rust image is WP18's.
+    "tests/test_nikke_layer_metadata_script.py::test_dockerfile_copies_layer_metadata_script_and_runs_playwright_smoke",
+]

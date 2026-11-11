@@ -1,0 +1,22 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "hanime1",
+  "cases": [
+    {
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+      "cf_block_markers": [
+        "Attention Required! | Cloudflare",
+        "cf-error-details"
+      ],
+      "parser_failure_dedupe_key": "job_failed:hanime1:hanime1:parser:playlist-wrapper",
+      "ignored_title_markers": [
+        "[新番预告]",
+        "[中字后补]",
+        "[中文后补]"
+      ],
+      "series_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    }
+  ]
+}

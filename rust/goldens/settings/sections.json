@@ -1,0 +1,91 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "settings",
+  "cases": [
+    {
+      "section": "web.bilibili",
+      "model": "Bilibili",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.telegram",
+      "model": "Telegram",
+      "sensitive_fields": [
+        "accounts[].api_hash"
+      ]
+    },
+    {
+      "section": "web.stellasora",
+      "model": "Stellasora",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.nikke",
+      "model": "Nikke",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.bd2",
+      "model": "BD2",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.azurlane",
+      "model": "AzurLane",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.hanime1",
+      "model": "Hanime1",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.jandan",
+      "model": "Jandan",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.kemono",
+      "model": "Kemono",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.twitter",
+      "model": "Twitter",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.pixiv",
+      "model": "Pixiv",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.rednote",
+      "model": "RedNote",
+      "sensitive_fields": []
+    },
+    {
+      "section": "web.wechat",
+      "model": "Wechat",
+      "sensitive_fields": [
+        "token"
+      ]
+    },
+    {
+      "section": "notifications.telegram",
+      "model": "TelegramNotification",
+      "sensitive_fields": [
+        "bot_token"
+      ]
+    },
+    {
+      "section": "services.tikhub",
+      "model": "TikHub",
+      "sensitive_fields": [
+        "token"
+      ]
+    }
+  ]
+}

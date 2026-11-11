@@ -1,0 +1,128 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "filename",
+  "cases": [
+    {
+      "name": "plain title",
+      "max_bytes": 200,
+      "result": "plain title"
+    },
+    {
+      "name": "  padded  ",
+      "max_bytes": 200,
+      "result": "padded"
+    },
+    {
+      "name": "a<b>c:d\"e/f\\g|h?i*j\nk",
+      "max_bytes": 200,
+      "result": "a_b_c_d_e_f_g_h_i_j_k"
+    },
+    {
+      "name": "tab\tand\rreturn stay",
+      "max_bytes": 200,
+      "result": "tab\tand\rreturn stay"
+    },
+    {
+      "name": "\n\n",
+      "max_bytes": 200,
+      "result": "__"
+    },
+    {
+      "name": "中文标题：测试/斜杠",
+      "max_bytes": 200,
+      "result": "中文标题：测试_斜杠"
+    },
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "max_bytes": 200,
+      "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+      "max_bytes": 200,
+      "result": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中"
+    },
+    {
+      "name": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+      "max_bytes": 50,
+      "result": "中中中中中中中中中中中中中中中中"
+    },
+    {
+      "name": "ab中",
+      "max_bytes": 4,
+      "result": "ab"
+    },
+    {
+      "name": "ab中",
+      "max_bytes": 5,
+      "result": "ab中"
+    },
+    {
+      "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "max_bytes": 200,
+      "result": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    {
+      "name": "😀ab",
+      "max_bytes": 3,
+      "result": ""
+    },
+    {
+      "name": "trailing space after cut   x",
+      "max_bytes": 22,
+      "result": "trailing space after c"
+    },
+    {
+      "name": "",
+      "max_bytes": 200,
+      "result": ""
+    },
+    {
+      "name": "   ",
+      "max_bytes": 200,
+      "result": ""
+    },
+    {
+      "name": "aaaaaaaaaa",
+      "max_bytes": 0,
+      "result": ""
+    },
+    {
+      "name": "\u001c\u001d\u001e\u001fcontrols\u001f",
+      "max_bytes": 200,
+      "result": "controls"
+    },
+    {
+      "name": "next line",
+      "max_bytes": 200,
+      "result": "next line"
+    },
+    {
+      "name": " no-break ",
+      "max_bytes": 200,
+      "result": "no-break"
+    },
+    {
+      "name": "　全角空格　",
+      "max_bytes": 200,
+      "result": "全角空格"
+    },
+    {
+      "name": " line sep ",
+      "max_bytes": 200,
+      "result": "line sep"
+    },
+    {
+      "name": "​zero width stays​",
+      "max_bytes": 200,
+      "result": "​zero width stays​"
+    },
+    {
+      "name": "\u000bvt\fff",
+      "max_bytes": 200,
+      "result": "vt\fff"
+    }
+  ]
+}

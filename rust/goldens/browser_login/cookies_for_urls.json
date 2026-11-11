@@ -1,0 +1,776 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "browser_login",
+  "cases": [
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "https://x.com/"
+      ],
+      "result": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "https://www.x.com/"
+      ],
+      "result": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "https://api.x.com/1.1/"
+      ],
+      "result": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "https://www.bilibili.com/"
+      ],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "https://www.bilibili.com/",
+        "https://passport.bilibili.com/login"
+      ],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "https://WWW.Bilibili.com/"
+      ],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "not a url"
+      ],
+      "result": [
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "sub_only",
+          "domain": "api.x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "lookalike",
+          "domain": ".notx.com"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        },
+        {
+          "name": "none",
+          "domain": null
+        },
+        {
+          "name": "missing"
+        },
+        {
+          "name": "empty",
+          "domain": ""
+        },
+        {
+          "name": "upper",
+          "domain": ".X.com"
+        }
+      ],
+      "urls": [
+        "https://www.pixiv.net/",
+        "https://x.com"
+      ],
+      "result": [
+        {
+          "name": "auth_token",
+          "domain": ".x.com"
+        },
+        {
+          "name": "host_only",
+          "domain": "x.com"
+        },
+        {
+          "name": "other",
+          "domain": ".pixiv.net"
+        },
+        {
+          "name": "dots",
+          "domain": "..x.com"
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "https://x.com/"
+      ],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "https://www.x.com/"
+      ],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "https://api.x.com/1.1/"
+      ],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "https://www.bilibili.com/"
+      ],
+      "result": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "https://www.bilibili.com/",
+        "https://passport.bilibili.com/login"
+      ],
+      "result": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "https://WWW.Bilibili.com/"
+      ],
+      "result": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "not a url"
+      ],
+      "result": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "v",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1900000000.0
+        },
+        {
+          "name": "bili_jct",
+          "value": "w",
+          "domain": "www.bilibili.com",
+          "path": "/"
+        },
+        {
+          "name": "passport",
+          "value": "p",
+          "domain": "passport.bilibili.com"
+        }
+      ],
+      "urls": [
+        "https://www.pixiv.net/",
+        "https://x.com"
+      ],
+      "result": []
+    }
+  ]
+}

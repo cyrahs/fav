@@ -1,0 +1,263 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "old-sess",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "b3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "updates": [
+        {
+          "name": "SESSDATA",
+          "value": "n",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "buvid3",
+          "value": "x",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1.0
+        },
+        {
+          "name": "b_nut",
+          "value": "9",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "merged": [
+        {
+          "name": "SESSDATA",
+          "value": "n",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_jct",
+          "value": "old-jct",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "DedeUserID",
+          "value": "42",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "b_nut",
+          "value": "9",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "a",
+          "value": "1",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "b",
+          "value": "",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "updates": [
+        {
+          "name": "c",
+          "value": "3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800000010.0
+        },
+        {
+          "name": "c",
+          "value": "4",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800000020.0
+        }
+      ],
+      "merged": [
+        {
+          "name": "a",
+          "value": "1",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "c",
+          "value": "4",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800000020.0
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "a",
+          "value": "1",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1799999999.0
+        },
+        {
+          "name": "A",
+          "value": "2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "updates": [
+        {
+          "name": "a",
+          "value": "",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800000010.0
+        }
+      ],
+      "merged": [
+        {
+          "name": "A",
+          "value": "2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "cookies": [],
+      "updates": [],
+      "merged": []
+    },
+    {
+      "cookies": [
+        {
+          "name": "x",
+          "value": "1",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "updates": [
+        {
+          "name": "X",
+          "value": "2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "merged": [
+        {
+          "name": "x",
+          "value": "1",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "X",
+          "value": "2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    },
+    {
+      "cookies": [
+        {
+          "name": "x",
+          "value": "1",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "x",
+          "value": "2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "updates": [
+        {
+          "name": "x",
+          "value": "3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "merged": [
+        {
+          "name": "x",
+          "value": "3",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "x",
+          "value": "2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ]
+    }
+  ]
+}

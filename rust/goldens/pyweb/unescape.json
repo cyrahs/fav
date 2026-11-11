@@ -1,0 +1,72 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "pyweb",
+  "cases": [
+    {
+      "text": "plain",
+      "result": "plain"
+    },
+    {
+      "text": "&amp; &lt; &gt; &quot; &#39;",
+      "result": "& < > \" '"
+    },
+    {
+      "text": "&amp &lt &gt &copy",
+      "result": "& < > ©"
+    },
+    {
+      "text": "&ampx &notit; &notin; &noti &not",
+      "result": "&x ¬it; ∉ ¬i ¬"
+    },
+    {
+      "text": "&#65;&#x41;&#X41;&#0065",
+      "result": "AAAA"
+    },
+    {
+      "text": "&#0; &#13; &#128; &#129; &#150; &#159;",
+      "result": "� \r €  – Ÿ"
+    },
+    {
+      "text": "&#xD800; &#xDFFF; &#x110000; &#99999999999999999999;",
+      "result": "� � � �"
+    },
+    {
+      "text": "&#1; &#11; &#x7f; &#xfdd0; &#xfffe; &#x1ffff; &#x10ffff;",
+      "result": "      "
+    },
+    {
+      "text": "&#; &#x; &#xg; &# &",
+      "result": "&#; &#x; &#xg; &# &"
+    },
+    {
+      "text": "&unknown; &zz &a",
+      "result": "&unknown; &zz &a"
+    },
+    {
+      "text": "&ThisNameIsLongerThanThirtyTwoCharactersSurely;",
+      "result": "&ThisNameIsLongerThanThirtyTwoCharactersSurely;"
+    },
+    {
+      "text": "&amp\n&amp\t&amp<&amp&&amp#",
+      "result": "&\n&\t&<&&&#"
+    },
+    {
+      "text": "&lt;script&gt;&amp;lt;",
+      "result": "<script>&lt;"
+    },
+    {
+      "text": "中&amp;文 &中; &#x4e2d;",
+      "result": "中&文 &中; 中"
+    },
+    {
+      "text": "&nbsp;&NewLine;&Tab;&bne;&nGt;",
+      "result": " \n\t=⃥≫⃒"
+    },
+    {
+      "text": "&AMP;&Amp;&aMp;",
+      "result": "&&Amp;&aMp;"
+    }
+  ]
+}

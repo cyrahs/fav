@@ -1,0 +1,251 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "cookies": [],
+      "expires_at": null,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "SESSDATA",
+          "value": "s",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": null,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": null,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800216000",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": 1800216000.0,
+      "due": false
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800172800",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": 1800172800.0,
+      "due": false
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800172801",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": 1800172801.0,
+      "due": false
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800003600",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": 1800003600.0,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": " 1800200000",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": null,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "१८००९००००००",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": 18009000000.0,
+      "due": false
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        },
+        {
+          "name": "bili_ticket_expires",
+          "value": "soon",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": 1800259200.0,
+      "due": false
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800086400.0
+        }
+      ],
+      "expires_at": 1800086400.0,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "BILI_TICKET",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        }
+      ],
+      "expires_at": null,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 1800259200.0
+        },
+        {
+          "name": "bili_ticket",
+          "value": "t2",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": 1800259200.0,
+      "due": false
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket",
+          "value": "t",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": 0.0
+        }
+      ],
+      "expires_at": null,
+      "due": true
+    },
+    {
+      "cookies": [
+        {
+          "name": "bili_ticket_expires",
+          "value": "1800259200",
+          "domain": ".bilibili.com",
+          "path": "/",
+          "expires": null
+        }
+      ],
+      "expires_at": null,
+      "due": true
+    }
+  ]
+}

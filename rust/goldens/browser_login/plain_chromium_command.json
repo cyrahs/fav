@@ -1,0 +1,288 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "browser_login",
+  "cases": [
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--no-proxy-server",
+        "https://x.com/i/flow/login"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--no-proxy-server",
+        "about:blank"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://home.proxy.svc.cluster.local",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--proxy-server=http://home.proxy.svc.cluster.local",
+        "https://x.com/i/flow/login"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://home.proxy.svc.cluster.local",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--proxy-server=http://home.proxy.svc.cluster.local",
+        "about:blank"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "home.example:3128",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--proxy-server=http://home.example:3128",
+        "https://x.com/i/flow/login"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "home.example:3128",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--proxy-server=http://home.example:3128",
+        "about:blank"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "socks5://home.example:1080",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--proxy-server=socks5://home.example:1080",
+        "https://x.com/i/flow/login"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "socks5://home.example:1080",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "command": [
+        "/opt/chrome",
+        "--user-data-dir=/data/profiles/x",
+        "--remote-debugging-port=5998",
+        "--remote-debugging-address=127.0.0.1",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--hide-crash-restore-bubble",
+        "--lang=zh-CN",
+        "--window-size=1280,800",
+        "--window-position=0,0",
+        "--proxy-server=socks5://home.example:1080",
+        "about:blank"
+      ]
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://user:pass@proxy.example:3128",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "error": {
+        "class": "LoginError",
+        "message": "The login window cannot authenticate to a proxy; use one without credentials for this site."
+      }
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://user:pass@proxy.example:3128",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "error": {
+        "class": "LoginError",
+        "message": "The login window cannot authenticate to a proxy; use one without credentials for this site."
+      }
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://:pw@proxy.example",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "error": {
+        "class": "LoginError",
+        "message": "The login window cannot authenticate to a proxy; use one without credentials for this site."
+      }
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://:pw@proxy.example",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "error": {
+        "class": "LoginError",
+        "message": "The login window cannot authenticate to a proxy; use one without credentials for this site."
+      }
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "socks5://user:pw@h:1",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Chromium cannot authenticate to a SOCKS proxy; use an http:// or https:// proxy instead."
+      }
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "socks5://user:pw@h:1",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Chromium cannot authenticate to a SOCKS proxy; use an http:// or https:// proxy instead."
+      }
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://h:x",
+      "devtools_port": 5998,
+      "url": "https://x.com/i/flow/login",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as 'x'"
+      }
+    },
+    {
+      "executable": "/opt/chrome",
+      "profile_dir": "/data/profiles/x",
+      "proxy": "http://h:x",
+      "devtools_port": 5998,
+      "url": "about:blank",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as 'x'"
+      }
+    }
+  ]
+}

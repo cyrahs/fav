@@ -1,0 +1,6343 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "api",
+  "cases": [
+    {
+      "openapi": "3.1.0",
+      "info": {
+        "title": "fav API",
+        "description": "Internal control and Hanime1 scan-target creation API for fav.",
+        "version": "2.0.0"
+      },
+      "paths": {
+        "/api/v2/jobs": {
+          "get": {
+            "tags": [
+              "jobs"
+            ],
+            "summary": "List Jobs",
+            "operationId": "listJobs",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/JobListResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/job-requests": {
+          "post": {
+            "tags": [
+              "jobs"
+            ],
+            "summary": "Create Job Request",
+            "operationId": "createJobRequest",
+            "requestBody": {
+              "required": true,
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/JobRequestCreate"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "202": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/JobRequest"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "get": {
+            "tags": [
+              "jobs"
+            ],
+            "summary": "List Job Requests",
+            "operationId": "listJobRequests",
+            "parameters": [
+              {
+                "name": "status",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/JobRequestStatus"
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Status"
+                }
+              },
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "maximum": 200,
+                  "minimum": 1,
+                  "default": 50,
+                  "title": "Limit"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/JobRequestListResponse"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/job-requests/{request_id}": {
+          "get": {
+            "tags": [
+              "jobs"
+            ],
+            "summary": "Get Job Request",
+            "operationId": "getJobRequest",
+            "parameters": [
+              {
+                "name": "request_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Request Id"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/JobRequest"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/settings": {
+          "get": {
+            "tags": [
+              "settings"
+            ],
+            "summary": "List Settings",
+            "operationId": "listSettings",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/SettingsListResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/settings/{section}": {
+          "get": {
+            "tags": [
+              "settings"
+            ],
+            "summary": "Get Settings Section",
+            "operationId": "getSettingsSection",
+            "parameters": [
+              {
+                "name": "section",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)*$",
+                  "title": "Section"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/SettingsSection"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "put": {
+            "tags": [
+              "settings"
+            ],
+            "summary": "Update Settings Section",
+            "operationId": "updateSettingsSection",
+            "parameters": [
+              {
+                "name": "section",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)*$",
+                  "title": "Section"
+                }
+              }
+            ],
+            "requestBody": {
+              "required": true,
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "title": "Payload"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/SettingsSection"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/notifications/telegram/test": {
+          "post": {
+            "tags": [
+              "settings"
+            ],
+            "summary": "Test Telegram Notification",
+            "description": "Send a test message with the stored bot credentials.",
+            "operationId": "testTelegramNotification",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/TelegramNotificationTestResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/services/tikhub/test": {
+          "post": {
+            "tags": [
+              "settings"
+            ],
+            "summary": "Test Tikhub",
+            "description": "Check the stored TikHub key and read the balance left on its account (not billed).",
+            "operationId": "testTikHub",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/TikHubTestResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/azurlane/proxy/test": {
+          "post": {
+            "tags": [
+              "settings"
+            ],
+            "summary": "Test Azurlane Proxy",
+            "description": "Check that the l2d.su origin is reachable through a proxy, without saving it.",
+            "operationId": "testAzurLaneProxy",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AzurLaneProxyTestRequest"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/AzurLaneProxyTestResult"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/rednote/proxy/test": {
+          "post": {
+            "tags": [
+              "settings"
+            ],
+            "summary": "Test Rednote Proxy",
+            "description": "Check that xiaohongshu.com is reachable through a proxy, without saving it.",
+            "operationId": "testRedNoteProxy",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/RedNoteProxyTestRequest"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/RedNoteProxyTestResult"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/archive/sources": {
+          "get": {
+            "tags": [
+              "archive"
+            ],
+            "summary": "List Archive Sources",
+            "operationId": "listArchiveSources",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/ArchiveSourceListResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/archive/items": {
+          "get": {
+            "tags": [
+              "archive"
+            ],
+            "summary": "List Archive Items",
+            "operationId": "listArchiveItems",
+            "parameters": [
+              {
+                "name": "source",
+                "in": "query",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "title": "Source"
+                }
+              },
+              {
+                "name": "q",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Q"
+                }
+              },
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "maximum": 200,
+                  "minimum": 1,
+                  "default": 50,
+                  "title": "Limit"
+                }
+              },
+              {
+                "name": "offset",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "title": "Offset"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/ArchiveListResponse"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/hanime1/videos": {
+          "get": {
+            "tags": [
+              "hanime1"
+            ],
+            "summary": "List Hanime1 Videos",
+            "operationId": "listHanime1Videos",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Hanime1ListResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/hanime1/seeds": {
+          "get": {
+            "tags": [
+              "hanime1"
+            ],
+            "summary": "List Hanime1 Seeds",
+            "operationId": "listHanime1Seeds",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Hanime1SeedListResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "post": {
+            "tags": [
+              "hanime1"
+            ],
+            "summary": "Create Hanime1 Seed",
+            "operationId": "createHanime1Seed",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Hanime1SeedCreate"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "201": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Hanime1Seed"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/hanime1/seeds/{canonical_video_id}": {
+          "delete": {
+            "tags": [
+              "hanime1"
+            ],
+            "summary": "Delete Hanime1 Seed",
+            "operationId": "deleteHanime1Seed",
+            "parameters": [
+              {
+                "name": "canonical_video_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32,
+                  "pattern": "^[0-9]+$",
+                  "title": "Canonical Video Id"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "Successful Response"
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/hanime1/authors": {
+          "get": {
+            "tags": [
+              "hanime1"
+            ],
+            "summary": "List Hanime1 Authors",
+            "operationId": "listHanime1Authors",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Hanime1AuthorListResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "post": {
+            "tags": [
+              "hanime1"
+            ],
+            "summary": "Create Hanime1 Author",
+            "operationId": "createHanime1Author",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Hanime1AuthorCreate"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "201": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Hanime1Author"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/hanime1/authors/{author_id}": {
+          "delete": {
+            "tags": [
+              "hanime1"
+            ],
+            "summary": "Delete Hanime1 Author",
+            "operationId": "deleteHanime1Author",
+            "parameters": [
+              {
+                "name": "author_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32,
+                  "pattern": "^[0-9]+$",
+                  "title": "Author Id"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "Successful Response"
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/kemono/creators/resolve": {
+          "post": {
+            "tags": [
+              "kemono"
+            ],
+            "summary": "Resolve Kemono Creator",
+            "operationId": "resolveKemonoCreator",
+            "requestBody": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/KemonoCreatorResolveRequest"
+                  }
+                }
+              },
+              "required": true
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/KemonoCreatorResolved"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/azurlane/characters": {
+          "get": {
+            "tags": [
+              "azurlane"
+            ],
+            "summary": "List Azurlane Characters",
+            "operationId": "listAzurLaneCharacters",
+            "parameters": [
+              {
+                "name": "q",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Q"
+                }
+              },
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1,
+                  "default": 200,
+                  "title": "Limit"
+                }
+              },
+              {
+                "name": "offset",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "title": "Offset"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/AzurLaneCharacterListResponse"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/azurlane/sidebar/characters": {
+          "get": {
+            "tags": [
+              "azurlane"
+            ],
+            "summary": "List Azurlane Sidebar Characters",
+            "operationId": "listAzurLaneSidebarCharacters",
+            "parameters": [
+              {
+                "name": "q",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Q"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/AzurLaneSidebarCharacterListResponse"
+                    }
+                  }
+                }
+              },
+              "304": {
+                "description": "Not modified"
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/azurlane/skin-updates": {
+          "get": {
+            "tags": [
+              "azurlane"
+            ],
+            "summary": "Get Azurlane Skin Updates",
+            "operationId": "getAzurLaneSkinUpdates",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/AzurLaneSkinUpdatesResponse"
+                    }
+                  }
+                }
+              },
+              "304": {
+                "description": "Not modified"
+              }
+            }
+          }
+        },
+        "/api/v2/azurlane/characters/{character_key}": {
+          "get": {
+            "tags": [
+              "azurlane"
+            ],
+            "summary": "Get Azurlane Character",
+            "operationId": "getAzurLaneCharacter",
+            "parameters": [
+              {
+                "name": "character_key",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "title": "Character Key"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/AzurLaneCharacterDetail"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/azurlane/characters/{character_key}/ship-detail": {
+          "get": {
+            "tags": [
+              "azurlane"
+            ],
+            "summary": "Get Azurlane Ship Detail",
+            "operationId": "getAzurLaneShipDetail",
+            "parameters": [
+              {
+                "name": "character_key",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "title": "Character Key"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "title": "Response Getazurlaneshipdetail"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/bd2/characters": {
+          "get": {
+            "tags": [
+              "bd2"
+            ],
+            "summary": "List Bd2 Characters",
+            "operationId": "listBD2Characters",
+            "parameters": [
+              {
+                "name": "q",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Q"
+                }
+              },
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1,
+                  "default": 200,
+                  "title": "Limit"
+                }
+              },
+              {
+                "name": "offset",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "title": "Offset"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/BD2CharacterListResponse"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/bd2/sidebar/characters": {
+          "get": {
+            "tags": [
+              "bd2"
+            ],
+            "summary": "List Bd2 Sidebar Characters",
+            "operationId": "listBD2SidebarCharacters",
+            "parameters": [
+              {
+                "name": "q",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Q"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/BD2SidebarCharacterListResponse"
+                    }
+                  }
+                }
+              },
+              "304": {
+                "description": "Not modified"
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/bd2/characters/{content_id}": {
+          "get": {
+            "tags": [
+              "bd2"
+            ],
+            "summary": "Get Bd2 Character",
+            "operationId": "getBD2Character",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/BD2CharacterDetail"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/bd2/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}": {
+          "get": {
+            "tags": [
+              "bd2"
+            ],
+            "summary": "Get Bd2 Live2D View Override",
+            "operationId": "getBD2Live2DViewOverride",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              },
+              {
+                "name": "model_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "title": "Model Id"
+                }
+              },
+              {
+                "name": "profile",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Profile"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Live2DViewOverride"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "put": {
+            "tags": [
+              "bd2"
+            ],
+            "summary": "Put Bd2 Live2D View Override",
+            "operationId": "putBD2Live2DViewOverride",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              },
+              {
+                "name": "model_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "title": "Model Id"
+                }
+              },
+              {
+                "name": "profile",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Profile"
+                }
+              }
+            ],
+            "requestBody": {
+              "required": true,
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Live2DViewOverrideUpsert"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Live2DViewOverride"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "delete": {
+            "tags": [
+              "bd2"
+            ],
+            "summary": "Delete Bd2 Live2D View Override",
+            "operationId": "deleteBD2Live2DViewOverride",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              },
+              {
+                "name": "model_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "title": "Model Id"
+                }
+              },
+              {
+                "name": "profile",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Profile"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "Successful Response"
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/nikke/characters": {
+          "get": {
+            "tags": [
+              "nikke"
+            ],
+            "summary": "List Nikke Characters",
+            "operationId": "listNikkeCharacters",
+            "parameters": [
+              {
+                "name": "q",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Q"
+                }
+              },
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 1,
+                  "default": 200,
+                  "title": "Limit"
+                }
+              },
+              {
+                "name": "offset",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "title": "Offset"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/NikkeCharacterListResponse"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/nikke/sidebar/characters": {
+          "get": {
+            "tags": [
+              "nikke"
+            ],
+            "summary": "List Nikke Sidebar Characters",
+            "operationId": "listNikkeSidebarCharacters",
+            "parameters": [
+              {
+                "name": "q",
+                "in": "query",
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Q"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/NikkeSidebarCharacterListResponse"
+                    }
+                  }
+                }
+              },
+              "304": {
+                "description": "Not modified"
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/nikke/characters/{content_id}": {
+          "get": {
+            "tags": [
+              "nikke"
+            ],
+            "summary": "Get Nikke Character",
+            "operationId": "getNikkeCharacter",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/NikkeCharacterDetail"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/nikke/characters/{content_id}/live2d-models/{model_id}/view-overrides/{profile}": {
+          "get": {
+            "tags": [
+              "nikke"
+            ],
+            "summary": "Get Nikke Live2D View Override",
+            "operationId": "getNikkeLive2DViewOverride",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              },
+              {
+                "name": "model_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "title": "Model Id"
+                }
+              },
+              {
+                "name": "profile",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Profile"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Live2DViewOverride"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "put": {
+            "tags": [
+              "nikke"
+            ],
+            "summary": "Put Nikke Live2D View Override",
+            "operationId": "putNikkeLive2DViewOverride",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              },
+              {
+                "name": "model_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "title": "Model Id"
+                }
+              },
+              {
+                "name": "profile",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Profile"
+                }
+              }
+            ],
+            "requestBody": {
+              "required": true,
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Live2DViewOverrideUpsert"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/Live2DViewOverride"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "delete": {
+            "tags": [
+              "nikke"
+            ],
+            "summary": "Delete Nikke Live2D View Override",
+            "operationId": "deleteNikkeLive2DViewOverride",
+            "parameters": [
+              {
+                "name": "content_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "title": "Content Id"
+                }
+              },
+              {
+                "name": "model_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "title": "Model Id"
+                }
+              },
+              {
+                "name": "profile",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Profile"
+                }
+              }
+            ],
+            "responses": {
+              "204": {
+                "description": "Successful Response"
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/site-sessions": {
+          "get": {
+            "tags": [
+              "site-sessions"
+            ],
+            "summary": "List Site Sessions",
+            "description": "Each login-backed site with its stored session, plus the browser login in progress, if any.",
+            "operationId": "listSiteSessions",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/SiteSessionListResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/site-sessions/{site}/login": {
+          "post": {
+            "tags": [
+              "site-sessions"
+            ],
+            "summary": "Start Site Login",
+            "description": "Open a browser on the site's login page; the session is saved once the login verifies.",
+            "operationId": "startSiteLogin",
+            "parameters": [
+              {
+                "name": "site",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 96,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Site"
+                }
+              }
+            ],
+            "responses": {
+              "202": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/LoginAttemptView"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/site-sessions/login": {
+          "delete": {
+            "tags": [
+              "site-sessions"
+            ],
+            "summary": "Cancel Site Login",
+            "description": "Close the login browser without saving anything.",
+            "operationId": "cancelSiteLogin",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/LoginAttemptView"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Response Cancelsitelogin"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/v2/credentials/{site}": {
+          "get": {
+            "tags": [
+              "credentials"
+            ],
+            "summary": "Get Site Credential",
+            "operationId": "getSiteCredential",
+            "parameters": [
+              {
+                "name": "site",
+                "in": "path",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 96,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "title": "Site"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/SiteCredential"
+                    }
+                  }
+                }
+              },
+              "422": {
+                "description": "Validation Error",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/healthz": {
+          "get": {
+            "tags": [
+              "system"
+            ],
+            "summary": "Get Health",
+            "operationId": "getHealth",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/HealthResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/readyz": {
+          "get": {
+            "tags": [
+              "system"
+            ],
+            "summary": "Get Readiness",
+            "operationId": "getReadiness",
+            "responses": {
+              "200": {
+                "description": "Successful Response",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/ReadinessResponse"
+                    }
+                  }
+                }
+              },
+              "503": {
+                "description": "Service Unavailable",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "$ref": "#/components/schemas/ReadinessResponse"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "components": {
+        "schemas": {
+          "ArchiveItem": {
+            "properties": {
+              "source": {
+                "type": "string",
+                "title": "Source"
+              },
+              "id": {
+                "type": "string",
+                "title": "Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "subtitle": {
+                "type": "string",
+                "title": "Subtitle",
+                "default": ""
+              },
+              "created_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Created At"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Url"
+              },
+              "fields": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Fields"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "source",
+              "id",
+              "title"
+            ],
+            "title": "ArchiveItem"
+          },
+          "ArchiveListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/ArchiveItem"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              },
+              "limit": {
+                "type": "integer",
+                "title": "Limit"
+              },
+              "offset": {
+                "type": "integer",
+                "title": "Offset"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total",
+              "limit",
+              "offset"
+            ],
+            "title": "ArchiveListResponse"
+          },
+          "ArchiveSourceListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/ArchiveSourceStat"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "ArchiveSourceListResponse"
+          },
+          "ArchiveSourceStat": {
+            "properties": {
+              "source": {
+                "type": "string",
+                "title": "Source"
+              },
+              "name": {
+                "type": "string",
+                "title": "Name"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              },
+              "latest_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Latest At"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "source",
+              "name",
+              "total"
+            ],
+            "title": "ArchiveSourceStat"
+          },
+          "AzurLaneAsset": {
+            "properties": {
+              "kind": {
+                "type": "string",
+                "title": "Kind"
+              },
+              "path": {
+                "type": "string",
+                "title": "Path"
+              },
+              "url": {
+                "type": "string",
+                "title": "Url"
+              },
+              "source_url": {
+                "type": "string",
+                "title": "Source Url",
+                "default": ""
+              },
+              "normalized_url": {
+                "type": "string",
+                "title": "Normalized Url",
+                "default": ""
+              },
+              "downloaded_url": {
+                "type": "string",
+                "title": "Downloaded Url",
+                "default": ""
+              },
+              "fallback_url": {
+                "type": "string",
+                "title": "Fallback Url",
+                "default": ""
+              },
+              "source_urls": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Urls"
+              },
+              "original_filename": {
+                "type": "string",
+                "title": "Original Filename",
+                "default": ""
+              },
+              "content_type": {
+                "type": "string",
+                "title": "Content Type",
+                "default": ""
+              },
+              "size": {
+                "type": "integer",
+                "title": "Size",
+                "default": 0
+              },
+              "sha256": {
+                "type": "string",
+                "title": "Sha256",
+                "default": ""
+              },
+              "status": {
+                "type": "string",
+                "title": "Status",
+                "default": ""
+              },
+              "available": {
+                "type": "boolean",
+                "title": "Available",
+                "default": false
+              },
+              "failed_count": {
+                "type": "integer",
+                "title": "Failed Count",
+                "default": 0
+              },
+              "error": {
+                "type": "string",
+                "title": "Error",
+                "default": ""
+              },
+              "last_attempt_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Last Attempt At"
+              },
+              "next_retry_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Next Retry At"
+              },
+              "last_seen_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Last Seen At"
+              },
+              "model_id": {
+                "type": "string",
+                "title": "Model Id",
+                "default": ""
+              },
+              "model_type": {
+                "type": "string",
+                "title": "Model Type",
+                "default": ""
+              },
+              "character_key": {
+                "type": "string",
+                "title": "Character Key",
+                "default": ""
+              },
+              "costume_key": {
+                "type": "string",
+                "title": "Costume Key",
+                "default": ""
+              },
+              "field": {
+                "type": "string",
+                "title": "Field",
+                "default": ""
+              },
+              "catalog_source": {
+                "type": "string",
+                "title": "Catalog Source",
+                "default": ""
+              },
+              "context_hashes": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Context Hashes"
+              },
+              "contexts": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Contexts"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "path",
+              "url"
+            ],
+            "title": "AzurLaneAsset"
+          },
+          "AzurLaneCharacterDetail": {
+            "properties": {
+              "schema_version": {
+                "type": "integer",
+                "title": "Schema Version",
+                "default": 0
+              },
+              "source": {
+                "type": "string",
+                "title": "Source",
+                "default": "azurlane"
+              },
+              "character_key": {
+                "type": "string",
+                "title": "Character Key"
+              },
+              "source_id": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Source Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "display_name": {
+                "type": "string",
+                "title": "Display Name"
+              },
+              "name_zh": {
+                "type": "string",
+                "title": "Name Zh",
+                "default": ""
+              },
+              "name_en": {
+                "type": "string",
+                "title": "Name En",
+                "default": ""
+              },
+              "directory_name": {
+                "type": "string",
+                "title": "Directory Name",
+                "default": ""
+              },
+              "source_metadata": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Metadata"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Completed At"
+              },
+              "model_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Model Counts"
+              },
+              "asset_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Asset Counts"
+              },
+              "source_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Source Counts"
+              },
+              "tags": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Tags"
+              },
+              "representative_asset": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AzurLaneAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AzurLaneAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "model_count": {
+                "type": "integer",
+                "title": "Model Count",
+                "default": 0
+              },
+              "active": {
+                "type": "boolean",
+                "title": "Active",
+                "default": true
+              },
+              "models": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneModel"
+                },
+                "type": "array",
+                "title": "Models"
+              },
+              "live2d_models": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneModel"
+                },
+                "type": "array",
+                "title": "Live2D Models"
+              },
+              "spine_models": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneModel"
+                },
+                "type": "array",
+                "title": "Spine Models"
+              },
+              "painting_models": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneModel"
+                },
+                "type": "array",
+                "title": "Painting Models"
+              },
+              "assets": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneAsset"
+                },
+                "type": "array",
+                "title": "Assets"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "character_key",
+              "title",
+              "display_name"
+            ],
+            "title": "AzurLaneCharacterDetail"
+          },
+          "AzurLaneCharacterListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneCharacterSummary"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              },
+              "limit": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Limit"
+              },
+              "offset": {
+                "type": "integer",
+                "title": "Offset",
+                "default": 0
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "AzurLaneCharacterListResponse"
+          },
+          "AzurLaneCharacterSummary": {
+            "properties": {
+              "schema_version": {
+                "type": "integer",
+                "title": "Schema Version",
+                "default": 0
+              },
+              "source": {
+                "type": "string",
+                "title": "Source",
+                "default": "azurlane"
+              },
+              "character_key": {
+                "type": "string",
+                "title": "Character Key"
+              },
+              "source_id": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Source Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "display_name": {
+                "type": "string",
+                "title": "Display Name"
+              },
+              "name_zh": {
+                "type": "string",
+                "title": "Name Zh",
+                "default": ""
+              },
+              "name_en": {
+                "type": "string",
+                "title": "Name En",
+                "default": ""
+              },
+              "directory_name": {
+                "type": "string",
+                "title": "Directory Name",
+                "default": ""
+              },
+              "source_metadata": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Metadata"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Completed At"
+              },
+              "model_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Model Counts"
+              },
+              "asset_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Asset Counts"
+              },
+              "source_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Source Counts"
+              },
+              "tags": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Tags"
+              },
+              "representative_asset": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AzurLaneAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AzurLaneAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "model_count": {
+                "type": "integer",
+                "title": "Model Count",
+                "default": 0
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "character_key",
+              "title",
+              "display_name"
+            ],
+            "title": "AzurLaneCharacterSummary"
+          },
+          "AzurLaneCostume": {
+            "properties": {
+              "key": {
+                "type": "string",
+                "title": "Key",
+                "default": ""
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Id"
+              },
+              "name_zh": {
+                "type": "string",
+                "title": "Name Zh",
+                "default": ""
+              },
+              "name_en": {
+                "type": "string",
+                "title": "Name En",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "AzurLaneCostume"
+          },
+          "AzurLaneModel": {
+            "properties": {
+              "model_id": {
+                "type": "string",
+                "title": "Model Id",
+                "default": ""
+              },
+              "type": {
+                "type": "string",
+                "title": "Type",
+                "default": ""
+              },
+              "source": {
+                "type": "string",
+                "title": "Source",
+                "default": ""
+              },
+              "character_key": {
+                "type": "string",
+                "title": "Character Key",
+                "default": ""
+              },
+              "costume": {
+                "$ref": "#/components/schemas/AzurLaneCostume"
+              },
+              "source_urls": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Urls"
+              },
+              "availability": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Availability"
+              },
+              "source_metadata": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Metadata"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Completed At"
+              },
+              "asset_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Asset Counts"
+              },
+              "files": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Files"
+              },
+              "assets": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneAsset"
+                },
+                "type": "array",
+                "title": "Assets"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "AzurLaneModel"
+          },
+          "AzurLaneProxyTestRequest": {
+            "properties": {
+              "origin_proxy": {
+                "type": "string",
+                "title": "Origin Proxy",
+                "default": ""
+              },
+              "origin_connect_host": {
+                "type": "string",
+                "title": "Origin Connect Host",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "AzurLaneProxyTestRequest"
+          },
+          "AzurLaneProxyTestResult": {
+            "properties": {
+              "ok": {
+                "type": "boolean",
+                "title": "Ok"
+              },
+              "code": {
+                "type": "string",
+                "title": "Code"
+              },
+              "message": {
+                "type": "string",
+                "title": "Message"
+              },
+              "exit_ip": {
+                "type": "string",
+                "title": "Exit Ip",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "ok",
+              "code",
+              "message"
+            ],
+            "title": "AzurLaneProxyTestResult"
+          },
+          "AzurLaneSidebarCharacter": {
+            "properties": {
+              "character_key": {
+                "type": "string",
+                "title": "Character Key"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "display_name": {
+                "type": "string",
+                "title": "Display Name"
+              },
+              "name_zh": {
+                "type": "string",
+                "title": "Name Zh",
+                "default": ""
+              },
+              "name_en": {
+                "type": "string",
+                "title": "Name En",
+                "default": ""
+              },
+              "representative_asset": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AzurLaneAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AzurLaneAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "source_metadata": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Metadata"
+              },
+              "model_count": {
+                "type": "integer",
+                "title": "Model Count",
+                "default": 0
+              },
+              "model_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Model Counts"
+              },
+              "source_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Source Counts"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "completed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Completed At"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "character_key",
+              "title",
+              "display_name"
+            ],
+            "title": "AzurLaneSidebarCharacter"
+          },
+          "AzurLaneSidebarCharacterListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneSidebarCharacter"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "AzurLaneSidebarCharacterListResponse"
+          },
+          "AzurLaneSkinUpdate": {
+            "properties": {
+              "ship_group_id": {
+                "type": "integer",
+                "title": "Ship Group Id",
+                "default": 0
+              },
+              "ship_name": {
+                "type": "string",
+                "title": "Ship Name",
+                "default": ""
+              },
+              "skin_name": {
+                "type": "string",
+                "title": "Skin Name",
+                "default": ""
+              },
+              "skin_type": {
+                "type": "string",
+                "title": "Skin Type",
+                "default": ""
+              },
+              "skin_ids": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array",
+                "title": "Skin Ids"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "AzurLaneSkinUpdate"
+          },
+          "AzurLaneSkinUpdateHistoryEntry": {
+            "properties": {
+              "date": {
+                "type": "string",
+                "title": "Date",
+                "default": ""
+              },
+              "version": {
+                "type": "string",
+                "title": "Version",
+                "default": ""
+              },
+              "skins": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneSkinUpdate"
+                },
+                "type": "array",
+                "title": "Skins"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "AzurLaneSkinUpdateHistoryEntry"
+          },
+          "AzurLaneSkinUpdatesResponse": {
+            "properties": {
+              "game_version": {
+                "type": "string",
+                "title": "Game Version",
+                "default": ""
+              },
+              "region": {
+                "type": "string",
+                "title": "Region",
+                "default": ""
+              },
+              "generated_at": {
+                "type": "string",
+                "title": "Generated At",
+                "default": ""
+              },
+              "new_skins": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneSkinUpdate"
+                },
+                "type": "array",
+                "title": "New Skins"
+              },
+              "skin_update_history": {
+                "items": {
+                  "$ref": "#/components/schemas/AzurLaneSkinUpdateHistoryEntry"
+                },
+                "type": "array",
+                "title": "Skin Update History"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "AzurLaneSkinUpdatesResponse"
+          },
+          "BD2Asset": {
+            "properties": {
+              "kind": {
+                "type": "string",
+                "title": "Kind"
+              },
+              "path": {
+                "type": "string",
+                "title": "Path"
+              },
+              "url": {
+                "type": "string",
+                "title": "Url"
+              },
+              "content_type": {
+                "type": "string",
+                "title": "Content Type",
+                "default": ""
+              },
+              "size": {
+                "type": "integer",
+                "title": "Size",
+                "default": 0
+              },
+              "sha256": {
+                "type": "string",
+                "title": "Sha256",
+                "default": ""
+              },
+              "status": {
+                "type": "string",
+                "title": "Status",
+                "default": ""
+              },
+              "label": {
+                "type": "string",
+                "title": "Label",
+                "default": ""
+              },
+              "field": {
+                "type": "string",
+                "title": "Field",
+                "default": ""
+              },
+              "style_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Style Index"
+              },
+              "style_name": {
+                "type": "string",
+                "title": "Style Name",
+                "default": ""
+              },
+              "costume_title": {
+                "type": "string",
+                "title": "Costume Title",
+                "default": ""
+              },
+              "costume_category": {
+                "type": "string",
+                "title": "Costume Category",
+                "default": ""
+              },
+              "column_role": {
+                "type": "string",
+                "title": "Column Role",
+                "default": ""
+              },
+              "live2d_key": {
+                "type": "string",
+                "title": "Live2D Key",
+                "default": ""
+              },
+              "available": {
+                "type": "boolean",
+                "title": "Available",
+                "default": false
+              },
+              "contexts": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Contexts"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "path",
+              "url"
+            ],
+            "title": "BD2Asset"
+          },
+          "BD2CharacterDetail": {
+            "properties": {
+              "content_id": {
+                "type": "integer",
+                "title": "Content Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "directory_name": {
+                "type": "string",
+                "title": "Directory Name",
+                "default": ""
+              },
+              "source_url": {
+                "type": "string",
+                "title": "Source Url",
+                "default": ""
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "asset_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Asset Counts"
+              },
+              "tags": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Tags"
+              },
+              "profile": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2ProfileItem"
+                },
+                "type": "array",
+                "title": "Profile"
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "portrait": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "costume_count": {
+                "type": "integer",
+                "title": "Costume Count",
+                "default": 0
+              },
+              "live2d_model_count": {
+                "type": "integer",
+                "title": "Live2D Model Count",
+                "default": 0
+              },
+              "search_terms": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Search Terms"
+              },
+              "tree_row": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Tree Row"
+              },
+              "base_info": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Base Info"
+              },
+              "costumes": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2Costume"
+                },
+                "type": "array",
+                "title": "Costumes"
+              },
+              "live2d_models": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2Live2DModel"
+                },
+                "type": "array",
+                "title": "Live2D Models"
+              },
+              "assets": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2Asset"
+                },
+                "type": "array",
+                "title": "Assets"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "content_id",
+              "title"
+            ],
+            "title": "BD2CharacterDetail"
+          },
+          "BD2CharacterListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2CharacterSummary"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              },
+              "limit": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Limit"
+              },
+              "offset": {
+                "type": "integer",
+                "title": "Offset",
+                "default": 0
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "BD2CharacterListResponse"
+          },
+          "BD2CharacterSummary": {
+            "properties": {
+              "content_id": {
+                "type": "integer",
+                "title": "Content Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "directory_name": {
+                "type": "string",
+                "title": "Directory Name",
+                "default": ""
+              },
+              "source_url": {
+                "type": "string",
+                "title": "Source Url",
+                "default": ""
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "asset_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Asset Counts"
+              },
+              "tags": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Tags"
+              },
+              "profile": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2ProfileItem"
+                },
+                "type": "array",
+                "title": "Profile"
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "portrait": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "costume_count": {
+                "type": "integer",
+                "title": "Costume Count",
+                "default": 0
+              },
+              "live2d_model_count": {
+                "type": "integer",
+                "title": "Live2D Model Count",
+                "default": 0
+              },
+              "search_terms": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Search Terms"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "content_id",
+              "title"
+            ],
+            "title": "BD2CharacterSummary"
+          },
+          "BD2Costume": {
+            "properties": {
+              "style_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Style Index"
+              },
+              "style_name": {
+                "type": "string",
+                "title": "Style Name",
+                "default": ""
+              },
+              "title": {
+                "type": "string",
+                "title": "Title",
+                "default": ""
+              },
+              "category": {
+                "type": "string",
+                "title": "Category",
+                "default": ""
+              },
+              "sprite": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "portrait": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "full_portrait": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "gallery": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2Asset"
+                },
+                "type": "array",
+                "title": "Gallery"
+              },
+              "videos": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2Asset"
+                },
+                "type": "array",
+                "title": "Videos"
+              },
+              "audio": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2Asset"
+                },
+                "type": "array",
+                "title": "Audio"
+              },
+              "live2d_models": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2Live2DModel"
+                },
+                "type": "array",
+                "title": "Live2D Models"
+              },
+              "rows": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Rows"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "BD2Costume"
+          },
+          "BD2Live2DModel": {
+            "properties": {
+              "model_id": {
+                "type": "string",
+                "title": "Model Id",
+                "default": ""
+              },
+              "label": {
+                "type": "string",
+                "title": "Label",
+                "default": ""
+              },
+              "section": {
+                "type": "string",
+                "title": "Section",
+                "default": ""
+              },
+              "style_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Style Index"
+              },
+              "style_name": {
+                "type": "string",
+                "title": "Style Name",
+                "default": ""
+              },
+              "costume_title": {
+                "type": "string",
+                "title": "Costume Title",
+                "default": ""
+              },
+              "costume_category": {
+                "type": "string",
+                "title": "Costume Category",
+                "default": ""
+              },
+              "row_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Row Index"
+              },
+              "column_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Column Index"
+              },
+              "field": {
+                "type": "string",
+                "title": "Field",
+                "default": ""
+              },
+              "is_art_row": {
+                "type": "boolean",
+                "title": "Is Art Row",
+                "default": false
+              },
+              "column_name": {
+                "type": "string",
+                "title": "Column Name",
+                "default": ""
+              },
+              "column_category": {
+                "type": "string",
+                "title": "Column Category",
+                "default": ""
+              },
+              "column_role": {
+                "type": "string",
+                "title": "Column Role",
+                "default": ""
+              },
+              "column_header": {
+                "type": "string",
+                "title": "Column Header",
+                "default": ""
+              },
+              "key": {
+                "type": "string",
+                "title": "Key",
+                "default": ""
+              },
+              "stable_id": {
+                "type": "string",
+                "title": "Stable Id",
+                "default": ""
+              },
+              "live2d_key": {
+                "type": "string",
+                "title": "Live2D Key",
+                "default": ""
+              },
+              "animation": {
+                "type": "string",
+                "title": "Animation",
+                "default": ""
+              },
+              "skin": {
+                "type": "string",
+                "title": "Skin",
+                "default": ""
+              },
+              "limit_age": {
+                "type": "boolean",
+                "title": "Limit Age",
+                "default": false
+              },
+              "source": {
+                "type": "string",
+                "title": "Source",
+                "default": ""
+              },
+              "variant": {
+                "type": "string",
+                "title": "Variant",
+                "default": ""
+              },
+              "supplement_reason": {
+                "type": "string",
+                "title": "Supplement Reason",
+                "default": ""
+              },
+              "viewer_entry_id": {
+                "type": "string",
+                "title": "Viewer Entry Id",
+                "default": ""
+              },
+              "viewer_stem": {
+                "type": "string",
+                "title": "Viewer Stem",
+                "default": ""
+              },
+              "source_page_url": {
+                "type": "string",
+                "title": "Source Page Url",
+                "default": ""
+              },
+              "position": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Position"
+              },
+              "bg_position": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Bg Position"
+              },
+              "view_overrides": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/Live2DViewOverrideValue"
+                },
+                "type": "object",
+                "title": "View Overrides"
+              },
+              "source_urls": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Urls"
+              },
+              "spine_version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Spine Version"
+              },
+              "assets": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Assets"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "BD2Live2DModel"
+          },
+          "BD2ProfileItem": {
+            "properties": {
+              "key": {
+                "type": "string",
+                "title": "Key"
+              },
+              "label": {
+                "type": "string",
+                "title": "Label"
+              },
+              "value": {
+                "type": "string",
+                "title": "Value",
+                "default": ""
+              },
+              "asset": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BD2Asset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "key",
+              "label"
+            ],
+            "title": "BD2ProfileItem"
+          },
+          "BD2SidebarCharacter": {
+            "properties": {
+              "content_id": {
+                "type": "integer",
+                "title": "Content Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "icon": {
+                "$ref": "#/components/schemas/BD2SidebarIcon"
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "content_id",
+              "title",
+              "icon"
+            ],
+            "title": "BD2SidebarCharacter"
+          },
+          "BD2SidebarCharacterListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/BD2SidebarCharacter"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "BD2SidebarCharacterListResponse"
+          },
+          "BD2SidebarIcon": {
+            "properties": {
+              "url": {
+                "type": "string",
+                "title": "Url"
+              },
+              "available": {
+                "type": "boolean",
+                "title": "Available"
+              },
+              "sha256": {
+                "type": "string",
+                "title": "Sha256"
+              },
+              "content_type": {
+                "type": "string",
+                "title": "Content Type"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "url",
+              "available",
+              "sha256",
+              "content_type"
+            ],
+            "title": "BD2SidebarIcon"
+          },
+          "ComponentReadiness": {
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "degraded",
+                  "skipped"
+                ],
+                "title": "Status"
+              },
+              "code": {
+                "type": "string",
+                "title": "Code"
+              },
+              "message": {
+                "type": "string",
+                "title": "Message"
+              },
+              "sampled_targets": {
+                "type": "integer",
+                "minimum": 0.0,
+                "title": "Sampled Targets"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "status",
+              "code",
+              "message",
+              "sampled_targets"
+            ],
+            "title": "ComponentReadiness"
+          },
+          "CredentialCookie": {
+            "properties": {
+              "name": {
+                "type": "string",
+                "title": "Name"
+              },
+              "value": {
+                "type": "string",
+                "title": "Value"
+              },
+              "domain": {
+                "type": "string",
+                "title": "Domain"
+              },
+              "path": {
+                "type": "string",
+                "title": "Path"
+              },
+              "expires": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Expires"
+              }
+            },
+            "type": "object",
+            "required": [
+              "name",
+              "value",
+              "domain",
+              "path",
+              "expires"
+            ],
+            "title": "CredentialCookie"
+          },
+          "HTTPValidationError": {
+            "properties": {
+              "detail": {
+                "items": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "type": "array",
+                "title": "Detail"
+              }
+            },
+            "type": "object",
+            "title": "HTTPValidationError"
+          },
+          "Hanime1Author": {
+            "properties": {
+              "author_id": {
+                "type": "string",
+                "title": "Author Id"
+              },
+              "name": {
+                "type": "string",
+                "title": "Name"
+              },
+              "author_url": {
+                "type": "string",
+                "title": "Author Url"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "author_id",
+              "name",
+              "author_url"
+            ],
+            "title": "Hanime1Author"
+          },
+          "Hanime1AuthorCreate": {
+            "properties": {
+              "author": {
+                "type": "string",
+                "minLength": 1,
+                "title": "Author"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "author"
+            ],
+            "title": "Hanime1AuthorCreate"
+          },
+          "Hanime1AuthorDetail": {
+            "properties": {
+              "author_id": {
+                "type": "string",
+                "title": "Author Id"
+              },
+              "name": {
+                "type": "string",
+                "title": "Name"
+              },
+              "author_url": {
+                "type": "string",
+                "title": "Author Url"
+              },
+              "video_count": {
+                "type": "integer",
+                "title": "Video Count"
+              },
+              "created_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Created At"
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "last_scanned_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Last Scanned At"
+              },
+              "last_scan_error": {
+                "type": "string",
+                "title": "Last Scan Error",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "author_id",
+              "name",
+              "author_url",
+              "video_count"
+            ],
+            "title": "Hanime1AuthorDetail"
+          },
+          "Hanime1AuthorListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Hanime1AuthorDetail"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "Hanime1AuthorListResponse"
+          },
+          "Hanime1ListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Hanime1Video"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "Hanime1ListResponse"
+          },
+          "Hanime1Seed": {
+            "properties": {
+              "video_id": {
+                "type": "string",
+                "title": "Video Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "label": {
+                "type": "string",
+                "title": "Label"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "video_id",
+              "title",
+              "label"
+            ],
+            "title": "Hanime1Seed"
+          },
+          "Hanime1SeedCreate": {
+            "properties": {
+              "seed": {
+                "type": "string",
+                "minLength": 1,
+                "title": "Seed"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "seed"
+            ],
+            "title": "Hanime1SeedCreate"
+          },
+          "Hanime1SeedDetail": {
+            "properties": {
+              "video_id": {
+                "type": "string",
+                "title": "Video Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "label": {
+                "type": "string",
+                "title": "Label"
+              },
+              "added_from_video_id": {
+                "type": "string",
+                "title": "Added From Video Id"
+              },
+              "video_count": {
+                "type": "integer",
+                "title": "Video Count"
+              },
+              "created_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Created At"
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "last_scanned_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Last Scanned At"
+              },
+              "last_scan_error": {
+                "type": "string",
+                "title": "Last Scan Error",
+                "default": ""
+              },
+              "watch_url": {
+                "type": "string",
+                "title": "Watch Url"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "video_id",
+              "title",
+              "label",
+              "added_from_video_id",
+              "video_count",
+              "watch_url"
+            ],
+            "title": "Hanime1SeedDetail"
+          },
+          "Hanime1SeedListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/Hanime1SeedDetail"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "Hanime1SeedListResponse"
+          },
+          "Hanime1Video": {
+            "properties": {
+              "video_id": {
+                "type": "string",
+                "title": "Video Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "downloaded": {
+                "type": "boolean",
+                "title": "Downloaded"
+              },
+              "uploader": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Uploader"
+              },
+              "release_date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Release Date"
+              },
+              "plot": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Plot"
+              },
+              "watch_url": {
+                "type": "string",
+                "title": "Watch Url"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "video_id",
+              "title",
+              "downloaded",
+              "watch_url"
+            ],
+            "title": "Hanime1Video"
+          },
+          "HealthResponse": {
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "ok",
+                "title": "Status"
+              },
+              "generated_at": {
+                "type": "string",
+                "title": "Generated At"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "status",
+              "generated_at"
+            ],
+            "title": "HealthResponse"
+          },
+          "JobListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/JobSummary"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "JobListResponse"
+          },
+          "JobRequest": {
+            "properties": {
+              "id": {
+                "type": "integer",
+                "title": "Id"
+              },
+              "target": {
+                "$ref": "#/components/schemas/JobRequestTarget"
+              },
+              "kind": {
+                "type": "string",
+                "title": "Kind",
+                "default": "trigger_job"
+              },
+              "status": {
+                "$ref": "#/components/schemas/JobRequestStatus"
+              },
+              "requested_at": {
+                "type": "string",
+                "title": "Requested At"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Started At"
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Finished At"
+              },
+              "result": {
+                "type": "string",
+                "title": "Result",
+                "default": ""
+              },
+              "error": {
+                "type": "string",
+                "title": "Error",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "id",
+              "target",
+              "status",
+              "requested_at"
+            ],
+            "title": "JobRequest"
+          },
+          "JobRequestCreate": {
+            "properties": {
+              "target": {
+                "$ref": "#/components/schemas/JobRequestTarget"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "title": "JobRequestCreate"
+          },
+          "JobRequestListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/JobRequest"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "JobRequestListResponse"
+          },
+          "JobRequestStatus": {
+            "type": "string",
+            "enum": [
+              "failed",
+              "interrupted",
+              "pending",
+              "rejected",
+              "running",
+              "succeeded"
+            ],
+            "title": "JobRequestStatus"
+          },
+          "JobRequestTarget": {
+            "type": "string",
+            "enum": [
+              "all",
+              "azurlane",
+              "bd2",
+              "bilibili",
+              "hanime1",
+              "jandan",
+              "kemono",
+              "nikke",
+              "pixiv",
+              "rednote",
+              "stellasora",
+              "telegram",
+              "twitter",
+              "wechat"
+            ],
+            "title": "JobRequestTarget"
+          },
+          "JobSummary": {
+            "properties": {
+              "key": {
+                "type": "string",
+                "title": "Key"
+              },
+              "name": {
+                "type": "string",
+                "title": "Name"
+              },
+              "enabled": {
+                "type": "boolean",
+                "title": "Enabled"
+              },
+              "notify": {
+                "type": "boolean",
+                "title": "Notify",
+                "default": true
+              },
+              "cron": {
+                "type": "string",
+                "title": "Cron"
+              },
+              "section": {
+                "type": "string",
+                "title": "Section",
+                "default": ""
+              },
+              "missing_fields": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Missing Fields"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "key",
+              "name",
+              "enabled",
+              "cron"
+            ],
+            "title": "JobSummary"
+          },
+          "KemonoCreatorResolveRequest": {
+            "properties": {
+              "creator": {
+                "type": "string",
+                "minLength": 1,
+                "title": "Creator"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "creator"
+            ],
+            "title": "KemonoCreatorResolveRequest"
+          },
+          "KemonoCreatorResolved": {
+            "properties": {
+              "service": {
+                "type": "string",
+                "title": "Service"
+              },
+              "id": {
+                "type": "string",
+                "title": "Id"
+              },
+              "name": {
+                "type": "string",
+                "title": "Name"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "service",
+              "id",
+              "name"
+            ],
+            "title": "KemonoCreatorResolved"
+          },
+          "Live2DVector2": {
+            "properties": {
+              "x": {
+                "type": "number",
+                "title": "X"
+              },
+              "y": {
+                "type": "number",
+                "title": "Y"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "x",
+              "y"
+            ],
+            "title": "Live2DVector2"
+          },
+          "Live2DViewOverride": {
+            "properties": {
+              "position": {
+                "$ref": "#/components/schemas/Live2DVector2"
+              },
+              "scale": {
+                "type": "number",
+                "title": "Scale"
+              },
+              "background_position": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Live2DVector2"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "background_scale": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Background Scale"
+              },
+              "created_at": {
+                "type": "string",
+                "title": "Created At"
+              },
+              "updated_at": {
+                "type": "string",
+                "title": "Updated At"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "bd2",
+                  "nikke"
+                ],
+                "title": "Source"
+              },
+              "content_id": {
+                "type": "integer",
+                "title": "Content Id"
+              },
+              "model_id": {
+                "type": "string",
+                "title": "Model Id"
+              },
+              "profile": {
+                "type": "string",
+                "title": "Profile"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "position",
+              "scale",
+              "created_at",
+              "updated_at",
+              "source",
+              "content_id",
+              "model_id",
+              "profile"
+            ],
+            "title": "Live2DViewOverride"
+          },
+          "Live2DViewOverrideUpsert": {
+            "properties": {
+              "position": {
+                "$ref": "#/components/schemas/Live2DVector2"
+              },
+              "scale": {
+                "type": "number",
+                "exclusiveMinimum": 0.0,
+                "title": "Scale"
+              },
+              "background_position": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Live2DVector2"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "background_scale": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0.0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Background Scale"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "position",
+              "scale"
+            ],
+            "title": "Live2DViewOverrideUpsert"
+          },
+          "Live2DViewOverrideValue": {
+            "properties": {
+              "position": {
+                "$ref": "#/components/schemas/Live2DVector2"
+              },
+              "scale": {
+                "type": "number",
+                "title": "Scale"
+              },
+              "background_position": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Live2DVector2"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "background_scale": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Background Scale"
+              },
+              "created_at": {
+                "type": "string",
+                "title": "Created At"
+              },
+              "updated_at": {
+                "type": "string",
+                "title": "Updated At"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "position",
+              "scale",
+              "created_at",
+              "updated_at"
+            ],
+            "title": "Live2DViewOverrideValue"
+          },
+          "LoginAttemptView": {
+            "properties": {
+              "site": {
+                "type": "string",
+                "title": "Site"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "starting",
+                  "waiting",
+                  "saved",
+                  "failed",
+                  "timeout",
+                  "cancelled"
+                ],
+                "title": "State"
+              },
+              "active": {
+                "type": "boolean",
+                "title": "Active"
+              },
+              "message": {
+                "type": "string",
+                "title": "Message",
+                "default": ""
+              },
+              "account": {
+                "type": "string",
+                "title": "Account",
+                "default": ""
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Started At"
+              },
+              "deadline": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Deadline"
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Finished At"
+              },
+              "ticket": {
+                "type": "string",
+                "title": "Ticket",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "site",
+              "state",
+              "active"
+            ],
+            "title": "LoginAttemptView"
+          },
+          "NikkeAsset": {
+            "properties": {
+              "kind": {
+                "type": "string",
+                "title": "Kind"
+              },
+              "path": {
+                "type": "string",
+                "title": "Path"
+              },
+              "url": {
+                "type": "string",
+                "title": "Url"
+              },
+              "content_type": {
+                "type": "string",
+                "title": "Content Type",
+                "default": ""
+              },
+              "size": {
+                "type": "integer",
+                "title": "Size",
+                "default": 0
+              },
+              "sha256": {
+                "type": "string",
+                "title": "Sha256",
+                "default": ""
+              },
+              "status": {
+                "type": "string",
+                "title": "Status",
+                "default": ""
+              },
+              "label": {
+                "type": "string",
+                "title": "Label",
+                "default": ""
+              },
+              "field": {
+                "type": "string",
+                "title": "Field",
+                "default": ""
+              },
+              "skin_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Skin Index"
+              },
+              "live2d_key": {
+                "type": "string",
+                "title": "Live2D Key",
+                "default": ""
+              },
+              "available": {
+                "type": "boolean",
+                "title": "Available",
+                "default": false
+              },
+              "contexts": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Contexts"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "path",
+              "url"
+            ],
+            "title": "NikkeAsset"
+          },
+          "NikkeCharacterDetail": {
+            "properties": {
+              "content_id": {
+                "type": "integer",
+                "title": "Content Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "directory_name": {
+                "type": "string",
+                "title": "Directory Name",
+                "default": ""
+              },
+              "source_url": {
+                "type": "string",
+                "title": "Source Url",
+                "default": ""
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "asset_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Asset Counts"
+              },
+              "tags": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Tags"
+              },
+              "profile": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeProfileItem"
+                },
+                "type": "array",
+                "title": "Profile"
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "portrait": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "skin_count": {
+                "type": "integer",
+                "title": "Skin Count",
+                "default": 0
+              },
+              "live2d_model_count": {
+                "type": "integer",
+                "title": "Live2D Model Count",
+                "default": 0
+              },
+              "tj_list": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Tj List"
+              },
+              "base_info": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Base Info"
+              },
+              "skins": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeSkin"
+                },
+                "type": "array",
+                "title": "Skins"
+              },
+              "live2d_models": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeLive2DModel"
+                },
+                "type": "array",
+                "title": "Live2D Models"
+              },
+              "layer_metadata_required": {
+                "type": "boolean",
+                "title": "Layer Metadata Required",
+                "default": false
+              },
+              "layer_metadata_status": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "error",
+                  "missing"
+                ],
+                "title": "Layer Metadata Status",
+                "default": "missing"
+              },
+              "layer_metadata_issues": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Layer Metadata Issues"
+              },
+              "layer_metadata_capture": {
+                "$ref": "#/components/schemas/NikkeLayerMetadataCapture"
+              },
+              "runtime_animation_metadata_required": {
+                "type": "boolean",
+                "title": "Runtime Animation Metadata Required",
+                "default": false
+              },
+              "runtime_animation_metadata_status": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "error",
+                  "missing"
+                ],
+                "title": "Runtime Animation Metadata Status",
+                "default": "missing"
+              },
+              "runtime_animation_metadata_issues": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Runtime Animation Metadata Issues"
+              },
+              "assets": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeAsset"
+                },
+                "type": "array",
+                "title": "Assets"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "content_id",
+              "title"
+            ],
+            "title": "NikkeCharacterDetail"
+          },
+          "NikkeCharacterListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeCharacterSummary"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              },
+              "limit": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Limit"
+              },
+              "offset": {
+                "type": "integer",
+                "title": "Offset",
+                "default": 0
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "NikkeCharacterListResponse"
+          },
+          "NikkeCharacterSummary": {
+            "properties": {
+              "content_id": {
+                "type": "integer",
+                "title": "Content Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "directory_name": {
+                "type": "string",
+                "title": "Directory Name",
+                "default": ""
+              },
+              "source_url": {
+                "type": "string",
+                "title": "Source Url",
+                "default": ""
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              },
+              "asset_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object",
+                "title": "Asset Counts"
+              },
+              "tags": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Tags"
+              },
+              "profile": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeProfileItem"
+                },
+                "type": "array",
+                "title": "Profile"
+              },
+              "icon": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "portrait": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "skin_count": {
+                "type": "integer",
+                "title": "Skin Count",
+                "default": 0
+              },
+              "live2d_model_count": {
+                "type": "integer",
+                "title": "Live2D Model Count",
+                "default": 0
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "content_id",
+              "title"
+            ],
+            "title": "NikkeCharacterSummary"
+          },
+          "NikkeLayerMetadataCapture": {
+            "properties": {
+              "status": {
+                "type": "string",
+                "title": "Status",
+                "default": ""
+              },
+              "captured_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Captured At"
+              },
+              "attempted_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Attempted At"
+              },
+              "capture_hash": {
+                "type": "string",
+                "title": "Capture Hash",
+                "default": ""
+              },
+              "fingerprint": {
+                "type": "string",
+                "title": "Fingerprint",
+                "default": ""
+              },
+              "reason": {
+                "type": "string",
+                "title": "Reason",
+                "default": ""
+              },
+              "error_class": {
+                "type": "string",
+                "title": "Error Class",
+                "default": ""
+              },
+              "retryable": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Retryable"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Warnings"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "NikkeLayerMetadataCapture"
+          },
+          "NikkeLive2DModel": {
+            "properties": {
+              "model_id": {
+                "type": "string",
+                "title": "Model Id",
+                "default": ""
+              },
+              "label": {
+                "type": "string",
+                "title": "Label",
+                "default": ""
+              },
+              "section": {
+                "type": "string",
+                "title": "Section",
+                "default": ""
+              },
+              "row_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Row Index"
+              },
+              "skin_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Skin Index"
+              },
+              "skin_name": {
+                "type": "string",
+                "title": "Skin Name",
+                "default": ""
+              },
+              "skin_title": {
+                "type": "string",
+                "title": "Skin Title",
+                "default": ""
+              },
+              "skin_series": {
+                "type": "string",
+                "title": "Skin Series",
+                "default": ""
+              },
+              "skin_obtain": {
+                "type": "string",
+                "title": "Skin Obtain",
+                "default": ""
+              },
+              "is_collection_skin": {
+                "type": "boolean",
+                "title": "Is Collection Skin",
+                "default": false
+              },
+              "key": {
+                "type": "string",
+                "title": "Key",
+                "default": ""
+              },
+              "stable_id": {
+                "type": "string",
+                "title": "Stable Id",
+                "default": ""
+              },
+              "live2d_key": {
+                "type": "string",
+                "title": "Live2D Key",
+                "default": ""
+              },
+              "animation": {
+                "type": "string",
+                "title": "Animation",
+                "default": ""
+              },
+              "skin": {
+                "type": "string",
+                "title": "Skin",
+                "default": ""
+              },
+              "limit_age": {
+                "type": "boolean",
+                "title": "Limit Age",
+                "default": false
+              },
+              "layer_order": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Layer Order"
+              },
+              "source_z_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Source Z Index"
+              },
+              "source_layer_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Source Layer Index"
+              },
+              "is_primary": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Is Primary"
+              },
+              "layer_match_method": {
+                "type": "string",
+                "title": "Layer Match Method",
+                "default": ""
+              },
+              "layer_match_confidence": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Layer Match Confidence"
+              },
+              "runtime_animations": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeRuntimeAnimations"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "runtime_animation_match_method": {
+                "type": "string",
+                "title": "Runtime Animation Match Method",
+                "default": ""
+              },
+              "runtime_animation_match_confidence": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Runtime Animation Match Confidence"
+              },
+              "position": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Position"
+              },
+              "bg_position": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Bg Position"
+              },
+              "view_overrides": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/Live2DViewOverrideValue"
+                },
+                "type": "object",
+                "title": "View Overrides"
+              },
+              "source_urls": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Source Urls"
+              },
+              "spine_version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Spine Version"
+              },
+              "assets": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Assets"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "NikkeLive2DModel"
+          },
+          "NikkeProfileItem": {
+            "properties": {
+              "key": {
+                "type": "string",
+                "title": "Key"
+              },
+              "label": {
+                "type": "string",
+                "title": "Label"
+              },
+              "value": {
+                "type": "string",
+                "title": "Value",
+                "default": ""
+              },
+              "asset": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "key",
+              "label"
+            ],
+            "title": "NikkeProfileItem"
+          },
+          "NikkeRuntimeAnimation": {
+            "properties": {
+              "animation": {
+                "type": "string",
+                "title": "Animation",
+                "default": ""
+              },
+              "enabled": {
+                "type": "boolean",
+                "title": "Enabled",
+                "default": true
+              },
+              "loop": {
+                "type": "boolean",
+                "title": "Loop",
+                "default": true
+              },
+              "match_method": {
+                "type": "string",
+                "title": "Match Method",
+                "default": ""
+              },
+              "match_confidence": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Match Confidence"
+              },
+              "duration_ms": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0.0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Duration Ms"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "NikkeRuntimeAnimation"
+          },
+          "NikkeRuntimeAnimations": {
+            "properties": {
+              "idle": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeRuntimeAnimation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "click": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeRuntimeAnimation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "NikkeRuntimeAnimations"
+          },
+          "NikkeSidebarCharacter": {
+            "properties": {
+              "content_id": {
+                "type": "integer",
+                "title": "Content Id"
+              },
+              "title": {
+                "type": "string",
+                "title": "Title"
+              },
+              "icon": {
+                "$ref": "#/components/schemas/NikkeSidebarIcon"
+              },
+              "implemented_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Implemented At"
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Updated At"
+              },
+              "fetched_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Fetched At"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "content_id",
+              "title",
+              "icon"
+            ],
+            "title": "NikkeSidebarCharacter"
+          },
+          "NikkeSidebarCharacterListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeSidebarCharacter"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "NikkeSidebarCharacterListResponse"
+          },
+          "NikkeSidebarIcon": {
+            "properties": {
+              "url": {
+                "type": "string",
+                "title": "Url"
+              },
+              "available": {
+                "type": "boolean",
+                "title": "Available"
+              },
+              "sha256": {
+                "type": "string",
+                "title": "Sha256"
+              },
+              "content_type": {
+                "type": "string",
+                "title": "Content Type"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "url",
+              "available",
+              "sha256",
+              "content_type"
+            ],
+            "title": "NikkeSidebarIcon"
+          },
+          "NikkeSkin": {
+            "properties": {
+              "skin_index": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Skin Index"
+              },
+              "name": {
+                "type": "string",
+                "title": "Name",
+                "default": ""
+              },
+              "title": {
+                "type": "string",
+                "title": "Title",
+                "default": ""
+              },
+              "series": {
+                "type": "string",
+                "title": "Series",
+                "default": ""
+              },
+              "obtain": {
+                "type": "string",
+                "title": "Obtain",
+                "default": ""
+              },
+              "is_collection_skin": {
+                "type": "boolean",
+                "title": "Is Collection Skin",
+                "default": false
+              },
+              "thumbnail": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "portrait": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sd_model": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "burst_animation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NikkeAsset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "gallery": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeAsset"
+                },
+                "type": "array",
+                "title": "Gallery"
+              },
+              "live2d_models": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeLive2DModel"
+                },
+                "type": "array",
+                "title": "Live2D Models"
+              },
+              "layer_metadata_required": {
+                "type": "boolean",
+                "title": "Layer Metadata Required",
+                "default": false
+              },
+              "layer_metadata_status": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "error",
+                  "missing"
+                ],
+                "title": "Layer Metadata Status",
+                "default": "missing"
+              },
+              "layer_metadata_issues": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Layer Metadata Issues"
+              },
+              "layer_metadata_capture": {
+                "$ref": "#/components/schemas/NikkeLayerMetadataCapture"
+              },
+              "runtime_animation_metadata_required": {
+                "type": "boolean",
+                "title": "Runtime Animation Metadata Required",
+                "default": false
+              },
+              "runtime_animation_metadata_status": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "error",
+                  "missing"
+                ],
+                "title": "Runtime Animation Metadata Status",
+                "default": "missing"
+              },
+              "runtime_animation_metadata_issues": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Runtime Animation Metadata Issues"
+              },
+              "voice_lines": {
+                "items": {
+                  "$ref": "#/components/schemas/NikkeVoiceLine"
+                },
+                "type": "array",
+                "title": "Voice Lines"
+              },
+              "rows": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "title": "Rows"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "NikkeSkin"
+          },
+          "NikkeVoiceLine": {
+            "properties": {
+              "label": {
+                "type": "string",
+                "title": "Label"
+              },
+              "text": {
+                "type": "string",
+                "title": "Text",
+                "default": ""
+              },
+              "source_url": {
+                "type": "string",
+                "title": "Source Url",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "label"
+            ],
+            "title": "NikkeVoiceLine"
+          },
+          "ReadinessResponse": {
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "degraded"
+                ],
+                "title": "Status"
+              },
+              "generated_at": {
+                "type": "string",
+                "title": "Generated At"
+              },
+              "checks": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ComponentReadiness"
+                },
+                "type": "object",
+                "title": "Checks"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "status",
+              "generated_at",
+              "checks"
+            ],
+            "title": "ReadinessResponse"
+          },
+          "RedNoteProxyTestRequest": {
+            "properties": {
+              "proxy": {
+                "type": "string",
+                "title": "Proxy",
+                "default": ""
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "title": "RedNoteProxyTestRequest"
+          },
+          "RedNoteProxyTestResult": {
+            "properties": {
+              "ok": {
+                "type": "boolean",
+                "title": "Ok"
+              },
+              "code": {
+                "type": "string",
+                "title": "Code"
+              },
+              "message": {
+                "type": "string",
+                "title": "Message"
+              },
+              "exit_ip": {
+                "type": "string",
+                "title": "Exit Ip",
+                "default": ""
+              },
+              "direct": {
+                "type": "boolean",
+                "title": "Direct",
+                "default": false
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "ok",
+              "code",
+              "message"
+            ],
+            "title": "RedNoteProxyTestResult"
+          },
+          "SettingsListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/SettingsSection"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "total": {
+                "type": "integer",
+                "title": "Total"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items",
+              "total"
+            ],
+            "title": "SettingsListResponse"
+          },
+          "SettingsSection": {
+            "properties": {
+              "section": {
+                "type": "string",
+                "title": "Section"
+              },
+              "value": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Value"
+              },
+              "missing_fields": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Missing Fields"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "section",
+              "value"
+            ],
+            "title": "SettingsSection"
+          },
+          "SiteCredential": {
+            "properties": {
+              "site": {
+                "type": "string",
+                "title": "Site"
+              },
+              "account": {
+                "type": "string",
+                "title": "Account"
+              },
+              "status": {
+                "type": "string",
+                "title": "Status"
+              },
+              "signed_in_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Signed In At"
+              },
+              "checked_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Checked At"
+              },
+              "cookies": {
+                "items": {
+                  "$ref": "#/components/schemas/CredentialCookie"
+                },
+                "type": "array",
+                "title": "Cookies"
+              }
+            },
+            "type": "object",
+            "required": [
+              "site",
+              "account",
+              "status",
+              "signed_in_at",
+              "checked_at",
+              "cookies"
+            ],
+            "title": "SiteCredential"
+          },
+          "SiteSessionListResponse": {
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/SiteSessionView"
+                },
+                "type": "array",
+                "title": "Items"
+              },
+              "login": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LoginAttemptView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "items"
+            ],
+            "title": "SiteSessionListResponse"
+          },
+          "SiteSessionView": {
+            "properties": {
+              "site": {
+                "type": "string",
+                "title": "Site"
+              },
+              "label": {
+                "type": "string",
+                "title": "Label"
+              },
+              "signed_in": {
+                "type": "boolean",
+                "title": "Signed In"
+              },
+              "hint": {
+                "type": "string",
+                "title": "Hint",
+                "default": ""
+              },
+              "account": {
+                "type": "string",
+                "title": "Account",
+                "default": ""
+              },
+              "status": {
+                "type": "string",
+                "title": "Status",
+                "default": ""
+              },
+              "message": {
+                "type": "string",
+                "title": "Message",
+                "default": ""
+              },
+              "cookie_count": {
+                "type": "integer",
+                "title": "Cookie Count",
+                "default": 0
+              },
+              "expires_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Expires At"
+              },
+              "signed_in_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Signed In At"
+              },
+              "checked_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Checked At"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "site",
+              "label",
+              "signed_in"
+            ],
+            "title": "SiteSessionView",
+            "description": "One site's stored login, as the 登录态 page shows it. Never carries cookie values."
+          },
+          "TelegramNotificationTestResponse": {
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "delivered",
+                "title": "Status"
+              },
+              "message_id": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Message Id"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Warnings"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "title": "TelegramNotificationTestResponse"
+          },
+          "TikHubTestResponse": {
+            "properties": {
+              "key_name": {
+                "type": "string",
+                "title": "Key Name",
+                "default": ""
+              },
+              "balance": {
+                "type": "number",
+                "title": "Balance"
+              },
+              "free_credit": {
+                "type": "number",
+                "title": "Free Credit"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "balance",
+              "free_credit"
+            ],
+            "title": "TikHubTestResponse"
+          },
+          "ValidationError": {
+            "properties": {
+              "loc": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "array",
+                "title": "Location"
+              },
+              "msg": {
+                "type": "string",
+                "title": "Message"
+              },
+              "type": {
+                "type": "string",
+                "title": "Error Type"
+              },
+              "input": {
+                "title": "Input"
+              },
+              "ctx": {
+                "type": "object",
+                "title": "Context"
+              }
+            },
+            "type": "object",
+            "required": [
+              "loc",
+              "msg",
+              "type"
+            ],
+            "title": "ValidationError"
+          }
+        }
+      }
+    }
+  ]
+}

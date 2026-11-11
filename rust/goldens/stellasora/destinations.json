@@ -1,0 +1,93 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "stellasora",
+  "cases": [
+    {
+      "disc_titles": [
+        "File:Disc_Good_Night.png",
+        "File:Disc_Sunlit_Blossom.png"
+      ],
+      "character_titles": [
+        [
+          "Freesia",
+          [
+            "File:Disc_Good_Night.png",
+            "File:Story_tales_07_001.png"
+          ]
+        ],
+        [
+          "Chitose",
+          [
+            "File:Disc_Good_Night.png"
+          ]
+        ]
+      ],
+      "result": [
+        [
+          "File:Disc_Good_Night.png",
+          "/data/stellasora/Freesia"
+        ],
+        [
+          "File:Story_tales_07_001.png",
+          "/data/stellasora/Freesia"
+        ],
+        [
+          "File:Disc_Sunlit_Blossom.png",
+          "/data/stellasora/disc"
+        ]
+      ]
+    },
+    {
+      "disc_titles": [
+        "",
+        "file:z.png",
+        "File:Z.png"
+      ],
+      "character_titles": [
+        [
+          "Bad/Name: ?",
+          [
+            "File:z.png"
+          ]
+        ],
+        [
+          "",
+          [
+            "File:empty.png"
+          ]
+        ],
+        [
+          "..",
+          [
+            "File:dots.png"
+          ]
+        ]
+      ],
+      "result": [
+        [
+          "File:z.png",
+          "/data/stellasora/Bad_Name_ _"
+        ],
+        [
+          "File:empty.png",
+          "/data/stellasora"
+        ],
+        [
+          "File:dots.png",
+          "/data/stellasora/.."
+        ],
+        [
+          "File:Z.png",
+          "/data/stellasora/disc"
+        ]
+      ]
+    },
+    {
+      "disc_titles": [],
+      "character_titles": [],
+      "result": []
+    }
+  ]
+}

@@ -1,0 +1,179 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "twitter",
+  "cases": [
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}",
+      "media_path": "/data/twitter/artist/pic.jpg",
+      "root": "/data/twitter",
+      "row": {
+        "tweet_id": 1234567890123456789,
+        "num": 2,
+        "author": "artist",
+        "author_nick": "The Artist",
+        "author_id": "42",
+        "content": "a caption",
+        "tweet_date": "2026-05-01 12:34:56",
+        "media_type": "photo",
+        "local_path": "artist/pic.jpg",
+        "metadata": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}"
+      }
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}",
+      "media_path": "/elsewhere/pic.jpg",
+      "root": "/data/twitter",
+      "row": {
+        "tweet_id": 1234567890123456789,
+        "num": 2,
+        "author": "artist",
+        "author_nick": "The Artist",
+        "author_id": "42",
+        "content": "a caption",
+        "tweet_date": "2026-05-01 12:34:56",
+        "media_type": "photo",
+        "local_path": "/elsewhere/pic.jpg",
+        "metadata": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}"
+      }
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}",
+      "media_path": "/p.jpg",
+      "root": "/data",
+      "row": {
+        "tweet_id": 1234567890123456789,
+        "num": 2,
+        "author": "",
+        "author_nick": "",
+        "author_id": "",
+        "content": "a caption",
+        "tweet_date": "2026-05-01 12:34:56",
+        "media_type": "photo",
+        "local_path": "/p.jpg",
+        "metadata": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}"
+      }
+    },
+    {
+      "sidecar": "{\"hello\": \"world\"}",
+      "media_path": "/p.jpg",
+      "root": "/data",
+      "row": null
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": \"2\", \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}",
+      "media_path": "/p.jpg",
+      "root": "/data",
+      "row": null
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1.0, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\"}",
+      "media_path": "/p.jpg",
+      "root": "/data",
+      "row": null
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": \"not a dict\", \"content\": null, \"date\": null, \"type\": null, \"extension\": \"jpg\"}",
+      "media_path": "/data/a/b.mp4",
+      "root": "/data",
+      "row": {
+        "tweet_id": 1234567890123456789,
+        "num": 2,
+        "author": "",
+        "author_nick": "",
+        "author_id": "",
+        "content": "",
+        "tweet_date": "",
+        "media_type": "",
+        "local_path": "a/b.mp4",
+        "metadata": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": \"not a dict\", \"content\": null, \"date\": null, \"type\": null, \"extension\": \"jpg\"}"
+      }
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 0, \"name\": null, \"nick\": 12.5}, \"content\": [\"a\", \"b\"], \"date\": {\"d\": 1}, \"type\": \"photo\", \"extension\": \"jpg\"}",
+      "media_path": "/data/x",
+      "root": "/data",
+      "row": {
+        "tweet_id": 1234567890123456789,
+        "num": 2,
+        "author": "",
+        "author_nick": "12.5",
+        "author_id": "",
+        "content": "['a', 'b']",
+        "tweet_date": "{'d': 1}",
+        "media_type": "photo",
+        "local_path": "x",
+        "metadata": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 0, \"name\": null, \"nick\": 12.5}, \"content\": [\"a\", \"b\"], \"date\": {\"d\": 1}, \"type\": \"photo\", \"extension\": \"jpg\"}"
+      }
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"多行\\n\\\"引号\\\"\\t</script>   😀\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\", \"extra\": {\"nested\": [1, 2.0, true, null]}}",
+      "media_path": "relative/a.jpg",
+      "root": "relative",
+      "row": {
+        "tweet_id": 1234567890123456789,
+        "num": 2,
+        "author": "artist",
+        "author_nick": "The Artist",
+        "author_id": "42",
+        "content": "多行\n\"引号\"\t</script>   😀",
+        "tweet_date": "2026-05-01 12:34:56",
+        "media_type": "photo",
+        "local_path": "a.jpg",
+        "metadata": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"多行\\n\\\"引号\\\"\\t</script>   😀\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"photo\", \"extension\": \"jpg\", \"extra\": {\"nested\": [1, 2.0, true, null]}}"
+      }
+    },
+    {
+      "sidecar": "{\"tweet_id\": 5, \"num\": 1, \"big\": 123456789012345678901234567890, \"f\": 1e400, \"n\": NaN, \"e\": 1.5e-7}",
+      "media_path": "/r/x.jpg",
+      "root": "/r",
+      "row": {
+        "tweet_id": 5,
+        "num": 1,
+        "author": "",
+        "author_nick": "",
+        "author_id": "",
+        "content": "",
+        "tweet_date": "",
+        "media_type": "",
+        "local_path": "x.jpg",
+        "metadata": "{\"tweet_id\": 5, \"num\": 1, \"big\": 123456789012345678901234567890, \"f\": Infinity, \"n\": NaN, \"e\": 1.5e-07}"
+      }
+    },
+    {
+      "sidecar": "{\"num\": 1, \"tweet_id\": 6, \"a\": 1, \"a\": 2}",
+      "media_path": "/r/../r/x.jpg",
+      "root": "/r",
+      "row": {
+        "tweet_id": 6,
+        "num": 1,
+        "author": "",
+        "author_nick": "",
+        "author_id": "",
+        "content": "",
+        "tweet_date": "",
+        "media_type": "",
+        "local_path": "../r/x.jpg",
+        "metadata": "{\"num\": 1, \"tweet_id\": 6, \"a\": 2}"
+      }
+    },
+    {
+      "sidecar": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"animated_gif\", \"extension\": \"jpg\"}",
+      "media_path": "/data/twitter/artist/loop.mp4",
+      "root": "/data/twitter/",
+      "row": {
+        "tweet_id": 1234567890123456789,
+        "num": 2,
+        "author": "artist",
+        "author_nick": "The Artist",
+        "author_id": "42",
+        "content": "a caption",
+        "tweet_date": "2026-05-01 12:34:56",
+        "media_type": "animated_gif",
+        "local_path": "artist/loop.mp4",
+        "metadata": "{\"tweet_id\": 1234567890123456789, \"num\": 2, \"author\": {\"id\": 42, \"name\": \"artist\", \"nick\": \"The Artist\"}, \"content\": \"a caption\", \"date\": \"2026-05-01 12:34:56\", \"type\": \"animated_gif\", \"extension\": \"jpg\"}"
+      }
+    }
+  ]
+}

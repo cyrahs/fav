@@ -1,0 +1,3793 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "telegram",
+  "cases": [
+    {
+      "kind": "exact",
+      "name": "ABOUT_TOO_LONG",
+      "class": "AboutTooLongError",
+      "text": "The provided bio is too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ACCESS_TOKEN_EXPIRED",
+      "class": "AccessTokenExpiredError",
+      "text": "Bot token expired",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ACCESS_TOKEN_INVALID",
+      "class": "AccessTokenInvalidError",
+      "text": "The provided token is not valid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ACTIVE_USER_REQUIRED",
+      "class": "ActiveUserRequiredError",
+      "text": "The method is only available to already activated users",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ADMINS_TOO_MUCH",
+      "class": "AdminsTooMuchError",
+      "text": "Too many admins",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ADMIN_ID_INVALID",
+      "class": "AdminIdInvalidError",
+      "text": "The specified admin ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ADMIN_RANK_EMOJI_NOT_ALLOWED",
+      "class": "AdminRankEmojiNotAllowedError",
+      "text": "Emoji are not allowed in admin titles or ranks",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ADMIN_RANK_INVALID",
+      "class": "AdminRankInvalidError",
+      "text": "The given admin title or rank was invalid (possibly larger than 16 characters)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ALBUM_PHOTOS_TOO_MANY",
+      "class": "AlbumPhotosTooManyError",
+      "text": "Too many photos were included in the album",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "API_ID_INVALID",
+      "class": "ApiIdInvalidError",
+      "text": "The api_id/api_hash combination is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "API_ID_PUBLISHED_FLOOD",
+      "class": "ApiIdPublishedFloodError",
+      "text": "This API id was published somewhere, you can't use it now",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ARTICLE_TITLE_EMPTY",
+      "class": "ArticleTitleEmptyError",
+      "text": "The title of the article is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUDIO_CONTENT_URL_EMPTY",
+      "class": "AudioContentUrlEmptyError",
+      "text": "The remote URL specified in the content field is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUDIO_TITLE_EMPTY",
+      "class": "AudioTitleEmptyError",
+      "text": "The title attribute of the audio must be non-empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_BYTES_INVALID",
+      "class": "AuthBytesInvalidError",
+      "text": "The provided authorization is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_KEY_DUPLICATED",
+      "class": "AuthKeyDuplicatedError",
+      "text": "The authorization key (session file) was used under two different IP addresses simultaneously, and can no longer be used. Use the same session exclusively, or use different sessions",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_KEY_INVALID",
+      "class": "AuthKeyInvalidError",
+      "text": "The key is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_KEY_PERM_EMPTY",
+      "class": "AuthKeyPermEmptyError",
+      "text": "The method is unavailable for temporary authorization key, not bound to permanent",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_KEY_UNREGISTERED",
+      "class": "AuthKeyUnregisteredError",
+      "text": "The key is not registered in the system",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_RESTART",
+      "class": "AuthRestartError",
+      "text": "Restart the authorization process",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_TOKEN_ALREADY_ACCEPTED",
+      "class": "AuthTokenAlreadyAcceptedError",
+      "text": "The authorization token was already used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_TOKEN_EXCEPTION",
+      "class": "AuthTokenExceptionError",
+      "text": "An error occurred while importing the auth token",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_TOKEN_EXPIRED",
+      "class": "AuthTokenExpiredError",
+      "text": "The provided authorization token has expired and the updated QR-code must be re-scanned",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_TOKEN_INVALID",
+      "class": "AuthTokenInvalidError",
+      "text": "An invalid authorization token was provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_TOKEN_INVALID2",
+      "class": "AuthTokenInvalid2Error",
+      "text": "An invalid authorization token was provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTH_TOKEN_INVALIDX",
+      "class": "AuthTokenInvalidxError",
+      "text": "The specified auth token is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "AUTOARCHIVE_NOT_AVAILABLE",
+      "class": "AutoarchiveNotAvailableError",
+      "text": "You cannot use this feature yet",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BANK_CARD_NUMBER_INVALID",
+      "class": "BankCardNumberInvalidError",
+      "text": "Incorrect credit card number",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BANNED_RIGHTS_INVALID",
+      "class": "BannedRightsInvalidError",
+      "text": "You cannot use that set of permissions in this request, i.e. restricting view_messages as a default",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BASE_PORT_LOC_INVALID",
+      "class": "BasePortLocInvalidError",
+      "text": "Base port location invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOTS_TOO_MUCH",
+      "class": "BotsTooMuchError",
+      "text": "There are too many bots in this chat/channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_CHANNELS_NA",
+      "class": "BotChannelsNaError",
+      "text": "Bots can't edit admin privileges",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_COMMAND_DESCRIPTION_INVALID",
+      "class": "BotCommandDescriptionInvalidError",
+      "text": "The command description was empty, too long or had invalid characters used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_COMMAND_INVALID",
+      "class": "BotCommandInvalidError",
+      "text": "The specified command is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_COMMANDS_TOO_MUCH",
+      "class": "BotCommandsTooMuchError",
+      "text": "The provided commands are too many",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_DOMAIN_INVALID",
+      "class": "BotDomainInvalidError",
+      "text": "The domain used for the auth button does not match the one configured in @BotFather",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_GAMES_DISABLED",
+      "class": "BotGamesDisabledError",
+      "text": "Bot games cannot be used in this type of chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_GROUPS_BLOCKED",
+      "class": "BotGroupsBlockedError",
+      "text": "This bot can't be added to groups",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_INLINE_DISABLED",
+      "class": "BotInlineDisabledError",
+      "text": "This bot can't be used in inline mode",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_INVALID",
+      "class": "BotInvalidError",
+      "text": "This is not a valid bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_METHOD_INVALID",
+      "class": "BotMethodInvalidError",
+      "text": "The API access for bot users is restricted. The method you tried to invoke cannot be executed as a bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_MISSING",
+      "class": "BotMissingError",
+      "text": "This method can only be run by a bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_ONESIDE_NOT_AVAIL",
+      "class": "BotOnesideNotAvailError",
+      "text": "Bots can't pin messages in PM just for themselves",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_PAYMENTS_DISABLED",
+      "class": "BotPaymentsDisabledError",
+      "text": "This method can only be run by a bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_POLLS_DISABLED",
+      "class": "BotPollsDisabledError",
+      "text": "You cannot create polls under a bot account",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_RESPONSE_TIMEOUT",
+      "class": "BotResponseTimeoutError",
+      "text": "The bot did not answer to the callback query in time",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BOT_SCORE_NOT_MODIFIED",
+      "class": "BotScoreNotModifiedError",
+      "text": "The score wasn't modified",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BROADCAST_CALLS_DISABLED",
+      "class": "BroadcastCallsDisabledError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BROADCAST_FORBIDDEN",
+      "class": "BroadcastForbiddenError",
+      "text": "The request cannot be used in broadcast channels",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BROADCAST_ID_INVALID",
+      "class": "BroadcastIdInvalidError",
+      "text": "The channel is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BROADCAST_PUBLIC_VOTERS_FORBIDDEN",
+      "class": "BroadcastPublicVotersForbiddenError",
+      "text": "You cannot broadcast polls where the voters are public",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BROADCAST_REQUIRED",
+      "class": "BroadcastRequiredError",
+      "text": "The request can only be used with a broadcast channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BUTTON_DATA_INVALID",
+      "class": "ButtonDataInvalidError",
+      "text": "The provided button data is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BUTTON_TEXT_INVALID",
+      "class": "ButtonTextInvalidError",
+      "text": "The specified button text is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BUTTON_TYPE_INVALID",
+      "class": "ButtonTypeInvalidError",
+      "text": "The type of one of the buttons you provided is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BUTTON_URL_INVALID",
+      "class": "ButtonUrlInvalidError",
+      "text": "Button URL invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "BUTTON_USER_PRIVACY_RESTRICTED",
+      "class": "ButtonUserPrivacyRestrictedError",
+      "text": "The privacy setting of the user specified in a [inputKeyboardButtonUserProfile](/constructor/inputKeyboardButtonUserProfile) button do not allow creating such a button",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CALL_ALREADY_ACCEPTED",
+      "class": "CallAlreadyAcceptedError",
+      "text": "The call was already accepted",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CALL_ALREADY_DECLINED",
+      "class": "CallAlreadyDeclinedError",
+      "text": "The call was already declined",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CALL_OCCUPY_FAILED",
+      "class": "CallOccupyFailedError",
+      "text": "The call failed because the user is already making another call",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "CALL_PEER_INVALID",
+      "class": "CallPeerInvalidError",
+      "text": "The provided call peer object is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CALL_PROTOCOL_FLAGS_INVALID",
+      "class": "CallProtocolFlagsInvalidError",
+      "text": "Call protocol flags invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CDN_METHOD_INVALID",
+      "class": "CdnMethodInvalidError",
+      "text": "This method cannot be invoked on a CDN server. Refer to https://core.telegram.org/cdn#schema for available methods",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CDN_UPLOAD_TIMEOUT",
+      "class": "CdnUploadTimeoutError",
+      "text": "A server-side timeout occurred while reuploading the file to the CDN DC",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNELS_ADMIN_LOCATED_TOO_MUCH",
+      "class": "ChannelsAdminLocatedTooMuchError",
+      "text": "The user has reached the limit of public geogroups",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNELS_ADMIN_PUBLIC_TOO_MUCH",
+      "class": "ChannelsAdminPublicTooMuchError",
+      "text": "You're admin of too many public channels, make some channels private to change the username of this channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNELS_TOO_MUCH",
+      "class": "ChannelsTooMuchError",
+      "text": "You have joined too many channels/supergroups",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_BANNED",
+      "class": "ChannelBannedError",
+      "text": "The channel is banned",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_FORUM_MISSING",
+      "class": "ChannelForumMissingError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_ID_INVALID",
+      "class": "ChannelIdInvalidError",
+      "text": "The specified supergroup ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_INVALID",
+      "class": "ChannelInvalidError",
+      "text": "Invalid channel object. Make sure to pass the right types, for instance making sure that the request is designed for channels or otherwise look for a different one more suited",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_PARICIPANT_MISSING",
+      "class": "ChannelParicipantMissingError",
+      "text": "The current user is not in the channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_PRIVATE",
+      "class": "ChannelPrivateError",
+      "text": "The channel specified is private and you lack permission to access it. Another reason may be that you were banned from it",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_PUBLIC_GROUP_NA",
+      "class": "ChannelPublicGroupNaError",
+      "text": "channel/supergroup not available",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_TOO_BIG",
+      "class": "ChannelTooBigError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHANNEL_TOO_LARGE",
+      "class": "ChannelTooLargeError",
+      "text": "Channel is too large to be deleted; this error is issued when trying to delete channels with more than 1000 members (subject to change)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_ABOUT_NOT_MODIFIED",
+      "class": "ChatAboutNotModifiedError",
+      "text": "About text has not changed",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_ABOUT_TOO_LONG",
+      "class": "ChatAboutTooLongError",
+      "text": "Chat about too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_ADMIN_INVITE_REQUIRED",
+      "class": "ChatAdminInviteRequiredError",
+      "text": "You do not have the rights to do this",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_ADMIN_REQUIRED",
+      "class": "ChatAdminRequiredError",
+      "text": "Chat admin privileges are required to do that in the specified chat (for example, to send a message in a channel which is not yours), or invalid permissions used for the channel or group",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_DISCUSSION_UNALLOWED",
+      "class": "ChatDiscussionUnallowedError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_FORBIDDEN",
+      "class": "ChatForbiddenError",
+      "text": "You cannot write in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_FORWARDS_RESTRICTED",
+      "class": "ChatForwardsRestrictedError",
+      "text": "You can't forward messages from a protected chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_GET_FAILED",
+      "class": "ChatGetFailedError",
+      "text": "",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_GUEST_SEND_FORBIDDEN",
+      "class": "ChatGuestSendForbiddenError",
+      "text": "You join the discussion group before commenting, see [here](/api/discussion#requiring-users-to-join-the-group) for more info",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_ID_EMPTY",
+      "class": "ChatIdEmptyError",
+      "text": "The provided chat ID is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_ID_GENERATE_FAILED",
+      "class": "ChatIdGenerateFailedError",
+      "text": "Failure while generating the chat ID",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_ID_INVALID",
+      "class": "ChatIdInvalidError",
+      "text": "Invalid object ID for a chat. Make sure to pass the right types, for instance making sure that the request is designed for chats (not channels/megagroups) or otherwise look for a different one more suited\\nAn example working with a megagroup and AddChatUserRequest, it will fail because megagroups are channels. Use InviteToChannelRequest instead",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_INVALID",
+      "class": "ChatInvalidError",
+      "text": "The chat is invalid for this request",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_INVITE_PERMANENT",
+      "class": "ChatInvitePermanentError",
+      "text": "You can't set an expiration date on permanent invite links",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_LINK_EXISTS",
+      "class": "ChatLinkExistsError",
+      "text": "The chat is linked to a channel and cannot be used in that request",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_NOT_MODIFIED",
+      "class": "ChatNotModifiedError",
+      "text": "The chat or channel wasn't modified (title, invites, username, admins, etc. are the same)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_RESTRICTED",
+      "class": "ChatRestrictedError",
+      "text": "The chat is restricted and cannot be used in that request",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_REVOKE_DATE_UNSUPPORTED",
+      "class": "ChatRevokeDateUnsupportedError",
+      "text": "`min_date` and `max_date` are not available for using with non-user peers",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_GAME_FORBIDDEN",
+      "class": "ChatSendGameForbiddenError",
+      "text": "You can't send a game to this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_GIFS_FORBIDDEN",
+      "class": "ChatSendGifsForbiddenError",
+      "text": "You can't send gifs in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_INLINE_FORBIDDEN",
+      "class": "ChatSendInlineForbiddenError",
+      "text": "You cannot send inline results in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_MEDIA_FORBIDDEN",
+      "class": "ChatSendMediaForbiddenError",
+      "text": "You can't send media in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_POLL_FORBIDDEN",
+      "class": "ChatSendPollForbiddenError",
+      "text": "You can't send polls in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_STICKERS_FORBIDDEN",
+      "class": "ChatSendStickersForbiddenError",
+      "text": "You can't send stickers in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_TITLE_EMPTY",
+      "class": "ChatTitleEmptyError",
+      "text": "No chat title provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_TOO_BIG",
+      "class": "ChatTooBigError",
+      "text": "This method is not available for groups with more than `chat_read_mark_size_threshold` members, [see client configuration](https://core.telegram.org/api/config#client-configuration)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_WRITE_FORBIDDEN",
+      "class": "ChatWriteForbiddenError",
+      "text": "You can't write in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHP_CALL_FAIL",
+      "class": "ChpCallFailError",
+      "text": "The statistics cannot be retrieved at this time",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "CODE_EMPTY",
+      "class": "CodeEmptyError",
+      "text": "The provided code is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CODE_HASH_INVALID",
+      "class": "CodeHashInvalidError",
+      "text": "Code hash invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CODE_INVALID",
+      "class": "CodeInvalidError",
+      "text": "Code invalid (i.e. from email)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_API_ID_INVALID",
+      "class": "ConnectionApiIdInvalidError",
+      "text": "The provided API id is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_APP_VERSION_EMPTY",
+      "class": "ConnectionAppVersionEmptyError",
+      "text": "App version is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_DEVICE_MODEL_EMPTY",
+      "class": "ConnectionDeviceModelEmptyError",
+      "text": "Device model empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_LANG_PACK_INVALID",
+      "class": "ConnectionLangPackInvalidError",
+      "text": "The specified language pack is not valid. This is meant to be used by official applications only so far, leave it empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_LAYER_INVALID",
+      "class": "ConnectionLayerInvalidError",
+      "text": "The very first request must always be InvokeWithLayerRequest",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_NOT_INITED",
+      "class": "ConnectionNotInitedError",
+      "text": "Connection not initialized",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_SYSTEM_EMPTY",
+      "class": "ConnectionSystemEmptyError",
+      "text": "Connection system empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONNECTION_SYSTEM_LANG_CODE_EMPTY",
+      "class": "ConnectionSystemLangCodeEmptyError",
+      "text": "The system language string was empty during connection",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONTACT_ADD_MISSING",
+      "class": "ContactAddMissingError",
+      "text": "Contact to add is missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONTACT_ID_INVALID",
+      "class": "ContactIdInvalidError",
+      "text": "The provided contact ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONTACT_NAME_EMPTY",
+      "class": "ContactNameEmptyError",
+      "text": "The provided contact name cannot be empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CONTACT_REQ_MISSING",
+      "class": "ContactReqMissingError",
+      "text": "Missing contact request",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CREATE_CALL_FAILED",
+      "class": "CreateCallFailedError",
+      "text": "An error occurred while creating the call",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CURRENCY_TOTAL_AMOUNT_INVALID",
+      "class": "CurrencyTotalAmountInvalidError",
+      "text": "The total amount of all prices is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "DATA_INVALID",
+      "class": "DataInvalidError",
+      "text": "Encrypted data invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "DATA_JSON_INVALID",
+      "class": "DataJsonInvalidError",
+      "text": "The provided JSON data is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "DATA_TOO_LONG",
+      "class": "DataTooLongError",
+      "text": "Data too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "DATE_EMPTY",
+      "class": "DateEmptyError",
+      "text": "Date empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "DC_ID_INVALID",
+      "class": "DcIdInvalidError",
+      "text": "This occurs when an authorization is tried to be exported for the same data center one is currently connected to",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "DH_G_A_INVALID",
+      "class": "DhGAInvalidError",
+      "text": "g_a invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "DOCUMENT_INVALID",
+      "class": "DocumentInvalidError",
+      "text": "The document file was invalid and can't be used in inline mode",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EDIT_BOT_INVITE_FORBIDDEN",
+      "class": "EditBotInviteForbiddenError",
+      "text": "Normal users can't edit invites that were created by bots",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMAIL_HASH_EXPIRED",
+      "class": "EmailHashExpiredError",
+      "text": "The email hash expired and cannot be used to verify it",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMAIL_INVALID",
+      "class": "EmailInvalidError",
+      "text": "The given email is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMAIL_UNCONFIRMED",
+      "class": "EmailUnconfirmedError",
+      "text": "Email unconfirmed, the length of the code must be 0",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMAIL_VERIFY_EXPIRED",
+      "class": "EmailVerifyExpiredError",
+      "text": "The verification email has expired",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMOJI_INVALID",
+      "class": "EmojiInvalidError",
+      "text": "The specified theme emoji is valid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMOJI_NOT_MODIFIED",
+      "class": "EmojiNotModifiedError",
+      "text": "The theme wasn't changed",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMOTICON_EMPTY",
+      "class": "EmoticonEmptyError",
+      "text": "The emoticon field cannot be empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMOTICON_INVALID",
+      "class": "EmoticonInvalidError",
+      "text": "The specified emoticon cannot be used or was not a emoticon",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EMOTICON_STICKERPACK_MISSING",
+      "class": "EmoticonStickerpackMissingError",
+      "text": "The emoticon sticker pack you are trying to get is missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENCRYPTED_MESSAGE_INVALID",
+      "class": "EncryptedMessageInvalidError",
+      "text": "Encrypted message invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENCRYPTION_ALREADY_ACCEPTED",
+      "class": "EncryptionAlreadyAcceptedError",
+      "text": "Secret chat already accepted",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENCRYPTION_ALREADY_DECLINED",
+      "class": "EncryptionAlreadyDeclinedError",
+      "text": "The secret chat was already declined",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENCRYPTION_DECLINED",
+      "class": "EncryptionDeclinedError",
+      "text": "The secret chat was declined",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENCRYPTION_ID_INVALID",
+      "class": "EncryptionIdInvalidError",
+      "text": "The provided secret chat ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENCRYPTION_OCCUPY_FAILED",
+      "class": "EncryptionOccupyFailedError",
+      "text": "TDLib developer claimed it is not an error while accepting secret chats and 500 is used instead of 420",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "ENTITIES_TOO_LONG",
+      "class": "EntitiesTooLongError",
+      "text": "It is no longer possible to send such long data inside entity tags (for example inline text URLs)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENTITY_BOUNDS_INVALID",
+      "class": "EntityBoundsInvalidError",
+      "text": "Some of provided entities have invalid bounds (length is zero or out of the boundaries of the string)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ENTITY_MENTION_USER_INVALID",
+      "class": "EntityMentionUserInvalidError",
+      "text": "You can't use this entity",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "ERROR_TEXT_EMPTY",
+      "class": "ErrorTextEmptyError",
+      "text": "The provided error message is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EXPIRE_DATE_INVALID",
+      "class": "ExpireDateInvalidError",
+      "text": "The specified expiration date is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EXPIRE_FORBIDDEN",
+      "class": "ExpireForbiddenError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EXPORT_CARD_INVALID",
+      "class": "ExportCardInvalidError",
+      "text": "Provided card is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "EXTERNAL_URL_INVALID",
+      "class": "ExternalUrlInvalidError",
+      "text": "External URL invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FIELD_NAME_EMPTY",
+      "class": "FieldNameEmptyError",
+      "text": "The field with the name FIELD_NAME is missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FIELD_NAME_INVALID",
+      "class": "FieldNameInvalidError",
+      "text": "The field with the name FIELD_NAME is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILEREF_UPGRADE_NEEDED",
+      "class": "FilerefUpgradeNeededError",
+      "text": "The file reference needs to be refreshed before being used again",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_CONTENT_TYPE_INVALID",
+      "class": "FileContentTypeInvalidError",
+      "text": "File content-type is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_EMTPY",
+      "class": "FileEmtpyError",
+      "text": "An empty file was provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_ID_INVALID",
+      "class": "FileIdInvalidError",
+      "text": "The provided file id is invalid. Make sure all parameters are present, have the correct type and are not empty (ID, access hash, file reference, thumb size ...)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PARTS_INVALID",
+      "class": "FilePartsInvalidError",
+      "text": "The number of file parts is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PART_0_MISSING",
+      "class": "FilePart0MissingError",
+      "text": "File part 0 missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PART_EMPTY",
+      "class": "FilePartEmptyError",
+      "text": "The provided file part is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PART_INVALID",
+      "class": "FilePartInvalidError",
+      "text": "The file part number is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PART_LENGTH_INVALID",
+      "class": "FilePartLengthInvalidError",
+      "text": "The length of a file part is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PART_SIZE_CHANGED",
+      "class": "FilePartSizeChangedError",
+      "text": "The file part size (chunk size) cannot change during upload",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PART_SIZE_INVALID",
+      "class": "FilePartSizeInvalidError",
+      "text": "The provided file part size is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_PART_TOO_BIG",
+      "class": "FilePartTooBigError",
+      "text": "The uploaded file part is too big",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_REFERENCE_EMPTY",
+      "class": "FileReferenceEmptyError",
+      "text": "The file reference must exist to access the media and it cannot be empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_REFERENCE_EXPIRED",
+      "class": "FileReferenceExpiredError",
+      "text": "The file reference has expired and is no longer valid or it belongs to self-destructing media and cannot be resent",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_REFERENCE_INVALID",
+      "class": "FileReferenceInvalidError",
+      "text": "The file reference is invalid or you can't do that operation on such message",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILE_TITLE_EMPTY",
+      "class": "FileTitleEmptyError",
+      "text": "An empty file title was specified",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILTER_ID_INVALID",
+      "class": "FilterIdInvalidError",
+      "text": "The specified filter ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILTER_INCLUDE_EMPTY",
+      "class": "FilterIncludeEmptyError",
+      "text": "The include_peers vector of the filter is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILTER_NOT_SUPPORTED",
+      "class": "FilterNotSupportedError",
+      "text": "The specified filter cannot be used in this context",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FILTER_TITLE_EMPTY",
+      "class": "FilterTitleEmptyError",
+      "text": "The title field of the filter is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FIRSTNAME_INVALID",
+      "class": "FirstNameInvalidError",
+      "text": "The first name is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FOLDER_ID_EMPTY",
+      "class": "FolderIdEmptyError",
+      "text": "The folder you tried to delete was already empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FOLDER_ID_INVALID",
+      "class": "FolderIdInvalidError",
+      "text": "The folder you tried to use was not valid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FRESH_CHANGE_ADMINS_FORBIDDEN",
+      "class": "FreshChangeAdminsForbiddenError",
+      "text": "Recently logged-in users cannot add or change admins",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FRESH_CHANGE_PHONE_FORBIDDEN",
+      "class": "FreshChangePhoneForbiddenError",
+      "text": "Recently logged-in users cannot use this request",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FRESH_RESET_AUTHORISATION_FORBIDDEN",
+      "class": "FreshResetAuthorisationForbiddenError",
+      "text": "The current session is too new and cannot be used to reset other authorisations yet",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FROM_MESSAGE_BOT_DISABLED",
+      "class": "FromMessageBotDisabledError",
+      "text": "Bots can't use fromMessage min constructors",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FROM_PEER_INVALID",
+      "class": "FromPeerInvalidError",
+      "text": "The given from_user peer cannot be used for the parameter",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GAME_BOT_INVALID",
+      "class": "GameBotInvalidError",
+      "text": "You cannot send that game with the current bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GEO_POINT_INVALID",
+      "class": "GeoPointInvalidError",
+      "text": "Invalid geoposition provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GIF_CONTENT_TYPE_INVALID",
+      "class": "GifContentTypeInvalidError",
+      "text": "GIF content-type invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GIF_ID_INVALID",
+      "class": "GifIdInvalidError",
+      "text": "The provided GIF ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GRAPH_EXPIRED_RELOAD",
+      "class": "GraphExpiredReloadError",
+      "text": "This graph has expired, please obtain a new graph token",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GRAPH_INVALID_RELOAD",
+      "class": "GraphInvalidReloadError",
+      "text": "Invalid graph token provided, please reload the stats and provide the updated token",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GRAPH_OUTDATED_RELOAD",
+      "class": "GraphOutdatedReloadError",
+      "text": "Data can't be used for the channel statistics, graphs outdated",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_ADD_PARTICIPANTS_FAILED",
+      "class": "GroupcallAddParticipantsFailedError",
+      "text": "",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_ALREADY_DISCARDED",
+      "class": "GroupcallAlreadyDiscardedError",
+      "text": "The group call was already discarded",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_ALREADY_STARTED",
+      "class": "GroupcallAlreadyStartedError",
+      "text": "The groupcall has already started, you can join directly using [phone.joinGroupCall](https://core.telegram.org/method/phone.joinGroupCall)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_FORBIDDEN",
+      "class": "GroupcallForbiddenError",
+      "text": "The group call has already ended",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_INVALID",
+      "class": "GroupcallInvalidError",
+      "text": "The specified group call is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_JOIN_MISSING",
+      "class": "GroupcallJoinMissingError",
+      "text": "You haven't joined this group call",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_NOT_MODIFIED",
+      "class": "GroupcallNotModifiedError",
+      "text": "Group call settings weren't modified",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPCALL_SSRC_DUPLICATE_MUCH",
+      "class": "GroupcallSsrcDuplicateMuchError",
+      "text": "The app needs to retry joining the group call with a new SSRC value",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUPED_MEDIA_INVALID",
+      "class": "GroupedMediaInvalidError",
+      "text": "Invalid grouped media",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "GROUP_CALL_INVALID",
+      "class": "GroupCallInvalidError",
+      "text": "Group call invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "HASH_INVALID",
+      "class": "HashInvalidError",
+      "text": "The provided hash is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "HIDE_REQUESTER_MISSING",
+      "class": "HideRequesterMissingError",
+      "text": "The join request was missing or was already handled",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "HISTORY_GET_FAILED",
+      "class": "HistoryGetFailedError",
+      "text": "Fetching of history failed",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "IMAGE_PROCESS_FAILED",
+      "class": "ImageProcessFailedError",
+      "text": "Failure while processing image",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "IMPORT_FILE_INVALID",
+      "class": "ImportFileInvalidError",
+      "text": "The file is too large to be imported",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "IMPORT_FORMAT_UNRECOGNIZED",
+      "class": "ImportFormatUnrecognizedError",
+      "text": "Unknown import format",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "IMPORT_ID_INVALID",
+      "class": "ImportIdInvalidError",
+      "text": "The specified import ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INLINE_BOT_REQUIRED",
+      "class": "InlineBotRequiredError",
+      "text": "The action must be performed through an inline bot callback",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INLINE_RESULT_EXPIRED",
+      "class": "InlineResultExpiredError",
+      "text": "The inline query expired",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_CONSTRUCTOR_INVALID",
+      "class": "InputConstructorInvalidError",
+      "text": "The provided constructor is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_FETCH_ERROR",
+      "class": "InputFetchErrorError",
+      "text": "An error occurred while deserializing TL parameters",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_FETCH_FAIL",
+      "class": "InputFetchFailError",
+      "text": "Failed deserializing TL payload",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_FILTER_INVALID",
+      "class": "InputFilterInvalidError",
+      "text": "The search query filter is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_LAYER_INVALID",
+      "class": "InputLayerInvalidError",
+      "text": "The provided layer is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_METHOD_INVALID",
+      "class": "InputMethodInvalidError",
+      "text": "The invoked method does not exist anymore or has never existed",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_REQUEST_TOO_LONG",
+      "class": "InputRequestTooLongError",
+      "text": "The input request was too long. This may be a bug in the library as it can occur when serializing more bytes than it should (like appending the vector constructor code at the end of a message)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_TEXT_EMPTY",
+      "class": "InputTextEmptyError",
+      "text": "The specified text is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INPUT_USER_DEACTIVATED",
+      "class": "InputUserDeactivatedError",
+      "text": "The specified user was deleted",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INVITE_FORBIDDEN_WITH_JOINAS",
+      "class": "InviteForbiddenWithJoinasError",
+      "text": "If the user has anonymously joined a group call as a channel, they can't invite other users to the group call because that would cause deanonymization, because the invite would be sent using the original user ID, not the anonymized channel ID",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INVITE_HASH_EMPTY",
+      "class": "InviteHashEmptyError",
+      "text": "The invite hash is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INVITE_HASH_EXPIRED",
+      "class": "InviteHashExpiredError",
+      "text": "The chat the user tried to join has expired and is not valid anymore",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INVITE_HASH_INVALID",
+      "class": "InviteHashInvalidError",
+      "text": "The invite hash is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INVITE_REQUEST_SENT",
+      "class": "InviteRequestSentError",
+      "text": "You have successfully requested to join this chat or channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INVITE_REVOKED_MISSING",
+      "class": "InviteRevokedMissingError",
+      "text": "The specified invite link was already revoked or is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "INVOICE_PAYLOAD_INVALID",
+      "class": "InvoicePayloadInvalidError",
+      "text": "The specified invoice payload is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "JOIN_AS_PEER_INVALID",
+      "class": "JoinAsPeerInvalidError",
+      "text": "The specified peer cannot be used to join a group call",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "LANG_CODE_INVALID",
+      "class": "LangCodeInvalidError",
+      "text": "The specified language code is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "LANG_CODE_NOT_SUPPORTED",
+      "class": "LangCodeNotSupportedError",
+      "text": "The specified language code is not supported",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "LANG_PACK_INVALID",
+      "class": "LangPackInvalidError",
+      "text": "The provided language pack is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "LASTNAME_INVALID",
+      "class": "LastnameInvalidError",
+      "text": "The last name is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "LIMIT_INVALID",
+      "class": "LimitInvalidError",
+      "text": "An invalid limit was provided. See https://core.telegram.org/api/files#downloading-files",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "LINK_NOT_MODIFIED",
+      "class": "LinkNotModifiedError",
+      "text": "The channel is already linked to this group",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "LOCATION_INVALID",
+      "class": "LocationInvalidError",
+      "text": "The location given for a file was invalid. See https://core.telegram.org/api/files#downloading-files",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MAX_DATE_INVALID",
+      "class": "MaxDateInvalidError",
+      "text": "The specified maximum date is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MAX_ID_INVALID",
+      "class": "MaxIdInvalidError",
+      "text": "The provided max ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MAX_QTS_INVALID",
+      "class": "MaxQtsInvalidError",
+      "text": "The provided QTS were invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MD5_CHECKSUM_INVALID",
+      "class": "Md5ChecksumInvalidError",
+      "text": "The MD5 check-sums do not match",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEDIA_CAPTION_TOO_LONG",
+      "class": "MediaCaptionTooLongError",
+      "text": "The caption is too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEDIA_EMPTY",
+      "class": "MediaEmptyError",
+      "text": "The provided media object is invalid or the current account may not be able to send it (such as games as users)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEDIA_GROUPED_INVALID",
+      "class": "MediaGroupedInvalidError",
+      "text": "You tried to send media of different types in an album",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEDIA_INVALID",
+      "class": "MediaInvalidError",
+      "text": "Media invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEDIA_NEW_INVALID",
+      "class": "MediaNewInvalidError",
+      "text": "The new media to edit the message with is invalid (such as stickers or voice notes)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEDIA_PREV_INVALID",
+      "class": "MediaPrevInvalidError",
+      "text": "The old media cannot be edited with anything else (such as stickers or voice notes)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEDIA_TTL_INVALID",
+      "class": "MediaTtlInvalidError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEGAGROUP_ID_INVALID",
+      "class": "MegagroupIdInvalidError",
+      "text": "The group is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEGAGROUP_PREHISTORY_HIDDEN",
+      "class": "MegagroupPrehistoryHiddenError",
+      "text": "You can't set this discussion group because it's history is hidden",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEGAGROUP_REQUIRED",
+      "class": "MegagroupRequiredError",
+      "text": "The request can only be used with a megagroup channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MEMBER_NO_LOCATION",
+      "class": "MemberNoLocationError",
+      "text": "An internal failure occurred while fetching user info (couldn't find location)",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "MEMBER_OCCUPY_PRIMARY_LOC_FAILED",
+      "class": "MemberOccupyPrimaryLocFailedError",
+      "text": "Occupation of primary member location failed",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_AUTHOR_REQUIRED",
+      "class": "MessageAuthorRequiredError",
+      "text": "Message author required",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_DELETE_FORBIDDEN",
+      "class": "MessageDeleteForbiddenError",
+      "text": "You can't delete one of the messages you tried to delete, most likely because it is a service message.",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_EDIT_TIME_EXPIRED",
+      "class": "MessageEditTimeExpiredError",
+      "text": "You can't edit this message anymore, too much time has passed since its creation.",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_EMPTY",
+      "class": "MessageEmptyError",
+      "text": "Empty or invalid UTF-8 message was sent",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_IDS_EMPTY",
+      "class": "MessageIdsEmptyError",
+      "text": "No message ids were provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_ID_INVALID",
+      "class": "MessageIdInvalidError",
+      "text": "The specified message ID is invalid or you can't do that operation on such message",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_NOT_MODIFIED",
+      "class": "MessageNotModifiedError",
+      "text": "Content of the message was not modified",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_POLL_CLOSED",
+      "class": "MessagePollClosedError",
+      "text": "The poll was closed and can no longer be voted on",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MESSAGE_TOO_LONG",
+      "class": "MessageTooLongError",
+      "text": "Message was too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "METHOD_INVALID",
+      "class": "MethodInvalidError",
+      "text": "The API method is invalid and cannot be used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MIN_DATE_INVALID",
+      "class": "MinDateInvalidError",
+      "text": "The specified minimum date is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MSGID_DECREASE_RETRY",
+      "class": "MsgidDecreaseRetryError",
+      "text": "The request should be retried with a lower message ID",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "MSG_ID_INVALID",
+      "class": "MsgIdInvalidError",
+      "text": "The message ID used in the peer was invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MSG_TOO_OLD",
+      "class": "MsgTooOldError",
+      "text": "[`chat_read_mark_expire_period` seconds](https://core.telegram.org/api/config#chat-read-mark-expire-period) have passed since the message was sent, read receipts were deleted",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MSG_WAIT_FAILED",
+      "class": "MsgWaitFailedError",
+      "text": "A waiting call returned an error",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "MT_SEND_QUEUE_TOO_LONG",
+      "class": "MtSendQueueTooLongError",
+      "text": "",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "MULTI_MEDIA_TOO_LONG",
+      "class": "MultiMediaTooLongError",
+      "text": "Too many media files were included in the same album",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "NEED_CHAT_INVALID",
+      "class": "NeedChatInvalidError",
+      "text": "The provided chat is invalid",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "NEED_MEMBER_INVALID",
+      "class": "NeedMemberInvalidError",
+      "text": "The provided member is invalid or does not exist (for example a thumb size)",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "NEW_SALT_INVALID",
+      "class": "NewSaltInvalidError",
+      "text": "The new salt is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "NEW_SETTINGS_EMPTY",
+      "class": "NewSettingsEmptyError",
+      "text": "No password is set on the current account, and no new password was specified in `new_settings`",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "NEW_SETTINGS_INVALID",
+      "class": "NewSettingsInvalidError",
+      "text": "The new settings are invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "NEXT_OFFSET_INVALID",
+      "class": "NextOffsetInvalidError",
+      "text": "The value for next_offset is invalid. Check that it has normal characters and is not too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "NOT_ALLOWED",
+      "class": "NotAllowedError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "OFFSET_INVALID",
+      "class": "OffsetInvalidError",
+      "text": "The given offset was invalid, it must be divisible by 1KB. See https://core.telegram.org/api/files#downloading-files",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "OFFSET_PEER_ID_INVALID",
+      "class": "OffsetPeerIdInvalidError",
+      "text": "The provided offset peer is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "OPTIONS_TOO_MUCH",
+      "class": "OptionsTooMuchError",
+      "text": "You defined too many options for the poll",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "OPTION_INVALID",
+      "class": "OptionInvalidError",
+      "text": "The option specified is invalid and does not exist in the target poll",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PACK_SHORT_NAME_INVALID",
+      "class": "PackShortNameInvalidError",
+      "text": "Invalid sticker pack name. It must begin with a letter, can't contain consecutive underscores and must end in \"_by_<bot username>\".",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PACK_SHORT_NAME_OCCUPIED",
+      "class": "PackShortNameOccupiedError",
+      "text": "A stickerpack with this name already exists",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PACK_TITLE_INVALID",
+      "class": "PackTitleInvalidError",
+      "text": "The stickerpack title is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PARTICIPANTS_TOO_FEW",
+      "class": "ParticipantsTooFewError",
+      "text": "Not enough participants",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PARTICIPANT_CALL_FAILED",
+      "class": "ParticipantCallFailedError",
+      "text": "Failure while making call",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "PARTICIPANT_ID_INVALID",
+      "class": "ParticipantIdInvalidError",
+      "text": "The specified participant ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PARTICIPANT_JOIN_MISSING",
+      "class": "ParticipantJoinMissingError",
+      "text": "Trying to enable a presentation, when the user hasn't joined the Video Chat with [phone.joinGroupCall](https://core.telegram.org/method/phone.joinGroupCall)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PARTICIPANT_VERSION_OUTDATED",
+      "class": "ParticipantVersionOutdatedError",
+      "text": "The other participant does not use an up to date telegram client with support for calls",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PASSWORD_EMPTY",
+      "class": "PasswordEmptyError",
+      "text": "The provided password is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PASSWORD_HASH_INVALID",
+      "class": "PasswordHashInvalidError",
+      "text": "The password (and thus its hash value) you entered is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PASSWORD_MISSING",
+      "class": "PasswordMissingError",
+      "text": "The account must have 2-factor authentication enabled (a password) before this method can be used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PASSWORD_RECOVERY_EXPIRED",
+      "class": "PasswordRecoveryExpiredError",
+      "text": "The recovery code has expired",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PASSWORD_RECOVERY_NA",
+      "class": "PasswordRecoveryNaError",
+      "text": "No email was set, can't recover password via email",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PASSWORD_REQUIRED",
+      "class": "PasswordRequiredError",
+      "text": "The account must have 2-factor authentication enabled (a password) before this method can be used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PAYMENT_PROVIDER_INVALID",
+      "class": "PaymentProviderInvalidError",
+      "text": "The payment provider was not recognised or its token was invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PEER_FLOOD",
+      "class": "PeerFloodError",
+      "text": "Too many requests",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PEER_HISTORY_EMPTY",
+      "class": "PeerHistoryEmptyError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PEER_ID_INVALID",
+      "class": "PeerIdInvalidError",
+      "text": "An invalid Peer was used. Make sure to pass the right peer type and that the value is valid (for instance, bots cannot start conversations)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PEER_ID_NOT_SUPPORTED",
+      "class": "PeerIdNotSupportedError",
+      "text": "The provided peer ID is not supported",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PERSISTENT_TIMESTAMP_EMPTY",
+      "class": "PersistentTimestampEmptyError",
+      "text": "Persistent timestamp empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PERSISTENT_TIMESTAMP_INVALID",
+      "class": "PersistentTimestampInvalidError",
+      "text": "Persistent timestamp invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PERSISTENT_TIMESTAMP_OUTDATED",
+      "class": "PersistentTimestampOutdatedError",
+      "text": "Persistent timestamp outdated",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_CODE_EMPTY",
+      "class": "PhoneCodeEmptyError",
+      "text": "The phone code is missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_CODE_EXPIRED",
+      "class": "PhoneCodeExpiredError",
+      "text": "The confirmation code has expired",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_CODE_HASH_EMPTY",
+      "class": "PhoneCodeHashEmptyError",
+      "text": "The phone code hash is missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_CODE_INVALID",
+      "class": "PhoneCodeInvalidError",
+      "text": "The phone code entered was invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_HASH_EXPIRED",
+      "class": "PhoneHashExpiredError",
+      "text": "An invalid or expired `phone_code_hash` was provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_NOT_OCCUPIED",
+      "class": "PhoneNotOccupiedError",
+      "text": "No user is associated to the specified phone number",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_NUMBER_APP_SIGNUP_FORBIDDEN",
+      "class": "PhoneNumberAppSignupForbiddenError",
+      "text": "You can't sign up using this app",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_NUMBER_BANNED",
+      "class": "PhoneNumberBannedError",
+      "text": "The used phone number has been banned from Telegram and cannot be used anymore. Maybe check https://www.telegram.org/faq_spam",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_NUMBER_FLOOD",
+      "class": "PhoneNumberFloodError",
+      "text": "You asked for the code too many times.",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_NUMBER_INVALID",
+      "class": "PhoneNumberInvalidError",
+      "text": "The phone number is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_NUMBER_OCCUPIED",
+      "class": "PhoneNumberOccupiedError",
+      "text": "The phone number is already in use",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_NUMBER_UNOCCUPIED",
+      "class": "PhoneNumberUnoccupiedError",
+      "text": "The phone number is not yet being used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_PASSWORD_FLOOD",
+      "class": "PhonePasswordFloodError",
+      "text": "You have tried logging in too many times",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHONE_PASSWORD_PROTECTED",
+      "class": "PhonePasswordProtectedError",
+      "text": "This phone is password protected",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_CONTENT_TYPE_INVALID",
+      "class": "PhotoContentTypeInvalidError",
+      "text": "Photo mime-type invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_CONTENT_URL_EMPTY",
+      "class": "PhotoContentUrlEmptyError",
+      "text": "The content from the URL used as a photo appears to be empty or has caused another HTTP error",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_CROP_FILE_MISSING",
+      "class": "PhotoCropFileMissingError",
+      "text": "Photo crop file missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_CROP_SIZE_SMALL",
+      "class": "PhotoCropSizeSmallError",
+      "text": "Photo is too small",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_EXT_INVALID",
+      "class": "PhotoExtInvalidError",
+      "text": "The extension of the photo is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_FILE_MISSING",
+      "class": "PhotoFileMissingError",
+      "text": "Profile photo file missing",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_ID_INVALID",
+      "class": "PhotoIdInvalidError",
+      "text": "Photo id is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_INVALID",
+      "class": "PhotoInvalidError",
+      "text": "Photo invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_INVALID_DIMENSIONS",
+      "class": "PhotoInvalidDimensionsError",
+      "text": "The photo dimensions are invalid (hint: `pip install pillow` for `send_file` to resize images)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_SAVE_FILE_INVALID",
+      "class": "PhotoSaveFileInvalidError",
+      "text": "The photo you tried to send cannot be saved by Telegram. A reason may be that it exceeds 10MB. Try resizing it locally",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PHOTO_THUMB_URL_EMPTY",
+      "class": "PhotoThumbUrlEmptyError",
+      "text": "The URL used as a thumbnail appears to be empty or has caused another HTTP error",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PINNED_DIALOGS_TOO_MUCH",
+      "class": "PinnedDialogsTooMuchError",
+      "text": "Too many pinned dialogs",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PIN_RESTRICTED",
+      "class": "PinRestrictedError",
+      "text": "You can't pin messages in private chats with other people",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POLL_ANSWERS_INVALID",
+      "class": "PollAnswersInvalidError",
+      "text": "The poll did not have enough answers or had too many",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POLL_ANSWER_INVALID",
+      "class": "PollAnswerInvalidError",
+      "text": "One of the poll answers is not acceptable",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POLL_OPTION_DUPLICATE",
+      "class": "PollOptionDuplicateError",
+      "text": "A duplicate option was sent in the same poll",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POLL_OPTION_INVALID",
+      "class": "PollOptionInvalidError",
+      "text": "A poll option used invalid data (the data may be too long)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POLL_QUESTION_INVALID",
+      "class": "PollQuestionInvalidError",
+      "text": "The poll question was either empty or too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POLL_UNSUPPORTED",
+      "class": "PollUnsupportedError",
+      "text": "This layer does not support polls in the issued method",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POLL_VOTE_REQUIRED",
+      "class": "PollVoteRequiredError",
+      "text": "Cast a vote in the poll before calling this method",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "POSTPONED_TIMEOUT",
+      "class": "PostponedTimeoutError",
+      "text": "The postponed call has timed out",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "PREMIUM_ACCOUNT_REQUIRED",
+      "class": "PremiumAccountRequiredError",
+      "text": "A premium account is required to execute this action",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PREMIUM_CURRENTLY_UNAVAILABLE",
+      "class": "PremiumCurrentlyUnavailableError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PRIVACY_KEY_INVALID",
+      "class": "PrivacyKeyInvalidError",
+      "text": "The privacy key is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PRIVACY_TOO_LONG",
+      "class": "PrivacyTooLongError",
+      "text": "Cannot add that many entities in a single request",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PRIVACY_VALUE_INVALID",
+      "class": "PrivacyValueInvalidError",
+      "text": "The privacy value is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PTS_CHANGE_EMPTY",
+      "class": "PtsChangeEmptyError",
+      "text": "No PTS change",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "PUBLIC_CHANNEL_MISSING",
+      "class": "PublicChannelMissingError",
+      "text": "You can only export group call invite links for public chats or channels",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "PUBLIC_KEY_REQUIRED",
+      "class": "PublicKeyRequiredError",
+      "text": "A public key is required",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUERY_ID_EMPTY",
+      "class": "QueryIdEmptyError",
+      "text": "The query ID is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUERY_ID_INVALID",
+      "class": "QueryIdInvalidError",
+      "text": "The query ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUERY_TOO_SHORT",
+      "class": "QueryTooShortError",
+      "text": "The query string is too short",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUIZ_ANSWER_MISSING",
+      "class": "QuizAnswerMissingError",
+      "text": "You can forward a quiz while hiding the original author only after choosing an option in the quiz",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUIZ_CORRECT_ANSWERS_EMPTY",
+      "class": "QuizCorrectAnswersEmptyError",
+      "text": "A quiz must specify one correct answer",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUIZ_CORRECT_ANSWERS_TOO_MUCH",
+      "class": "QuizCorrectAnswersTooMuchError",
+      "text": "There can only be one correct answer",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUIZ_CORRECT_ANSWER_INVALID",
+      "class": "QuizCorrectAnswerInvalidError",
+      "text": "The correct answer is not an existing answer",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "QUIZ_MULTIPLE_INVALID",
+      "class": "QuizMultipleInvalidError",
+      "text": "A poll cannot be both multiple choice and quiz",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RANDOM_ID_DUPLICATE",
+      "class": "RandomIdDuplicateError",
+      "text": "You provided a random ID that was already used",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "RANDOM_ID_EMPTY",
+      "class": "RandomIdEmptyError",
+      "text": "Random ID empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RANDOM_ID_INVALID",
+      "class": "RandomIdInvalidError",
+      "text": "A provided random ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RANDOM_LENGTH_INVALID",
+      "class": "RandomLengthInvalidError",
+      "text": "Random length invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RANGES_INVALID",
+      "class": "RangesInvalidError",
+      "text": "Invalid range provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REACTIONS_TOO_MANY",
+      "class": "ReactionsTooManyError",
+      "text": "The message already has exactly `reactions_uniq_max` reaction emojis, you can't react with a new emoji, see [the docs for more info](/api/config#client-configuration)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REACTION_EMPTY",
+      "class": "ReactionEmptyError",
+      "text": "No reaction provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REACTION_INVALID",
+      "class": "ReactionInvalidError",
+      "text": "Invalid reaction provided (only emoji are allowed)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REFLECTOR_NOT_AVAILABLE",
+      "class": "ReflectorNotAvailableError",
+      "text": "Invalid call reflector server",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REG_ID_GENERATE_FAILED",
+      "class": "RegIdGenerateFailedError",
+      "text": "Failure while generating registration ID",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "REPLY_MARKUP_BUY_EMPTY",
+      "class": "ReplyMarkupBuyEmptyError",
+      "text": "Reply markup for buy button empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REPLY_MARKUP_GAME_EMPTY",
+      "class": "ReplyMarkupGameEmptyError",
+      "text": "The provided reply markup for the game is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REPLY_MARKUP_INVALID",
+      "class": "ReplyMarkupInvalidError",
+      "text": "The provided reply markup is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REPLY_MARKUP_TOO_LONG",
+      "class": "ReplyMarkupTooLongError",
+      "text": "The data embedded in the reply markup buttons was too much",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RESET_REQUEST_MISSING",
+      "class": "ResetRequestMissingError",
+      "text": "No password reset is in progress",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RESULTS_TOO_MUCH",
+      "class": "ResultsTooMuchError",
+      "text": "You sent too many results, see https://core.telegram.org/bots/api#answerinlinequery for the current limit",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RESULT_ID_DUPLICATE",
+      "class": "ResultIdDuplicateError",
+      "text": "Duplicated IDs on the sent results. Make sure to use unique IDs",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RESULT_ID_EMPTY",
+      "class": "ResultIdEmptyError",
+      "text": "Result ID empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RESULT_ID_INVALID",
+      "class": "ResultIdInvalidError",
+      "text": "The given result cannot be used to send the selection to the bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RESULT_TYPE_INVALID",
+      "class": "ResultTypeInvalidError",
+      "text": "Result type invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "REVOTE_NOT_ALLOWED",
+      "class": "RevoteNotAllowedError",
+      "text": "You cannot change your vote",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RIGHTS_NOT_MODIFIED",
+      "class": "RightsNotModifiedError",
+      "text": "The new admin rights are equal to the old rights, no change was made",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RIGHT_FORBIDDEN",
+      "class": "RightForbiddenError",
+      "text": "Either your admin rights do not allow you to do this or you passed the wrong rights combination (some rights only apply to channels and vice versa)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "RPC_CALL_FAIL",
+      "class": "RpcCallFailError",
+      "text": "Telegram is having internal issues, please try again later.",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "RPC_MCGET_FAIL",
+      "class": "RpcMcgetFailError",
+      "text": "Telegram is having internal issues, please try again later.",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "RSA_DECRYPT_FAILED",
+      "class": "RsaDecryptFailedError",
+      "text": "Internal RSA decryption failed",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SCHEDULE_BOT_NOT_ALLOWED",
+      "class": "ScheduleBotNotAllowedError",
+      "text": "Bots are not allowed to schedule messages",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SCHEDULE_DATE_INVALID",
+      "class": "ScheduleDateInvalidError",
+      "text": "Invalid schedule date provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SCHEDULE_DATE_TOO_LATE",
+      "class": "ScheduleDateTooLateError",
+      "text": "The date you tried to schedule is too far in the future (last known limit of 1 year and a few hours)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SCHEDULE_STATUS_PRIVATE",
+      "class": "ScheduleStatusPrivateError",
+      "text": "You cannot schedule a message until the person comes online if their privacy does not show this information",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SCHEDULE_TOO_MUCH",
+      "class": "ScheduleTooMuchError",
+      "text": "You cannot schedule more messages in this chat (last known limit of 100 per chat)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SCORE_INVALID",
+      "class": "ScoreInvalidError",
+      "text": "The specified game score is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SEARCH_QUERY_EMPTY",
+      "class": "SearchQueryEmptyError",
+      "text": "The search query is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SEARCH_WITH_LINK_NOT_SUPPORTED",
+      "class": "SearchWithLinkNotSupportedError",
+      "text": "You cannot provide a search query and an invite link at the same time",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SECONDS_INVALID",
+      "class": "SecondsInvalidError",
+      "text": "Slow mode only supports certain values (e.g. 0, 10s, 30s, 1m, 5m, 15m and 1h)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SEND_AS_PEER_INVALID",
+      "class": "SendAsPeerInvalidError",
+      "text": "You can't send messages as the specified peer",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SEND_CODE_UNAVAILABLE",
+      "class": "SendCodeUnavailableError",
+      "text": "Returned when all available options for this type of number were already used (e.g. flash-call, then SMS, then this error might be returned to trigger a second resend)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SEND_MESSAGE_MEDIA_INVALID",
+      "class": "SendMessageMediaInvalidError",
+      "text": "The message media was invalid or not specified",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SEND_MESSAGE_TYPE_INVALID",
+      "class": "SendMessageTypeInvalidError",
+      "text": "The message type is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SENSITIVE_CHANGE_FORBIDDEN",
+      "class": "SensitiveChangeForbiddenError",
+      "text": "Your sensitive content settings cannot be changed at this time",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SESSION_EXPIRED",
+      "class": "SessionExpiredError",
+      "text": "The authorization has expired",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SESSION_PASSWORD_NEEDED",
+      "class": "SessionPasswordNeededError",
+      "text": "Two-steps verification is enabled and a password is required",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SESSION_REVOKED",
+      "class": "SessionRevokedError",
+      "text": "The authorization has been invalidated, because of the user terminating all sessions",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SETTINGS_INVALID",
+      "class": "SettingsInvalidError",
+      "text": "Invalid settings were provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SHA256_HASH_INVALID",
+      "class": "Sha256HashInvalidError",
+      "text": "The provided SHA256 hash is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SHORTNAME_OCCUPY_FAILED",
+      "class": "ShortnameOccupyFailedError",
+      "text": "An error occurred when trying to register the short-name used for the sticker pack. Try a different name",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SHORT_NAME_INVALID",
+      "class": "ShortNameInvalidError",
+      "text": "The specified short name is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SHORT_NAME_OCCUPIED",
+      "class": "ShortNameOccupiedError",
+      "text": "The specified short name is already in use",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SIGN_IN_FAILED",
+      "class": "SignInFailedError",
+      "text": "Failure while signing in",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "SLOWMODE_MULTI_MSGS_DISABLED",
+      "class": "SlowModeMultiMsgsDisabledError",
+      "text": "Slowmode is enabled, you cannot forward multiple messages to this group",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SMS_CODE_CREATE_FAILED",
+      "class": "SmsCodeCreateFailedError",
+      "text": "An error occurred while creating the SMS code",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SRP_ID_INVALID",
+      "class": "SrpIdInvalidError",
+      "text": "Invalid SRP ID provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "SRP_PASSWORD_CHANGED",
+      "class": "SrpPasswordChangedError",
+      "text": "Password has changed",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "START_PARAM_EMPTY",
+      "class": "StartParamEmptyError",
+      "text": "The start parameter is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "START_PARAM_INVALID",
+      "class": "StartParamInvalidError",
+      "text": "Start parameter invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "START_PARAM_TOO_LONG",
+      "class": "StartParamTooLongError",
+      "text": "Start parameter is too long",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKERPACK_STICKERS_TOO_MUCH",
+      "class": "StickerpackStickersTooMuchError",
+      "text": "There are too many stickers in this stickerpack, you can't add any more",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKERSET_INVALID",
+      "class": "StickersetInvalidError",
+      "text": "The provided sticker set is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKERSET_OWNER_ANONYMOUS",
+      "class": "StickersetOwnerAnonymousError",
+      "text": "This sticker set can't be used as the group's official stickers because it was created by one of its anonymous admins",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKERS_EMPTY",
+      "class": "StickersEmptyError",
+      "text": "No sticker provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKERS_TOO_MUCH",
+      "class": "StickersTooMuchError",
+      "text": "There are too many stickers in this stickerpack, you can't add any more",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_DOCUMENT_INVALID",
+      "class": "StickerDocumentInvalidError",
+      "text": "The sticker file was invalid (this file has failed Telegram internal checks, make sure to use the correct format and comply with https://core.telegram.org/animated_stickers)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_EMOJI_INVALID",
+      "class": "StickerEmojiInvalidError",
+      "text": "Sticker emoji invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_FILE_INVALID",
+      "class": "StickerFileInvalidError",
+      "text": "Sticker file invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_GIF_DIMENSIONS",
+      "class": "StickerGifDimensionsError",
+      "text": "The specified video sticker has invalid dimensions",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_ID_INVALID",
+      "class": "StickerIdInvalidError",
+      "text": "The provided sticker ID is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_INVALID",
+      "class": "StickerInvalidError",
+      "text": "The provided sticker is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_MIME_INVALID",
+      "class": "StickerMimeInvalidError",
+      "text": "Make sure to pass a valid image file for the right InputFile parameter",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_PNG_DIMENSIONS",
+      "class": "StickerPngDimensionsError",
+      "text": "Sticker png dimensions invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_PNG_NOPNG",
+      "class": "StickerPngNopngError",
+      "text": "Stickers must be a png file but the used image was not a png",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_TGS_NODOC",
+      "class": "StickerTgsNodocError",
+      "text": "You must send the animated sticker as a document",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_TGS_NOTGS",
+      "class": "StickerTgsNotgsError",
+      "text": "Stickers must be a tgs file but the used file was not a tgs",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_THUMB_PNG_NOPNG",
+      "class": "StickerThumbPngNopngError",
+      "text": "Stickerset thumb must be a png file but the used file was not png",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_THUMB_TGS_NOTGS",
+      "class": "StickerThumbTgsNotgsError",
+      "text": "Stickerset thumb must be a tgs file but the used file was not tgs",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_VIDEO_BIG",
+      "class": "StickerVideoBigError",
+      "text": "The specified video sticker is too big",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_VIDEO_NODOC",
+      "class": "StickerVideoNodocError",
+      "text": "You must send the video sticker as a document",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STICKER_VIDEO_NOWEBM",
+      "class": "StickerVideoNowebmError",
+      "text": "The specified video sticker is not in webm format",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "STORAGE_CHECK_FAILED",
+      "class": "StorageCheckFailedError",
+      "text": "Server storage check failed",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "STORE_INVALID_SCALAR_TYPE",
+      "class": "StoreInvalidScalarTypeError",
+      "text": "",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "SWITCH_PM_TEXT_EMPTY",
+      "class": "SwitchPmTextEmptyError",
+      "text": "The switch_pm.text field was empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TAKEOUT_INVALID",
+      "class": "TakeoutInvalidError",
+      "text": "The takeout session has been invalidated by another data export session",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TAKEOUT_REQUIRED",
+      "class": "TakeoutRequiredError",
+      "text": "You must initialize a takeout request first",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TEMP_AUTH_KEY_ALREADY_BOUND",
+      "class": "TempAuthKeyAlreadyBoundError",
+      "text": "The passed temporary key is already bound to another **perm_auth_key_id**",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TEMP_AUTH_KEY_EMPTY",
+      "class": "TempAuthKeyEmptyError",
+      "text": "No temporary auth key provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "THEME_FILE_INVALID",
+      "class": "ThemeFileInvalidError",
+      "text": "Invalid theme file provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "THEME_FORMAT_INVALID",
+      "class": "ThemeFormatInvalidError",
+      "text": "Invalid theme format provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "THEME_INVALID",
+      "class": "ThemeInvalidError",
+      "text": "Theme invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "THEME_MIME_INVALID",
+      "class": "ThemeMimeInvalidError",
+      "text": "You cannot create this theme, the mime-type is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "THEME_TITLE_INVALID",
+      "class": "ThemeTitleInvalidError",
+      "text": "The specified theme title is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TIMEOUT",
+      "class": "TimeoutError",
+      "text": "Timeout while fetching data",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "TITLE_INVALID",
+      "class": "TitleInvalidError",
+      "text": "The specified stickerpack title is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TMP_PASSWORD_DISABLED",
+      "class": "TmpPasswordDisabledError",
+      "text": "The temporary password is disabled",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TMP_PASSWORD_INVALID",
+      "class": "TmpPasswordInvalidError",
+      "text": "Password auth needs to be regenerated",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TOKEN_INVALID",
+      "class": "TokenInvalidError",
+      "text": "The provided token is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TOPIC_DELETED",
+      "class": "TopicDeletedError",
+      "text": "The topic was deleted",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TO_LANG_INVALID",
+      "class": "ToLangInvalidError",
+      "text": "The specified destination language is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TTL_DAYS_INVALID",
+      "class": "TtlDaysInvalidError",
+      "text": "The provided TTL is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TTL_MEDIA_INVALID",
+      "class": "TtlMediaInvalidError",
+      "text": "The provided media cannot be used with a TTL",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TTL_PERIOD_INVALID",
+      "class": "TtlPeriodInvalidError",
+      "text": "The provided TTL Period is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TYPES_EMPTY",
+      "class": "TypesEmptyError",
+      "text": "The types field is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "TYPE_CONSTRUCTOR_INVALID",
+      "class": "TypeConstructorInvalidError",
+      "text": "The type constructor is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "Timedout",
+      "class": "TimedoutError",
+      "text": "Timeout while fetching data",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "Timeout",
+      "class": "TimeoutError",
+      "text": "Timeout while fetching data",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "UNKNOWN_ERROR",
+      "class": "UnknownErrorError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "UNKNOWN_METHOD",
+      "class": "UnknownMethodError",
+      "text": "The method you tried to call cannot be called on non-CDN DCs",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "UNTIL_DATE_INVALID",
+      "class": "UntilDateInvalidError",
+      "text": "That date cannot be specified in this request (try using None)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "UPDATE_APP_TO_LOGIN",
+      "class": "UpdateAppToLoginError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "URL_INVALID",
+      "class": "UrlInvalidError",
+      "text": "The URL used was invalid (e.g. when answering a callback with a URL that's not t.me/yourbot or your game's URL)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USAGE_LIMIT_INVALID",
+      "class": "UsageLimitInvalidError",
+      "text": "The specified usage limit is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERNAME_INVALID",
+      "class": "UsernameInvalidError",
+      "text": "Nobody is using this username or the username is unacceptable",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERNAME_NOT_MODIFIED",
+      "class": "UsernameNotModifiedError",
+      "text": "The username is not different from the current username",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERNAME_NOT_OCCUPIED",
+      "class": "UsernameNotOccupiedError",
+      "text": "The username is not in use by anyone else yet",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERNAME_OCCUPIED",
+      "class": "UsernameOccupiedError",
+      "text": "The username is already taken",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERNAME_PURCHASE_AVAILABLE",
+      "class": "UsernamePurchaseAvailableError",
+      "text": "",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERPIC_PRIVACY_REQUIRED",
+      "class": "UserpicPrivacyRequiredError",
+      "text": "You need to disable privacy settings for your profile picture in order to make your geolocation public",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERPIC_UPLOAD_REQUIRED",
+      "class": "UserpicUploadRequiredError",
+      "text": "You must have a profile picture before using this method",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERS_TOO_FEW",
+      "class": "UsersTooFewError",
+      "text": "Not enough users (to create a chat, for example)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USERS_TOO_MUCH",
+      "class": "UsersTooMuchError",
+      "text": "The maximum number of users has been exceeded (to create a chat, for example)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_ADMIN_INVALID",
+      "class": "UserAdminInvalidError",
+      "text": "Either you're not an admin or you tried to ban an admin that you didn't promote",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_ALREADY_INVITED",
+      "class": "UserAlreadyInvitedError",
+      "text": "You have already invited this user",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_ALREADY_PARTICIPANT",
+      "class": "UserAlreadyParticipantError",
+      "text": "The authenticated user is already a participant of the chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_BANNED_IN_CHANNEL",
+      "class": "UserBannedInChannelError",
+      "text": "You're banned from sending messages in supergroups/channels",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_BLOCKED",
+      "class": "UserBlockedError",
+      "text": "User blocked",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_BOT",
+      "class": "UserBotError",
+      "text": "Bots can only be admins in channels.",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_BOT_INVALID",
+      "class": "UserBotInvalidError",
+      "text": "This method can only be called by a bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_BOT_REQUIRED",
+      "class": "UserBotRequiredError",
+      "text": "This method can only be called by a bot",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_CHANNELS_TOO_MUCH",
+      "class": "UserChannelsTooMuchError",
+      "text": "One of the users you tried to add is already in too many channels/supergroups",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_CREATOR",
+      "class": "UserCreatorError",
+      "text": "You can't leave this channel, because you're its creator",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_DEACTIVATED",
+      "class": "UserDeactivatedError",
+      "text": "The user has been deleted/deactivated",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_DEACTIVATED_BAN",
+      "class": "UserDeactivatedBanError",
+      "text": "The user has been deleted/deactivated",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_DELETED",
+      "class": "UserDeletedError",
+      "text": "You can't send this secret message because the other participant deleted their account",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_ID_INVALID",
+      "class": "UserIdInvalidError",
+      "text": "Invalid object ID for a user. Make sure to pass the right types, for instance making sure that the request is designed for users or otherwise look for a different one more suited",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_INVALID",
+      "class": "UserInvalidError",
+      "text": "The given user was invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_IS_BLOCKED",
+      "class": "UserIsBlockedError",
+      "text": "User is blocked",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_IS_BOT",
+      "class": "UserIsBotError",
+      "text": "Bots can't send messages to other bots",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_KICKED",
+      "class": "UserKickedError",
+      "text": "This user was kicked from this supergroup/channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_NOT_MUTUAL_CONTACT",
+      "class": "UserNotMutualContactError",
+      "text": "The provided user is not a mutual contact",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_NOT_PARTICIPANT",
+      "class": "UserNotParticipantError",
+      "text": "The target user is not a member of the specified megagroup or channel",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_PRIVACY_RESTRICTED",
+      "class": "UserPrivacyRestrictedError",
+      "text": "The user's privacy settings do not allow you to do this",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_RESTRICTED",
+      "class": "UserRestrictedError",
+      "text": "You're spamreported, you can't create channels or chats.",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "USER_VOLUME_INVALID",
+      "class": "UserVolumeInvalidError",
+      "text": "The specified user volume is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "VIDEO_CONTENT_TYPE_INVALID",
+      "class": "VideoContentTypeInvalidError",
+      "text": "The video content type is not supported with the given parameters (i.e. supports_streaming)",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "VIDEO_FILE_INVALID",
+      "class": "VideoFileInvalidError",
+      "text": "The given video cannot be used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "VIDEO_TITLE_EMPTY",
+      "class": "VideoTitleEmptyError",
+      "text": "The specified video title is empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "VOICE_MESSAGES_FORBIDDEN",
+      "class": "VoiceMessagesForbiddenError",
+      "text": "This user's privacy settings forbid you from sending voice messages",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WALLPAPER_FILE_INVALID",
+      "class": "WallpaperFileInvalidError",
+      "text": "The given file cannot be used as a wallpaper",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WALLPAPER_INVALID",
+      "class": "WallpaperInvalidError",
+      "text": "The input wallpaper was not valid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WALLPAPER_MIME_INVALID",
+      "class": "WallpaperMimeInvalidError",
+      "text": "The specified wallpaper MIME type is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WC_CONVERT_URL_INVALID",
+      "class": "WcConvertUrlInvalidError",
+      "text": "WC convert URL invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBDOCUMENT_INVALID",
+      "class": "WebdocumentInvalidError",
+      "text": "Invalid webdocument URL provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBDOCUMENT_MIME_INVALID",
+      "class": "WebdocumentMimeInvalidError",
+      "text": "Invalid webdocument mime type provided",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBDOCUMENT_SIZE_TOO_BIG",
+      "class": "WebdocumentSizeTooBigError",
+      "text": "Webdocument is too big!",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBDOCUMENT_URL_INVALID",
+      "class": "WebdocumentUrlInvalidError",
+      "text": "The given URL cannot be used",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBPAGE_CURL_FAILED",
+      "class": "WebpageCurlFailedError",
+      "text": "Failure while fetching the webpage with cURL",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBPAGE_MEDIA_EMPTY",
+      "class": "WebpageMediaEmptyError",
+      "text": "Webpage media empty",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBPUSH_AUTH_INVALID",
+      "class": "WebpushAuthInvalidError",
+      "text": "The specified web push authentication secret is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBPUSH_KEY_INVALID",
+      "class": "WebpushKeyInvalidError",
+      "text": "The specified web push elliptic curve Diffie-Hellman public key is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WEBPUSH_TOKEN_INVALID",
+      "class": "WebpushTokenInvalidError",
+      "text": "The specified web push token is invalid",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "WORKER_BUSY_TOO_LONG_RETRY",
+      "class": "WorkerBusyTooLongRetryError",
+      "text": "Telegram workers are too busy to respond immediately",
+      "server": true
+    },
+    {
+      "kind": "exact",
+      "name": "YOU_BLOCKED_USER",
+      "class": "YouBlockedUserError",
+      "text": "You blocked this user",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FROZEN_METHOD_INVALID",
+      "class": "FrozenMethodInvalidError",
+      "text": "You tried to use a method that is not available for frozen accounts",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "FROZEN_PARTICIPANT_MISSING",
+      "class": "FrozenParticipantMissingError",
+      "text": "Your account is frozen and can't access the chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_VOICES_FORBIDDEN",
+      "class": "ChatSendVoicesForbiddenError",
+      "text": "You cannot send voices results in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_PHOTOS_FORBIDDEN",
+      "class": "ChatSendPhotosForbiddenError",
+      "text": "You cannot send photos results in this chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_VIDEOS_FORBIDDEN",
+      "class": "ChatSendVideosForbiddenError",
+      "text": "You cannot send videos results in this Chat",
+      "server": false
+    },
+    {
+      "kind": "exact",
+      "name": "CHAT_SEND_PLAIN_FORBIDDEN",
+      "class": "ChatSendPlainForbiddenError",
+      "text": "You cannot send plain results in this chat",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "2FA_CONFIRM_WAIT_(\\d+)",
+      "class": "TwoFaConfirmWaitError",
+      "text": "The account is 2FA protected so it will be deleted in a week. Otherwise it can be reset in {}",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "EMAIL_UNCONFIRMED_(\\d+)",
+      "class": "EmailUnconfirmedError",
+      "text": "Email unconfirmed, the length of the code must be {}",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "FILE_MIGRATE_(\\d+)",
+      "class": "FileMigrateError",
+      "text": "The file to be accessed is currently stored in DC {}",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "FILE_PART_(\\d+)_MISSING",
+      "class": "FilePartMissingError",
+      "text": "Part {} of the file is missing from storage",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "FLOOD_TEST_PHONE_WAIT_(\\d+)",
+      "class": "FloodTestPhoneWaitError",
+      "text": "A wait of {} seconds is required in the test servers",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "FLOOD_WAIT_(\\d+)",
+      "class": "FloodWaitError",
+      "text": "A wait of {} seconds is required",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "FLOOD_PREMIUM_WAIT_(\\d+)",
+      "class": "FloodPremiumWaitError",
+      "text": "A wait of {} seconds is required in non-premium accounts",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "INTERDC_(\\d+)_CALL_ERROR",
+      "class": "InterdcCallErrorError",
+      "text": "An error occurred while communicating with DC {}",
+      "server": true
+    },
+    {
+      "kind": "pattern",
+      "regex": "INTERDC_(\\d+)_CALL_RICH_ERROR",
+      "class": "InterdcCallRichErrorError",
+      "text": "A rich error occurred while communicating with DC {}",
+      "server": true
+    },
+    {
+      "kind": "pattern",
+      "regex": "NETWORK_MIGRATE_(\\d+)",
+      "class": "NetworkMigrateError",
+      "text": "The source IP address is associated with DC {}",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "PASSWORD_TOO_FRESH_(\\d+)",
+      "class": "PasswordTooFreshError",
+      "text": "The password was added too recently and {} seconds must pass before using the method",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "PHONE_MIGRATE_(\\d+)",
+      "class": "PhoneMigrateError",
+      "text": "The phone number a user is trying to use for authorization is associated with DC {}",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "PREVIOUS_CHAT_IMPORT_ACTIVE_WAIT_(\\d+)MIN",
+      "class": "PreviousChatImportActiveWaitMinError",
+      "text": "Similar to a flood wait, must wait {} minutes",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "SESSION_TOO_FRESH_(\\d+)",
+      "class": "SessionTooFreshError",
+      "text": "The session logged in too recently and {} seconds must pass before calling the method",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "SLOWMODE_WAIT_(\\d+)",
+      "class": "SlowModeWaitError",
+      "text": "A wait of {} seconds is required before sending another message in this chat",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "STATS_MIGRATE_(\\d+)",
+      "class": "StatsMigrateError",
+      "text": "The channel statistics must be fetched from DC {}",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "TAKEOUT_INIT_DELAY_(\\d+)",
+      "class": "TakeoutInitDelayError",
+      "text": "A wait of {} seconds is required before being able to initiate the takeout",
+      "server": false
+    },
+    {
+      "kind": "pattern",
+      "regex": "USER_MIGRATE_(\\d+)",
+      "class": "UserMigrateError",
+      "text": "The user whose identity is being used to execute queries is associated with DC {}",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 303,
+      "class": "InvalidDCError",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 400,
+      "class": "BadRequestError",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 401,
+      "class": "UnauthorizedError",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 403,
+      "class": "ForbiddenError",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 404,
+      "class": "NotFoundError",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 406,
+      "class": "AuthKeyError",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 420,
+      "class": "FloodError",
+      "server": false
+    },
+    {
+      "kind": "base",
+      "code": 500,
+      "class": "ServerError",
+      "server": true
+    },
+    {
+      "kind": "base",
+      "code": 503,
+      "class": "TimedOutError",
+      "server": true
+    }
+  ]
+}

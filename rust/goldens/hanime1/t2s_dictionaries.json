@@ -1,0 +1,24 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "hanime1",
+  "cases": [
+    {
+      "file": "TSPhrases.txt",
+      "sha256": "b2ef895dd4953b4bb77fc8ef8d26a2a9ca6d43a760ed9a1d767672cfafa6324f",
+      "max_len": 14,
+      "min_len": 2,
+      "entries": 277,
+      "multi_valued": 4
+    },
+    {
+      "file": "TSCharacters.txt",
+      "sha256": "6b5a0a799bea2bb22c001f635eaa3fc2904310f0c08addbff275477a80ecf09a",
+      "max_len": 1,
+      "min_len": 1,
+      "entries": 4113,
+      "multi_valued": 56
+    }
+  ]
+}

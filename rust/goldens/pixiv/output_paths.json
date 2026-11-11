@@ -1,0 +1,162 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "pixiv",
+  "cases": [
+    {
+      "work": [
+        96461036,
+        "a title",
+        "the artist",
+        "50944445",
+        0,
+        1,
+        false
+      ],
+      "num": 1,
+      "ext": "png",
+      "path": "/data/pixiv/the artist/[the artist]a title [96461036_p1].png"
+    },
+    {
+      "work": [
+        96461036,
+        "a title",
+        "the artist",
+        "50944445",
+        2,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "webp",
+      "path": "/data/pixiv/the artist/[the artist]a title [96461036_ugoira].webp"
+    },
+    {
+      "work": [
+        96461036,
+        "a title",
+        "the artist",
+        "50944445",
+        1,
+        1,
+        false
+      ],
+      "num": 3,
+      "ext": ".jpg",
+      "path": "/data/pixiv/the artist/[the artist]a title [96461036_p3].jpg"
+    },
+    {
+      "work": [
+        96461036,
+        "a title",
+        "",
+        "42",
+        0,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "jpg",
+      "path": "/data/pixiv/42/a title [96461036_p0].jpg"
+    },
+    {
+      "work": [
+        96461036,
+        "a title",
+        "",
+        "",
+        0,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "jpg",
+      "path": "/data/pixiv/unknown/a title [96461036_p0].jpg"
+    },
+    {
+      "work": [
+        96461036,
+        "a title",
+        "???",
+        "43",
+        0,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "jpg",
+      "path": "/data/pixiv/___/[___]a title [96461036_p0].jpg"
+    },
+    {
+      "work": [
+        96461036,
+        "a title",
+        "  ",
+        "44",
+        0,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "jpg",
+      "path": "/data/pixiv/44/a title [96461036_p0].jpg"
+    },
+    {
+      "work": [
+        96461036,
+        "x/y:z*?",
+        "a/b:c",
+        "50944445",
+        0,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "gif",
+      "path": "/data/pixiv/a_b_c/[a_b_c]x_y_z__ [96461036_p0].gif"
+    },
+    {
+      "work": [
+        96461036,
+        "",
+        "the artist",
+        "50944445",
+        0,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "png",
+      "path": "/data/pixiv/the artist/[the artist] [96461036_p0].png"
+    },
+    {
+      "work": [
+        96461036,
+        "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+        "作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者",
+        "50944445",
+        0,
+        1,
+        false
+      ],
+      "num": 12,
+      "ext": "png",
+      "path": "/data/pixiv/作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者/[作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作者作]中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中 [96461036_p12].png"
+    },
+    {
+      "work": [
+        96461036,
+        "emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀",
+        "the artist",
+        "50944445",
+        0,
+        1,
+        false
+      ],
+      "num": 0,
+      "ext": "jpg",
+      "path": "/data/pixiv/the artist/[the artist]emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji 😀emoji  [96461036_p0].jpg"
+    }
+  ]
+}

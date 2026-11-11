@@ -1,0 +1,29 @@
+[package]
+name = "fav"
+description = "fav command-line entry point: serve, api, worker, trigger"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fav-core.workspace = true
+fav-db.workspace = true
+fav-net.workspace = true
+fav-runtime.workspace = true
+fav-sources.workspace = true
+fav-browser.workspace = true
+fav-api.workspace = true
+clap.workspace = true
+tikv-jemallocator.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+
+[dev-dependencies]
+futures-util.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }

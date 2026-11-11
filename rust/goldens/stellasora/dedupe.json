@@ -1,0 +1,52 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "stellasora",
+  "cases": [
+    {
+      "titles": [
+        "File:Disc Good Night.png",
+        "file:disc_good_night.png",
+        "/wiki/File:Disc_Good_Night.png",
+        "https://stellasora.miraheze.org/wiki/File:Disc_Good_Night.png",
+        "File:Story_tales_07_001.png"
+      ],
+      "result": [
+        "File:Disc_Good_Night.png",
+        "File:Story_tales_07_001.png"
+      ]
+    },
+    {
+      "titles": [
+        "",
+        "  ",
+        "File:A.png",
+        "File:a.PNG",
+        "File:ß.png",
+        "File:SS.png",
+        "File:ss.png"
+      ],
+      "result": [
+        "File:A.png",
+        "File:ß.png"
+      ]
+    },
+    {
+      "titles": [
+        "File:İ.png",
+        "File:i̇.png",
+        "File:ﬁ.png",
+        "File:fi.png"
+      ],
+      "result": [
+        "File:İ.png",
+        "File:ﬁ.png"
+      ]
+    },
+    {
+      "titles": [],
+      "result": []
+    }
+  ]
+}

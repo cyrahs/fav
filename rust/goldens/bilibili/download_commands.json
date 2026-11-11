@@ -1,0 +1,78 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "bilibili",
+  "cases": [
+    {
+      "proxy": "",
+      "command": [
+        "yt-dlp",
+        "-o",
+        "/tmp/fav-bilibili-x/videos/BV1xx411c7mD.%(ext)s",
+        "--no-mtime",
+        "--cookies",
+        "/tmp/fav-bilibili-x/bilibili-main.txt",
+        "-N",
+        "8",
+        "--retries",
+        "15",
+        "--fragment-retries",
+        "15",
+        "--socket-timeout",
+        "30",
+        "--http-chunk-size",
+        "10M",
+        "https://www.bilibili.com/video/BV1xx411c7mD"
+      ]
+    },
+    {
+      "proxy": "http://gluetun-hk.proxy.svc.cluster.local:80",
+      "command": [
+        "yt-dlp",
+        "-o",
+        "/tmp/fav-bilibili-x/videos/BV1xx411c7mD.%(ext)s",
+        "--no-mtime",
+        "--cookies",
+        "/tmp/fav-bilibili-x/bilibili-main.txt",
+        "-N",
+        "8",
+        "--retries",
+        "15",
+        "--fragment-retries",
+        "15",
+        "--socket-timeout",
+        "30",
+        "--http-chunk-size",
+        "10M",
+        "--proxy",
+        "http://gluetun-hk.proxy.svc.cluster.local:80",
+        "https://www.bilibili.com/video/BV1xx411c7mD"
+      ]
+    },
+    {
+      "proxy": "socks5://u:p@h:1",
+      "command": [
+        "yt-dlp",
+        "-o",
+        "/tmp/fav-bilibili-x/videos/BV1xx411c7mD.%(ext)s",
+        "--no-mtime",
+        "--cookies",
+        "/tmp/fav-bilibili-x/bilibili-main.txt",
+        "-N",
+        "8",
+        "--retries",
+        "15",
+        "--fragment-retries",
+        "15",
+        "--socket-timeout",
+        "30",
+        "--http-chunk-size",
+        "10M",
+        "--proxy",
+        "socks5://u:p@h:1",
+        "https://www.bilibili.com/video/BV1xx411c7mD"
+      ]
+    }
+  ]
+}

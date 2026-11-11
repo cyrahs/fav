@@ -1,0 +1,582 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "notifications",
+  "cases": [
+    {
+      "function": "escape",
+      "input": "",
+      "escape_markdown_v2": "",
+      "escape_markdown_v2_url": "",
+      "format_header_line": "FAV · ",
+      "like_literal": ""
+    },
+    {
+      "function": "escape",
+      "input": "plain",
+      "escape_markdown_v2": "plain",
+      "escape_markdown_v2_url": "plain",
+      "format_header_line": "FAV · plain",
+      "like_literal": "plain"
+    },
+    {
+      "function": "escape",
+      "input": "_*[]()~`>#+-=|{}.!\\",
+      "escape_markdown_v2": "\\_\\*\\[\\]\\(\\)\\~\\`\\>\\#\\+\\-\\=\\|\\{\\}\\.\\!\\\\",
+      "escape_markdown_v2_url": "_*[](\\)~`>#+-=|{}.!\\\\",
+      "format_header_line": "FAV · \\_\\*\\[\\]\\(\\)\\~\\`\\>\\#\\+\\-\\=\\|\\{\\}\\.\\!\\\\",
+      "like_literal": "\\_*[]()~`>#+-=|{}.!\\\\"
+    },
+    {
+      "function": "escape",
+      "input": "https://example.com/a_(b)?q=1.2\\x",
+      "escape_markdown_v2": "https://example\\.com/a\\_\\(b\\)?q\\=1\\.2\\\\x",
+      "escape_markdown_v2_url": "https://example.com/a_(b\\)?q=1.2\\\\x",
+      "format_header_line": "FAV · https://example\\.com/a\\_\\(b\\)?q\\=1\\.2\\\\x",
+      "like_literal": "https://example.com/a\\_(b)?q=1.2\\\\x"
+    },
+    {
+      "function": "escape",
+      "input": "already \\_ escaped",
+      "escape_markdown_v2": "already \\\\\\_ escaped",
+      "escape_markdown_v2_url": "already \\\\_ escaped",
+      "format_header_line": "FAV · already \\\\\\_ escaped",
+      "like_literal": "already \\\\\\_ escaped"
+    },
+    {
+      "function": "escape",
+      "input": "中文 · 🎉 · é",
+      "escape_markdown_v2": "中文 · 🎉 · é",
+      "escape_markdown_v2_url": "中文 · 🎉 · é",
+      "format_header_line": "FAV · 中文 · 🎉 · é",
+      "like_literal": "中文 · 🎉 · é"
+    },
+    {
+      "function": "escape",
+      "input": "a\nb\tc",
+      "escape_markdown_v2": "a\nb\tc",
+      "escape_markdown_v2_url": "a\nb\tc",
+      "format_header_line": "FAV · a\nb\tc",
+      "like_literal": "a\nb\tc"
+    },
+    {
+      "function": "escape",
+      "input": "100% done_ok",
+      "escape_markdown_v2": "100% done\\_ok",
+      "escape_markdown_v2_url": "100% done_ok",
+      "format_header_line": "FAV · 100% done\\_ok",
+      "like_literal": "100\\% done\\_ok"
+    },
+    {
+      "function": "escape",
+      "input": "C:\\path\\to_file",
+      "escape_markdown_v2": "C:\\\\path\\\\to\\_file",
+      "escape_markdown_v2_url": "C:\\\\path\\\\to_file",
+      "format_header_line": "FAV · C:\\\\path\\\\to\\_file",
+      "like_literal": "C:\\\\path\\\\to\\_file"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "bilibili",
+      "failure_key": "run",
+      "result": "job_failed:bilibili:run"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "bilibili",
+      "failure_key": "bilibili:download:BV1TEST",
+      "result": "job_failed:bilibili:bilibili:download:BV1TEST"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "bilibili",
+      "failure_key": "  spaced  ",
+      "result": "job_failed:bilibili:spaced"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "bilibili",
+      "failure_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "bilibili",
+      "failure_key": "  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "bilibili",
+      "failure_key": "x",
+      "result": "job_failed:bilibili:x"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "Bilibili",
+      "failure_key": "run",
+      "result": "job_failed:bilibili:run"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "Bilibili",
+      "failure_key": "bilibili:download:BV1TEST",
+      "result": "job_failed:bilibili:bilibili:download:BV1TEST"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "Bilibili",
+      "failure_key": "  spaced  ",
+      "result": "job_failed:bilibili:spaced"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "Bilibili",
+      "failure_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "Bilibili",
+      "failure_key": "  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "Bilibili",
+      "failure_key": "x",
+      "result": "job_failed:bilibili:x"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "  Twitter  ",
+      "failure_key": "run",
+      "result": "job_failed:twitter:run"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "  Twitter  ",
+      "failure_key": "bilibili:download:BV1TEST",
+      "result": "job_failed:twitter:bilibili:download:BV1TEST"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "  Twitter  ",
+      "failure_key": "  spaced  ",
+      "result": "job_failed:twitter:spaced"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "  Twitter  ",
+      "failure_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "  Twitter  ",
+      "failure_key": "  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "  Twitter  ",
+      "failure_key": "x",
+      "result": "job_failed:twitter:x"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "",
+      "failure_key": "run",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "",
+      "failure_key": "bilibili:download:BV1TEST",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "",
+      "failure_key": "  spaced  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "",
+      "failure_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "",
+      "failure_key": "  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "",
+      "failure_key": "x",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "   ",
+      "failure_key": "run",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "   ",
+      "failure_key": "bilibili:download:BV1TEST",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "   ",
+      "failure_key": "  spaced  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "   ",
+      "failure_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "   ",
+      "failure_key": "  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "   ",
+      "failure_key": "x",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "İstanbul",
+      "failure_key": "run",
+      "result": "job_failed:i̇stanbul:run"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "İstanbul",
+      "failure_key": "bilibili:download:BV1TEST",
+      "result": "job_failed:i̇stanbul:bilibili:download:BV1TEST"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "İstanbul",
+      "failure_key": "  spaced  ",
+      "result": "job_failed:i̇stanbul:spaced"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "İstanbul",
+      "failure_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "İstanbul",
+      "failure_key": "  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "İstanbul",
+      "failure_key": "x",
+      "result": "job_failed:i̇stanbul:x"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "job_failed",
+      "failure_key": "run",
+      "result": "job_failed:job_failed:run"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "job_failed",
+      "failure_key": "bilibili:download:BV1TEST",
+      "result": "job_failed:job_failed:bilibili:download:BV1TEST"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "job_failed",
+      "failure_key": "  spaced  ",
+      "result": "job_failed:job_failed:spaced"
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "job_failed",
+      "failure_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "job_failed",
+      "failure_key": "  ",
+      "result": ""
+    },
+    {
+      "function": "format_job_failure_dedupe_key",
+      "job_key": "job_failed",
+      "failure_key": "x",
+      "result": "job_failed:job_failed:x"
+    },
+    {
+      "function": "format_job_run_failure_dedupe_key",
+      "job_key": "bilibili",
+      "result": "job_failed:bilibili:run"
+    },
+    {
+      "function": "format_job_run_failure_dedupe_key",
+      "job_key": "Bilibili",
+      "result": "job_failed:bilibili:run"
+    },
+    {
+      "function": "format_job_run_failure_dedupe_key",
+      "job_key": "  Twitter  ",
+      "result": "job_failed:twitter:run"
+    },
+    {
+      "function": "format_job_run_failure_dedupe_key",
+      "job_key": "",
+      "result": ""
+    },
+    {
+      "function": "format_job_run_failure_dedupe_key",
+      "job_key": "   ",
+      "result": ""
+    },
+    {
+      "function": "format_job_run_failure_dedupe_key",
+      "job_key": "İstanbul",
+      "result": "job_failed:i̇stanbul:run"
+    },
+    {
+      "function": "format_job_run_failure_dedupe_key",
+      "job_key": "job_failed",
+      "result": "job_failed:job_failed:run"
+    },
+    {
+      "function": "guess_type",
+      "name": "cover.png",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "photo.JPG",
+      "result": "image/jpeg"
+    },
+    {
+      "function": "guess_type",
+      "name": "sticker.gif",
+      "result": "image/gif"
+    },
+    {
+      "function": "guess_type",
+      "name": "big.webp",
+      "result": null
+    },
+    {
+      "function": "guess_type",
+      "name": "scan.TIFF",
+      "result": "image/tiff"
+    },
+    {
+      "function": "guess_type",
+      "name": "icon.svgz",
+      "result": "image/svg+xml"
+    },
+    {
+      "function": "guess_type",
+      "name": "archive.png.gz",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "archive.PNG.GZ",
+      "result": null
+    },
+    {
+      "function": "guess_type",
+      "name": "drawing.svg.Z",
+      "result": "image/svg+xml"
+    },
+    {
+      "function": "guess_type",
+      "name": "notes.txt",
+      "result": "text/plain"
+    },
+    {
+      "function": "guess_type",
+      "name": ".png",
+      "result": null
+    },
+    {
+      "function": "guess_type",
+      "name": "..png",
+      "result": null
+    },
+    {
+      "function": "guess_type",
+      "name": "a..png",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "no_extension",
+      "result": null
+    },
+    {
+      "function": "guess_type",
+      "name": "Re: hello.png",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "Note: #1 cover.png",
+      "result": null
+    },
+    {
+      "function": "guess_type",
+      "name": "Note: cover.png?x=1",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "http://host/a.png;params",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "http://host/dir;x/a.png",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "ftp:a.jpg;type=i",
+      "result": "image/jpeg"
+    },
+    {
+      "function": "guess_type",
+      "name": "x:y.png",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "c:/path/z.jpeg",
+      "result": "image/jpeg"
+    },
+    {
+      "function": "guess_type",
+      "name": "data:image/png;base64,AAAA",
+      "result": "image/png"
+    },
+    {
+      "function": "guess_type",
+      "name": "data:image/svg+xml,<svg/>",
+      "result": "image/svg+xml"
+    },
+    {
+      "function": "guess_type",
+      "name": "data:text/plain,hi.png",
+      "result": "text/plain"
+    },
+    {
+      "function": "guess_type",
+      "name": "data:nocomma.png",
+      "result": null
+    },
+    {
+      "function": "guess_type",
+      "name": "  sp:ace.heic",
+      "result": "image/heic"
+    },
+    {
+      "function": "guess_type",
+      "name": "[uploader]title [id].avif",
+      "result": "image/avif"
+    },
+    {
+      "function": "guess_type",
+      "name": "中文.JPEG",
+      "result": "image/jpeg"
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": -1,
+      "result": 0
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 0,
+      "result": 0
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 1,
+      "result": 30
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 2,
+      "result": 60
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 3,
+      "result": 120
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 4,
+      "result": 240
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 5,
+      "result": 480
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 6,
+      "result": 600
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 7,
+      "result": 600
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 8,
+      "result": 600
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 9,
+      "result": 600
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 10,
+      "result": 600
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 11,
+      "result": 600
+    },
+    {
+      "function": "retry_delay_seconds",
+      "attempt": 12,
+      "result": 600
+    }
+  ]
+}

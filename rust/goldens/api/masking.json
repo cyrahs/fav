@@ -1,0 +1,500 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "api",
+  "cases": [
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "enabled": true,
+        "bot_token": "123456:secret",
+        "chat_id": "-100123",
+        "message_thread_id": null
+      },
+      "result": {
+        "enabled": true,
+        "bot_token": "1234••••",
+        "chat_id": "-100123",
+        "message_thread_id": null
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "abc"
+      },
+      "result": {
+        "bot_token": "••••"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "abcd"
+      },
+      "result": {
+        "bot_token": "••••"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "abcde"
+      },
+      "result": {
+        "bot_token": "abcd••••"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": ""
+      },
+      "result": {
+        "bot_token": ""
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": null
+      },
+      "result": {
+        "bot_token": null
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": 5
+      },
+      "result": {
+        "bot_token": 5
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "chat_id": "1"
+      },
+      "result": {
+        "chat_id": "1"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "令牌令牌令牌"
+      },
+      "result": {
+        "bot_token": "令牌令牌••••"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "😀😀😀😀😀"
+      },
+      "result": {
+        "bot_token": "😀😀😀😀••••"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "web.wechat",
+      "payload": {
+        "api_url": "http://favinbox",
+        "token": "secret-token"
+      },
+      "result": {
+        "api_url": "http://favinbox",
+        "token": "secr••••"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "services.tikhub",
+      "payload": {
+        "token": "tk",
+        "api_url": "x"
+      },
+      "result": {
+        "token": "••••",
+        "api_url": "x"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "web.telegram",
+      "payload": {
+        "accounts": [
+          {
+            "name": "a",
+            "api_hash": "hash-A"
+          },
+          {
+            "name": "b",
+            "api_hash": ""
+          },
+          "junk",
+          {
+            "name": "c"
+          }
+        ]
+      },
+      "result": {
+        "accounts": [
+          {
+            "name": "a",
+            "api_hash": "hash••••"
+          },
+          {
+            "name": "b",
+            "api_hash": ""
+          },
+          {
+            "name": "c"
+          }
+        ]
+      }
+    },
+    {
+      "op": "mask",
+      "section": "web.telegram",
+      "payload": {
+        "accounts": "not a list"
+      },
+      "result": {
+        "accounts": []
+      }
+    },
+    {
+      "op": "mask",
+      "section": "web.telegram",
+      "payload": {},
+      "result": {
+        "accounts": []
+      }
+    },
+    {
+      "op": "mask",
+      "section": "web.rednote",
+      "payload": {
+        "user_id": "",
+        "proxy": "http://user:pw@home.example:3128"
+      },
+      "result": {
+        "user_id": "",
+        "proxy": "http://user:pw@home.example:3128"
+      }
+    },
+    {
+      "op": "mask",
+      "section": "cookiecloud",
+      "payload": {
+        "configs": [
+          {
+            "name": "main",
+            "password": "p"
+          }
+        ]
+      },
+      "result": {
+        "configs": [
+          {
+            "name": "main",
+            "password": "p"
+          }
+        ]
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "enabled": true,
+        "bot_token": "1234••••",
+        "chat_id": "-100456"
+      },
+      "stored": {
+        "bot_token": "123456:secret"
+      },
+      "result": {
+        "enabled": true,
+        "bot_token": "123456:secret",
+        "chat_id": "-100456"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "real••••"
+      },
+      "stored": {
+        "bot_token": "real-token"
+      },
+      "result": {
+        "bot_token": "real-token"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "chat_id": "-100"
+      },
+      "stored": {
+        "bot_token": "real-token"
+      },
+      "result": {
+        "chat_id": "-100",
+        "bot_token": "real-token"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": null
+      },
+      "stored": {
+        "bot_token": "real-token"
+      },
+      "result": {
+        "bot_token": "real-token"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": ""
+      },
+      "stored": {
+        "bot_token": "real-token"
+      },
+      "result": {
+        "bot_token": ""
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "brand-new"
+      },
+      "stored": {
+        "bot_token": "real-token"
+      },
+      "result": {
+        "bot_token": "brand-new"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "x••••"
+      },
+      "stored": {},
+      "result": {
+        "bot_token": ""
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": "x••••"
+      },
+      "stored": {
+        "bot_token": null
+      },
+      "result": {
+        "bot_token": ""
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "notifications.telegram",
+      "payload": {
+        "bot_token": 7
+      },
+      "stored": {
+        "bot_token": "real-token"
+      },
+      "result": {
+        "bot_token": 7
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "web.wechat",
+      "payload": {
+        "token": "••••"
+      },
+      "stored": {
+        "token": "w"
+      },
+      "result": {
+        "token": "w"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "services.tikhub",
+      "payload": {},
+      "stored": {
+        "token": "tk"
+      },
+      "result": {
+        "token": "tk"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "web.telegram",
+      "payload": {
+        "accounts": [
+          {
+            "name": "bob",
+            "api_hash": "bh••••"
+          },
+          {
+            "name": "alice",
+            "api_hash": "hash••••"
+          },
+          {
+            "name": "new"
+          },
+          "junk"
+        ]
+      },
+      "stored": {
+        "accounts": [
+          {
+            "name": "alice",
+            "api_hash": "hash-ALICE"
+          },
+          {
+            "name": "bob",
+            "api_hash": "hash-BOB"
+          }
+        ]
+      },
+      "result": {
+        "accounts": [
+          {
+            "name": "bob",
+            "api_hash": "hash-BOB"
+          },
+          {
+            "name": "alice",
+            "api_hash": "hash-ALICE"
+          },
+          {
+            "name": "new",
+            "api_hash": ""
+          }
+        ]
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "web.telegram",
+      "payload": {
+        "accounts": "not a list"
+      },
+      "stored": {
+        "accounts": [
+          {
+            "name": "a",
+            "api_hash": "h"
+          }
+        ]
+      },
+      "result": {
+        "accounts": []
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "web.telegram",
+      "payload": {},
+      "stored": {
+        "accounts": [
+          {
+            "name": "a",
+            "api_hash": "h"
+          }
+        ]
+      },
+      "result": {
+        "accounts": []
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "web.telegram",
+      "payload": {
+        "accounts": [
+          {
+            "api_hash": "••••"
+          }
+        ]
+      },
+      "stored": {
+        "accounts": [
+          {
+            "api_hash": "nameless"
+          }
+        ]
+      },
+      "result": {
+        "accounts": [
+          {
+            "api_hash": "nameless"
+          }
+        ]
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "web.rednote",
+      "payload": {
+        "proxy": "http://other.example:3128"
+      },
+      "stored": {
+        "proxy": "http://user:pw@home.example:3128"
+      },
+      "result": {
+        "proxy": "http://other.example:3128"
+      }
+    },
+    {
+      "op": "unmask",
+      "section": "web.jandan",
+      "payload": {
+        "enabled": true
+      },
+      "stored": {
+        "enabled": false
+      },
+      "result": {
+        "enabled": true
+      }
+    }
+  ]
+}

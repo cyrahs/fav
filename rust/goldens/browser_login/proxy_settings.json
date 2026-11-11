@@ -1,0 +1,221 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "browser_login",
+  "cases": [
+    {
+      "proxy": "",
+      "result": null
+    },
+    {
+      "proxy": "   ",
+      "result": null
+    },
+    {
+      "proxy": "home.example:3128",
+      "result": {
+        "server": "http://home.example:3128"
+      }
+    },
+    {
+      "proxy": "http://home.example:3128",
+      "result": {
+        "server": "http://home.example:3128"
+      }
+    },
+    {
+      "proxy": "http://user:pw@home.example:3128",
+      "result": {
+        "server": "http://home.example:3128",
+        "username": "user",
+        "password": "pw"
+      }
+    },
+    {
+      "proxy": "http://us%40er:p%3Aw@home.example:3128",
+      "result": {
+        "server": "http://home.example:3128",
+        "username": "us@er",
+        "password": "p:w"
+      }
+    },
+    {
+      "proxy": "http://user@home.example",
+      "result": {
+        "server": "http://home.example",
+        "username": "user"
+      }
+    },
+    {
+      "proxy": "http://:pw@home.example:8080",
+      "result": {
+        "server": "http://home.example:8080",
+        "password": "pw"
+      }
+    },
+    {
+      "proxy": "HTTP://Home.Example:3128",
+      "result": {
+        "server": "http://home.example:3128"
+      }
+    },
+    {
+      "proxy": "https://proxy.example",
+      "result": {
+        "server": "https://proxy.example"
+      }
+    },
+    {
+      "proxy": "https://proxy.example:443",
+      "result": {
+        "server": "https://proxy.example:443"
+      }
+    },
+    {
+      "proxy": "http://proxy.example:80",
+      "result": {
+        "server": "http://proxy.example:80"
+      }
+    },
+    {
+      "proxy": "socks5://home.example:1080",
+      "result": {
+        "server": "socks5://home.example:1080"
+      }
+    },
+    {
+      "proxy": "socks5://user:pw@home.example:1080",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Chromium cannot authenticate to a SOCKS proxy; use an http:// or https:// proxy instead."
+      }
+    },
+    {
+      "proxy": "socks5h://user@home.example:1080",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Chromium cannot authenticate to a SOCKS proxy; use an http:// or https:// proxy instead."
+      }
+    },
+    {
+      "proxy": "http://[::1]:3128",
+      "result": {
+        "server": "http://::1:3128"
+      }
+    },
+    {
+      "proxy": "http://[fe80::1%25eth0]:3128",
+      "result": {
+        "server": "http://fe80::1%25eth0:3128"
+      }
+    },
+    {
+      "proxy": "http://home.example:0",
+      "result": {
+        "server": "http://home.example"
+      }
+    },
+    {
+      "proxy": "http://home.example:65535",
+      "result": {
+        "server": "http://home.example:65535"
+      }
+    },
+    {
+      "proxy": "http://home.example:65536",
+      "error": {
+        "class": "ValueError",
+        "message": "Port out of range 0-65535"
+      }
+    },
+    {
+      "proxy": "http://home.example:port",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as 'port'"
+      }
+    },
+    {
+      "proxy": "http://home.example:-1",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as '-1'"
+      }
+    },
+    {
+      "proxy": "http://home.example: 80",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as ' 80'"
+      }
+    },
+    {
+      "proxy": "http://home.example:+80",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as '+80'"
+      }
+    },
+    {
+      "proxy": "http://home.example:８０",
+      "error": {
+        "class": "ValueError",
+        "message": "Port could not be cast to integer value as '８０'"
+      }
+    },
+    {
+      "proxy": "http://",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Could not read a host out of the proxy setting: 'http://'"
+      }
+    },
+    {
+      "proxy": "http:///path",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Could not read a host out of the proxy setting: 'http:///path'"
+      }
+    },
+    {
+      "proxy": "://nohost",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Could not read a host out of the proxy setting: '://nohost'"
+      }
+    },
+    {
+      "proxy": "http://user:pw@",
+      "error": {
+        "class": "ProxyConfigurationError",
+        "message": "Could not read a host out of the proxy setting: 'http://user:pw@'"
+      }
+    },
+    {
+      "proxy": "http://[::1",
+      "error": {
+        "class": "ValueError",
+        "message": "Invalid IPv6 URL"
+      }
+    },
+    {
+      "proxy": "  http://home.example:3128  ",
+      "result": {
+        "server": "http://home.example:3128"
+      }
+    },
+    {
+      "proxy": "proxy.svc.cluster.local",
+      "result": {
+        "server": "http://proxy.svc.cluster.local"
+      }
+    },
+    {
+      "proxy": "10.0.0.1:8888",
+      "result": {
+        "server": "http://10.0.0.1:8888"
+      }
+    }
+  ]
+}

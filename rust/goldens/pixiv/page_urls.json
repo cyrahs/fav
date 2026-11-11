@@ -1,0 +1,94 @@
+{
+  "_generated": "by rust/tools/goldens/generate.py from the Python baseline; do not edit",
+  "baseline": "67609f60ab9fd1065601aaaa60ac04a22044c406",
+  "python": "3.12",
+  "area": "pixiv",
+  "cases": [
+    {
+      "body": [
+        {
+          "urls": {
+            "original": "https://i.pximg.net/img-original/img/x/1_p0.jpg"
+          }
+        },
+        {
+          "urls": {
+            "original": "https://i.pximg.net/img-original/img/x/1_p1.png"
+          }
+        }
+      ],
+      "result": [
+        "https://i.pximg.net/img-original/img/x/1_p0.jpg",
+        "https://i.pximg.net/img-original/img/x/1_p1.png"
+      ]
+    },
+    {
+      "body": [
+        {
+          "urls": {
+            "original": ""
+          }
+        },
+        {
+          "urls": {}
+        },
+        {
+          "urls": null
+        },
+        {},
+        null,
+        "x",
+        {
+          "urls": {
+            "original": "kept"
+          }
+        }
+      ],
+      "result": [
+        "kept"
+      ]
+    },
+    {
+      "body": [
+        {
+          "urls": {
+            "original": 5
+          }
+        },
+        {
+          "urls": {
+            "original": null
+          }
+        },
+        {
+          "urls": "text"
+        }
+      ],
+      "result": []
+    },
+    {
+      "body": null,
+      "result": []
+    },
+    {
+      "body": {},
+      "result": []
+    },
+    {
+      "body": {
+        "urls": {
+          "original": "not in a list"
+        }
+      },
+      "result": []
+    },
+    {
+      "body": "text",
+      "result": []
+    },
+    {
+      "body": [],
+      "result": []
+    }
+  ]
+}
