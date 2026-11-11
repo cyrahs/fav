@@ -896,8 +896,8 @@ impl Page {
 pub enum NetworkEvent {
     /// `page.on('request')`: `resource_type` as Playwright names it (`document`, `xhr`,
     /// `fetch`, `script`, ..., `other`), and `preflight` for a CORS preflight, which
-    /// Chromium reports as a request of its own (its initiator says so, its type is
-    /// empty) and Playwright does not report at all.
+    /// Chromium reports as a request of its own (its initiator says so; its type reads
+    /// `Other`) and Playwright does not report at all.
     Request { id: String, resource_type: String, url: String },
     /// `page.on('response')`: the status line arrived; the body may still be loading.
     Response { id: String, url: String, status: i64 },

@@ -532,7 +532,8 @@ async fn capture_traffic(
 ) {
     let mut matcher = LikePageMatcher::default();
     // CORS preflights reach the Network domain as requests of their own (resource type
-    // `preflight`, no body); Playwright never reports them as page responses.
+    // `preflight`, no body); Playwright never reports them as page responses. Each is
+    // remembered until it finishes or fails.
     let mut preflights: HashSet<String> = HashSet::new();
     while let Some(event) = events.next().await {
         match event {
@@ -543,8 +544,8 @@ async fn capture_traffic(
                 }
                 preflights.insert(id);
             }
-            NetworkEvent::Response { id, .. } | NetworkEvent::Finished { id } | NetworkEvent::Failed { id, .. }
-                if preflights.contains(&id) => {}
+            NetworkEvent::Response { id, .. } if preflights.contains(&id) => {}
+            NetworkEvent::Finished { id } | NetworkEvent::Failed { id, .. } if preflights.remove(&id) => {}
             NetworkEvent::Request { id, resource_type, url } => {
                 inflight
                     .lock()
