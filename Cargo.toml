@@ -1,0 +1,129 @@
+# Cargo workspace for the Rust rewrite of fav. See docs/rewrite/PLAN.md.
+#
+# Versions of the four crates whose API coverage was checked in WP0
+# (grammers, chromiumoxide, webp-animation; rmcp was checked and dropped) are pinned exactly; see
+# docs/rewrite/API-COVERAGE.md before changing them. Everything else uses a caret
+# requirement and is fixed by Cargo.lock.
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/fav-core",
+    "crates/fav-db",
+    "crates/fav-net",
+    "crates/fav-runtime",
+    "crates/fav-sources",
+    "crates/fav-browser",
+    "crates/fav-api",
+    "crates/fav",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+# Internal crates.
+fav-core = { path = "crates/fav-core" }
+fav-db = { path = "crates/fav-db" }
+fav-net = { path = "crates/fav-net" }
+fav-runtime = { path = "crates/fav-runtime" }
+fav-sources = { path = "crates/fav-sources" }
+fav-browser = { path = "crates/fav-browser" }
+fav-api = { path = "crates/fav-api" }
+
+# Key crates, pinned after the WP0 API-coverage check (docs/rewrite/API-COVERAGE.md).
+grammers-client = "=0.12.0"
+grammers-session = "=0.12.0"
+grammers-mtsender = "=0.12.0"
+grammers-tl-types = "=0.12.0"
+chromiumoxide = { version = "=0.9.1", default-features = false }
+webp-animation = "=0.10.0"
+
+# Foundation crates chosen in the plan's technology mapping.
+aes = "0.9"
+# Azur Lane AZP2 envelopes (WP11): AES-GCM with 128/192/256-bit keys.
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+anyhow = "1"
+# Raw DevTools websocket for the plain login window and the VNC relay (WP16); the
+# version chromiumoxide already uses.
+async-tungstenite = { version = "0.32", default-features = false, features = ["futures-03-sink", "handshake", "tokio-runtime"] }
+base64 = "0.22"
+blake2 = "0.10"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+axum = "0.8"
+clap = { version = "4.6", features = ["derive"] }
+futures-util = { version = "0.3", default-features = false }
+# The login ticket (`secrets.token_urlsafe`, WP16).
+getrandom = "0.3"
+# Raw deflate for Python's `gzip.decompress` (AZP2, WP11).
+flate2 = "1"
+hmac = "0.13"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", default-features = false }
+hyper-util = { version = "0.1", default-features = false }
+# Process groups and signals for the browsers fav spawns (WP16).
+nix = { version = "0.31", default-features = false, features = ["signal", "process"] }
+# Tieba's form signature (WP13).
+md-5 = "0.11"
+regex = "1"
+# Look-ahead and back-references in patterns ported from Python `re` (Hanime1, WP8).
+fancy-regex = "0.20"
+reqwest = { version = "0.13", default-features = false }
+rsa = "0.10"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.11"
+tempfile = "3"
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "tls-rustls-ring-webpki"] }
+thiserror = "2"
+tokio = { version = "1.54", features = ["macros", "rt-multi-thread"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
+tower-http = { version = "0.6", default-features = false }
+tower-service = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+unicode-normalization = "0.1"
+url = "2"
+utoipa = "6"
+webpki-roots = "1"
+# The global allocator of the `fav` binary, chosen by the WP18 memory benchmark
+# (docs/rewrite/REPORT.md): after a load it returns freed memory to the system, which glibc's
+# allocator (Python's `malloc_trim` call has no safe counterpart, D19) does not.
+tikv-jemallocator = "0.6"
+# Test certificates for the connect-to TLS tests (fav-net).
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+# CI runs clippy with `-D warnings`, so every warning below is an error there.
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Placeholders never reach the `rust` branch (docs/CONVENTIONS.md).
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+print_stderr = "warn"
+# Pedantic lints that fight the code style more than they help.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+# Small, single binary; idle RSS is a goal (docs/rewrite/PLAN.md).
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

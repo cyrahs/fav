@@ -22,30 +22,9 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v5
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v9.0.0
-      with:
-        python-version: '3.12'
-        enable-cache: true
-
-    - name: Install dependencies
-      run: uv sync --locked
-
-    - name: Ruff lint
-      run: uv run ruff check .
-
-    - name: Ruff format check
-      run: uv run ruff format --check .
-
+  # Format, clippy, the tests (none may be ignored) and the page smoke test, in one job
+  # so they share one compile. Named `test`: main's branch protection requires `CI passed`
+  # and Dependabot's auto-merge waits for it (dependabot-auto-merge.yml).
   test:
     runs-on: ubuntu-latest
     permissions:
@@ -66,35 +45,60 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+    env:
+      CARGO_TERM_COLOR: always
+      # Tests that need PostgreSQL create their own temporary database through this.
+      FAV_TEST_DATABASE_URL: postgresql://tests@127.0.0.1:5432/fav-tests
+      RUSTFLAGS: -D warnings
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v5
+
+    - name: Install the pinned toolchain (rust-toolchain.toml)
+      run: |
+        rustup toolchain install
+        rustup show active-toolchain
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Format
+      run: cargo fmt --all -- --check
+
+    - name: Clippy
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+    - name: Locate Chromium for the CDP tests
+      run: |
+        chromium="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+        echo "FAV_TEST_CHROMIUM=${chromium}" >> "$GITHUB_ENV"
+        "${chromium}" --version
+
+    - name: Test (no test may be ignored)
+      run: |
+        cargo test --workspace --locked 2>&1 | tee "$RUNNER_TEMP/cargo-test.log"
+        if grep -E '^test result: .* [1-9][0-9]* ignored' "$RUNNER_TEMP/cargo-test.log"; then
+          echo "::error::ignored tests are not allowed"
+          exit 1
+        fi
+
+    - name: Build fav and the front end for the page smoke test
+      run: |
+        cargo build -p fav --locked
+        cd web
+        npm ci --no-audit --no-fund
+        npm run build
 
     - name: Install uv
       uses: astral-sh/setup-uv@v9.0.0
       with:
         python-version: '3.12'
-        enable-cache: true
 
-    - name: Install dependencies
-      run: uv sync --locked
-
-    - name: Run tests
-      run: uv run pytest -q
-      env:
-        POSTGRES_DSN: postgresql://tests@127.0.0.1:5432/fav-tests
-        API_TOKEN: token-for-tests
-
-  # The Rust build's own checks (rust.yml: Python tree unchanged, goldens, schema,
-  # fmt, clippy, tests, parity, page smoke). Production runs the Rust build since
-  # 2026-11-11; the Python tree above stays as its reference.
-  rust:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/rust.yml
+    - name: Page smoke test (React front end against the API)
+      run: uv run tools/smoke/web_smoke.py
 
   # Validates the Dockerfile on every run without pushing anything, so it can run
-  # in parallel with lint/test instead of waiting behind them. Its layers land in
+  # in parallel with test instead of waiting behind it. Its layers land in
   # the GHA cache, which `publish` reuses.
   build:
     runs-on: ubuntu-latest
@@ -112,18 +116,17 @@ jobs:
       uses: docker/build-push-action@v7
       with:
         context: .
-        file: rust/Dockerfile
         platforms: linux/amd64
         push: false
-        cache-from: type=gha,scope=rust-image
-        cache-to: type=gha,mode=max,scope=rust-image
+        cache-from: type=gha,scope=image
+        cache-to: type=gha,mode=max,scope=image
 
   # The only job that writes anywhere. Never runs on pull requests, and only
-  # publishes after lint, test, rust, and build have all passed.
+  # publishes after test and build have both passed.
   publish:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    needs: [lint, test, rust, build]
+    needs: [test, build]
     permissions:
       contents: read
       packages: write
@@ -154,15 +157,12 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
         labels: |
           org.opencontainers.image.title=fav
-          org.opencontainers.image.description=Automation toolkit for collecting content from multiple sources (Rust build)
+          org.opencontainers.image.description=Automation toolkit for collecting content from multiple sources
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v7
       with:
         context: .
-        # The Rust build is what production runs; the root Dockerfile is the Python
-        # reference and is no longer published.
-        file: rust/Dockerfile
         # The cluster's nodes are all amd64. An arm64 image would be built under
         # qemu on this amd64 runner, which took ~10 of the job's 10.5 minutes.
         platforms: linux/amd64
@@ -172,8 +172,8 @@ jobs:
         build-args: |
           FAV_GIT_COMMIT=${{ github.sha }}
           FAV_BUILD_TIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-        cache-from: type=gha,scope=rust-image
-        cache-to: type=gha,mode=max,scope=rust-image
+        cache-from: type=gha,scope=image
+        cache-to: type=gha,mode=max,scope=image
 
     - name: Log build trigger info
       if: inputs.trigger-reason
@@ -187,7 +187,7 @@ jobs:
     name: CI passed
     if: always()
     runs-on: ubuntu-latest
-    needs: [lint, test, rust, build]
+    needs: [test, build]
 
     steps:
     - name: Fail if any job did not succeed

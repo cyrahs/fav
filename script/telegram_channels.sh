@@ -15,8 +15,8 @@ Examples:
   script/telegram_channels.sh cyrah --resolve https://t.me/example_channel
   script/telegram_channels.sh --all
 
-This reads Telegram accounts from the app_settings table and uses their configured
-session_path files. It does not start an interactive login flow.
+This reads Telegram accounts from the app_settings table (POSTGRES_DSN from the
+environment or .env) and uses their configured session_path files. It does not start an interactive login flow.
 EOF
 }
 
@@ -41,11 +41,16 @@ else
     exit 1
 fi
 
-"$UV_BIN" run python - "$@" <<'PY'
+"$UV_BIN" run --no-project --with 'telethon>=1.43.2' --with 'psycopg[binary]>=3.2' python - "$@" <<'PY'
 import argparse
 import asyncio
+import json
+import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+
+import psycopg
 
 from telethon import TelegramClient
 from telethon.tl.types import Channel, PeerChannel
@@ -60,14 +65,40 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_accounts() -> list[Any]:
-    try:
-        from src.core import settings
+def postgres_dsn() -> str:
+    dsn = os.environ.get('POSTGRES_DSN', '').strip()
+    env_file = Path('.env')
+    if not dsn and env_file.is_file():
+        for line in env_file.read_text(encoding='utf-8').splitlines():
+            key, sep, value = line.strip().partition('=')
+            if sep and key.strip() == 'POSTGRES_DSN':
+                dsn = value.strip().strip('"').strip("'")
+    if not dsn:
+        msg = 'POSTGRES_DSN is not set (environment or .env).'
+        raise SystemExit(msg)
+    return dsn
 
-        return settings.load().web.telegram.resolved_accounts()
+
+def load_accounts() -> list[Any]:
+    """The `accounts` of the `web.telegram` settings section, as the fav UI stores them."""
+    try:
+        with psycopg.connect(postgres_dsn()) as conn:
+            row = conn.execute("SELECT value FROM app_settings WHERE section = 'web.telegram'").fetchone()
     except Exception as exc:
         msg = f'Failed to load Telegram settings: {exc.__class__.__name__}: {exc}'
         raise SystemExit(msg) from exc
+    value = row[0] if row else {}
+    if isinstance(value, str):
+        value = json.loads(value)
+    return [
+        SimpleNamespace(
+            name=str(account.get('name', '')).strip(),
+            api_id=int(account.get('api_id') or 0),
+            api_hash=str(account.get('api_hash') or ''),
+            session_path=Path(account.get('session_path') or './data/telethon-session'),
+        )
+        for account in (value or {}).get('accounts', [])
+    ]
 
 
 def session_file_hint(session_path: Path) -> Path:

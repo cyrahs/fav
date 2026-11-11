@@ -1,31 +1,12 @@
-__pycache__/
-*.py[cod]
-*.pyc
-*.pyo
-*.pyd
-*.so
-build/
-dist/
-.eggs/
-*.egg-info/
-
-.git/
-.gitignore
-
-.env
-.venv/
-
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# Project artifacts/config not needed in image
-bin/
-.cache/
-log/
-*.log
-
-# Front end is built inside the image
+# An allowlist: only what the Dockerfile copies. Above all the Cargo target directory
+# (tens of GB) must stay out of the build context.
+**
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+!docker/downloaders/pyproject.toml
+!docker/downloaders/uv.lock
+!web/
 web/node_modules/
 web/dist/
