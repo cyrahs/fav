@@ -22,24 +22,43 @@ COPY web/ ./
 RUN npm run build
 
 
-FROM rust:1.97-slim-trixie AS rust-builder
+FROM rust:1.97-slim-trixie AS chef
 
 WORKDIR /src
 
 # The slim image has gcc but not make, which the jemalloc build (the binary's global
-# allocator, chosen by the WP18 memory benchmark) needs.
+# allocator, chosen by the WP18 memory benchmark) needs. cargo-chef splits the build so
+# the compiled dependencies are a layer of their own (cached until Cargo.lock or a
+# manifest changes); this layer only changes with the base image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends make \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-chef --locked \
+    && rm -rf /usr/local/cargo/registry
 
-# The toolchain, the lockfile and the crates' manifests and sources, then every crate
-# downloaded in its own layer (rebuilt when any of them change).
+
+FROM chef AS planner
+
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates/ crates/
-RUN cargo fetch --locked
+RUN cargo chef prepare --recipe-path recipe.json
 
+
+FROM chef AS rust-builder
+
+# Dependencies first: this layer is reused while recipe.json (the lockfile and the
+# crates' manifests, not their sources) stays the same.
+COPY rust-toolchain.toml ./
+COPY --from=planner /src/recipe.json recipe.json
+RUN cargo chef cook --release --locked -p fav --recipe-path recipe.json
+
+# Then fav's own crates. The target directory is removed in the same step so the
+# layer (and the build cache CI exports) holds only the binary.
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
 RUN cargo build --release --locked -p fav \
-    && install -D -m 0755 target/release/fav /out/fav
+    && install -D -m 0755 target/release/fav /out/fav \
+    && rm -rf target
 
 
 FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS downloaders

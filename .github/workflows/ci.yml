@@ -23,7 +23,8 @@ env:
 
 jobs:
   # Format, clippy, the tests (none may be ignored) and the page smoke test, in one job
-  # so they share one compile. Named `test`: main's branch protection requires `CI passed`
+  # so they share one compile. Debug info is reduced to line tables: backtraces keep
+  # file and line, and compiling and linking the test binaries gets faster. Named `test`: main's branch protection requires `CI passed`
   # and Dependabot's auto-merge waits for it (dependabot-auto-merge.yml).
   test:
     runs-on: ubuntu-latest
@@ -50,6 +51,7 @@ jobs:
       # Tests that need PostgreSQL create their own temporary database through this.
       FAV_TEST_DATABASE_URL: postgresql://tests@127.0.0.1:5432/fav-tests
       RUSTFLAGS: -D warnings
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
     steps:
     - name: Checkout repository
@@ -98,39 +100,19 @@ jobs:
     - name: Page smoke test (React front end against the API)
       run: uv run tools/smoke/web_smoke.py
 
-  # Validates the Dockerfile on every run without pushing anything, so it can run
-  # in parallel with test instead of waiting behind it. Its layers land in
-  # the GHA cache, which `publish` reuses.
-  build:
+  # Builds the image in parallel with `test`. On pull requests nothing is pushed. On
+  # main and `v*` tags the image is pushed by digest only, with no tag, so nothing
+  # (Flux follows `latest`) can pick it up before `publish` tags it after `test` passed.
+  # Its layers land in the GHA cache; the Dockerfile caches compiled dependencies in a
+  # cargo-chef layer, so a change to fav's own crates rebuilds only those.
+  image:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v5
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
-
-    - name: Build Docker image
-      uses: docker/build-push-action@v7
-      with:
-        context: .
-        platforms: linux/amd64
-        push: false
-        cache-from: type=gha,scope=image
-        cache-to: type=gha,mode=max,scope=image
-
-  # The only job that writes anywhere. Never runs on pull requests, and only
-  # publishes after test and build have both passed.
-  publish:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    needs: [test, build]
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
 
     steps:
     - name: Checkout repository
@@ -140,6 +122,7 @@ jobs:
       uses: docker/setup-buildx-action@v4
 
     - name: Log in to Container Registry
+      if: github.event_name != 'pull_request'
       uses: docker/login-action@v4
       with:
         registry: ${{ env.REGISTRY }}
@@ -160,21 +143,58 @@ jobs:
           org.opencontainers.image.title=fav
           org.opencontainers.image.description=Automation toolkit for collecting content from multiple sources
 
-    - name: Build and push Docker image
+    - name: Build (and on main, push by digest)
+      id: build
       uses: docker/build-push-action@v7
       with:
         context: .
         # The cluster's nodes are all amd64. An arm64 image would be built under
         # qemu on this amd64 runner, which took ~10 of the job's 10.5 minutes.
         platforms: linux/amd64
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        outputs: ${{ github.event_name == 'pull_request' && 'type=cacheonly' || format('type=image,name={0}/{1},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY, env.IMAGE_NAME) }}
         build-args: |
           FAV_GIT_COMMIT=${{ github.sha }}
           FAV_BUILD_TIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
         cache-from: type=gha,scope=image
-        cache-to: type=gha,mode=max,scope=image
+        cache-to: type=gha,mode=max,scope=image,ignore-error=true
+
+  # The only job that writes a tag. Never runs on pull requests, and only after test
+  # and image have both passed: it points `latest` (and the branch/semver tags) at the
+  # digest `image` pushed, which takes seconds instead of a second build.
+  publish:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [test, image]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v4
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Tag the tested image
+      env:
+        DIGEST: ${{ needs.image.outputs.digest }}
+        TAGS: ${{ needs.image.outputs.tags }}
+      run: |
+        test -n "$DIGEST"
+        args=()
+        while IFS= read -r tag; do
+          [ -n "$tag" ] && args+=(-t "$tag")
+        done <<< "$TAGS"
+        test "${#args[@]}" -gt 0
+        docker buildx imagetools create "${args[@]}" "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+        docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+        echo "digest: ${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Log build trigger info
       if: inputs.trigger-reason
@@ -188,7 +208,7 @@ jobs:
     name: CI passed
     if: always()
     runs-on: ubuntu-latest
-    needs: [test, build]
+    needs: [test, image]
 
     steps:
     - name: Fail if any job did not succeed
