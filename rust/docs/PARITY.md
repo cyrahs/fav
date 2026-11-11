@@ -785,7 +785,7 @@ comes from `rust/parity/scope.toml`; a package marked done may have nothing pend
 | `tests/test_rednote.py::test_the_page_limits_must_leave_room_for_one_page` | WP17 | ported | `rust/crates/fav-sources/src/rednote/tests.rs` `the_page_limits_must_leave_room_for_one_page` |
 | `tests/test_rednote.py::test_the_profile_defaults_onto_the_persistent_directory` | WP17 | ported | `rust/crates/fav-sources/src/rednote/tests.rs` `the_profile_defaults_onto_the_persistent_directory` |
 | `tests/test_rednote.py::test_xhshow_is_gone_and_should_stay_gone` | WP17 | ported | `rust/crates/fav-sources/src/rednote/tests.rs` `xhshow_is_gone_and_should_stay_gone` |
-| `tests/test_rednote.py::test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell` | WP17 | ported | `rust/crates/fav-browser/src/rednote/note_browser/tests.rs` `a_likes_list_body_is_json_or_a_reason_without_its_contents` |
+| `tests/test_rednote.py::test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell` | WP17 | ported | `rust/crates/fav-browser/src/rednote/note_browser/tests.rs` `the_launch_options_ask_for_the_real_browser_not_the_headless_shell` |
 | `tests/test_rednote.py::test_the_launch_options_do_not_pin_a_user_agent` | WP17 | ported | `rust/crates/fav-browser/src/rednote/note_browser/tests.rs` `the_launch_options_do_not_pin_a_user_agent` |
 | `tests/test_rednote.py::test_proxy_credentials_are_split_out_of_the_url` | WP16 | ported | `rust/crates/fav-browser/src/proxy/tests.rs` `proxy_credentials_are_split_out_of_the_url` |
 | `tests/test_rednote.py::test_an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous` | WP16 | ported | `rust/crates/fav-browser/src/proxy/tests.rs` `an_authenticated_socks_proxy_is_refused_rather_than_silently_anonymous` |

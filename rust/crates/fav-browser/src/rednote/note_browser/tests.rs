@@ -38,7 +38,6 @@ fn a_like_page_is_read_whichever_of_its_two_events_comes_first() {
     assert_eq!(matcher.failed("4"), None);
 }
 
-// py: tests/test_rednote.py::test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell
 #[test]
 fn a_likes_list_body_is_json_or_a_reason_without_its_contents() {
     let parsed = json_body(Ok(br#"{"code": 0, "data": {"cursor": "c1"}}"#.to_vec())).unwrap();
@@ -66,6 +65,7 @@ fn a_likes_list_body_is_json_or_a_reason_without_its_contents() {
     );
 }
 
+// py: tests/test_rednote.py::test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell
 #[test]
 fn the_launch_options_ask_for_the_real_browser_not_the_headless_shell() {
     let options = build_launch_options(Path::new("/data/profile"), "", true).expect("no proxy");
