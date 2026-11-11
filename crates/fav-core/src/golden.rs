@@ -1,6 +1,6 @@
 //! Reading the golden files under `goldens/` in tests.
 //!
-//! Goldens are produced by `python-final:rust/tools/goldens/generate.py` from the Python baseline and
+//! Goldens are produced by `805f5c0:rust/tools/goldens/generate.py` from the Python baseline and
 //! parsed here with the Python-compatible reader, so `1` and `1.0` stay apart. These
 //! helpers panic on a malformed golden: they exist for tests, where that is a failure.
 

@@ -8,7 +8,7 @@ use super::{NikkeLibrary, py_set_order, sort_date, sort_timestamp, sorted_skin_i
 use crate::tests::Harness;
 
 const AUTH: (&str, &str) = ("Authorization", "Bearer token-for-tests");
-/// The headers `python-final:rust/tools/goldens/areas/nikke.py` records.
+/// The headers `805f5c0:rust/tools/goldens/areas/nikke.py` records.
 const RECORDED_HEADERS: [&str; 3] = ["content-type", "cache-control", "etag"];
 
 fn value(json: &serde_json::Value) -> Value {

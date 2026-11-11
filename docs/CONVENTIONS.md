@@ -108,16 +108,16 @@ Many modules name the Python module they were ported from in their doc comment (
 scheduler fire times, page parsers, API and MCP exchanges, and so on). Rust tests read them with
 `include_str!` or from `env!("CARGO_MANIFEST_DIR")/../../goldens/...` (`fav_core::golden`) and compare.
 
-They are frozen: the generator (`rust/tools/goldens/` at tag `python-final`) ran the real Python code, which
-is gone from this branch. To regenerate an area, check out `python-final` and run
-`UV_PYTHON=3.12 uv run python rust/tools/goldens/generate.py` there. When behaviour changes on purpose,
+They are frozen: the generator (`rust/tools/goldens/` at commit 805f5c0, the last commit with the Python app
+and the Rust port side by side) ran the real Python code, which is gone from this branch. To regenerate an
+area, check out 805f5c0 and run `UV_PYTHON=3.12 uv run python rust/tools/goldens/generate.py` there. When behaviour changes on purpose,
 edit the affected golden by hand in the same PR and say so in the PR and in `DIVERGENCES.md`.
 
 ## Schema snapshot
 
 `crates/fav-db/src/schema/snapshot.txt` describes the production schema, one line per table, column,
 constraint and index, as `crates/fav-db/src/schema/describe.sql` prints it. It was generated from the Python
-app (`rust/tools/schema/dump_schema.py` at tag `python-final`) and is now maintained by hand: `fav-db`'s
+app (`rust/tools/schema/dump_schema.py` at commit 805f5c0) and is now maintained by hand: `fav-db`'s
 schema test applies `schema.sql` to a temporary database and compares the description with it, so a schema
 change updates both files in one PR.
 

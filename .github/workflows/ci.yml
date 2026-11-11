@@ -76,6 +76,7 @@ jobs:
 
     - name: Test (no test may be ignored)
       run: |
+        set -o pipefail
         cargo test --workspace --locked 2>&1 | tee "$RUNNER_TEMP/cargo-test.log"
         if grep -E '^test result: .* [1-9][0-9]* ignored' "$RUNNER_TEMP/cargo-test.log"; then
           echo "::error::ignored tests are not allowed"

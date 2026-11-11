@@ -121,8 +121,8 @@ repository.
 
 That upgrade is unattended: `.github/dependabot.yml` watches gallery-dl daily, and
 `.github/workflows/dependabot-auto-merge.yml` enables auto-merge on the pull request so it lands once
-the `test` check that main's branch protection requires has passed, then dispatches an image rebuild.
-Nothing bypasses a check — a failing `test` just leaves the pull request open. To upgrade by hand:
+the `CI passed` check that main's branch protection requires has passed, then dispatches an image rebuild.
+Nothing bypasses a check — a failing check just leaves the pull request open. To upgrade by hand:
 
 ```bash
 cd docker/downloaders && uv lock --upgrade-package gallery-dl

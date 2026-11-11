@@ -1,4 +1,4 @@
-//! The Telegram goldens (`python-final:rust/tools/goldens/areas/telegram.py`): message classification,
+//! The Telegram goldens (`805f5c0:rust/tools/goldens/areas/telegram.py`): message classification,
 //! Telethon's download naming, its error texts and its `.session` file.
 
 use std::collections::HashSet;

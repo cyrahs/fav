@@ -1,4 +1,4 @@
-//! Replays of the goldens `python-final:rust/tools/goldens/areas/azurlane.py` writes: the source pipeline
+//! Replays of the goldens `805f5c0:rust/tools/goldens/areas/azurlane.py` writes: the source pipeline
 //! over recorded exchanges, resource enumeration, the ship detail parsers, the URL helpers,
 //! and catalog round trips.
 

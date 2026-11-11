@@ -1,7 +1,7 @@
 -- One line per schema object in the current schema, in a stable order. fav-db's schema
 -- test runs it against a database `ensure_schema` created and compares with snapshot.txt
--- (which tools/schema/dump_schema.py produced with this same text from the Python app,
--- tag `python-final`).
+-- (which rust/tools/schema/dump_schema.py at commit 805f5c0 produced with this same text
+-- from the Python app).
 -- Column positions are counted over live columns, so a column Python added and later
 -- dropped leaves no gap.
 SELECT line FROM (
