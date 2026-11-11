@@ -35,7 +35,7 @@ use chromiumoxide::cdp::browser_protocol::page::{
 };
 use chromiumoxide::cdp::browser_protocol::storage::GetCookiesParams;
 use chromiumoxide::cdp::browser_protocol::target::{
-    CloseTargetParams, CreateBrowserContextParams, CreateTargetParams, EventTargetCreated, TargetId,
+    CloseTargetParams, CreateBrowserContextParams, CreateTargetParams, EventTargetCreated, SetAutoAttachParams, TargetId,
 };
 use chromiumoxide::cdp::js_protocol::runtime::{CallArgument, CallFunctionOnParams, EvaluateParams};
 use chromiumoxide::error::CdpError;
@@ -479,6 +479,23 @@ impl Page {
 
     /// What Playwright sends to every page of a context, in its order.
     async fn prepare(&self, options: &ContextOptions, scripts: &[String]) -> Result<(), DriverError> {
+        // chromiumoxide auto-attaches to a page's workers and frames with
+        // `waitForDebuggerOnStart`, then answers a service worker with
+        // `runIfWaitingForDebugger` and an immediate `detachFromTarget`. The detach often
+        // wins, the worker stays paused, and a navigation it controls never gets its
+        // document (RedNote's home page, 2026-11-11). The same auto-attach without the
+        // pause: chromiumoxide 0.9.1 holds a page's commands until its own init commands
+        // have been answered, so this one replaces its setting (recheck on an upgrade).
+        self.inner
+            .execute(
+                SetAutoAttachParams::builder()
+                    .auto_attach(true)
+                    .wait_for_debugger_on_start(false)
+                    .flatten(true)
+                    .build()
+                    .map_err(CdpError::msg)?,
+            )
+            .await?;
         self.inner.execute(SetFocusEmulationEnabledParams::new(true)).await?;
         if let Some((width, height)) = options.viewport {
             self.inner

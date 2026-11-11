@@ -153,6 +153,63 @@ fn slow_subresource_site(request: &str) -> Reply {
     }
 }
 
+/// A page that registers a service worker which answers every request of its scope.
+fn service_worker_site(request: &str) -> Reply {
+    if request.starts_with("get /sw.js") {
+        Reply {
+            content_type: "text/javascript",
+            ..Reply::html(
+                "self.addEventListener('install', () => self.skipWaiting());\
+                 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));\
+                 self.addEventListener('fetch', (event) => event.respondWith(fetch(event.request)));",
+            )
+        }
+    } else {
+        Reply::html("<html><body>controlled<script>navigator.serviceWorker.register('/sw.js')</script></body></html>")
+    }
+}
+
+/// A navigation a service worker controls is not left waiting on that worker. A fresh
+/// browser starts the worker for the navigation, and chromiumoxide's auto-attach paused
+/// it until it was told to run, then detached it at once: the detach often won and the
+/// worker stayed paused, so registering it never finished and a navigation it controls
+/// never got its document (RedNote's home page in production, 2026-11-11). Each round is
+/// a fresh browser on the same profile.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_navigation_a_service_worker_controls_is_not_held() {
+    let Some(executable) = chromium() else { return };
+    let (addr, _) = serve(service_worker_site).await;
+    let profile = tempfile::tempdir().unwrap();
+    let url = format!("http://{addr}/");
+    for round in 0..6 {
+        let context = BrowserContext::launch(&executable, &launch_options(profile.path(), ""), &[], rednote_context())
+            .await
+            .expect("launched");
+        let page = context.first_page().await.unwrap();
+        // RedNote leaves another origin (checkip) for the site; this leaves about:blank.
+        page.goto("about:blank", Duration::from_secs(10)).await.unwrap();
+        page.goto(&url, Duration::from_secs(10))
+            .await
+            .unwrap_or_else(|error| panic!("round {round}: {error:?}"));
+        let ready = tokio::time::timeout(
+            Duration::from_secs(10),
+            page.evaluate("() => navigator.serviceWorker.ready.then(() => document.body.firstChild.textContent)"),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("round {round}: the worker never became ready"))
+        .unwrap();
+        assert_eq!(ready, json!("controlled"));
+        if round > 0 {
+            assert_eq!(
+                page.evaluate("() => navigator.serviceWorker.controller !== null").await.unwrap(),
+                json!(true),
+                "round {round} was served through the worker"
+            );
+        }
+        context.close().await;
+    }
+}
+
 /// `goto` waits for `DOMContentLoaded` as Playwright does, not for `load`: chromiumoxide's
 /// own `Page.navigate` answers only after `load` in every frame, which made RedNote fail
 /// with "Request timed out." in production (2026-11-11). A second navigation right after
