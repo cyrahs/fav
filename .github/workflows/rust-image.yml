@@ -1,10 +1,9 @@
 name: Rust image
 
-# Publishes the Rust build (rust/Dockerfile) for the direct production deployment Max
-# approved on 2026-11-10. Only ever `ghcr.io/cyrahs/fav:rust-<short sha>`: never `latest`
-# and never a semver tag, so the Flux policy that follows `latest` cannot pick it up.
-# nas-gitops pins this image by tag and digest. ci.yml is untouched and still owns
-# `latest` from main.
+# Publishes the Rust build (rust/Dockerfile) of the `rust` branch as
+# `ghcr.io/cyrahs/fav:rust-<short sha>` only: never `latest` and never a semver tag, so
+# the Flux policy that follows `latest` cannot pick it up. ci.yml owns `latest`, built
+# from main with the same Dockerfile since `rust` was merged into main (2026-11-11).
 
 on:
   push:

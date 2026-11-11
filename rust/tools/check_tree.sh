@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Repository rules for the `rust` branch that no compiler checks (docs/CONVENTIONS.md):
-#   1. The Python tree is the reference: everything outside rust/ and the Rust CI and
-#      image workflows must be byte-identical to the baseline commit in rust/BASELINE.
+# Repository rules for the Rust build that no compiler checks (docs/CONVENTIONS.md):
+#   1. The Python tree is the reference: everything outside rust/, the CI and image
+#      workflows and `uv.lock` must be byte-identical to the baseline commit in
+#      rust/BASELINE. `uv.lock` is exempt so Dependabot's daily gallery-dl/yt-dlp bumps
+#      still merge unattended (the Rust image installs the versions it pins).
 #   2. No ignored Rust tests: a test that cannot run is ported differently or waived.
 # Needs the baseline commit in the local clone (CI checks out with full history).
 set -euo pipefail
@@ -28,7 +30,7 @@ if ! git merge-base --is-ancestor "${baseline}" HEAD; then
   status=1
 fi
 
-changed="$(git diff --name-only "${baseline}" -- . ':(exclude)rust' ':(exclude).github/workflows/rust.yml' ':(exclude).github/workflows/rust-image.yml')"
+changed="$(git diff --name-only "${baseline}" -- . ':(exclude)rust' ':(exclude).github/workflows/rust.yml' ':(exclude).github/workflows/rust-image.yml' ':(exclude).github/workflows/ci.yml' ':(exclude)uv.lock')"
 if [[ -n "${changed}" ]]; then
   echo "error: files outside rust/ differ from the Python baseline ${baseline}:"
   sed 's/^/  /' <<< "${changed}"

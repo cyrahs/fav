@@ -85,6 +85,14 @@ jobs:
         POSTGRES_DSN: postgresql://tests@127.0.0.1:5432/fav-tests
         API_TOKEN: token-for-tests
 
+  # The Rust build's own checks (rust.yml: Python tree unchanged, goldens, schema,
+  # fmt, clippy, tests, parity, page smoke). Production runs the Rust build since
+  # 2026-11-11; the Python tree above stays as its reference.
+  rust:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/rust.yml
+
   # Validates the Dockerfile on every run without pushing anything, so it can run
   # in parallel with lint/test instead of waiting behind them. Its layers land in
   # the GHA cache, which `publish` reuses.
@@ -104,17 +112,18 @@ jobs:
       uses: docker/build-push-action@v7
       with:
         context: .
+        file: rust/Dockerfile
         platforms: linux/amd64
         push: false
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=rust-image
+        cache-to: type=gha,mode=max,scope=rust-image
 
   # The only job that writes anywhere. Never runs on pull requests, and only
-  # publishes after lint, test, and build have all passed.
+  # publishes after lint, test, rust, and build have all passed.
   publish:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    needs: [lint, test, build]
+    needs: [lint, test, rust, build]
     permissions:
       contents: read
       packages: write
@@ -145,12 +154,15 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
         labels: |
           org.opencontainers.image.title=fav
-          org.opencontainers.image.description=Automation toolkit for collecting content from multiple sources
+          org.opencontainers.image.description=Automation toolkit for collecting content from multiple sources (Rust build)
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v7
       with:
         context: .
+        # The Rust build is what production runs; the root Dockerfile is the Python
+        # reference and is no longer published.
+        file: rust/Dockerfile
         # The cluster's nodes are all amd64. An arm64 image would be built under
         # qemu on this amd64 runner, which took ~10 of the job's 10.5 minutes.
         platforms: linux/amd64
@@ -160,8 +172,8 @@ jobs:
         build-args: |
           FAV_GIT_COMMIT=${{ github.sha }}
           FAV_BUILD_TIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=rust-image
+        cache-to: type=gha,mode=max,scope=rust-image
 
     - name: Log build trigger info
       if: inputs.trigger-reason
@@ -175,7 +187,7 @@ jobs:
     name: CI passed
     if: always()
     runs-on: ubuntu-latest
-    needs: [lint, test, build]
+    needs: [lint, test, rust, build]
 
     steps:
     - name: Fail if any job did not succeed

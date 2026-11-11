@@ -27,6 +27,9 @@ experiment log below in the same PR. Read this file, `CONVENTIONS.md`, `PARITY.m
   Lifted by Max on 2026-11-10 23:34Z for the direct production deployment: `.github/workflows/rust-image.yml`
   publishes `ghcr.io/cyrahs/fav:rust-<short sha>` on every push to `rust` (never `latest`), and nas-gitops pins it
   by tag and digest. The one hard rule from then on is that no data is lost or damaged.
+  Max, 2026-11-11 03:32Z ("没问题直接换吧"): `rust` merges into `main`. `ci.yml` then runs `rust.yml` as a
+  required part of "CI passed" and publishes `rust/Dockerfile` as `latest` from main; nas-gitops follows `latest`
+  again. The root `Dockerfile` (Python) is no longer published; the Python tree stays as the reference.
 - Never point the Rust build at the production database, the production `collection/` volume, or a real account.
 - Never run live: Bilibili (clears watch-later), WeChat (inbox ack deletes the host copy, `/link/open` makes the
   account open links), RedNote (irreplaceable account, risk control), X, Pixiv, TikHub (billed per call).
@@ -34,9 +37,9 @@ experiment log below in the same PR. Read this file, `CONVENTIONS.md`, `PARITY.m
 - Azur Lane: replay only (origin reachable only from nas-us-1).
 - The Python tree on `rust` stays untouched. It is the reference and the golden generator. Do not merge `main` into `rust`.
 - PRs target `rust`, never `main`.
-- Never run `ci.yml` by hand (`workflow_dispatch`) and never push a tag from this branch: `ci.yml` cannot be
-  changed here, and either would build and push an image from `rust` (not tagged `latest`, so Flux would not
-  pick it up, but it is still a publish).
+- Never run `ci.yml` by hand (`workflow_dispatch`) and never push a tag from this branch: either would build and
+  push an image from `rust` (not tagged `latest`, so Flux would not pick it up, but it is still a publish).
+  `ci.yml` changed once, in the switch to main above.
 
 ## Goals and non-goals
 
@@ -259,3 +262,4 @@ the independent review found; review findings are summarised with a link to the 
 | Image workflow | (this PR) | - | - | Max's direct deployment (2026-11-10 23:34Z): `.github/workflows/rust-image.yml` publishes `rust-<short sha>` only; `check_tree.sh` exempts it as it does `rust.yml` |
 | RedNote goto fix | (this PR) | - | - | First production run (2026-11-11): RedNote failed with chromiumoxide's "Request timed out." because chromiumoxide answers its own `Page.navigate` only after `load` in every frame (and queues the next navigation behind it), where Playwright's `goto` waits for `DOMContentLoaded`. `Page.goto` now sends `Page.navigate` on the page target's own DevTools socket and waits for the `DOMContentLoaded` lifecycle event of the new document's loader (same-document: commit), so a document still loading when `goto` starts cannot end the wait with its own (review finding); pages whose proxy needs credentials keep chromiumoxide's path, because Chromium cancels the auth challenge of a navigation another session started. Test `goto_waits_for_dom_content_loaded_not_load` fails before the fix |
 | RedNote CORS preflight | (this PR) | - | - | Second production run (2026-11-11, rust-b69491e): RedNote failed with "RedNote returned a body that is not an object". The likes list comes from another origin with a signature header, so Chromium sends a CORS preflight, which the Network domain reports as a request of its own (initiator `preflight`, type `Other`, empty body) and Playwright does not report at all; the capture took the preflight for the page. `NetworkEvent::Request` now names such a request `preflight`; the RedNote capture and the Nikke request recorder skip it. A likes-list body that cannot be read is logged with its reason (never its contents), and a lone surrogate escape becomes U+FFFD instead of losing the page. `walks_a_local_likes_list_like_the_site` now fetches cross-origin with a signature header and fails without the fix |
+| Switch to main | (this PR) | - | - | Max approved replacing Python on 2026-11-11. `ci.yml` calls `rust.yml` (new `workflow_call` trigger, concurrency group prefixed so caller and callee do not wait on each other) and needs it for both `CI passed` and `publish`; `build` and `publish` use `rust/Dockerfile` with the `rust-image` cache scope. `check_tree.sh` exempts `ci.yml`. Then `rust` into `main`, and nas-gitops back on `latest` with the `$imagepolicy` marker |
