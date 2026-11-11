@@ -531,8 +531,21 @@ async fn capture_traffic(
     logged_shape: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let mut matcher = LikePageMatcher::default();
+    // CORS preflights reach the Network domain as requests of their own (resource type
+    // `preflight`, no body); Playwright never reports them as page responses. Each is
+    // remembered until it finishes or fails.
+    let mut preflights: HashSet<String> = HashSet::new();
     while let Some(event) = events.next().await {
         match event {
+            NetworkEvent::Request { id, resource_type, url } if resource_type == "preflight" => {
+                log().debug(format!("RedNote CORS preflight: {}", url.chars().take(160).collect::<String>()));
+                if preflights.len() > LikePageMatcher::FINISHED_LIMIT {
+                    preflights.clear();
+                }
+                preflights.insert(id);
+            }
+            NetworkEvent::Response { id, .. } if preflights.contains(&id) => {}
+            NetworkEvent::Finished { id } | NetworkEvent::Failed { id, .. } if preflights.remove(&id) => {}
             NetworkEvent::Request { id, resource_type, url } => {
                 inflight
                     .lock()
@@ -606,15 +619,68 @@ impl LikePageMatcher {
     }
 }
 
-/// `await response.json()`, `None` on any failure.
+/// `await response.json()`, `None` on any failure (logged, without the body).
 async fn read_json_body(page: &Page, id: &str) -> Option<pyjson::Value> {
-    let bytes = page.response_body(id).await.ok()?;
-    let text = String::from_utf8(bytes).ok()?;
+    let read = json_body(page.response_body(id).await);
+    match read {
+        Ok(value) => Some(value),
+        Err(reason) => {
+            log().warning(format!("RedNote could not read a likes-list body: {reason}"));
+            None
+        }
+    }
+}
+
+/// The JSON of a response body read by [`Page::response_body`], or why there is none.
+fn json_body(bytes: Result<Vec<u8>, DriverError>) -> Result<pyjson::Value, String> {
+    let bytes = bytes.map_err(|error| format!("Network.getResponseBody failed: {error}"))?;
+    let length = bytes.len();
+    let text = String::from_utf8(bytes).map_err(|error| format!("{length} bytes, not UTF-8: {error}"))?;
     // `body.decode()` then `json.loads`: strict UTF-8, and a BOM is refused as Python refuses it.
     if text.starts_with('\u{feff}') {
-        return None;
+        return Err(format!("{length} bytes starting with a BOM"));
     }
-    pyjson::loads(&text).ok()
+    match pyjson::loads(&text) {
+        Ok(value) => Ok(value),
+        // Python keeps a lone surrogate in a `str` (a title cut inside an emoji); a Rust
+        // string cannot, so it becomes U+FFFD instead of losing the whole page.
+        Err(pyjson::LoadError::LoneSurrogate(_)) => pyjson::loads(&replace_lone_surrogates(&text))
+            .map_err(|error| format!("{length} bytes, not JSON: {}", error.python_message(&text))),
+        Err(error) => Err(format!("{length} bytes, not JSON: {}", error.python_message(&text))),
+    }
+}
+
+/// `text` with every `\uXXXX` escape of a surrogate that is not half of a pair replaced
+/// by `\ufffd`; everything else, other escapes included, is kept as it is.
+fn replace_lone_surrogates(text: &str) -> String {
+    fn escape_at(text: &str, at: usize) -> Option<u32> {
+        let hex = text.get(at..at + 6)?.strip_prefix("\\u")?;
+        u32::from_str_radix(hex, 16).ok()
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while let Some(offset) = text[at..].find('\\') {
+        let start = at + offset;
+        out.push_str(&text[at..start]);
+        match escape_at(text, start) {
+            Some(0xD800..0xDC00) if matches!(escape_at(text, start + 6), Some(0xDC00..0xE000)) => {
+                out.push_str(&text[start..start + 12]);
+                at = start + 12;
+            }
+            Some(0xD800..0xE000) => {
+                out.push_str("\\ufffd");
+                at = start + 6;
+            }
+            _ => {
+                // Any other escape: the backslash and the character it escapes.
+                let next = text[start + 1..].chars().next().map_or(0, char::len_utf8);
+                out.push_str(&text[start..start + 1 + next]);
+                at = start + 1 + next;
+            }
+        }
+    }
+    out.push_str(&text[at..]);
+    out
 }
 
 fn deliver(
