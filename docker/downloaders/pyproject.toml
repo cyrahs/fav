@@ -14,7 +14,7 @@ dependencies = [
     # The [default] extra is required, not cosmetic: plain `yt-dlp` declares no
     # dependencies at all, leaving out pycryptodomex (encrypted HLS), websockets,
     # certifi, requests/urllib3 and yt-dlp-ejs. Hanime1 downloads HLS.
-    "yt-dlp[default]>=2026.7.4",
+    "yt-dlp[default]>=2026.10.26",
 ]
 
 [tool.uv]
