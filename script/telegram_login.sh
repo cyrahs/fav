@@ -45,7 +45,7 @@ else
     exit 1
 fi
 
-TG_API_ID="${TG_API_ID:-}" TG_SESSION_PATH="${TG_SESSION_PATH:-}" TG_SESSION_OVERWRITE="${TG_SESSION_OVERWRITE:-}" "$UV_BIN" run python -c '
+TG_API_ID="${TG_API_ID:-}" TG_SESSION_PATH="${TG_SESSION_PATH:-}" TG_SESSION_OVERWRITE="${TG_SESSION_OVERWRITE:-}" "$UV_BIN" run --no-project --with 'telethon>=1.43.2' python -c '
 import asyncio
 import getpass
 import os

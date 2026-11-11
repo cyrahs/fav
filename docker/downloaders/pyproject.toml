@@ -1,0 +1,21 @@
+# The Python tools the image installs next to the `fav` binary, and nothing else: the
+# Dockerfile exports this lockfile as constraints and installs yt-dlp and gallery-dl
+# (which fav runs as subprocesses) and Playwright (only to fetch the Chromium build
+# `fav_browser::chromium` launches). Dependabot bumps the two downloaders here daily
+# (.github/dependabot.yml); crates/fav/src/image_tests.rs keeps the pins, the Dockerfile
+# and the Chromium revision in step.
+[project]
+name = "fav-image-tools"
+version = "0"
+requires-python = ">=3.12"
+dependencies = [
+    "gallery-dl>=1.32.9",
+    "playwright>=1.59.0",
+    # The [default] extra is required, not cosmetic: plain `yt-dlp` declares no
+    # dependencies at all, leaving out pycryptodomex (encrypted HLS), websockets,
+    # certifi, requests/urllib3 and yt-dlp-ejs. Hanime1 downloads HLS.
+    "yt-dlp[default]>=2026.7.4",
+]
+
+[tool.uv]
+package = false

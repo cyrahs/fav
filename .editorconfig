@@ -23,10 +23,6 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
-# Make the function/variable/method names consistent
-# [*.py]
-# max_line_length = 140
-# set in ruff.toml
 
 # Specific settings for JSON files
 [*.json]
@@ -39,7 +35,10 @@ indent_size = 2
 indent_style = space
 indent_size = 2
 
-# Specific settings for TOML files
+# Specific settings for TOML files (Cargo manifests use 4)
 [*.toml]
 indent_style = space
 indent_size = 2
+
+[Cargo.toml]
+indent_size = 4

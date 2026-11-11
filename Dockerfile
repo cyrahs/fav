@@ -1,8 +1,20 @@
+# The fav image. Build from the repository root:
+#
+#   docker build .
+#
+# `.github/workflows/ci.yml` publishes it from main as `latest` (and semver tags from
+# `v*` tags) after the checks pass; Flux deploys `latest` (charys117/nas-gitops apps/fav).
+#
+# Besides the binary, the image carries what fav shells out to: yt-dlp and gallery-dl at
+# the versions `docker/downloaders/uv.lock` pins (Dependabot bumps them there), ffmpeg,
+# the Playwright-managed Chromium build at Playwright's registry path, TigerVNC's Xvnc
+# for the login window, and tini as PID 1.
+
 FROM node:22-slim AS web-builder
 
 WORKDIR /web
 
-# Install front-end deps first so a source-only change reuses the cached layer.
+# The React front end.
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
@@ -10,22 +22,60 @@ COPY web/ ./
 RUN npm run build
 
 
-FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS builder
+FROM rust:1.97-slim-trixie AS chef
 
-WORKDIR /app
+WORKDIR /src
 
-# Tools needed during build
+# The slim image has gcc but not make, which the jemalloc build (the binary's global
+# allocator, chosen by the WP18 memory benchmark) needs. cargo-chef splits the build so
+# the compiled dependencies are a layer of their own (cached until Cargo.lock or a
+# manifest changes); this layer only changes with the base image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends make \
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-chef --locked \
+    && rm -rf /usr/local/cargo/registry
 
-# Copy project metadata first for better layer caching of deps
-COPY pyproject.toml uv.lock ./
 
-# Install Python deps using uv into a local .venv and compile to bytecode
-RUN uv sync --no-dev --frozen --compile-bytecode
+FROM chef AS planner
+
+COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+RUN cargo chef prepare --recipe-path recipe.json
+
+
+FROM chef AS rust-builder
+
+# Dependencies first: this layer is reused while recipe.json (the lockfile and the
+# crates' manifests, not their sources) stays the same.
+COPY rust-toolchain.toml ./
+COPY --from=planner /src/recipe.json recipe.json
+RUN cargo chef cook --release --locked -p fav --recipe-path recipe.json
+
+# Then fav's own crates. The target directory is removed in the same step so the
+# layer (and the build cache CI exports) holds only the binary.
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+RUN cargo build --release --locked -p fav \
+    && install -D -m 0755 target/release/fav /out/fav \
+    && rm -rf target
+
+
+FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim AS downloaders
+
+WORKDIR /lock
+
+# yt-dlp and gallery-dl at the versions `docker/downloaders/uv.lock` pins, exported as
+# constraints; the requirement strings (yt-dlp with its `[default]` extra) are the ones
+# its `pyproject.toml` declares. Playwright is installed alongside only to fetch its
+# Chromium build below, then dropped.
+COPY docker/downloaders/pyproject.toml docker/downloaders/uv.lock ./
+RUN uv export --frozen --no-dev --no-emit-project --no-hashes --format requirements-txt -o constraints.txt \
+    && uv venv /opt/downloaders \
+    && uv pip install --python /opt/downloaders/bin/python --constraint constraints.txt \
+        'yt-dlp[default]' gallery-dl \
+    && uv venv /opt/playwright \
+    && uv pip install --python /opt/playwright/bin/python --constraint constraints.txt playwright
 
 
 FROM python:3.12-slim-trixie AS runner
@@ -34,17 +84,14 @@ ARG TARGETARCH
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PATH="/app/.venv/bin:${PATH}"
+    PATH="/opt/downloaders/bin:${PATH}"
 
 WORKDIR /app
 
-# ffmpeg merges the separate audio and video streams Bilibili serves. yt-dlp and
-# gallery-dl are not installed here: both are uv dependencies and arrive with the
-# virtualenv below, which puts their console scripts on PATH. Xvnc (TigerVNC) is
-# the virtual display a 登录态 login runs a headed Chromium on, started only for
-# the length of one login (src/api/browser_login.py). tini runs as PID 1 to reap
-# orphans: Chromium processes (browser, crashpad) can outlive Playwright's driver and get
-# reparented to PID 1, which the Python supervisor never waits on.
+# ffmpeg merges the separate audio and video streams Bilibili serves (neither Python
+# package bundles it). Xvnc (TigerVNC) is the virtual display a 登录态 login runs a
+# headed Chromium on, started only for the length of one login. tini runs as PID 1 to
+# reap Chromium processes that outlive the driver.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -53,39 +100,44 @@ RUN apt-get update \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Bring in the virtualenv from the builder image
-COPY --from=builder /app/.venv /app/.venv
+COPY --from=downloaders /opt/downloaders /opt/downloaders
 
-# Install the Playwright-managed Chromium build and its distro libraries. The
-# launch smoke runs only on native amd64 builds; an arm64 build (CI publishes
-# amd64 only) would run under qemu, where Chromium's GPU process can crash
-# before runtime.
-RUN python -m playwright install --with-deps chromium \
-    && rm -rf /var/lib/apt/lists/* \
+# The Playwright-managed Chromium build (the revision `fav_browser::chromium` looks for
+# under PLAYWRIGHT_BROWSERS_PATH) and its distro libraries, installed by Playwright's own
+# installer from a throwaway environment that is removed again. The launch smoke runs
+# only on native amd64 builds (Chromium's GPU process can crash
+# under qemu).
+COPY --from=downloaders /opt/playwright /opt/playwright
+# The revision checked is the one `fav_browser::chromium` launches (CHROMIUM_REVISION; a test
+# in crates/fav keeps it, the line below and uv.lock's Playwright in step).
+RUN /opt/playwright/bin/python -m playwright install --with-deps chromium \
+    && rm -rf /opt/playwright /var/lib/apt/lists/* \
+    && chrome="/ms-playwright/chromium-1228/$(if [ "$TARGETARCH" = "arm64" ]; then echo chrome-linux; else echo chrome-linux64; fi)/chrome" \
+    && test -x "$chrome" \
     && if [ "$TARGETARCH" = "amd64" ]; then \
-        python -c "from playwright.sync_api import sync_playwright; pw = sync_playwright().start(); browser = pw.chromium.launch(headless=True); page = browser.new_page(); page.set_content('<main>ok</main>'); assert page.text_content('main') == 'ok'; browser.close(); pw.stop()"; \
-    else \
-        python -c "from playwright.sync_api import sync_playwright; sync_playwright().start().stop()"; \
+        "$chrome" --headless --no-sandbox --disable-gpu --dump-dom 'data:text/html,<main>ok</main>' | grep -q '<main>ok</main>'; \
     fi
 
-# Copy the application source
-COPY src/ src/
-COPY script/ script/
-COPY run.py ./
+COPY --from=rust-builder /out/fav /usr/local/bin/fav
 
 # The API serves this directory when it exists; without it the image is API-only.
 COPY --from=web-builder /web/dist web/dist
 
-# Compile application code to bytecode
-RUN python -m compileall src/ script/ run.py
+# Everything the binary shells out to is on PATH, the Chromium it launches is where it
+# looks, and the NIKKE layer-metadata tool is the binary's own `nikke-layers` command.
+RUN fav --version \
+    && fav nikke-layers --help >/dev/null \
+    && yt-dlp --version \
+    && gallery-dl --version \
+    && ffmpeg -hide_banner -version >/dev/null \
+    && command -v Xvnc >/dev/null \
+    && command -v tini >/dev/null
 
-# Reported by the MCP get_runtime tool, so a deploy can be checked without the
-# cluster. Last, because they change on every build and would bust the cache
-# of any layer after them.
+# Reported by the MCP get_runtime tool. Last, because they change on every build.
 ARG FAV_GIT_COMMIT=""
 ARG FAV_BUILD_TIME=""
 ENV FAV_GIT_COMMIT=${FAV_GIT_COMMIT} \
     FAV_BUILD_TIME=${FAV_BUILD_TIME}
 
 ENTRYPOINT ["tini", "--"]
-CMD ["python", "-m", "src.service"]
+CMD ["fav", "serve"]

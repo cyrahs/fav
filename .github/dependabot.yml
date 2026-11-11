@@ -13,10 +13,10 @@ updates:
   # so there is no signature to keep up with.
   #
   # Merging is automated in .github/workflows/dependabot-auto-merge.yml, gated on the
-  # `test` check that main's branch protection requires. Widening this allow list does
+  # `CI passed` check that main's branch protection requires. Widening this allow list does
   # NOT widen what merges unattended -- that workflow checks the dependency name too.
   - package-ecosystem: "uv"
-    directory: "/"
+    directory: "/docker/downloaders"
     schedule:
       interval: "daily"
     allow:

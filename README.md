@@ -2,6 +2,21 @@
 
 Automation toolkit for collecting content from multiple sources and deduplicating with PostgreSQL.
 
+fav is a single Rust binary (a Cargo workspace at the repository root, crates under `crates/`) plus a
+React front end in `web/`. It was ported from Python in November 2026; the last Python commit is tag
+`python-final`, and `docs/rewrite/` has the history. `AGENTS.md` describes the layout and conventions.
+
+```bash
+cargo build --release -p fav        # target/release/fav
+fav serve                           # API, web UI and worker in one process (the default command)
+fav api | fav worker                # either half alone
+fav trigger <job_key|all>           # run one job now and exit
+```
+
+Tests: `FAV_TEST_DATABASE_URL=postgresql://... cargo test --workspace` (database tests create their own
+temporary databases). The image is built from `Dockerfile` by CI and published as
+`ghcr.io/cyrahs/fav:latest` from `main`.
+
 ## Configuration
 
 There is no `config.toml`. Bootstrap values come from the environment, and everything else lives in
@@ -82,7 +97,7 @@ always the logged-in user's. The session (`SESSDATA`, `bili_jct`, `buvid3`, `Ded
 `site_sessions` under `bilibili-<name>`, and each run first asks `/x/web-interface/nav` whether it is
 still a login: a session Bilibili rejects marks the login 已失效 and fails the run with a notification to
 sign in again, while Bilibili not answering fails the run without touching the login. Before that
-check the run keeps the session alive the way a browser would (`src/web/bilibili_session.py`): it
+check the run keeps the session alive the way a browser would (`crates/fav-sources/src/bilibili/session.rs`): it
 fetches a new `bili_ticket` once the stored one has less than two days left, and when
 `/cookie/info` asks for it, trades the refresh token (`ac_time_value`, read from the login window's
 localStorage when the login is captured and kept in `site_sessions.extra`) for a new `SESSDATA` and
@@ -99,18 +114,18 @@ downloads once, into whichever directory is reached first.
 
 `web.twitter` archives the images and videos from your own liked tweets. X sells no affordable read
 access to a likes timeline, so the crawl shells out to [gallery-dl](https://github.com/mikf/gallery-dl)
-(a Python dependency, on `PATH` inside the image) with the browser session the account is signed in
+(installed in the image at the version `docker/downloaders/uv.lock` pins) with the browser session the account is signed in
 with. gallery-dl owns the parts that break when X changes — GraphQL endpoints, the transaction-id
 header, 429 back-off — so a break is usually fixed by a newer gallery-dl rather than by editing this
 repository.
 
 That upgrade is unattended: `.github/dependabot.yml` watches gallery-dl daily, and
 `.github/workflows/dependabot-auto-merge.yml` enables auto-merge on the pull request so it lands once
-the `test` check that main's branch protection requires has passed, then dispatches an image rebuild.
-Nothing bypasses a check — a failing `test` just leaves the pull request open. To upgrade by hand:
+the `CI passed` check that main's branch protection requires has passed, then dispatches an image rebuild.
+Nothing bypasses a check — a failing check just leaves the pull request open. To upgrade by hand:
 
 ```bash
-uv lock --upgrade-package gallery-dl
+cd docker/downloaders && uv lock --upgrade-package gallery-dl
 ```
 
 ```jsonc
@@ -369,7 +384,7 @@ a worker restart.
 
 ## Web UI
 
-`web/` is a React + TypeScript + Vite front end served by FastAPI from `web/dist` when that directory
+`web/` is a React + TypeScript + Vite front end served by fav from `web/dist` when that directory
 exists (API-only otherwise). Pages: overview, archive records, jobs, site logins (登录态), settings.
 Cron fields show a live natural-language description of the expression.
 
@@ -402,7 +417,7 @@ or on the first 401/403 from the API.
 
 The 登录态 page lists the sources that need a signed-in session (pixiv, X, each Bilibili account, NGA and RedNote) with the state of the
 stored one: account, when it was captured, when its cookie expires, and whether the last crawl found it
-valid. 登录 starts a browser just for that login (`src/api/browser_login.py`): a TigerVNC
+valid. 登录 starts a browser just for that login (`crates/fav-browser`, sites in `crates/fav-api/src/site_logins.rs`): a TigerVNC
 `Xvnc` virtual display on loopback with a headed Chromium on it, opened at the site's login page and
 shown in the page through noVNC. That Chromium is a plain process, not one Playwright drives: nothing
 attaches to its pages or runs scripts in them, so the site sees an ordinary browser (X refuses
@@ -422,7 +437,7 @@ unfinished closes itself after 15 minutes. Nothing runs between logins; a login 
 so successive logins come from the same browser. A login is refused while the RedNote crawl has its
 own browser open, so the two never share the pod's memory limit.
 
-RedNote is the exception to all of this. Its crawl is itself a Playwright browser, so the window is
+RedNote is the exception to all of this. Its crawl itself drives a Chromium over CDP, so the window is
 one too, and it opens the
 crawl's own profile (`web.rednote.profile_path`) under the crawl's profile lock, presented the way the
 crawl presents it, and the login is confirmed by reading the window's own page rather than by
@@ -447,11 +462,10 @@ configured on fav's side, so the value is not a secret. A malformed value stops 
 
 ## API Backend
 
-This repository exposes an internal FastAPI backend for control, archived catalog reads, and Hanime1 scan-target creation.
+This repository exposes an internal HTTP API (axum, `crates/fav-api`) for control, archived catalog reads, and Hanime1 scan-target creation.
 
-- `run.py` remains the worker and scheduler process.
-- `python -m src.api` starts the FastAPI server with OpenAPI support.
-- The default container entrypoint still starts both worker and API through `python -m src.service`.
+- `fav worker` is the worker and scheduler; `fav api` serves the API with its OpenAPI document.
+- The image's default command, `fav serve`, runs both in one process.
 - The API is intended for internal K8s access and is not designed as a public internet-facing surface.
 
 ### V2 endpoints
@@ -505,7 +519,7 @@ All `/api/v2/*` endpoints except `/api/v2/credentials/{site}` (see
 
 The API contract is OpenAPI-first. Use `/openapi.json` or `/docs` for the exact request and response schema.
 
-Nikke, BD2, and Azur Lane asset URLs in API responses point to `/static/{source}/{directory_name}/assets/...` and are intended to be served by the deployment's static file service, not by FastAPI.
+Nikke, BD2, and Azur Lane asset URLs in API responses point to `/static/{source}/{directory_name}/assets/...` and are intended to be served by the deployment's static file service, not by fav.
 For Azur Lane specifically, map `/static/azurlane/` to the configured `web.azurlane.path` directory so returned URLs resolve to archived files under each character directory.
 
 Azur Lane support is backend-only in this repository. The crawler archives Live2D, Spine and painting resources, writes deterministic manifests, and the API returns metadata plus static asset URLs. Browser rendering, model display, and any Azur Lane client UI belong in a separate application that consumes the API.
@@ -517,7 +531,7 @@ A painting webp is a tight-packed sprite sheet, not finished artwork, so the cra
 `/mcp` serves an MCP server (streamable HTTP, stateless, JSON responses) for developing and operating
 fav without a shell in the pod. It takes no token of its own, like the cluster's other MCP servers: the
 LiteLLM MCP gateway reaches it in-cluster, and the public hostname sits behind Cloudflare Access.
-Tools (`src/api/mcp_server.py`, queries in `src/api/ops.py`):
+Tools (`crates/fav-api/src/mcp/tools.rs`, queries in `crates/fav-api/src/mcp/ops.rs`):
 
 - Read: `get_runtime` (deployed git commit, build time, process start times), `list_jobs`, `list_runs`,
   `get_run`, `read_logs` (the log files under `log/`, which survive pod restarts), `get_settings`,
@@ -531,20 +545,9 @@ error text. `get_runtime` reads `FAV_GIT_COMMIT` and `FAV_BUILD_TIME`, which CI 
 
 ## BD2 L2D Viewer comparison
 
-BD2 is collected from GameKee. To compare the archived GameKee Live2D resource stems with the resources listed by
-[BD2-L2D-Viewer](https://jelosus2.github.io/BD2-L2D-Viewer/), run:
-
-```bash
-uv run python script/bd2_compare_l2d_viewer.py
-```
-
-To compare against the current GameKee API without downloading assets or touching PostgreSQL:
-
-```bash
-uv run python script/bd2_compare_l2d_viewer.py --source gamekee-live
-```
-
-Use `--format json` for machine-readable output.
+BD2 is collected from GameKee. The Python app had a script that compared the archived GameKee Live2D
+resource stems with the resources listed by [BD2-L2D-Viewer](https://jelosus2.github.io/BD2-L2D-Viewer/)
+(`script/bd2_compare_l2d_viewer.py`, at tag `python-final`); it was not ported.
 
 During BD2 crawls, GameKee remains the primary source. BD2-L2D-Viewer is used only as a supplemental Live2D source when a
 viewer resource can be anchored to an existing GameKee model for the same character/costume entry. Censored viewer resources are
@@ -599,7 +602,7 @@ model's URL, so a permanent source-side gap is announced weekly rather than ever
 ### Run
 
 ```bash
-uv run python -m src.api
+fav api
 ```
 
 ## Telegram Media Types
@@ -627,7 +630,7 @@ created lazily when their first media file is downloaded.
 ## Post Links
 
 WeChat (a shared link card) and Telegram (a message's text or link preview) save links to the same kinds of post, through
-one module, `src/web/post_links.py`: 公众号 articles, Baidu Tieba posts, NGA threads, and Zhihu answers
+one module, `crates/fav-sources/src/post_links.rs`: 公众号 articles, Baidu Tieba posts, NGA threads, and Zhihu answers
 (`zhihu.com/question/<q>/answer/<id>` or `zhihu.com/answer/<id>`), column articles (`zhuanlan.zhihu.com/p/<id>`) and pins
 (`zhihu.com/pin/<id>`). It recognises the link, reads the post's pictures and videos, and downloads them; each source
 decides where the files go and how the save is recorded.
@@ -674,7 +677,7 @@ upgrade backfills the latest `scan_limit` messages of each channel for them, as 
 
 ## Telegram Downloader Safety
 
-Telegram accounts keep a long-running Telethon connection. New single-media messages and albums are persisted to
+Telegram accounts keep a long-running MTProto connection (grammers, reading Telethon-format session files). New single-media messages and albums are persisted to
 PostgreSQL immediately, then processed by one serial download worker per account. Different accounts run in parallel.
 Completed queue rows remain in PostgreSQL for durable deduplication, and interrupted jobs are recovered when the
 account session owner restarts.
@@ -758,12 +761,7 @@ Deep scan (disabled by default) guarantees a minimum intake rate of `quota` new 
 
 ### Container startup
 
-Docker image default command starts both:
-
-- scheduler worker: `run.py`
-- API server: `python -m src.api`
-
-Deploying the image without overriding the command will start both services.
+The image's default command, `fav serve`, runs the scheduler worker and the API server in one process.
 
 ## Hanime1 userscript
 

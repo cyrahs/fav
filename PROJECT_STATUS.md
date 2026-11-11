@@ -1,80 +1,26 @@
 # Project Status
 
-Last updated: 2026-05-19
-Maintainer: step-orchestrator coordinator
+Last updated: 2026-11-11
 
-## Current Objective
+## State
 
-- Correct the Azur Lane work so `fav` owns only resource crawling, local archiving, manifests, scheduler integration, and API backend support.
-- Corrected `plan.md` steps `1-11` are complete.
+- Production (`media/fav` in charys117/nas-gitops) runs the Rust build: the `fav` binary from this
+  workspace, image `ghcr.io/cyrahs/fav:latest`, which CI publishes from `main` and Flux deploys.
+- The Python app was replaced on 2026-11-11 and removed from this branch. Its last commit is tag
+  `python-final` (67609f6), and its last image is `ghcr.io/cyrahs/fav:python-final`; it runs on the same
+  database schema, so it is the rollback.
+- The rewrite's plan, parity record, final report and API checks are in `docs/rewrite/`. Intentional
+  behaviour differences from Python are in `docs/DIVERGENCES.md`.
 
-## Active Plan
+## Known open items
 
-- Plan file: `plan.md`
-- Requested steps: `1-11`
-- Current step: `11. Final Verification And Commits`
-- Current status: `Done`
+- RedNote: an intermittent 30 s stall loading the home document through the home proxy (seen on
+  2026-11-11); not investigated.
+- Telegram: grammers logs "cannot getChannelDifference as we're missing its hash" warnings; unchecked
+  noise.
 
-## Harness References
+## Where to start
 
-- Repo instructions:
-  - `AGENTS.md`
-- Plan:
-  - `plan.md`
-- Architecture:
-  - `README.md`
-- Testing:
-  - `pyproject.toml`
-  - `tests/`
-- Decisions and records:
-  - `PROJECT_STATUS.md`
-
-## Constraints and Decisions
-
-- Code, comments, docstrings, and documentation must be written in English.
-- Use the repository `.venv` and run Python tooling through `uv`.
-- Do not commit secrets, `config.toml`, or `plan.md`.
-- `plan.md` is ignored through `.git/info/exclude`; it remains the local step tracker and must not be staged.
-- Remove the mistaken Azur Lane client-side work from this repository.
-- Implement Azur Lane in the same backend shape as NIKKE and BD2: crawler/storage under `src/web`, resource/source helpers under `src/tool`, manifest reader under `src/api`, scheduler wiring, and protected API endpoints.
-- Static asset URLs in API responses should use `/static/azurlane/...`; FastAPI should not render Live2D or Spine.
-- Do not add Azur Lane Live2D view override endpoints unless explicitly requested later.
-
-## Relevant Project State
-
-- Key existing backend references: `src/web/nikke.py`, `src/web/bd2.py`, `src/api/nikke.py`, `src/api/bd2.py`, `src/service/jobs.py`, `src/core/config.py`, `src/api/routes.py`, `src/api/schemas.py`, `src/api/service.py`.
-- Existing Azur Lane helper: `src/tool/azurlane_l2d_sources.py`.
-- Existing Azur Lane helper tests: `tests/test_azurlane_l2d_sources.py`.
-- Recent approved commits before correction: steps 1-13 of the previous out-of-scope plan; those commits introduced both backend helper code and client-side artifacts.
-- Recent approved correction steps: `step 1: Remove Frontend Viewer Artifacts` removed the old Azur Lane client artifact directory and client-side claims from committed status docs; `step 2: Re-scope Source Helpers` removed renderer/viewer terminology from Azur Lane source helpers while preserving source/catalog/resource/drift behavior; `step 3: Add Azur Lane Config And Scheduler Wiring` added config defaults, scheduler job wiring, API job target support, and a safe no-op crawler placeholder; `step 4: Implement Complete Resource Enumeration` added backend helpers to enumerate Live2D and Spine resources with deterministic local paths; `step 5: Implement Azur Lane Crawler And Storage` added PostgreSQL-backed crawler/storage, downloads, blob reuse, failed asset state, and non-destructive source-failure gating; `step 6: Generate Backend Manifests` added source artifacts and deterministic per-character manifests; `step 7: Add Azur Lane API Library` added read-only manifest library, summary cache, static URLs, and path safety checks; `step 8: Add Azur Lane API Routes And Schemas` added internal API schemas, service integration, and list/sidebar/detail routes; `step 9: Update Documentation` documented Azur Lane backend/API/config/static-serving scope; `step 10: Remove Viewer-Oriented Tests And Add Backend Tests` made live Azur Lane source smoke tests opt-in and confirmed backend-only Python coverage.
-- Pending work: none for corrected steps `1-11`.
-- Known risks or blockers: repo-wide Ruff had pre-existing unrelated lint failures in earlier runs; use touched-file Ruff for step verification unless the full repo is intentionally cleaned.
-
-## Verification
-
-- Required commands by area:
-  - Source helper: `uv run pytest tests/test_azurlane_l2d_sources.py`
-  - Python lint for touched files: `uv run ruff check <paths>`
-  - API/crawler focused tests as added by later steps
-  - Whitespace check: `git diff --check`
-- Last known results:
-  - Step 1 approved: stale frontend-artifact grep had no active matches, `git status --short --ignored=matching plan.md` showed `!! plan.md`, and `git diff --check` passed.
-  - Step 2 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed with 22 tests, touched-file Ruff passed, viewer/renderer terminology grep had no matches in the helper/test files, and `git diff --check` passed.
-  - Step 3 approved: focused Azur Lane/config/API/scheduler tests passed with 74 tests, touched-file Ruff passed, new `src/web/azurlane.py` and `tests/test_azurlane.py` were confirmed addable/not ignored, and `git diff --check` passed.
-  - Step 4 approved: `uv run pytest tests/test_azurlane_l2d_sources.py` passed with 26 tests, touched-file Ruff passed, and `git diff --check` passed.
-  - Step 5 approved: `PYTHONDONTWRITEBYTECODE=1 uv run pytest -p no:cacheprovider tests/test_azurlane.py tests/test_azurlane_l2d_sources.py` passed with 34 tests, touched-file Ruff passed, and `git diff --check` passed.
-  - Step 6 approved: `PYTHONDONTWRITEBYTECODE=1 uv run pytest -p no:cacheprovider tests/test_azurlane.py tests/test_azurlane_l2d_sources.py` passed with 36 tests, touched-file Ruff passed, and `git diff --check` passed.
-  - Step 7 approved: `PYTHONDONTWRITEBYTECODE=1 uv run pytest -p no:cacheprovider tests/test_azurlane_api.py tests/test_azurlane.py` passed with 13 tests, touched-file Ruff passed, new `src/api/azurlane.py` and `tests/test_azurlane_api.py` were confirmed addable/not ignored, and `git diff --check` passed.
-  - Step 8 approved: `PYTHONDONTWRITEBYTECODE=1 uv run pytest -p no:cacheprovider tests/test_azurlane_api.py tests/test_api_server.py` passed with 32 tests, touched-file Ruff passed, and `git diff --check` passed.
-  - Step 9 approved: stale viewer grep over README/src/tests had no matches and `git diff --check` passed.
-  - Step 10 approved: focused Azur Lane/config/API tests passed with 86 passed and 2 skipped in coordinator verification, full `uv run pytest` passed with 275 passed and 2 skipped in worker/reviewer verification, touched-file Ruff passed, stale viewer/browser grep had no matches, and `git diff --check` passed.
-  - Step 11 worker verification: final focused pytest passed with 86 passed and 2 skipped; touched-file Ruff passed; frontend/browser artifact searches passed after status-log cleanup; `git diff --check` passed; `git status --short --ignored=matching plan.md` showed `!! plan.md`; `git status --short` did not show `plan.md`; no files were staged.
-  - Step 11 reviewer approved: final focused pytest passed, touched-file Ruff passed, `git diff --check` passed, viewer/browser artifact searches had no matches, `git status --short --ignored=matching plan.md` showed `!! plan.md`, `git status --short` showed no `plan.md`, no files were staged, and correction commits are split as steps `1-10`.
-
-## Subagent Notes
-
-- Read this file, `plan.md`, and applicable `AGENTS.md` files before editing or reviewing.
-- Work only on the active step named in the subagent prompt.
-- Do not infer or start future steps.
-- Workers must not commit or update `plan.md`.
-- Reviewers are read-only and must report findings and a verdict only.
+- `AGENTS.md`: layout, build/test/run, architecture, adding a source.
+- `docs/CONVENTIONS.md`: code and test rules.
+- `README.md`: sources, settings, API and MCP.
