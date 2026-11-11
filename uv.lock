@@ -555,7 +555,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "uvicorn", specifier = ">=0.35.0" },
     { name = "websockets", specifier = ">=15.0" },
-    { name = "yt-dlp", extras = ["default"], specifier = ">=2026.7.4" },
+    { name = "yt-dlp", extras = ["default"], specifier = ">=2026.10.26" },
 ]
 
 [package.metadata.requires-dev]
