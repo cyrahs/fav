@@ -1,21 +1,25 @@
 name: Rust rewrite
 
-# Checks for the `rust` branch (rust/docs/PLAN.md). Read-only by design: no job here
-# builds or publishes an image, and none has a token that could. Deployment stays with
-# ci.yml, which only publishes from main.
+# Checks for the Rust build (rust/docs/PLAN.md): on the `rust` branch directly, and on
+# main through ci.yml, which calls this workflow and publishes only after it passed.
+# Read-only by design: no job here builds or publishes an image, and none has a token
+# that could.
 
 on:
   push:
     branches: [ rust ]
   pull_request:
     branches: [ rust ]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Prefixed: when ci.yml calls this workflow, github.workflow is the caller's name, and
+  # a group equal to the caller's own would make the two wait on each other.
+  group: rust-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

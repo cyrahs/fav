@@ -2,10 +2,10 @@
 #
 #   docker build -f rust/Dockerfile .
 #
-# Published only as `ghcr.io/cyrahs/fav:rust-<short sha>` by
-# `.github/workflows/rust-image.yml` on pushes to `rust` (Max's direct deployment of
-# 2026-11-10); never `latest`. `.github/workflows/ci.yml` still builds and pushes the
-# Python image from the root `Dockerfile`, and the `rust` branch never runs it.
+# The production image since 2026-11-11: `.github/workflows/ci.yml` publishes it from
+# main as `latest` (and semver tags), after the Python and Rust checks pass; pushes to
+# `rust` also publish `rust-<short sha>` (`.github/workflows/rust-image.yml`). The root
+# `Dockerfile` is the Python reference build and is no longer published.
 #
 # The runtime matches the Python image wherever the binary shells out: yt-dlp and
 # gallery-dl at the versions the root `uv.lock` pins (so Dependabot's bumps there reach
