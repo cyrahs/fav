@@ -365,7 +365,10 @@ impl CapturePage for ChromiumPage {
             let urls = Arc::clone(&self.urls);
             let recorder = tokio::spawn(async move {
                 while let Some(event) = events.next().await {
-                    if let NetworkEvent::Request { url, .. } = event {
+                    // `page.on('request')` never reports a CORS preflight.
+                    if let NetworkEvent::Request { url, resource_type, .. } = event
+                        && resource_type != "preflight"
+                    {
                         urls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(url);
                     }
                 }

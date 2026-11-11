@@ -40,6 +40,33 @@ fn a_like_page_is_read_whichever_of_its_two_events_comes_first() {
 
 // py: tests/test_rednote.py::test_the_launch_options_ask_for_the_real_browser_not_the_headless_shell
 #[test]
+fn a_likes_list_body_is_json_or_a_reason_without_its_contents() {
+    let parsed = json_body(Ok(br#"{"code": 0, "data": {"cursor": "c1"}}"#.to_vec())).unwrap();
+    assert_eq!(parsed.get("code"), Some(&pyjson::Value::Int(0)));
+
+    // A title cut inside an emoji keeps the rest of the page; a whole pair is kept.
+    let cut = json_body(Ok(br#"{"t": "a\ud83d", "u": "\ud83d\ude00", "v": "\\ud83d"}"#.to_vec())).unwrap();
+    assert_eq!(cut.get("t"), Some(&pyjson::Value::from("a\u{fffd}")));
+    assert_eq!(cut.get("u"), Some(&pyjson::Value::from("\u{1f600}")));
+    assert_eq!(cut.get("v"), Some(&pyjson::Value::from("\\ud83d")));
+
+    assert_eq!(
+        json_body(Ok(Vec::new())).unwrap_err(),
+        "0 bytes, not JSON: Expecting value: line 1 column 1 (char 0)"
+    );
+    assert_eq!(
+        json_body(Ok("\u{feff}{}".as_bytes().to_vec())).unwrap_err(),
+        "5 bytes starting with a BOM"
+    );
+    assert!(json_body(Ok(vec![0xff])).unwrap_err().starts_with("1 bytes, not UTF-8"));
+    assert!(
+        json_body(Err(DriverError::Closed))
+            .unwrap_err()
+            .starts_with("Network.getResponseBody failed: ")
+    );
+}
+
+#[test]
 fn the_launch_options_ask_for_the_real_browser_not_the_headless_shell() {
     let options = build_launch_options(Path::new("/data/profile"), "", true).expect("no proxy");
 
@@ -264,16 +291,32 @@ fn page_with_state(state: &Value, body: &str) -> Reply {
 const SIGNED_IN: &str = r#"{"user": {"loggedIn": {"_value": true}, "userInfo": {"_value": {"userId": "me", "guest": false}}}}"#;
 
 /// The liked tab: its first screenful in the page, the first XHR page on the tab click,
-/// one more per scroll, and the end of the list after that.
+/// one more per scroll, and the end of the list after that. The pages come from another
+/// origin with a signature header, as the site's do, so each is preceded by a CORS
+/// preflight that must not be taken for a page.
 const PROFILE_BODY: &str = "<div style='height:4000px'>\
     <span class='reds-tab-item'>笔记</span><span class='reds-tab-item' id='liked'>点赞 3</span></div>\
     <script>\
     let fetched = 0;\
     const more = () => { if (fetched >= 2) { return; } fetched += 1;\
-      fetch('/api/sns/web/v1/note/like/page?num=30&cursor=' + (fetched === 1 ? '' : 'c1')); };\
+      fetch('http://localhost:' + location.port + '/api/sns/web/v1/note/like/page?num=30&cursor=' + (fetched === 1 ? '' : 'c1'),\
+        {credentials: 'include', headers: {'x-s': 'signed'}}); };\
     document.getElementById('liked').addEventListener('click', more);\
     window.addEventListener('wheel', more);\
     </script>";
+
+/// `reply` allowed to the page's origin, with its cookies, as the site's API answers.
+fn cors(reply: Reply, request: &str) -> Reply {
+    let origin = request
+        .lines()
+        .find_map(|line| line.strip_prefix("origin: "))
+        .unwrap_or("null")
+        .trim()
+        .to_owned();
+    reply
+        .with_header(&format!("Access-Control-Allow-Origin: {origin}"))
+        .with_header("Access-Control-Allow-Credentials: true")
+}
 
 fn site(request: &str) -> Reply {
     let line = request.lines().next().unwrap_or_default();
@@ -291,13 +334,20 @@ fn site(request: &str) -> Reply {
             }
         });
         page_with_state(&state, PROFILE_BODY)
+    } else if path.starts_with(LIKE_PAGE_PATH) && line.starts_with("options ") {
+        Reply {
+            status: "204 No Content",
+            ..cors(Reply::html(""), request)
+        }
+        .with_header("Access-Control-Allow-Headers: x-s")
+        .with_header("Access-Control-Allow-Methods: GET")
     } else if path.starts_with(LIKE_PAGE_PATH) {
         let body = if path.ends_with("cursor=c1") {
             json!({"code": 0, "data": {"notes": [], "cursor": "", "has_more": false}})
         } else {
             json!({"code": 0, "data": {"notes": [{"note_id": "n2", "xsec_token": "t2"}], "cursor": "c1", "has_more": true}})
         };
-        json_reply(&body)
+        cors(json_reply(&body), request)
     } else if path.starts_with("/explore/gone") {
         Reply {
             status: "302 Found",

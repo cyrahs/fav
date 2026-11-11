@@ -28,7 +28,7 @@ use chromiumoxide::cdp::browser_protocol::emulation::{
 };
 use chromiumoxide::cdp::browser_protocol::input::{DispatchMouseEventParams, DispatchMouseEventType, MouseButton};
 use chromiumoxide::cdp::browser_protocol::network::{
-    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived, GetResponseBodyParams,
+    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived, GetResponseBodyParams, InitiatorType,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, EventDomContentEventFired, EventLifecycleEvent, NavigateParams, ReloadParams,
@@ -572,10 +572,14 @@ impl Page {
             }
             out.push(NetworkEvent::Request {
                 id,
-                resource_type: event
-                    .r#type
-                    .as_ref()
-                    .map_or_else(|| "other".to_owned(), |kind| kind.as_ref().to_lowercase()),
+                resource_type: if event.initiator.r#type == InitiatorType::Preflight {
+                    "preflight".to_owned()
+                } else {
+                    event
+                        .r#type
+                        .as_ref()
+                        .map_or_else(|| "other".to_owned(), |kind| kind.as_ref().to_lowercase())
+                },
                 url: event.request.url.clone(),
             });
             futures_util::stream::iter(out)
@@ -891,7 +895,9 @@ impl Page {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkEvent {
     /// `page.on('request')`: `resource_type` as Playwright names it (`document`, `xhr`,
-    /// `fetch`, `script`, ..., `other`).
+    /// `fetch`, `script`, ..., `other`), and `preflight` for a CORS preflight, which
+    /// Chromium reports as a request of its own (its initiator says so, its type is
+    /// empty) and Playwright does not report at all.
     Request { id: String, resource_type: String, url: String },
     /// `page.on('response')`: the status line arrived; the body may still be loading.
     Response { id: String, url: String, status: i64 },
