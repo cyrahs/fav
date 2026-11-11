@@ -31,7 +31,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
     EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived, GetResponseBodyParams,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
-    AddScriptToEvaluateOnNewDocumentParams, EventDomContentEventFired, NavigateParams, ReloadParams,
+    AddScriptToEvaluateOnNewDocumentParams, EventDomContentEventFired, EventLifecycleEvent, NavigateParams, ReloadParams,
 };
 use chromiumoxide::cdp::browser_protocol::storage::GetCookiesParams;
 use chromiumoxide::cdp::browser_protocol::target::{
@@ -98,6 +98,21 @@ fn millis(duration: Duration) -> u128 {
     duration.as_millis()
 }
 
+/// Where a page's [`Page::goto`] sends `Page.navigate`: its own socket, unless the proxy
+/// asks for credentials. Those are answered on chromiumoxide's session
+/// (`Fetch.authRequired`), and Chromium cancels the challenge of a navigation another
+/// session started (`net::ERR_INVALID_AUTH_CREDENTIALS`), so such a page keeps
+/// chromiumoxide's own `Page.navigate` and its wait for `load`. No production proxy of a
+/// browser source has credentials (2026-11-11).
+fn page_endpoint(endpoint: &Arc<str>, options: &ContextOptions) -> Option<Arc<str>> {
+    options.proxy_credentials.is_none().then(|| Arc::clone(endpoint))
+}
+
+/// `ws://host:port` of a DevTools browser URL (`ws://host:port/devtools/browser/<id>`).
+fn devtools_endpoint(browser_url: &str) -> Arc<str> {
+    Arc::from(browser_url.split_once("/devtools/").map_or(browser_url, |(endpoint, _)| endpoint))
+}
+
 /// The context options fav passes to `launch_persistent_context` beyond the command line.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct ContextOptions {
@@ -133,6 +148,8 @@ pub struct BrowserContext {
     options: ContextOptions,
     init_scripts: Arc<Mutex<Vec<String>>>,
     watcher: tokio::task::JoinHandle<()>,
+    /// `ws://host:port` of Chromium's DevTools server, for the pages' own sockets.
+    endpoint: Arc<str>,
     /// For a throwaway browser: the context its pages open in, and the temporary profile
     /// that goes with the browser.
     isolated: Option<(BrowserContextId, std::sync::Mutex<Option<tempfile::TempDir>>)>,
@@ -209,6 +226,7 @@ impl BrowserContext {
             viewport: None::<Viewport>,
             ..HandlerConfig::default()
         };
+        let endpoint = devtools_endpoint(process.devtools_url());
         let (browser, mut handler) = match Browser::connect_with_config(process.devtools_url().to_owned(), config).await {
             Ok(connected) => connected,
             Err(error) => {
@@ -227,7 +245,7 @@ impl BrowserContext {
             handler_closed.store(true, Ordering::SeqCst);
         });
         let init_scripts = Arc::new(Mutex::new(Vec::new()));
-        let watcher = spawn_page_watcher(&browser, options.clone(), Arc::clone(&init_scripts)).await;
+        let watcher = spawn_page_watcher(&browser, options.clone(), Arc::clone(&init_scripts), Arc::clone(&endpoint)).await;
         Ok(Self {
             browser,
             process: Mutex::new(process),
@@ -236,6 +254,7 @@ impl BrowserContext {
             options,
             init_scripts,
             watcher,
+            endpoint,
             isolated,
         })
     }
@@ -255,7 +274,10 @@ impl BrowserContext {
     /// `context.pages`.
     pub async fn pages(&self) -> Result<Vec<Page>, DriverError> {
         let pages = self.browser.pages().await?;
-        Ok(pages.into_iter().map(Page::new).collect())
+        Ok(pages
+            .into_iter()
+            .map(|page| Page::new(page, page_endpoint(&self.endpoint, &self.options)))
+            .collect())
     }
 
     /// `context.pages[0] if context.pages else await context.new_page()`: the tab a
@@ -264,7 +286,7 @@ impl BrowserContext {
         let deadline = Instant::now() + FIRST_PAGE_TIMEOUT;
         loop {
             if let Some(page) = self.browser.pages().await?.into_iter().next() {
-                let page = Page::new(page);
+                let page = Page::new(page, page_endpoint(&self.endpoint, &self.options));
                 page.prepare(&self.options, &self.init_scripts.lock().await).await?;
                 return Ok(page);
             }
@@ -288,7 +310,7 @@ impl BrowserContext {
         if let Some((id, _)) = &self.isolated {
             params.browser_context_id = Some(id.clone());
         }
-        let page = Page::new(self.browser.new_page(params).await?);
+        let page = Page::new(self.browser.new_page(params).await?, page_endpoint(&self.endpoint, options));
         page.prepare(options, &self.init_scripts.lock().await).await?;
         Ok(page)
     }
@@ -379,6 +401,7 @@ async fn spawn_page_watcher(
     browser: &Arc<Browser>,
     options: ContextOptions,
     scripts: Arc<Mutex<Vec<String>>>,
+    endpoint: Arc<str>,
 ) -> tokio::task::JoinHandle<()> {
     let Ok(mut events) = browser.event_listener::<EventTargetCreated>().await else {
         return tokio::spawn(async {});
@@ -391,7 +414,9 @@ async fn spawn_page_watcher(
             }
             if let Ok(page) = browser_pages.get_page(event.target_info.target_id.clone()).await {
                 let scripts = scripts.lock().await.clone();
-                let _ = Page::new(page).prepare(&options, &scripts).await;
+                let _ = Page::new(page, page_endpoint(&endpoint, &options))
+                    .prepare(&options, &scripts)
+                    .await;
             }
         }
     })
@@ -432,11 +457,14 @@ pub fn filter_cookies(cookies: Vec<Value>, urls: &[&str]) -> Vec<Value> {
 #[derive(Debug, Clone)]
 pub struct Page {
     inner: chromiumoxide::Page,
+    /// `ws://host:port` of the DevTools server, where [`goto`](Self::goto) opens the
+    /// page target's own socket.
+    endpoint: Option<Arc<str>>,
 }
 
 impl Page {
-    fn new(inner: chromiumoxide::Page) -> Self {
-        Self { inner }
+    fn new(inner: chromiumoxide::Page, endpoint: Option<Arc<str>>) -> Self {
+        Self { inner, endpoint }
     }
 
     /// The chromiumoxide page, for CDP calls this wrapper does not name.
@@ -592,20 +620,52 @@ impl Page {
         Ok(self.inner.url().await?.unwrap_or_default())
     }
 
-    /// `page.goto(url, wait_until='domcontentloaded', timeout=...)`.
+    /// `page.goto(url, wait_until='domcontentloaded', timeout=...)`: done once the new
+    /// document fired `DOMContentLoaded`, whatever its subresources still do. The
+    /// `Page.navigate` goes over the page target's own socket
+    /// ([`crate::devtools::navigate_page`]), because chromiumoxide holds its own answer back
+    /// until `load` has fired in every frame. A same-document navigation (no new loader)
+    /// is done when it commits, as in Playwright.
     pub async fn goto(&self, url: &str, timeout: Duration) -> Result<(), DriverError> {
-        let mut fired = self.inner.event_listener::<EventDomContentEventFired>().await?;
+        // Lifecycle events carry the loader, so the `DOMContentLoaded` awaited is the new
+        // document's: a document still loading when `goto` starts fires its own, which must
+        // not end the wait. chromiumoxide turns lifecycle events on for every page.
+        let mut lifecycle = self.inner.event_listener::<EventLifecycleEvent>().await?;
         let started = async {
-            let navigated = self.inner.execute(NavigateParams::new(url)).await?;
-            if let Some(error) = navigated.result.error_text.as_deref().filter(|text| !text.is_empty()) {
+            let navigated = self.navigate(url, timeout).await?;
+            if let Some(error) = navigated.error_text {
                 return Err(DriverError::Navigation(format!("{error} at {url}")));
             }
-            fired.next().await.ok_or(DriverError::Closed)?;
-            Ok(())
+            let Some(loader) = navigated.loader_id else {
+                return Ok(());
+            };
+            loop {
+                let event = lifecycle.next().await.ok_or(DriverError::Closed)?;
+                if event.name == "DOMContentLoaded" && *event.loader_id.inner() == loader {
+                    return Ok(());
+                }
+            }
         };
         tokio::time::timeout(timeout, started)
             .await
             .map_err(|_| DriverError::Timeout(millis(timeout)))?
+    }
+
+    /// `Page.navigate`, answered when the navigation commits or fails.
+    async fn navigate(&self, url: &str, timeout: Duration) -> Result<crate::devtools::Navigated, DriverError> {
+        let Some(endpoint) = &self.endpoint else {
+            let navigated = self.inner.execute(NavigateParams::new(url)).await?;
+            return Ok(crate::devtools::Navigated {
+                error_text: navigated.result.error_text.clone().filter(|text| !text.is_empty()),
+                loader_id: navigated.result.loader_id.as_ref().map(|id| id.inner().clone()),
+            });
+        };
+        crate::devtools::navigate_page(endpoint, self.target_id().inner(), url, timeout)
+            .await
+            .map_err(|error| match error.class {
+                "TimeoutError" => DriverError::Timeout(millis(timeout)),
+                _ => DriverError::Navigation(format!("{error} at {url}")),
+            })
     }
 
     /// `page.reload(wait_until='domcontentloaded', timeout=...)`.

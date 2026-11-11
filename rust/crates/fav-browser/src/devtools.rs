@@ -134,6 +134,38 @@ pub async fn read_devtools_cookies(port: u16) -> Result<Vec<Value>, DevToolsErro
     })
 }
 
+/// What `Page.navigate` answered: Chromium's `errorText` for a navigation it refused, and
+/// the new document's `loaderId` (none for a same-document navigation).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Navigated {
+    pub error_text: Option<String>,
+    pub loader_id: Option<String>,
+}
+
+/// `Page.navigate` sent on a DevTools socket of the page target's own
+/// (`{endpoint}/devtools/page/{target_id}`), answered once the navigation commits or
+/// fails. chromiumoxide answers its own `Page.navigate` only after `load` has fired in
+/// every frame, where Playwright's `goto(wait_until='domcontentloaded')` never waits for
+/// `load`; a page whose subresources keep loading (RedNote through the home proxy,
+/// 2026-11-11) then failed with chromiumoxide's 30 s request timeout. The socket has no
+/// domain enabled, so nothing but the reply arrives on it; the driver's own session still
+/// sees the navigation's events.
+pub async fn navigate_page(endpoint: &str, target_id: &str, url: &str, timeout: Duration) -> Result<Navigated, DevToolsError> {
+    let mut socket = connect(&format!("{endpoint}/devtools/page/{target_id}")).await?;
+    let mut counter = 0;
+    let result = devtools_call_within(&mut socket, &mut counter, "Page.navigate", json!({"url": url}), "", timeout).await;
+    let _ = socket.close(None).await;
+    let result = result?;
+    let text = |key: &str| match result.get(key) {
+        Some(Value::String(text)) if !text.is_empty() => Some(text.clone()),
+        _ => None,
+    };
+    Ok(Navigated {
+        error_text: text("errorText"),
+        loader_id: text("loaderId"),
+    })
+}
+
 /// `_devtools_call(socket, counter, method, params, session)`: one command, its result.
 async fn devtools_call(
     socket: &mut Socket,
@@ -142,6 +174,18 @@ async fn devtools_call(
     params: Value,
     session: &str,
 ) -> Result<Map<String, Value>, DevToolsError> {
+    devtools_call_within(socket, counter, method, params, session, Duration::from_secs(10)).await
+}
+
+/// [`devtools_call`] waiting up to `timeout` for each message instead of 10 s.
+async fn devtools_call_within(
+    socket: &mut Socket,
+    counter: &mut i64,
+    method: &str,
+    params: Value,
+    session: &str,
+    timeout: Duration,
+) -> Result<Map<String, Value>, DevToolsError> {
     *counter += 1;
     let mut message = json!({"id": *counter, "method": method, "params": params});
     if !session.is_empty() {
@@ -149,7 +193,7 @@ async fn devtools_call(
     }
     send(socket, &message).await?;
     let reply = loop {
-        let reply = receive(socket, Duration::from_secs(10)).await?;
+        let reply = receive(socket, timeout).await?;
         if reply.get("id") == Some(&json!(*counter)) {
             break reply;
         }
