@@ -138,6 +138,14 @@ fn authenticating_proxy(request: &str) -> Reply {
 fn slow_subresource_site(request: &str) -> Reply {
     if request.starts_with("get /slow.png") {
         Reply::html("").after(Duration::from_mins(1))
+    } else if request.starts_with("get /blocking.js") {
+        Reply::html("").after(Duration::from_secs(1))
+    } else if request.starts_with("get /late.js") {
+        Reply::html("").after(Duration::from_secs(3))
+    } else if request.starts_with("get /loading") {
+        Reply::html("<html><body><script src='/blocking.js'></script>old</body></html>")
+    } else if request.starts_with("get /late") {
+        Reply::html("<html><body><script src='/late.js'></script>late</body></html>").after(Duration::from_secs(2))
     } else if request.starts_with("get /next") {
         Reply::html("<html><body>next</body></html>")
     } else {
@@ -175,6 +183,15 @@ async fn goto_waits_for_dom_content_loaded_not_load() {
         .await
         .expect("a same-document navigation");
     assert_eq!(page.evaluate("() => location.hash").await.unwrap(), json!("#part"));
+
+    // The document being left is still loading, and fires its own `DOMContentLoaded`
+    // before the new one has parsed: that one must not end the wait.
+    page.evaluate("() => { location.href = '/loading'; }").await.unwrap();
+    page.goto(&format!("http://{addr}/late"), Duration::from_secs(10))
+        .await
+        .expect("the new document's DOMContentLoaded");
+    assert_ne!(page.evaluate("() => document.readyState").await.unwrap(), json!("loading"));
+    assert_eq!(page.evaluate("() => document.body.textContent").await.unwrap(), json!("late"));
 
     let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
     let closed = format!("http://{closed}/");

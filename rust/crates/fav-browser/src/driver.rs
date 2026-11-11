@@ -31,7 +31,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
     EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent, EventResponseReceived, GetResponseBodyParams,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
-    AddScriptToEvaluateOnNewDocumentParams, EventDomContentEventFired, NavigateParams, ReloadParams,
+    AddScriptToEvaluateOnNewDocumentParams, EventDomContentEventFired, EventLifecycleEvent, NavigateParams, ReloadParams,
 };
 use chromiumoxide::cdp::browser_protocol::storage::GetCookiesParams;
 use chromiumoxide::cdp::browser_protocol::target::{
@@ -627,17 +627,24 @@ impl Page {
     /// until `load` has fired in every frame. A same-document navigation (no new loader)
     /// is done when it commits, as in Playwright.
     pub async fn goto(&self, url: &str, timeout: Duration) -> Result<(), DriverError> {
-        let mut fired = self.inner.event_listener::<EventDomContentEventFired>().await?;
+        // Lifecycle events carry the loader, so the `DOMContentLoaded` awaited is the new
+        // document's: a document still loading when `goto` starts fires its own, which must
+        // not end the wait. chromiumoxide turns lifecycle events on for every page.
+        let mut lifecycle = self.inner.event_listener::<EventLifecycleEvent>().await?;
         let started = async {
             let navigated = self.navigate(url, timeout).await?;
             if let Some(error) = navigated.error_text {
                 return Err(DriverError::Navigation(format!("{error} at {url}")));
             }
-            if navigated.loader_id.is_none() {
+            let Some(loader) = navigated.loader_id else {
                 return Ok(());
+            };
+            loop {
+                let event = lifecycle.next().await.ok_or(DriverError::Closed)?;
+                if event.name == "DOMContentLoaded" && *event.loader_id.inner() == loader {
+                    return Ok(());
+                }
             }
-            fired.next().await.ok_or(DriverError::Closed)?;
-            Ok(())
         };
         tokio::time::timeout(timeout, started)
             .await
