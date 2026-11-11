@@ -133,6 +133,60 @@ fn authenticating_proxy(request: &str) -> Reply {
     }
 }
 
+/// A page whose image never finishes: `DOMContentLoaded` fires at once, `load` not for a
+/// minute.
+fn slow_subresource_site(request: &str) -> Reply {
+    if request.starts_with("get /slow.png") {
+        Reply::html("").after(Duration::from_mins(1))
+    } else if request.starts_with("get /next") {
+        Reply::html("<html><body>next</body></html>")
+    } else {
+        Reply::html("<html><body><img src='/slow.png'>ready</body></html>")
+    }
+}
+
+/// `goto` waits for `DOMContentLoaded` as Playwright does, not for `load`: chromiumoxide's
+/// own `Page.navigate` answers only after `load` in every frame, which made RedNote fail
+/// with "Request timed out." in production (2026-11-11). A second navigation right after
+/// is not held behind the first one's `load` either; a refused navigation still fails
+/// with Chromium's error text, and a same-document one is done when it commits.
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_waits_for_dom_content_loaded_not_load() {
+    let Some(executable) = chromium() else { return };
+    let (addr, _) = serve(slow_subresource_site).await;
+    let profile = tempfile::tempdir().unwrap();
+    let context = BrowserContext::launch(&executable, &launch_options(profile.path(), ""), &[], rednote_context())
+        .await
+        .expect("launched");
+    let page = context.first_page().await.unwrap();
+
+    let started = std::time::Instant::now();
+    page.goto(&format!("http://{addr}/"), Duration::from_secs(10))
+        .await
+        .expect("done at DOMContentLoaded");
+    assert_eq!(page.evaluate("() => document.readyState").await.unwrap(), json!("interactive"));
+    page.goto(&format!("http://{addr}/next"), Duration::from_secs(10))
+        .await
+        .expect("the next navigation is not queued behind load");
+    assert_eq!(page.evaluate("() => document.body.textContent").await.unwrap(), json!("next"));
+    assert!(started.elapsed() < Duration::from_secs(20), "{:?}", started.elapsed());
+
+    page.goto(&format!("http://{addr}/next#part"), Duration::from_secs(10))
+        .await
+        .expect("a same-document navigation");
+    assert_eq!(page.evaluate("() => location.hash").await.unwrap(), json!("#part"));
+
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let closed = format!("http://{closed}/");
+    let refused = page.goto(&closed, Duration::from_secs(10)).await.unwrap_err();
+    assert!(
+        matches!(&refused, DriverError::Navigation(text) if *text == format!("net::ERR_CONNECTION_REFUSED at {closed}")),
+        "{refused:?}"
+    );
+
+    context.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn answers_proxy_authentication_like_playwright() {
     let Some(executable) = chromium() else { return };
