@@ -162,7 +162,8 @@ jobs:
         uv sync --locked
         uv run pytest --collect-only -q > "$RUNNER_TEMP/pytest-collected.txt"
         base_args=()
-        if git show "${BASE_REV}:rust/parity/scope.toml" > "$RUNNER_TEMP/base-scope.toml" 2>/dev/null; then
+        # A manual dispatch has no base; `git show ":path"` would read the index instead.
+        if [ -n "${BASE_REV}" ] && git show "${BASE_REV}:rust/parity/scope.toml" > "$RUNNER_TEMP/base-scope.toml" 2>/dev/null; then
           base_args=(--base-scope "$RUNNER_TEMP/base-scope.toml")
         else
           echo "no scope.toml at ${BASE_REV}; skipping the base comparison"

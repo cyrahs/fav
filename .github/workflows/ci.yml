@@ -119,7 +119,7 @@ jobs:
         cache-to: type=gha,mode=max,scope=rust-image
 
   # The only job that writes anywhere. Never runs on pull requests, and only
-  # publishes after lint, test, and build have all passed.
+  # publishes after lint, test, rust, and build have all passed.
   publish:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
