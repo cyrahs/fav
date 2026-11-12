@@ -514,6 +514,12 @@ pub fn site_name(link: &ArticleLink) -> Result<&'static str, PyError> {
     Ok("WeChat article")
 }
 
+/// Whether the link's post is looked up through TikHub, whose outages a link can wait out
+/// ([`PostLinkError::outage`]).
+pub fn reads_through_tikhub(link: &ArticleLink) -> Result<bool, PyError> {
+    Ok(zhihu_post::parse_zhihu_url(&link.url)?.is_some())
+}
+
 /// `sniff_extension`: a picture's type from its first bytes.
 pub fn sniff_extension(content: &[u8]) -> Option<&'static str> {
     for (magic, extension) in MAGIC_EXTENSIONS {

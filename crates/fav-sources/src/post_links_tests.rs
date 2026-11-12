@@ -478,7 +478,9 @@ async fn fetch_post_tells_an_outage_from_an_unreadable_post() {
         r#"{"detail": {"code": 400, "message": "Request failed. Please retry. You won't be charged for this request."}}"#;
     for (reply, outage) in [
         (json_reply(400, REQUEST_FAILED), true),
+        (json_reply(200, REQUEST_FAILED), true),
         (json_reply(500, r#"{"detail": "upstream"}"#), true),
+        (json_reply(503, r#"{"detail": {"code": 503}}"#), true),
         (json_reply(429, r#"{"detail": {"message": "slow down"}}"#), true),
         (text_reply(502, "<html>Bad Gateway</html>"), true),
         (Reply::Close, true),

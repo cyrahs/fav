@@ -451,11 +451,13 @@ pub fn parse_post(link: &ZhihuLink, data: &Dict) -> Result<ZhihuPost, PyError> {
 /// it sends for every Zhihu lookup while its Zhihu API is down). `None` for any other
 /// answer, such as a post that is gone.
 fn outage_reason(status: u16, detail: Option<&Value>) -> Option<String> {
-    let message = match detail {
-        Some(Value::Dict(detail)) => detail.get("message").filter(|message| message.is_truthy()).map(py_str),
-        Some(detail) => Some(py_str(detail)),
-        None => None,
-    };
+    let message = detail.map(|detail| match detail {
+        Value::Dict(fields) => fields
+            .get("message")
+            .filter(|message| message.is_truthy())
+            .map_or_else(|| py_str(detail), py_str),
+        _ => py_str(detail),
+    });
     if status == 429 || status >= 500 {
         return Some(message.unwrap_or_else(|| "no data".to_owned()));
     }

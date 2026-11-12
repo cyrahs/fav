@@ -215,6 +215,8 @@ impl Drop for FakeServer {
 pub(crate) struct RecordingNotifier {
     sent: Mutex<Vec<NewNotification>>,
     resolved: Mutex<Vec<(String, Resolution)>>,
+    /// The dedupe keys enqueued and not resolved since.
+    open: Mutex<Vec<String>>,
     fail: bool,
     fail_resolve: bool,
 }
@@ -251,6 +253,9 @@ impl Notifier for RecordingNotifier {
             if self.fail {
                 return Err("notify failed".to_owned());
             }
+            if !notification.dedupe_key.is_empty() {
+                self.open.lock().expect("notifier state").push(notification.dedupe_key.clone());
+            }
             self.sent.lock().expect("notifier state").push(notification);
             Ok(())
         })
@@ -261,9 +266,14 @@ impl Notifier for RecordingNotifier {
             if self.fail_resolve {
                 return Err("resolve failed".to_owned());
             }
+            self.open.lock().expect("notifier state").retain(|key| *key != dedupe_key);
             self.resolved.lock().expect("notifier state").push((dedupe_key, resolution));
             Ok(())
         })
+    }
+
+    fn is_open(&self, dedupe_key: String) -> BoxFuture<'_, Result<bool, String>> {
+        Box::pin(async move { Ok(self.open.lock().expect("notifier state").contains(&dedupe_key)) })
     }
 }
 

@@ -19,6 +19,9 @@ pub trait Notifier: Send + Sync {
 
     /// `resolve_notification(dedupe_key, ...)`: mark an earlier failure resolved.
     fn resolve(&self, dedupe_key: String, resolution: Resolution) -> BoxFuture<'_, Result<(), String>>;
+
+    /// Whether a notification queued under `dedupe_key` has not been resolved since.
+    fn is_open(&self, dedupe_key: String) -> BoxFuture<'_, Result<bool, String>>;
 }
 
 /// The real outbox.
@@ -38,6 +41,10 @@ impl Notifier for OutboxNotifier {
                 .map(|_| ())
                 .map_err(|error| error.to_string())
         })
+    }
+
+    fn is_open(&self, dedupe_key: String) -> BoxFuture<'_, Result<bool, String>> {
+        Box::pin(async move { self.0.is_open(&dedupe_key).await.map_err(|error| error.to_string()) })
     }
 }
 
