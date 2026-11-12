@@ -357,7 +357,8 @@ keystream that key seeds. Without a key the video waits without using up its tri
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <caption> [<msg_id>].mp4` with its cover beside it, recorded in
 `wechat_channel_video`, and a second forward of the same video (by object id) is skipped. All three
 tables are keyed `(msg_id, create_time)`. A failed item is
-retried on the next runs, five times at most. When the source learns a new kind of message, it reads
+retried on the next runs, five times at most, and for about a day when what failed is TikHub and not
+the item (see [When TikHub is failing](#when-tikhub-is-failing)). When the source learns a new kind of message, it reads
 the bridge's event log again from the start once, so earlier messages of that kind are picked up. The run then drains the inbox as a fallback: it downloads what
 is not stored yet, and acknowledges each item, which deletes the host's copy. Chat videos and files
 are not collected yet.
@@ -665,6 +666,23 @@ TikHub's free account lookup and answers with the key's name, balance and free c
 when the section opens, with a button to refresh it. A database that still holds the
 key under the old `web.wechat.tikhub_token` / `tikhub_api_url` fields has them moved to `services.tikhub` at startup.
 
+#### When TikHub is failing
+
+A lookup can fail because TikHub itself is failing: no answer, a rate limit or a server error, or its "Request failed.
+Please retry" answer, which it gives for every lookup while one of its APIs is down. The post or video may be fine then,
+so it is not given up with the five tries an unreadable one gets. Telegram and WeChat follow one rule for this
+(`link_retry`): through its fifth try an item is retried like any other; from then on it stays queued and is tried again
+for about a day before it is given up and reported. Each source keeps its own pace. A Telegram link is retried with the
+queue's backoff, 30 minutes apart from the seventh try on, 53 tries in all. A WeChat item is tried once per run, 48 tries
+in all, its first four failures fail the run as any failed item does, and from the fifth on the run no longer fails over
+it; a link is not opened in WeChat again for those later tries.
+
+The outage has one `download_failed` notification for everything it stops, whichever source runs into it: it is sent by
+the first item that reaches its fifth try while none is open, and resolved by the next item saved through that API from
+either source. TikHub's Zhihu API and its 视频号 API fail apart from each other, so each has a notification of its own
+(`tikhub:outage:zhihu`, `tikhub:outage:channels`). TikHub gives the same "Request failed" answer for some posts it cannot
+read at all; such an item also waits the day out.
+
 ### In Telegram
 
 A message that carries no media of its own and links one of these posts is queued as a `link` job in every configured
@@ -672,13 +690,8 @@ channel. The pictures go to the channel's `image` route and the videos to its `v
 route takes both. Files are named `[author]title-N [message id].ext`, where the title is the post's (for Zhihu, the
 question's, the article's or the pin's opening text). A link whose post cannot be read is retried with the queue's backoff
 and given up after five tries with a `download_failed` notification; one that waits on a login or a key is retried every
-30 minutes with a notification saying what it needs. When the lookup fails because TikHub itself is failing (no answer, a
-rate limit or server error, or its "Request failed. Please retry" answer, as it gives for every Zhihu post while its Zhihu
-API is down), the post may be fine: after the five tries the link stays queued and is tried again with the same backoff,
-30 minutes apart from the seventh try on, for about a day (53 tries in all) before it is given up. The outage is reported
-once, by the first link that reaches its fifth try while no report is open, and the next Zhihu link to be saved resolves
-the report. TikHub gives the same "Request failed" answer for some posts it cannot read at all; such a link also waits the
-day out. Links are scanned as a type of their own, so the first run after an
+30 minutes with a notification saying what it needs. One whose lookup fails because TikHub itself is failing waits the
+outage out for about a day instead (see [When TikHub is failing](#when-tikhub-is-failing)). Links are scanned as a type of their own, so the first run after an
 upgrade backfills the latest `scan_limit` messages of each channel for them, as for a newly configured media type.
 
 ## Telegram Downloader Safety

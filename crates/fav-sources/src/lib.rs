@@ -37,6 +37,7 @@ pub mod hanime1_series;
 pub mod jandan;
 pub mod kemono;
 pub mod kemono_creator;
+pub mod link_retry;
 pub mod nga_post;
 pub mod nikke;
 pub mod nikke_layer_metadata;

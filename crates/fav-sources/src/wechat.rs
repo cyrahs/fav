@@ -19,8 +19,10 @@
 //! a 视频号 video is looked up through TikHub and its start decrypted here
 //! ([`crate::wechat_channels`]). Any other message received in a private chat is reported
 //! through the notification channels, and the row waits as `reported` until this source
-//! learns to save it. A failed item is retried up to [`MAX_ATTEMPTS`] times. Last, the run
-//! drains the inbox, which catches what the event log misses.
+//! learns to save it. A failed item is retried as [`crate::link_retry`] says, the rule
+//! Telegram's links follow too: up to [`MAX_ATTEMPTS`] times, one per run, and through
+//! [`OUTAGE_MAX_ATTEMPTS`] when what failed is TikHub and not the item (DIVERGENCES.md
+//! D185). Last, the run drains the inbox, which catches what the event log misses.
 //!
 //! Items are keyed on WeChat's local `msg_id` together with the message's `create_time`.
 //!
@@ -52,12 +54,14 @@ use sqlx::Row as _;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
 
 use crate::SourceContext;
+use crate::link_retry::{self, Next, Outages, Service};
 use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::post_links::{self, Fetched, Needs, PostClient, PostError, PostLinks, SessionStore, is_mp4, shared_link, transport_error};
 use crate::pydecode::{PyError, json_from_bytes, py_int, urlencode};
 use crate::pyerr::type_name;
 use crate::pyre::compile;
 use crate::pyval::{py_str, str_or_empty};
+use crate::tikhub;
 use crate::wechat_article::{
     ArticleLink, ArticlePage, LINK_SHARE_TYPE, PostVideo, VIDEO_SHARE_TYPE, appmsg_link, canonical_url, cover_only_page, parse_article_page,
 };
@@ -82,7 +86,11 @@ pub const CONTENT_TYPE_EXTENSIONS: [(&str, &str); 4] = [
 const MAGIC_EXTENSIONS: [(&[u8], &str); 4] = [(b"\xff\xd8\xff", "jpg"), (b"\x89PNG", "png"), (b"GIF8", "gif"), (b"wxgf", "wxgf")];
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 60;
 pub const EVENT_PAGE_SIZE: usize = 200;
-pub const MAX_ATTEMPTS: i64 = 5;
+pub const MAX_ATTEMPTS: i64 = link_retry::MAX_ATTEMPTS;
+/// How many tries an item gets that TikHub's failing keeps from being looked up
+/// ([`link_retry::Next::WaitOut`]): one per run, and the job runs every half hour, which
+/// makes about a day (D185).
+pub const OUTAGE_MAX_ATTEMPTS: i64 = 48;
 /// How long the `FavInbox` service waits for WeChat to load an image post it opened.
 pub const OPEN_WAIT_SECONDS: u64 = 30;
 /// How long it waits for WeChat to load any other link it opened before closing it.
@@ -170,6 +178,9 @@ fn is_value_error(error: &PyError) -> bool {
 enum Failure {
     /// `WechatInboxError(message, notification_dedupe_key=key)`.
     Inbox { message: String, key: &'static str },
+    /// A `WechatInboxError` in Python too: the service that looks the item up is failing,
+    /// not the item (D185).
+    Outage { message: String, service: Service },
     /// Any other Python exception: httpx's, an `OSError`, a `ValueError`.
     Py(PyError),
     /// A database or settings failure, which ends the run.
@@ -191,10 +202,17 @@ impl Failure {
         }
     }
 
+    fn outage(message: impl Into<String>, service: Service) -> Self {
+        Self::Outage {
+            message: message.into(),
+            service,
+        }
+    }
+
     /// `except (httpx.HTTPError, OSError, WechatInboxError)`.
     fn is_caught(&self) -> bool {
         match self {
-            Self::Inbox { .. } => true,
+            Self::Inbox { .. } | Self::Outage { .. } => true,
             Self::Py(error) => is_http_error(error) || OS_ERRORS.contains(&error.class.as_str()),
             Self::Job(_) => false,
         }
@@ -203,7 +221,7 @@ impl Failure {
     /// `str(exc)`.
     fn text(&self) -> String {
         match self {
-            Self::Inbox { message, .. } => message.clone(),
+            Self::Inbox { message, .. } | Self::Outage { message, .. } => message.clone(),
             Self::Py(error) => error.message.clone(),
             Self::Job(error) => error.message().to_owned(),
         }
@@ -216,7 +234,7 @@ impl Failure {
             return text;
         }
         match self {
-            Self::Inbox { .. } => "WechatInboxError".to_owned(),
+            Self::Inbox { .. } | Self::Outage { .. } => "WechatInboxError".to_owned(),
             Self::Py(error) => error.class.clone(),
             Self::Job(error) => error.class_name().to_owned(),
         }
@@ -229,9 +247,18 @@ impl Failure {
         }
     }
 
+    /// The service whose failing this is, when it is not the item's own.
+    fn failing_service(&self) -> Option<Service> {
+        match self {
+            Self::Outage { service, .. } => Some(*service),
+            _ => None,
+        }
+    }
+
     fn into_job_error(self) -> JobError {
         match self {
             Self::Inbox { message, key } => inbox_job_error(message, key),
+            Self::Outage { message, .. } => inbox_job_error(message, ""),
             Self::Py(error) => error.into_job_error(),
             Self::Job(error) => error,
         }
@@ -1126,17 +1153,8 @@ impl Wechat {
             .collect()
     }
 
-    /// `_finish_work`: record the outcome of one queued item; `true` when it will not be
-    /// tried again. An error that is not `counted` leaves the attempts alone.
-    async fn finish_work(&self, row: &QueueRow, error: &str, counted: bool) -> Result<bool, Failure> {
-        let attempts = row.attempts + i64::from(!error.is_empty() && counted);
-        let status = if error.is_empty() {
-            "done"
-        } else if attempts >= MAX_ATTEMPTS {
-            "failed"
-        } else {
-            "pending"
-        };
+    /// `_finish_work`: record the outcome of one queued item, with the tries it has used.
+    async fn finish_work(&self, row: &QueueRow, error: &str, attempts: i64, status: &str) -> Result<(), Failure> {
         let attempts =
             i32::try_from(attempts).map_err(|_| Failure::Job(JobError::new("NumericValueOutOfRange", "integer out of range")))?;
         sqlx::query(
@@ -1151,7 +1169,31 @@ impl Wechat {
         .execute(self.db.pool())
         .await
         .map_err(sql_error)?;
-        Ok(status == "failed")
+        Ok(())
+    }
+
+    /// This source's side of the outage notifications it shares with Telegram.
+    fn outages(&self) -> Outages<'_> {
+        Outages {
+            notifier: self.notifier.as_ref(),
+            source: JOB_KEY,
+            header: HEADER,
+            log: log(),
+        }
+    }
+
+    /// What a queued item is called in a notification about it: the shared post's or the
+    /// video's title, else its kind and message id.
+    fn row_title(row: &QueueRow) -> String {
+        let content = str_or_empty(row.message.get("content"));
+        let title = match row.work.as_str() {
+            WORK_ARTICLE => shared_link(&content).ok().flatten().map(|link| link.title),
+            WORK_CHANNEL_VIDEO => parse_channel_video(&content).ok().flatten().map(|video| video_title(&video)),
+            _ => None,
+        };
+        title
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| format!("{} {}", row.work, row.msg_id))
     }
 
     /// `_recheck_reported`: queue again each reported message this source has since
@@ -1238,7 +1280,7 @@ impl Wechat {
     async fn work_one(&mut self, row: &QueueRow) -> Result<bool, Failure> {
         let message = &row.message;
         match row.work.as_str() {
-            WORK_ARTICLE => self.save_article(message, row.attempts + 1 >= MAX_ATTEMPTS).await?,
+            WORK_ARTICLE => self.save_article(message, row.attempts).await?,
             WORK_CHANNEL_VIDEO => self.save_channel_video(message).await?,
             WORK_STICKER => self.save_sticker(message).await?,
             WORK_UNSUPPORTED => {
@@ -1265,7 +1307,23 @@ impl Wechat {
                     log().warning(format_args!("Failed to save WeChat {} {}: {error}", row.work, row.msg_id));
                     // A missing NGA login or TikHub key is a setting to fix, not a failed try.
                     let waits = [NGA_LOGIN_KEY, TIKHUB_KEY].contains(&failure.dedupe_key());
-                    let gave_up = self.finish_work(&row, &error, !waits).await?;
+                    let attempts = row.attempts + i64::from(!waits);
+                    let next = link_retry::next(waits, failure.failing_service(), attempts, OUTAGE_MAX_ATTEMPTS);
+                    let gave_up = next == Next::GiveUp;
+                    self.finish_work(&row, &error, attempts, if gave_up { "failed" } else { "pending" })
+                        .await?;
+                    if let Next::WaitOut(service) = next {
+                        // Not a failed run: the item waits, and the outage has one
+                        // notification for everything it stops (D185).
+                        log().warning(format_args!(
+                            "WeChat {} {} waits out an outage, tried again each run",
+                            row.work, row.msg_id
+                        ));
+                        self.outages()
+                            .report(service, &format!("{} {}", row.work, row.msg_id), &Self::row_title(&row), &error)
+                            .await;
+                        continue;
+                    }
                     failures.push(format!(
                         "{} {}{}: {}",
                         row.work,
@@ -1277,7 +1335,7 @@ impl Wechat {
                 }
                 Err(failure) => return Err(failure),
             }
-            self.finish_work(&row, "", true).await?;
+            self.finish_work(&row, "", row.attempts, "done").await?;
             // A row requeued from a report unpins it; for any other row this finds nothing.
             self.resolve_unsupported(&row.message, &row.work).await?;
             saved += 1;
@@ -1891,6 +1949,7 @@ impl Wechat {
         match self.web.fetch_page(link).await {
             Ok(page) => Ok(page),
             Err(PostError::Link(error)) if error.captcha => self.image_post(message, link, final_attempt).await,
+            Err(PostError::Link(error)) if error.outage => Err(Failure::outage(error.message, Service::TikHubZhihu)),
             Err(PostError::Link(error)) => {
                 let key = match error.needs {
                     Needs::NgaLogin => NGA_LOGIN_KEY,
@@ -1903,7 +1962,11 @@ impl Wechat {
         }
     }
 
-    async fn save_article(&mut self, message: &Dict, final_attempt: bool) -> Result<(), Failure> {
+    /// `_save_article`. `attempts` are the tries the item has used: the last of the five
+    /// any item gets settles for less, and one waiting out an outage is not opened in
+    /// WeChat again for every try of its day.
+    async fn save_article(&mut self, message: &Dict, attempts: i64) -> Result<(), Failure> {
+        let final_attempt = attempts + 1 >= MAX_ATTEMPTS;
         let content = str_or_empty(message.get("content"));
         let Some(link) = shared_link(&content)? else {
             return Err(Failure::inbox(format!(
@@ -1914,7 +1977,9 @@ impl Wechat {
         if self.article_stored(message, &link).await? {
             return Ok(());
         }
-        self.open_link(message, &link).await?;
+        if attempts < MAX_ATTEMPTS {
+            self.open_link(message, &link).await?;
+        }
         let (page, page_html) = self.article_page(message, &link, final_attempt).await?;
         let canonical = canonical_url(&link.url)?;
         if page.title.is_empty() && page.images.is_empty() && page.videos.is_empty() {
@@ -1958,7 +2023,18 @@ impl Wechat {
             py_str(item(message, "msg_id")?),
             article.local_path
         ));
-        self.notify_article(message, &link, &page, &article).await
+        self.notify_article(message, &link, &page, &article).await?;
+        if post_links::reads_through_tikhub(&link)? {
+            let title = if page.title.is_empty() { &link.title } else { &page.title };
+            self.outages()
+                .resolve(
+                    Service::TikHubZhihu,
+                    &format!("article {}", py_str(item(message, "msg_id")?)),
+                    title,
+                )
+                .await;
+        }
+        Ok(())
     }
 
     /// The `try` of `_save_article`: the videos, then the folder.
@@ -2152,7 +2228,9 @@ impl Wechat {
             .header("Authorization", authorization);
         let fetched = match Fetched::send(self.post_client().http(), request).await {
             Ok(fetched) => fetched,
-            Err(error) if is_http_error(&error) => return Err(Failure::inbox(format!("{failure}: {}", error.message))),
+            Err(error) if is_http_error(&error) => {
+                return Err(Failure::outage(format!("{failure}: {}", error.message), Service::TikHubChannels));
+            }
             Err(error) => return Err(error.into()),
         };
         if TIKHUB_ACCOUNT_STATUSES.contains(&fetched.status) {
@@ -2166,11 +2244,15 @@ impl Wechat {
             ));
         }
         if fetched.status != 200 {
-            return Err(Failure::inbox(format!(
-                "{failure}: HTTP {}{}",
-                fetched.status,
-                error_detail(&fetched.body)
-            )));
+            let said = error_detail(&fetched.body);
+            let message = format!("{failure}: HTTP {}{said}", fetched.status);
+            // TikHub failing (a rate limit, a server error, its own "Request failed"
+            // wrapper) is not the video's fault: it waits the outage out.
+            return Err(match tikhub::body_outage_reason(fetched.status, &fetched.body) {
+                Some(reason) if said.is_empty() => Failure::outage(format!("{message}: {reason}"), Service::TikHubChannels),
+                Some(_) => Failure::outage(message, Service::TikHubChannels),
+                None => Failure::inbox(message),
+            });
         }
         let source = match json_from_bytes(&fetched.body).and_then(|payload| parse_video_source(&payload)) {
             Ok(source) => source,
@@ -2270,7 +2352,16 @@ impl Wechat {
             py_str(item(message, "msg_id")?),
             video.object_id
         ));
-        self.notify_video(message, &video, &destination, size, cover_path.as_deref()).await
+        self.notify_video(message, &video, &destination, size, cover_path.as_deref())
+            .await?;
+        self.outages()
+            .resolve(
+                Service::TikHubChannels,
+                &format!("channel_video {}", py_str(item(message, "msg_id")?)),
+                &video_title(&video),
+            )
+            .await;
+        Ok(())
     }
 
     async fn record_video(&self, message: &Dict, video: &ChannelVideo, local_path: &str, size: u64) -> Result<(), Failure> {

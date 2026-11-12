@@ -14,11 +14,44 @@ use fav_net::{ClientOptions, HttpClient, Request};
 
 use crate::post_links::Fetched;
 use crate::pydecode::json_from_bytes;
-use crate::pyval::{float, str_or_empty};
+use crate::pyval::{float, py_str, str_or_empty};
 
 const USER_INFO: &str = "/api/v1/tikhub/user/get_user_info";
 /// TikHub's answers to a missing, invalid or spent key.
 pub const ACCOUNT_STATUSES: [u16; 3] = [401, 402, 403];
+/// How the message of the wrapper TikHub puts around a request it could not carry out starts.
+pub const REQUEST_FAILED: &str = "Request failed. Please retry";
+
+/// Why an answer without what was asked for is TikHub's failure and not the request's: a
+/// rate limit, a server error, or the wrapper TikHub puts around a request it could not
+/// carry out (`{"detail": {"code": 400, "message": "Request failed. Please retry. ..."}}`,
+/// which it sends for every lookup while one of its APIs is down). `None` for any other
+/// answer, such as a post that is gone. Whoever looks something up through TikHub asks
+/// this, so that what it stops can wait the outage out ([`crate::link_retry`],
+/// DIVERGENCES.md D185).
+pub fn outage_reason(status: u16, detail: Option<&Value>) -> Option<String> {
+    let message = detail.map(|detail| match detail {
+        Value::Dict(fields) => fields
+            .get("message")
+            .filter(|message| message.is_truthy())
+            .map_or_else(|| py_str(detail), py_str),
+        _ => py_str(detail),
+    });
+    if status == 429 || status >= 500 {
+        return Some(message.unwrap_or_else(|| "no data".to_owned()));
+    }
+    message.filter(|message| message.starts_with(REQUEST_FAILED))
+}
+
+/// [`outage_reason`] of an answer's body, which need not be JSON.
+pub fn body_outage_reason(status: u16, body: &[u8]) -> Option<String> {
+    let payload = json_from_bytes(body).ok();
+    let detail = match &payload {
+        Some(Value::Dict(payload)) => payload.get("detail").filter(|detail| detail.is_truthy()),
+        _ => None,
+    };
+    outage_reason(status, detail)
+}
 
 /// `TikHubError`, with the code the API answers with.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
