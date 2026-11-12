@@ -471,6 +471,49 @@ async fn fetch_post_failures() {
     }
 }
 
+/// TikHub failing is told apart from a post it could not read (D185).
+#[tokio::test]
+async fn fetch_post_tells_an_outage_from_an_unreadable_post() {
+    const REQUEST_FAILED: &str =
+        r#"{"detail": {"code": 400, "message": "Request failed. Please retry. You won't be charged for this request."}}"#;
+    for (reply, outage) in [
+        (json_reply(400, REQUEST_FAILED), true),
+        (json_reply(500, r#"{"detail": "upstream"}"#), true),
+        (json_reply(429, r#"{"detail": {"message": "slow down"}}"#), true),
+        (text_reply(502, "<html>Bad Gateway</html>"), true),
+        (Reply::Close, true),
+        (json_reply(400, r#"{"detail": {"code": 400, "message": "not found"}}"#), false),
+        (json_reply(404, r#"{"detail": "gone"}"#), false),
+        (text_reply(200, "not json"), false),
+    ] {
+        let label = format!("{reply:?}");
+        let web = FakeWeb::start(move |_| reply.clone()).await;
+        let error = zhihu_post::fetch_post(
+            &client(&web),
+            &ZhihuLink::new(ZhihuKind::Answer, "1"),
+            "http://api.tikhub.io",
+            "key",
+        )
+        .await
+        .expect_err("fails");
+        assert_eq!(matches!(error, ZhihuError::Outage(_)), outage, "{label}: {error:?}");
+        assert_eq!(matches!(error, ZhihuError::Zhihu(_)), !outage, "{label}: {error:?}");
+    }
+    let web = FakeWeb::start(|_| json_reply(400, REQUEST_FAILED)).await;
+    let error = zhihu_post::fetch_post(
+        &client(&web),
+        &ZhihuLink::new(ZhihuKind::Answer, "1"),
+        "http://api.tikhub.io",
+        "key",
+    )
+    .await
+    .expect_err("fails");
+    assert_eq!(
+        error.to_string(),
+        "TikHub is failing for https://www.zhihu.com/answer/1 (HTTP 400): Request failed. Please retry. You won't be charged for this request."
+    );
+}
+
 // py: tests/test_zhihu_post.py::test_fetch_post_without_key_makes_no_request
 #[tokio::test]
 async fn fetch_post_without_key_makes_no_request() {
@@ -864,7 +907,8 @@ async fn a_wechat_page_that_does_not_answer_could_not_be_read() {
     assert_eq!((error.needs, error.captcha), (Needs::Nothing, false));
 }
 
-/// TikHub hanging up on a Zhihu lookup names the post and httpx's class.
+/// TikHub hanging up on a Zhihu lookup names the post and httpx's class, and is an outage
+/// rather than a post that could not be read (D185).
 #[tokio::test]
 async fn a_tikhub_lookup_that_does_not_answer_names_the_post() {
     let web = FakeWeb::start(|_| Reply::Close).await;
@@ -872,8 +916,8 @@ async fn a_tikhub_lookup_that_does_not_answer_names_the_post() {
     let error = zhihu_post::fetch_post(&client(&web), &link, "http://api.tikhub.io", "key")
         .await
         .expect_err("fails");
-    let ZhihuError::Zhihu(message) = error else {
-        panic!("expected a Zhihu error, got {error:?}");
+    let ZhihuError::Outage(message) = error else {
+        panic!("expected an outage, got {error:?}");
     };
     let prefix = format!("TikHub did not answer for {}: RemoteProtocolError: ", link.url());
     assert!(message.starts_with(&prefix), "{message}");

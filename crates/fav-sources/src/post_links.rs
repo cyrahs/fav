@@ -16,6 +16,9 @@
 //! [`PostLinkError::needs`], so a source can wait for it rather than spend its tries. A
 //! 公众号 image post is put behind a captcha whatever the client; that is
 //! [`PostLinkError::captcha`], which WeChat answers by opening the post in WeChat itself.
+//! A lookup that fails because TikHub itself is failing is [`PostLinkError::outage`]: the
+//! post may be fine, so a source can keep the link waiting for longer than it retries one
+//! it could not read (DIVERGENCES.md D185).
 //!
 //! Python reads and downloads everything with one `httpx.AsyncClient` and passes a
 //! per-request timeout for the TikHub lookup, the lens call and the video download;
@@ -90,6 +93,8 @@ pub struct PostLinkError {
     pub message: String,
     pub needs: Needs,
     pub captcha: bool,
+    /// The service that reads the post is failing, not the post (D185).
+    pub outage: bool,
 }
 
 impl PostLinkError {
@@ -98,6 +103,14 @@ impl PostLinkError {
             message: message.into(),
             needs: Needs::Nothing,
             captcha: false,
+            outage: false,
+        }
+    }
+
+    fn outage(message: impl Into<String>) -> Self {
+        Self {
+            outage: true,
+            ..Self::new(message)
         }
     }
 
@@ -631,6 +644,7 @@ impl PostLinks {
             Ok(page) => Ok(page),
             Err(ZhihuError::Account(message)) => Err(PostLinkError::needing(message, Needs::TikHub).into()),
             Err(ZhihuError::Zhihu(message)) => Err(PostLinkError::new(message).into()),
+            Err(ZhihuError::Outage(message)) => Err(PostLinkError::outage(message).into()),
             Err(ZhihuError::Other(error)) => Err(error.into()),
         }
     }
