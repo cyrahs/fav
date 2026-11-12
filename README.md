@@ -671,17 +671,20 @@ key under the old `web.wechat.tikhub_token` / `tikhub_api_url` fields has them m
 A lookup can fail because TikHub itself is failing: no answer, a rate limit or a server error, or its "Request failed.
 Please retry" answer, which it gives for every lookup while one of its APIs is down. The post or video may be fine then,
 so it is not given up with the five tries an unreadable one gets. Telegram and WeChat follow one rule for this
-(`link_retry`): through its fifth try an item is retried like any other; from then on it stays queued and is tried again
-for about a day before it is given up and reported. Each source keeps its own pace. A Telegram link is retried with the
+(`link_retry`): its first four failed tries are retried like any other item's; a fifth that fails this way no longer
+gives it up: it stays queued and is tried again for about a day before it is given up and reported. Each source keeps its own pace. A Telegram link is retried with the
 queue's backoff, 30 minutes apart from the seventh try on, 53 tries in all. A WeChat item is tried once per run, 48 tries
 in all, its first four failures fail the run as any failed item does, and from the fifth on the run no longer fails over
 it; a link is not opened in WeChat again for those later tries.
 
 The outage has one `download_failed` notification for everything it stops, whichever source runs into it: it is sent by
-the first item that reaches its fifth try while none is open, and resolved by the next item saved through that API from
-either source. TikHub's Zhihu API and its 视频号 API fail apart from each other, so each has a notification of its own
-(`tikhub:outage:zhihu`, `tikhub:outage:channels`). TikHub gives the same "Request failed" answer for some posts it cannot
-read at all; such an item also waits the day out.
+the first item that reaches its fifth try while none is open. It is resolved when the last item of a source that waited
+on the outage is saved or given up, and not by a save in between: while TikHub fails on and off, or for one post only,
+the notification stands instead of being closed and sent again with every save. TikHub's Zhihu API and its 视频号 API
+fail apart from each other, so each has a notification of its own (`tikhub:outage:zhihu`, `tikhub:outage:channels`).
+TikHub gives the same "Request failed" answer for some posts it cannot read at all; such an item also waits the day out,
+and closes the notification when it is given up. An item that waited is given up by the first failure of its own (a
+post that is gone, a download that fails) once TikHub answers again.
 
 ### In Telegram
 

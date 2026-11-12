@@ -23,6 +23,7 @@ use fav_db::testdb::TestDatabase;
 use serde_json::json;
 
 use super::*;
+use crate::notifier::Notifier as _;
 use crate::post_links::Endpoints;
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, Reply, Seen, test_roots};
@@ -2840,6 +2841,14 @@ async fn a_zhihu_link_waits_out_a_tikhub_outage_for_a_day_before_it_is_given_up(
         (queued.status.as_str(), i64::from(queued.attempts)),
         ("failed", OUTAGE_MAX_ATTEMPTS)
     );
+    // With nothing waiting on it any more the outage notification is closed, so that the
+    // next outage is reported.
+    let resolved = env.notifier.resolved();
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == "tikhub:outage:zhihu").expect("closed");
+    assert_eq!(
+        (resolution.kind.as_str(), resolution.body.as_str()),
+        ("download_failed", "No link waits on the outage any more: the last was given up.")
+    );
     env.finish().await;
 }
 
@@ -2865,7 +2874,85 @@ async fn a_zhihu_link_saved_after_an_outage_closes_its_notification() {
         (resolution.kind.as_str(), resolution.header.as_str(), resolution.title.as_str()),
         ("job_recovered", "WeChat", ZHIHU_TITLE)
     );
-    assert_eq!(resolution.body, "The outage is over: this link was saved.");
+    assert_eq!(
+        resolution.body,
+        "The outage is over: this link was saved, and none is waiting any more."
+    );
+    env.finish().await;
+}
+
+/// The answer of another question, shared the same way and looked up apart from the first.
+const OTHER_ZHIHU_TIKHUB: &str = "https://api.tikhub.io/api/v1/zhihu/web/fetch_answer_detail?answer_id=2100311203096573241";
+
+fn other_zhihu_share_message(msg_id: i64) -> Json {
+    let url = ZHIHU_SHARE_URL.replace("2100311203096573240", "2100311203096573241");
+    app_message(msg_id, &share(&url, "5"))
+}
+
+/// The notification stands while a link still waits: a service that fails on and off, or
+/// for one post only, would otherwise close and reopen it with every save in between.
+#[tokio::test]
+async fn an_outage_stays_reported_until_the_last_waiting_link_is_saved() {
+    let sites = Sites::with(vec![
+        (ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()),
+        (OTHER_ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()),
+        (zhihu_pic("A"), jpeg()),
+    ]);
+    let events = vec![event(5, zhihu_share_message(64)), event(6, other_zhihu_share_message(66))];
+    let mut env = Env::new(Inbox::bridge(events), sites).await;
+    env.tikhub("tikhub-key");
+    env.run_err().await;
+    for msg_id in [64, 66] {
+        env.set_attempts(msg_id, i32::try_from(MAX_ATTEMPTS - 1).expect("small")).await;
+    }
+    env.run_ok().await;
+    assert_eq!(env.notifier.sent().len(), 1);
+
+    // One of the two is answered again: saved, with the other still waiting.
+    env.sites().responses.insert(OTHER_ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    env.run_ok().await;
+    assert_eq!((env.status(64).await.as_str(), env.status(66).await.as_str()), ("pending", "done"));
+    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "tikhub:outage:zhihu"));
+    assert_eq!(
+        env.notifier
+            .sent()
+            .iter()
+            .filter(|sent| sent.dedupe_key == "tikhub:outage:zhihu")
+            .count(),
+        1
+    );
+
+    env.sites().responses.insert(ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    env.run_ok().await;
+    assert_eq!(env.status(64).await, "done");
+    assert_eq!(
+        env.notifier
+            .resolved()
+            .iter()
+            .filter(|(key, _)| key == "tikhub:outage:zhihu")
+            .count(),
+        1
+    );
+    env.finish().await;
+}
+
+/// An outage Telegram reported, say: a link saved here on its first tries did not wait on
+/// it, and says nothing about the links that do.
+#[tokio::test]
+async fn a_zhihu_link_that_never_waited_closes_no_outage() {
+    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), zhihu_answer()), (zhihu_pic("A"), jpeg())]);
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
+    env.tikhub("tikhub-key");
+    let reported = NewNotification {
+        dedupe_key: "tikhub:outage:zhihu".to_owned(),
+        ..NewNotification::default()
+    };
+    env.notifier.enqueue(reported).await.expect("reported");
+
+    env.run_ok().await;
+
+    assert_eq!(env.status(64).await, "done");
+    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "tikhub:outage:zhihu"));
     env.finish().await;
 }
 
@@ -2947,7 +3034,10 @@ async fn a_video_waits_out_a_tikhub_outage_and_closes_it_once_saved() {
     assert_eq!(env.status(65).await, "done");
     let resolved = env.notifier.resolved();
     let (_, resolution) = resolved.iter().find(|(key, _)| key == "tikhub:outage:channels").expect("closed");
-    assert_eq!(resolution.body, "The outage is over: this video was saved.");
+    assert_eq!(
+        resolution.body,
+        "The outage is over: this video was saved, and none is waiting any more."
+    );
     env.finish().await;
 }
 

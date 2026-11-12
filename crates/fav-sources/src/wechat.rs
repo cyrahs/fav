@@ -54,7 +54,7 @@ use sqlx::Row as _;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
 
 use crate::SourceContext;
-use crate::link_retry::{self, Next, Outages, Service};
+use crate::link_retry::{self, End, Next, Outages, Service};
 use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::post_links::{self, Fetched, Needs, PostClient, PostError, PostLinks, SessionStore, is_mp4, shared_link, transport_error};
 use crate::pydecode::{PyError, json_from_bytes, py_int, urlencode};
@@ -1182,6 +1182,47 @@ impl Wechat {
         }
     }
 
+    /// A queued item is done with, saved or given up: if it had waited on an outage, the
+    /// outage notification is closed with it, unless more items of its kind still wait
+    /// ([`Outages::settle`]). Only an item TikHub looks up is still queued past the tries
+    /// any item gets, so the kind names the service. A count that cannot be read closes
+    /// nothing.
+    async fn settle_outage(&self, row: &QueueRow, end: End) {
+        let service = match row.work.as_str() {
+            WORK_ARTICLE => Service::TikHubZhihu,
+            WORK_CHANNEL_VIDEO => Service::TikHubChannels,
+            _ => return,
+        };
+        if !link_retry::waited(row.attempts + 1) {
+            return;
+        }
+        let waiting: Result<i64, _> =
+            sqlx::query_scalar("SELECT COUNT(*) FROM wechat_events WHERE status = 'pending' AND work = $1 AND attempts >= $2;")
+                .bind(&row.work)
+                .bind(MAX_ATTEMPTS)
+                .fetch_one(self.db.pool())
+                .await;
+        let waiting = match waiting {
+            Ok(waiting) => waiting,
+            Err(error) => {
+                log().warning(format_args!(
+                    "Failed to count the items still waiting after WeChat {} {}: {error}",
+                    row.work, row.msg_id
+                ));
+                return;
+            }
+        };
+        self.outages()
+            .settle(
+                service,
+                &format!("{} {}", row.work, row.msg_id),
+                &Self::row_title(row),
+                end,
+                waiting,
+            )
+            .await;
+    }
+
     /// What a queued item is called in a notification about it: the shared post's or the
     /// video's title, else its kind and message id.
     fn row_title(row: &QueueRow) -> String {
@@ -1312,6 +1353,9 @@ impl Wechat {
                     let gave_up = next == Next::GiveUp;
                     self.finish_work(&row, &error, attempts, if gave_up { "failed" } else { "pending" })
                         .await?;
+                    if gave_up {
+                        self.settle_outage(&row, End::GivenUp).await;
+                    }
                     if let Next::WaitOut(service) = next {
                         // Not a failed run: the item waits, and the outage has one
                         // notification for everything it stops (D185).
@@ -1336,6 +1380,7 @@ impl Wechat {
                 Err(failure) => return Err(failure),
             }
             self.finish_work(&row, "", row.attempts, "done").await?;
+            self.settle_outage(&row, End::Saved).await;
             // A row requeued from a report unpins it; for any other row this finds nothing.
             self.resolve_unsupported(&row.message, &row.work).await?;
             saved += 1;
@@ -2024,16 +2069,6 @@ impl Wechat {
             article.local_path
         ));
         self.notify_article(message, &link, &page, &article).await?;
-        if post_links::reads_through_tikhub(&link)? {
-            let title = if page.title.is_empty() { &link.title } else { &page.title };
-            self.outages()
-                .resolve(
-                    Service::TikHubZhihu,
-                    &format!("article {}", py_str(item(message, "msg_id")?)),
-                    title,
-                )
-                .await;
-        }
         Ok(())
     }
 
@@ -2354,13 +2389,6 @@ impl Wechat {
         ));
         self.notify_video(message, &video, &destination, size, cover_path.as_deref())
             .await?;
-        self.outages()
-            .resolve(
-                Service::TikHubChannels,
-                &format!("channel_video {}", py_str(item(message, "msg_id")?)),
-                &video_title(&video),
-            )
-            .await;
         Ok(())
     }
 

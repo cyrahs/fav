@@ -9,7 +9,7 @@
 //! 30 s, doubling up to half an hour, and WeChat works its queue once per run. What they
 //! share is [`next`], which says what becomes of the item after a failed try, and
 //! [`Outages`], through which an outage is reported once, by whichever source runs into it
-//! first, and closed by the first item saved through the service again.
+//! first, and closed when the last item of a source that waited on it is saved or given up.
 
 use fav_core::logging::Logger;
 use fav_runtime::notifications::{NewNotification, Resolution};
@@ -50,8 +50,8 @@ impl Service {
 /// What becomes of an item after a failed try.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Next {
-    /// It waits for a setting only the user can fix (a login, an API key): the try is not
-    /// counted, and it is never given up.
+    /// It waits for a setting only the user can fix (a login, an API key), and is not
+    /// given up while it does.
     WaitForSetting,
     /// It is tried again.
     Retry,
@@ -76,6 +76,19 @@ pub fn next(waits_for_setting: bool, outage: Option<Service>, attempts: i64, out
         Some(service) if attempts < outage_attempts => Next::WaitOut(service),
         _ => Next::GiveUp,
     }
+}
+
+/// Whether an item waited on an outage before the try that `attempts` counts as its last:
+/// only [`Next::WaitOut`] lets an item past the tries any item gets.
+pub fn waited(attempts: i64) -> bool {
+    attempts > MAX_ATTEMPTS
+}
+
+/// How an item that waited on an outage was done with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    Saved,
+    GivenUp,
 }
 
 /// The outage notifications of one source: its name on them, and where its warnings go.
@@ -136,18 +149,38 @@ impl Outages<'_> {
         }
     }
 
-    /// Close the outage notification, if one is open, once `item` was looked up through
-    /// the service again and saved: the next outage then starts a notification of its own.
-    pub async fn resolve(&self, service: Service, item: &str, title: &str) {
-        if !self.reported(service, item).await {
+    /// An item that waited on the outage is done with: close the outage notification, if
+    /// one is open, unless `waiting` more items of the source still wait on it. The next
+    /// outage then starts a notification of its own.
+    ///
+    /// Closed by the last waiting item and not by any save: with a service that fails for
+    /// some items only, or on and off, each save in between would close the notification
+    /// and the next failed try reopen it, a pair of messages every time. And closed by an
+    /// item given up as well, or a notification nothing waits on any more would stand for
+    /// good and keep the next outage from being reported.
+    pub async fn settle(&self, service: Service, item: &str, title: &str, end: End, waiting: i64) {
+        if waiting > 0 || !self.reported(service, item).await {
             return;
         }
+        let (kind, body) = match end {
+            End::Saved => (
+                "job_recovered",
+                format!(
+                    "The outage is over: this {} was saved, and none is waiting any more.",
+                    service.item()
+                ),
+            ),
+            End::GivenUp => (
+                "download_failed",
+                format!("No {} waits on the outage any more: the last was given up.", service.item()),
+            ),
+        };
         let resolution = Resolution {
-            kind: "job_recovered".to_owned(),
+            kind: kind.to_owned(),
             source: self.source.to_owned(),
             header: self.header.to_owned(),
             title: title.to_owned(),
-            body: format!("The outage is over: this {} was saved.", service.item()),
+            body,
             ..Resolution::default()
         };
         if let Err(error) = self.notifier.resolve(service.outage_key().to_owned(), resolution).await {
@@ -229,8 +262,8 @@ mod tests {
             "Waiting out an outage: links it stops are tried again for a day. TikHub is failing"
         );
 
-        wechat.resolve(Service::TikHubZhihu, "article 2", "B").await;
-        wechat.resolve(Service::TikHubZhihu, "article 4", "D").await;
+        wechat.settle(Service::TikHubZhihu, "article 2", "B", End::Saved, 0).await;
+        wechat.settle(Service::TikHubZhihu, "article 4", "D", End::Saved, 0).await;
 
         let resolved = notifier.resolved();
         assert_eq!(resolved.len(), 1);
@@ -243,7 +276,10 @@ mod tests {
             ),
             ("job_recovered", "WeChat", "B")
         );
-        assert_eq!(resolved[0].1.body, "The outage is over: this link was saved.");
+        assert_eq!(
+            resolved[0].1.body,
+            "The outage is over: this link was saved, and none is waiting any more."
+        );
 
         // The next outage starts a notification of its own.
         wechat.report(Service::TikHubZhihu, "article 5", "E", "TikHub is failing").await;
@@ -258,7 +294,7 @@ mod tests {
         wechat.report(Service::TikHubZhihu, "article 1", "A", "down").await;
         wechat.report(Service::TikHubChannels, "channel_video 2", "B", "down").await;
         // A video saved says nothing about the Zhihu API.
-        wechat.resolve(Service::TikHubChannels, "channel_video 3", "C").await;
+        wechat.settle(Service::TikHubChannels, "channel_video 3", "C", End::Saved, 0).await;
 
         let sent = notifier.sent();
         assert_eq!(
@@ -272,7 +308,55 @@ mod tests {
         let resolved = notifier.resolved();
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].0, "tikhub:outage:channels");
-        assert_eq!(resolved[0].1.body, "The outage is over: this video was saved.");
+        assert_eq!(
+            resolved[0].1.body,
+            "The outage is over: this video was saved, and none is waiting any more."
+        );
+    }
+
+    #[tokio::test]
+    async fn an_outage_stays_open_while_an_item_still_waits_on_it() {
+        let notifier = Arc::new(RecordingNotifier::default());
+        let telegram = outages(&notifier, "telegram", "Telegram");
+        telegram.report(Service::TikHubZhihu, "message 1", "A", "down").await;
+
+        // A service that fails on and off: a save in between closes nothing, so the next
+        // failed try has nothing to report again.
+        telegram.settle(Service::TikHubZhihu, "message 2", "B", End::Saved, 2).await;
+        telegram.report(Service::TikHubZhihu, "message 1", "A", "down").await;
+        telegram.settle(Service::TikHubZhihu, "message 3", "C", End::GivenUp, 1).await;
+        assert!(notifier.resolved().is_empty());
+        assert_eq!(notifier.sent().len(), 1);
+
+        telegram.settle(Service::TikHubZhihu, "message 1", "A", End::Saved, 0).await;
+        assert_eq!(notifier.resolved().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_last_waiting_item_given_up_closes_the_outage_too() {
+        let notifier = Arc::new(RecordingNotifier::default());
+        let wechat = outages(&notifier, "wechat", "WeChat");
+        wechat.report(Service::TikHubChannels, "channel_video 1", "A", "down").await;
+
+        wechat
+            .settle(Service::TikHubChannels, "channel_video 1", "A", End::GivenUp, 0)
+            .await;
+
+        let resolved = notifier.resolved();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            (resolved[0].1.kind.as_str(), resolved[0].1.body.as_str()),
+            ("download_failed", "No video waits on the outage any more: the last was given up.")
+        );
+        // Nothing stands in the way of the next outage's report.
+        wechat.report(Service::TikHubChannels, "channel_video 2", "B", "down").await;
+        assert_eq!(notifier.sent().len(), 2);
+    }
+
+    #[test]
+    fn an_item_waited_once_it_is_past_the_tries_any_item_gets() {
+        assert!(!waited(MAX_ATTEMPTS));
+        assert!(waited(MAX_ATTEMPTS + 1));
     }
 
     #[tokio::test]
@@ -286,7 +370,7 @@ mod tests {
         let failing = RecordingNotifier::failing_resolve();
         let wechat = outages(&failing, "wechat", "WeChat");
         wechat.report(Service::TikHubZhihu, "article 1", "A", "down").await;
-        wechat.resolve(Service::TikHubZhihu, "article 2", "B").await;
+        wechat.settle(Service::TikHubZhihu, "article 2", "B", End::Saved, 0).await;
         assert!(failing.resolved().is_empty());
     }
 }

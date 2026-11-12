@@ -48,7 +48,7 @@ use self::files::{Extensions, Location};
 use self::history::Scan;
 use self::message::{TgMessage, message_link, message_media_type, unsupported_reason};
 use crate::SourceContext;
-use crate::link_retry::{self, Next, Outages, Service};
+use crate::link_retry::{self, End, Next, Outages, Service};
 use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::post_links::{self, Needs, PostClient, PostError, PostLinkError, PostLinks, SessionStore};
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob, sql_error};
@@ -63,7 +63,6 @@ pub const ALBUM_SETTLE_SECONDS: f64 = 2.0;
 const QUEUE_IDLE_POLL: Duration = Duration::from_secs(1);
 const RECONNECT_INITIAL_SECONDS: f64 = 5.0;
 const RECONNECT_MAX_SECONDS: f64 = 300.0;
-/// A link whose post cannot be read is given up after this many tries and reported.
 /// A link that waits on a login or a key is tried again this often, without giving up.
 pub const LINK_WAIT_SECONDS: f64 = 1800.0;
 /// How many tries a link gets whose post cannot be looked up because the service that
@@ -1481,9 +1480,7 @@ impl Telegram {
         self.enqueue_notification(notification, "the link download notification", job.message_id)
             .await;
         if post_links::reads_through_tikhub(link).map_err(py)? {
-            self.outages()
-                .resolve(Service::TikHubZhihu, &format!("message {}", job.message_id), &title)
-                .await;
+            self.settle_link_outage(job, &title, End::Saved).await;
         }
         Ok(images.into_iter().chain(videos).next().unwrap_or_default())
     }
@@ -1535,9 +1532,32 @@ impl Telegram {
                 ));
                 self.notify_link_failure(job, &format!("Gave up on the link after {} tries: {error}", job.attempt_count), "")
                     .await;
+                self.settle_link_outage(job, &job.title, End::GivenUp).await;
             }
         }
         Ok(())
+    }
+
+    /// A link is done with, saved or given up: if it had waited on an outage, the outage
+    /// notification is closed with it, unless more of the account's links still wait
+    /// ([`Outages::settle`]). A count that cannot be read closes nothing.
+    async fn settle_link_outage(&self, job: &TelegramMediaJob, title: &str, end: End) {
+        if !link_retry::waited(job.attempt_count) {
+            return;
+        }
+        let waiting = match queue::waiting_links(self.db(), job, link_retry::MAX_ATTEMPTS).await {
+            Ok(waiting) => waiting,
+            Err(error) => {
+                log().warning(format_args!(
+                    "Failed to count the links still waiting after Telegram link message {}/{}: {}",
+                    job.channel_id, job.message_id, error.message
+                ));
+                return;
+            }
+        };
+        self.outages()
+            .settle(Service::TikHubZhihu, &format!("message {}", job.message_id), title, end, waiting)
+            .await;
     }
 
     /// The part of `_process_job` inside its `try`: `Ok(Err(downloaded))` when the job
