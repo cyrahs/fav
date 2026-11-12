@@ -37,9 +37,22 @@ jobs:
       # later is a deliberate second decision rather than a silent side effect.
       # `dependency-names` is a comma-separated list, so a grouped pull request would
       # read "gallery-dl,yt-dlp" and match nothing here -- it stays open for a human,
-      # which is the safe direction to fail in.
+      # which is the safe direction to fail in. An extra is stripped first: a pull
+      # request that touches the requirement line names `yt-dlp[default]` (#163).
+      - name: Is this a single downloader bump?
+        id: match
+        env:
+          NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          name="$(printf '%s' "$NAMES" | sed -E 's/\[[^]]*\]//g')"
+          case "$name" in
+            gallery-dl|yt-dlp) echo "downloader=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "downloader=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          echo "dependency-names: '$NAMES' -> '$name'"
+
       - name: Enable auto-merge for the downloaders
-        if: contains(fromJSON('["gallery-dl", "yt-dlp"]'), steps.metadata.outputs.dependency-names)
+        if: steps.match.outputs.downloader == 'true'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -51,7 +64,7 @@ jobs:
       # the next human merge. workflow_dispatch is the one event GITHUB_TOKEN may start,
       # so this job waits for the merge itself and then asks for the build on main.
       - name: Wait for the merge and rebuild the image on main
-        if: contains(fromJSON('["gallery-dl", "yt-dlp"]'), steps.metadata.outputs.dependency-names)
+        if: steps.match.outputs.downloader == 'true'
         run: |
           for _ in $(seq 1 60); do
             state="$(gh pr view "$PR_URL" --json state --jq .state)"

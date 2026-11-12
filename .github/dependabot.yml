@@ -17,6 +17,11 @@ updates:
   # NOT widen what merges unattended -- that workflow checks the dependency name too.
   - package-ecosystem: "uv"
     directory: "/docker/downloaders"
+    # Lock bumps only. The default (`auto`) treats this project as an application and
+    # raises the `>=` floor in pyproject.toml instead, which opened #160/#163 for a
+    # yt-dlp already locked at that version: a PR that changes nothing in the image.
+    # The floors stay as they are; uv.lock is what the image installs.
+    versioning-strategy: lockfile-only
     schedule:
       interval: "daily"
     allow:
