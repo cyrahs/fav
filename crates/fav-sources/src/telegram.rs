@@ -66,6 +66,12 @@ const RECONNECT_MAX_SECONDS: f64 = 300.0;
 pub const LINK_MAX_ATTEMPTS: i64 = 5;
 /// A link that waits on a login or a key is tried again this often, without giving up.
 pub const LINK_WAIT_SECONDS: f64 = 1800.0;
+/// A link whose post cannot be looked up because the service that reads it is failing
+/// (`PostLinkError::outage`) is given up only after this many tries: [`queue::retry_delay`]
+/// spaces them half an hour apart from the seventh on, which makes about a day (D185).
+pub const LINK_OUTAGE_MAX_ATTEMPTS: i64 = 53;
+/// The one notification the links waiting on an outage share.
+pub const LINK_OUTAGE_KEY: &str = "telegram:links:outage";
 /// What `post_links.fetch_image` names a picture's extension.
 const LINK_IMAGE_EXTENSIONS: [&str; 5] = ["jpg", "png", "gif", "webp", "bmp"];
 
@@ -869,6 +875,40 @@ impl Telegram {
         }
     }
 
+    /// Whether the outage the link waits on has its notification already. One that cannot
+    /// be asked about counts as unreported.
+    async fn link_outage_reported(&self, job: &TelegramMediaJob) -> bool {
+        match self.inner.notifier.is_open(LINK_OUTAGE_KEY.to_owned()).await {
+            Ok(open) => open,
+            Err(error) => {
+                log().warning(format_args!(
+                    "Failed to look up the link outage notification for message {}: {error}",
+                    job.message_id
+                ));
+                false
+            }
+        }
+    }
+
+    /// Close the outage notification, if one is open, once a post is read through the
+    /// service again and saved: the next outage then starts a notification of its own.
+    async fn resolve_link_outage(&self, job: &TelegramMediaJob, title: &str) {
+        let resolution = Resolution {
+            kind: "job_recovered".to_owned(),
+            source: JOB_KEY.to_owned(),
+            header: HEADER.to_owned(),
+            title: title.to_owned(),
+            body: "The outage is over: this link was saved.".to_owned(),
+            ..Resolution::default()
+        };
+        if let Err(error) = self.inner.notifier.resolve(LINK_OUTAGE_KEY.to_owned(), resolution).await {
+            log().warning(format_args!(
+                "Failed to resolve the link outage notification for message {}: {error}",
+                job.message_id
+            ));
+        }
+    }
+
     // ---------- scanning ----------
 
     /// `scan_media`: a channel's messages as Telethon pages them, picked and titled.
@@ -1466,11 +1506,15 @@ impl Telegram {
         };
         self.enqueue_notification(notification, "the link download notification", job.message_id)
             .await;
+        if post_links::reads_through_tikhub(link).map_err(py)? && self.link_outage_reported(job).await {
+            self.resolve_link_outage(job, &title).await;
+        }
         Ok(images.into_iter().chain(videos).next().unwrap_or_default())
     }
 
     /// `_link_failed`: a link that waits on a setting waits for it; any other is retried
-    /// and finally given up and reported.
+    /// and finally given up and reported, after a day when what failed is the service
+    /// that reads the post.
     async fn link_failed(&self, job: &TelegramMediaJob, owner_token: &str, error: &PostLinkError) -> Result<(), TgError> {
         let text = format!("{}: {error}", error.class_name());
         let py = |error: crate::pydecode::PyError| TgError::py(&error);
@@ -1494,6 +1538,27 @@ impl Telegram {
                 "Telegram link message {}/{} will be retried in {delay:.0}s: {error}",
                 job.channel_id, job.message_id
             ));
+            return Ok(());
+        }
+        // The post may be fine: past the tries an unreadable post gets, the link waits out
+        // the outage, and the links waiting on it share one notification (D185).
+        if error.outage && job.attempt_count < LINK_OUTAGE_MAX_ATTEMPTS {
+            let delay = queue::retry_delay(job.attempt_count);
+            queue::mark_retry(self.db(), job, owner_token, &text, delay).await.map_err(py)?;
+            log().warning(format_args!(
+                "Telegram link message {}/{} waits out an outage, next try in {delay:.0}s: {error}",
+                job.channel_id, job.message_id
+            ));
+            // Not on its try alone: a try can pass without reaching here (a channel
+            // cooldown, a restart), and each enqueue is a message of its own.
+            if !self.link_outage_reported(job).await {
+                self.notify_link_failure(
+                    job,
+                    &format!("Waiting out an outage: links it stops are tried again for a day. {error}"),
+                    LINK_OUTAGE_KEY,
+                )
+                .await;
+            }
             return Ok(());
         }
         queue::mark_discarded(self.db(), job, owner_token, &text).await.map_err(py)?;

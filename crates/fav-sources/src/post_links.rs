@@ -16,6 +16,9 @@
 //! [`PostLinkError::needs`], so a source can wait for it rather than spend its tries. A
 //! 公众号 image post is put behind a captcha whatever the client; that is
 //! [`PostLinkError::captcha`], which WeChat answers by opening the post in WeChat itself.
+//! A lookup that fails because TikHub itself is failing is [`PostLinkError::outage`]: the
+//! post may be fine, so a source can keep the link waiting for longer than it retries one
+//! it could not read (DIVERGENCES.md D185).
 //!
 //! Python reads and downloads everything with one `httpx.AsyncClient` and passes a
 //! per-request timeout for the TikHub lookup, the lens call and the video download;
@@ -90,6 +93,8 @@ pub struct PostLinkError {
     pub message: String,
     pub needs: Needs,
     pub captcha: bool,
+    /// The service that reads the post is failing, not the post (D185).
+    pub outage: bool,
 }
 
 impl PostLinkError {
@@ -98,6 +103,14 @@ impl PostLinkError {
             message: message.into(),
             needs: Needs::Nothing,
             captcha: false,
+            outage: false,
+        }
+    }
+
+    fn outage(message: impl Into<String>) -> Self {
+        Self {
+            outage: true,
+            ..Self::new(message)
         }
     }
 
@@ -501,6 +514,12 @@ pub fn site_name(link: &ArticleLink) -> Result<&'static str, PyError> {
     Ok("WeChat article")
 }
 
+/// Whether the link's post is looked up through TikHub, whose outages a link can wait out
+/// ([`PostLinkError::outage`]).
+pub fn reads_through_tikhub(link: &ArticleLink) -> Result<bool, PyError> {
+    Ok(zhihu_post::parse_zhihu_url(&link.url)?.is_some())
+}
+
 /// `sniff_extension`: a picture's type from its first bytes.
 pub fn sniff_extension(content: &[u8]) -> Option<&'static str> {
     for (magic, extension) in MAGIC_EXTENSIONS {
@@ -631,6 +650,7 @@ impl PostLinks {
             Ok(page) => Ok(page),
             Err(ZhihuError::Account(message)) => Err(PostLinkError::needing(message, Needs::TikHub).into()),
             Err(ZhihuError::Zhihu(message)) => Err(PostLinkError::new(message).into()),
+            Err(ZhihuError::Outage(message)) => Err(PostLinkError::outage(message).into()),
             Err(ZhihuError::Other(error)) => Err(error.into()),
         }
     }

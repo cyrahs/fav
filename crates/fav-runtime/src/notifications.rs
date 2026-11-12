@@ -547,6 +547,23 @@ impl Outbox {
             .map(NotificationRecord::rendered))
     }
 
+    /// Whether a notification queued under `dedupe_key` is still open: queued, and not
+    /// resolved since. A source that reports one condition for many items asks this before
+    /// it enqueues, because every enqueue on an open row is delivered as a message of its
+    /// own (D185).
+    pub async fn is_open(&self, dedupe_key: &str) -> Result<bool, Error> {
+        let dedupe_key = py_strip(dedupe_key);
+        if dedupe_key.is_empty() {
+            return Ok(false);
+        }
+        let open = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key = $1 AND webhook_action <> $2);")
+            .bind(dedupe_key)
+            .bind(WEBHOOK_ACTION_RESOLVE)
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(open)
+    }
+
     /// `resolve_job_failure_notifications`: close every job-scoped failure queued for
     /// `job_key`. Item-scoped rows are left alone: a job can finish while one of its items
     /// is still broken, and only the module that owns the item knows when it recovers.

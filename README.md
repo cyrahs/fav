@@ -672,7 +672,13 @@ channel. The pictures go to the channel's `image` route and the videos to its `v
 route takes both. Files are named `[author]title-N [message id].ext`, where the title is the post's (for Zhihu, the
 question's, the article's or the pin's opening text). A link whose post cannot be read is retried with the queue's backoff
 and given up after five tries with a `download_failed` notification; one that waits on a login or a key is retried every
-30 minutes with a notification saying what it needs. Links are scanned as a type of their own, so the first run after an
+30 minutes with a notification saying what it needs. When the lookup fails because TikHub itself is failing (no answer, a
+rate limit or server error, or its "Request failed. Please retry" answer, as it gives for every Zhihu post while its Zhihu
+API is down), the post may be fine: after the five tries the link stays queued and is tried again with the same backoff,
+30 minutes apart from the seventh try on, for about a day (53 tries in all) before it is given up. The outage is reported
+once, by the first link that reaches its fifth try while no report is open, and the next Zhihu link to be saved resolves
+the report. TikHub gives the same "Request failed" answer for some posts it cannot read at all; such a link also waits the
+day out. Links are scanned as a type of their own, so the first run after an
 upgrade backfills the latest `scan_limit` messages of each channel for them, as for a newly configured media type.
 
 ## Telegram Downloader Safety

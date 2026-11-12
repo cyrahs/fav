@@ -151,7 +151,8 @@ fn nga_error(failure: &NgaError) -> Value {
 
 fn zhihu_error(failure: &ZhihuError) -> Value {
     match failure {
-        ZhihuError::Zhihu(message) => error("ZhihuError", message),
+        // An outage is a `ZhihuError` in Python (D185).
+        ZhihuError::Zhihu(message) | ZhihuError::Outage(message) => error("ZhihuError", message),
         ZhihuError::Account(message) => error("ZhihuAccountError", message),
         ZhihuError::Other(failure) => py_error(failure),
     }

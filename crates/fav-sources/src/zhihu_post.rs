@@ -32,6 +32,8 @@ use crate::wechat_article::{ArticlePage, PostVideo};
 
 /// TikHub's answers to a missing, invalid or spent key.
 const TIKHUB_ACCOUNT_STATUSES: [u16; 3] = [401, 402, 403];
+/// How TikHub's message starts when it could not carry a request out at all.
+const TIKHUB_REQUEST_FAILED: &str = "Request failed. Please retry";
 pub const LENS_API: &str = "https://lens.zhihu.com/api/v4/videos/";
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36";
 const PIN_TITLE_BYTES: usize = 80;
@@ -140,6 +142,11 @@ pub enum ZhihuError {
     /// `ZhihuAccountError`: TikHub refused the key, settings to fix rather than a failed try.
     #[error("{0}")]
     Account(String),
+    /// TikHub itself is failing (it did not answer, answered with a server error, or with
+    /// its own "Request failed" wrapper): an outage to wait out, which says nothing about
+    /// the post (DIVERGENCES.md D185).
+    #[error("{0}")]
+    Outage(String),
     /// Any other exception Python lets through.
     #[error("{}: {}", .0.class, .0.message)]
     Other(PyError),
@@ -438,6 +445,25 @@ pub fn parse_post(link: &ZhihuLink, data: &Dict) -> Result<ZhihuPost, PyError> {
     })
 }
 
+/// Why an answer without the post's data is TikHub's failure and not the post's: a rate
+/// limit, a server error, or the wrapper TikHub puts around a request it could not carry
+/// out (`{"detail": {"code": 400, "message": "Request failed. Please retry. ..."}}`, which
+/// it sends for every Zhihu lookup while its Zhihu API is down). `None` for any other
+/// answer, such as a post that is gone.
+fn outage_reason(status: u16, detail: Option<&Value>) -> Option<String> {
+    let message = detail.map(|detail| match detail {
+        Value::Dict(fields) => fields
+            .get("message")
+            .filter(|message| message.is_truthy())
+            .map_or_else(|| py_str(detail), py_str),
+        _ => py_str(detail),
+    });
+    if status == 429 || status >= 500 {
+        return Some(message.unwrap_or_else(|| "no data".to_owned()));
+    }
+    message.filter(|message| message.starts_with(TIKHUB_REQUEST_FAILED))
+}
+
 /// `fetch_post`: look the post up through TikHub.
 pub async fn fetch_post(client: &PostClient, link: &ZhihuLink, api_url: &str, token: &str) -> Result<ZhihuPost, ZhihuError> {
     if token.is_empty() {
@@ -451,7 +477,7 @@ pub async fn fetch_post(client: &PostClient, link: &ZhihuLink, api_url: &str, to
     let fetched = match Fetched::send(client.lookup(), request).await {
         Ok(fetched) => fetched,
         Err(error) if is_http_error(&error) => {
-            return Err(ZhihuError::Zhihu(format!(
+            return Err(ZhihuError::Outage(format!(
                 "TikHub did not answer for {}: {}: {}",
                 link.url(),
                 error.class,
@@ -466,12 +492,14 @@ pub async fn fetch_post(client: &PostClient, link: &ZhihuLink, api_url: &str, to
             fetched.status
         )));
     }
+    let server_error = fetched.status == 429 || fetched.status >= 500;
     let Ok(payload) = json_from_bytes(&fetched.body) else {
-        return Err(ZhihuError::Zhihu(format!(
-            "TikHub answered {} with HTTP {} and no JSON",
-            link.url(),
-            fetched.status
-        )));
+        let message = format!("TikHub answered {} with HTTP {} and no JSON", link.url(), fetched.status);
+        return Err(if server_error {
+            ZhihuError::Outage(message)
+        } else {
+            ZhihuError::Zhihu(message)
+        });
     };
     let data = match &payload {
         Value::Dict(payload) => payload.get("data").and_then(Value::as_dict),
@@ -479,14 +507,21 @@ pub async fn fetch_post(client: &PostClient, link: &ZhihuLink, api_url: &str, to
     };
     let Some(data) = data.filter(|data| fetched.status == 200 && !data.is_empty()) else {
         let detail = match &payload {
-            Value::Dict(payload) => payload.get("detail").filter(|detail| detail.is_truthy()).map(py_str),
+            Value::Dict(payload) => payload.get("detail").filter(|detail| detail.is_truthy()),
             _ => None,
         };
+        if let Some(reason) = outage_reason(fetched.status, detail) {
+            return Err(ZhihuError::Outage(format!(
+                "TikHub is failing for {} (HTTP {}): {reason}",
+                link.url(),
+                fetched.status
+            )));
+        }
         return Err(ZhihuError::Zhihu(format!(
             "TikHub could not read {} (HTTP {}): {}; it may have been deleted",
             link.url(),
             fetched.status,
-            detail.as_deref().unwrap_or("no data")
+            detail.map(py_str).as_deref().unwrap_or("no data")
         )));
     };
     if let Some(error) = data.get("error")
