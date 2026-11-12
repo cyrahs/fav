@@ -24,15 +24,18 @@ use super::client::{Channel, ClientConfig, Connection, Connector, ErrorKind, His
 use super::files::Location;
 use super::message::{Document, DocumentAttribute, Media, Photo, PhotoSize, TgMessage, WebPage, message_link, unsupported_reason};
 use super::{
-    ALBUM_SETTLE_SECONDS, Deps, LINK_MAX_ATTEMPTS, LINK_OUTAGE_KEY, LINK_OUTAGE_MAX_ATTEMPTS, LINK_WAIT_SECONDS, Sleeper, Telegram,
-    account_lock_name, build_scan, first_line, job_types, owned_routes,
+    ALBUM_SETTLE_SECONDS, Deps, LINK_OUTAGE_MAX_ATTEMPTS, LINK_WAIT_SECONDS, Sleeper, Telegram, account_lock_name, build_scan, first_line,
+    job_types, owned_routes,
 };
+use crate::link_retry::MAX_ATTEMPTS;
 use crate::notifier::SharedNotifier;
 use crate::post_links::{Endpoints, PostClient, PostLinks, SessionStore};
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob};
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, Reply, database, test_roots};
 
+/// The notification an outage of the service that reads Zhihu posts has.
+const OUTAGE_KEY: &str = "tikhub:outage:zhihu";
 const CHANNEL: i64 = 123;
 const ZHIHU_SHARE: &str =
     "高跟鞋配白丝真的很难看吗？ - 知乎用户的回答 - 知乎\nhttps://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240";
@@ -1487,7 +1490,7 @@ async fn unreadable_link_is_retried_then_given_up() {
     assert!((29.0..=30.0).contains(&due), "{due}");
     assert!(env.notifier.sent().is_empty());
 
-    let last = env.claimed(11, JobType::Link, LINK_MAX_ATTEMPTS).await;
+    let last = env.claimed(11, JobType::Link, MAX_ATTEMPTS).await;
     telegram
         .process_job(&account, env.client(), &last, "owner")
         .await
@@ -1500,7 +1503,7 @@ async fn unreadable_link_is_retried_then_given_up() {
     assert!(
         sent[0]
             .body
-            .starts_with(&format!("Gave up on the link after {LINK_MAX_ATTEMPTS} tries: ")),
+            .starts_with(&format!("Gave up on the link after {MAX_ATTEMPTS} tries: ")),
         "{}",
         sent[0].body
     );
@@ -1527,7 +1530,7 @@ async fn link_waits_out_an_outage_for_a_day_before_it_is_given_up() {
     let telegram = env.telegram();
 
     // The try an unreadable post is given up on: the link stays queued and says so.
-    let waiting = env.claimed(10, JobType::Link, LINK_MAX_ATTEMPTS).await;
+    let waiting = env.claimed(10, JobType::Link, MAX_ATTEMPTS).await;
     telegram
         .process_job(&account, env.client(), &waiting, "owner")
         .await
@@ -1546,7 +1549,7 @@ async fn link_waits_out_an_outage_for_a_day_before_it_is_given_up() {
     assert_eq!(sent.len(), 1);
     assert_eq!(
         (sent[0].kind.as_str(), sent[0].dedupe_key.as_str()),
-        ("download_failed", LINK_OUTAGE_KEY)
+        ("download_failed", OUTAGE_KEY)
     );
     assert!(sent[0].body.starts_with("Waiting out an outage: "), "{}", sent[0].body);
 
@@ -1591,7 +1594,7 @@ async fn outage_is_reported_by_the_first_try_past_the_fifth_that_finds_it_unrepo
     let telegram = env.telegram();
 
     // Within the tries of an unreadable post nothing is said.
-    let early = env.claimed(10, JobType::Link, LINK_MAX_ATTEMPTS - 1).await;
+    let early = env.claimed(10, JobType::Link, MAX_ATTEMPTS - 1).await;
     telegram
         .process_job(&account, env.client(), &early, "owner")
         .await
@@ -1599,7 +1602,7 @@ async fn outage_is_reported_by_the_first_try_past_the_fifth_that_finds_it_unrepo
     assert_eq!(env.status(10).await.0, "pending");
     assert!(env.notifier.sent().is_empty());
 
-    let skipped = env.claimed(11, JobType::Link, LINK_MAX_ATTEMPTS + 2).await;
+    let skipped = env.claimed(11, JobType::Link, MAX_ATTEMPTS + 2).await;
     telegram
         .process_job(&account, env.client(), &skipped, "owner")
         .await
@@ -1607,7 +1610,7 @@ async fn outage_is_reported_by_the_first_try_past_the_fifth_that_finds_it_unrepo
     assert_eq!(env.status(11).await.0, "pending");
     let sent = env.notifier.sent();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].dedupe_key, LINK_OUTAGE_KEY);
+    assert_eq!(sent[0].dedupe_key, OUTAGE_KEY);
 }
 
 /// Waiting is for outages alone: a post that cannot be read is given up on any try from
@@ -1617,7 +1620,7 @@ async fn link_past_its_fifth_try_whose_post_cannot_be_read_is_given_up() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE)]).await;
     env.web = Some(zhihu_web(None).await);
     env.settings.services.tikhub.token = "tikhub-key".to_owned();
-    let job = env.claimed(10, JobType::Link, LINK_MAX_ATTEMPTS + 4).await;
+    let job = env.claimed(10, JobType::Link, MAX_ATTEMPTS + 4).await;
 
     env.telegram()
         .process_job(&env.split(false), env.client(), &job, "owner")
@@ -1630,47 +1633,95 @@ async fn link_past_its_fifth_try_whose_post_cannot_be_read_is_given_up() {
     assert_eq!(sent[0].dedupe_key, "");
 }
 
+/// The report stands while a link still waits: a service that fails on and off, or for one
+/// post only, would otherwise close and reopen it with every save in between.
 #[tokio::test]
-async fn zhihu_link_saved_while_an_outage_is_reported_closes_the_report() {
+async fn outage_report_is_closed_by_the_last_waiting_link_saved_and_by_no_other() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE), text(12, ZHIHU_SHARE)]).await;
     env.settings.services.tikhub.token = "tikhub-key".to_owned();
     let account = env.split(false);
-    let outage_keys = |env: &Env| -> usize { env.notifier.resolved().iter().filter(|(key, _)| key == LINK_OUTAGE_KEY).count() };
+    let closed = |env: &Env| -> usize { env.notifier.resolved().iter().filter(|(key, _)| key == OUTAGE_KEY).count() };
 
     env.web = Some(zhihu_outage_web().await);
-    let waiting = env.claimed(10, JobType::Link, LINK_MAX_ATTEMPTS).await;
-    env.telegram()
+    for message_id in [10, 11] {
+        let waiting = env.claimed(message_id, JobType::Link, MAX_ATTEMPTS).await;
+        env.telegram()
+            .process_job(&account, env.client(), &waiting, "owner")
+            .await
+            .expect("processed");
+        assert_eq!(env.status(message_id).await.0, "pending");
+    }
+    assert_eq!(env.notifier.sent().len(), 1);
+
+    // TikHub answers again. A link that never waited says nothing about the ones that do.
+    let images = ["https://pica.zhimg.com/v2-a_r.jpg"];
+    env.web = Some(zhihu_web(Some(zhihu_answer("Q", &images, &[]))).await);
+    let telegram = env.telegram();
+    let saved = |job: TelegramMediaJob| {
+        let (telegram, account, client) = (&telegram, &account, env.client());
+        async move { assert!(telegram.process_job(account, client, &job, "owner").await.expect("processed")) }
+    };
+    saved(env.claimed(12, JobType::Link, 1).await).await;
+    assert_eq!(env.status(12).await.0, "completed");
+    assert_eq!(closed(&env), 0);
+
+    // Nor does a waiting link saved while another still waits.
+    saved(env.claimed(10, JobType::Link, MAX_ATTEMPTS + 1).await).await;
+    assert_eq!(env.status(10).await.0, "completed");
+    assert_eq!(closed(&env), 0);
+
+    // The last one closes the report.
+    saved(env.claimed(11, JobType::Link, MAX_ATTEMPTS + 3).await).await;
+    assert_eq!(closed(&env), 1);
+    let resolved = env.notifier.resolved();
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == OUTAGE_KEY).expect("closed");
+    assert_eq!((resolution.kind.as_str(), resolution.title.as_str()), ("job_recovered", "Q"));
+    assert_eq!(
+        resolution.body,
+        "The outage is over: this link was saved, and none is waiting any more."
+    );
+    assert_eq!(env.notifier.sent().iter().filter(|sent| sent.dedupe_key == OUTAGE_KEY).count(), 1);
+}
+
+/// A report nothing waits on any more would keep the next outage from being reported.
+#[tokio::test]
+async fn outage_report_is_closed_by_the_last_waiting_link_given_up() {
+    let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE)]).await;
+    env.web = Some(zhihu_outage_web().await);
+    env.settings.services.tikhub.token = "tikhub-key".to_owned();
+    let account = env.split(false);
+    let telegram = env.telegram();
+    let closed = |env: &Env| -> usize { env.notifier.resolved().iter().filter(|(key, _)| key == OUTAGE_KEY).count() };
+
+    let waiting = env.claimed(10, JobType::Link, MAX_ATTEMPTS).await;
+    telegram
         .process_job(&account, env.client(), &waiting, "owner")
         .await
         .expect("processed");
     assert_eq!(env.notifier.sent().len(), 1);
 
-    // TikHub answers again: whichever link is saved first closes the report, however few tries it had.
-    let images = ["https://pica.zhimg.com/v2-a_r.jpg"];
-    env.web = Some(zhihu_web(Some(zhihu_answer("Q", &images, &[]))).await);
-    let telegram = env.telegram();
-    let first = env.claimed(11, JobType::Link, 1).await;
-    assert!(
-        telegram
-            .process_job(&account, env.client(), &first, "owner")
-            .await
-            .expect("processed")
-    );
-    assert_eq!(env.status(11).await.0, "completed");
-    assert_eq!(outage_keys(&env), 1);
-    let resolved = env.notifier.resolved();
-    let (_, resolution) = resolved.iter().find(|(key, _)| key == LINK_OUTAGE_KEY).expect("closed");
-    assert_eq!((resolution.kind.as_str(), resolution.title.as_str()), ("job_recovered", "Q"));
+    // Given up while another link waits: the report stands.
+    let first = env.claimed(11, JobType::Link, LINK_OUTAGE_MAX_ATTEMPTS).await;
+    telegram
+        .process_job(&account, env.client(), &first, "owner")
+        .await
+        .expect("processed");
+    assert_eq!(env.status(11).await.0, "discarded");
+    assert_eq!(closed(&env), 0);
 
-    // With no report open there is nothing to close.
-    let second = env.claimed(12, JobType::Link, LINK_MAX_ATTEMPTS + 1).await;
-    assert!(
-        telegram
-            .process_job(&account, env.client(), &second, "owner")
-            .await
-            .expect("processed")
+    let last = env.claimed(10, JobType::Link, LINK_OUTAGE_MAX_ATTEMPTS).await;
+    telegram
+        .process_job(&account, env.client(), &last, "owner")
+        .await
+        .expect("processed");
+    assert_eq!(env.status(10).await.0, "discarded");
+    assert_eq!(closed(&env), 1);
+    let resolved = env.notifier.resolved();
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == OUTAGE_KEY).expect("closed");
+    assert_eq!(
+        (resolution.kind.as_str(), resolution.body.as_str()),
+        ("download_failed", "No link waits on the outage any more: the last was given up.")
     );
-    assert_eq!(outage_keys(&env), 1);
 }
 
 // py: tests/test_telegram.py::test_link_waiting_on_a_setting_is_never_given_up
@@ -1680,7 +1731,7 @@ async fn link_waiting_on_a_setting_is_never_given_up() {
     let web = zhihu_web(None).await;
     env.web = Some(web.clone());
     // No TikHub key.
-    let job = env.claimed(10, JobType::Link, LINK_MAX_ATTEMPTS + 3).await;
+    let job = env.claimed(10, JobType::Link, MAX_ATTEMPTS + 3).await;
 
     env.telegram()
         .process_job(&env.split(false), env.client(), &job, "owner")

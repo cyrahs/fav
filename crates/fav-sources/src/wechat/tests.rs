@@ -23,6 +23,7 @@ use fav_db::testdb::TestDatabase;
 use serde_json::json;
 
 use super::*;
+use crate::notifier::Notifier as _;
 use crate::post_links::Endpoints;
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, Reply, Seen, test_roots};
@@ -2748,6 +2749,311 @@ async fn a_video_that_does_not_decrypt_to_an_mp4_is_not_kept() {
     assert_eq!(env.status(65).await, "pending");
     assert!(env.files().is_empty());
     assert!(env.videos().await.is_empty());
+    env.finish().await;
+}
+
+// ---------- waiting out a TikHub outage (D185: not in the Python baseline) ----------
+
+/// What TikHub answers every lookup with while one of its APIs is down.
+fn tikhub_request_failed() -> Reply {
+    Reply::json(
+        400,
+        &json!({"detail": {"code": 400, "message": "Request failed. Please retry. Check the docs below to verify your parameters."}}),
+    )
+}
+
+const ZHIHU_TITLE: &str = "高跟鞋配白丝真的很难看吗？";
+
+fn zhihu_share_message(msg_id: i64) -> Json {
+    let content = share(ZHIHU_SHARE_URL, "5").replace("<title>每日分享</title>", &format!("<title>{ZHIHU_TITLE}</title>"));
+    app_message(msg_id, &content)
+}
+
+fn zhihu_answer() -> Reply {
+    Reply::json(
+        200,
+        &json!({
+            "data": {
+                "content": format!("<figure><img data-original=\"{}\"/></figure>", zhihu_pic("A")),
+                "author": {"name": "知乎用户"},
+                "question": {"title": ZHIHU_TITLE},
+                "created_time": 1_793_533_212,
+            },
+        }),
+    )
+}
+
+fn link_opens(env: &Env) -> usize {
+    env.inbox_requests().iter().filter(|seen| seen.path() == "/link/open").count()
+}
+
+#[tokio::test]
+async fn a_zhihu_link_waits_out_a_tikhub_outage_for_a_day_before_it_is_given_up() {
+    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), tikhub_request_failed())]);
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
+    env.tikhub("tikhub-key");
+
+    // The tries any item gets fail the run, as before.
+    for run in 1..MAX_ATTEMPTS {
+        let error = env.run_err().await;
+        assert_eq!(error.notification_dedupe_key(), Some("wechat:work"));
+        assert!(error.message().contains("TikHub is failing for"), "{}", error.message());
+        assert_eq!(i64::from(env.queue(64).await.attempts), run);
+    }
+    assert!(env.notifier.sent().is_empty());
+
+    // The try an unreadable post is given up on: the link stays queued, the run does not
+    // fail over it, and the outage is reported.
+    env.run_ok().await;
+    let queued = env.queue(64).await;
+    assert_eq!((queued.status.as_str(), i64::from(queued.attempts)), ("pending", MAX_ATTEMPTS));
+    assert!(queued.last_error.contains("Request failed. Please retry"), "{}", queued.last_error);
+    let sent = env.notifier.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        (
+            sent[0].kind.as_str(),
+            sent[0].dedupe_key.as_str(),
+            sent[0].header.as_str(),
+            sent[0].title.as_str()
+        ),
+        ("download_failed", "tikhub:outage:zhihu", "WeChat", ZHIHU_TITLE)
+    );
+    assert!(
+        sent[0].body.starts_with("Waiting out an outage: links it stops"),
+        "{}",
+        sent[0].body
+    );
+
+    // Later runs try it again without reporting again, and without opening it in WeChat
+    // once more for every try.
+    env.run_ok().await;
+    assert_eq!(i64::from(env.queue(64).await.attempts), MAX_ATTEMPTS + 1);
+    assert_eq!(env.notifier.sent().len(), 1);
+    assert_eq!(link_opens(&env), usize::try_from(MAX_ATTEMPTS).expect("small"));
+
+    // A day of tries later it is given up like any other.
+    env.set_attempts(64, i32::try_from(OUTAGE_MAX_ATTEMPTS - 1).expect("small")).await;
+    let error = env.run_err().await;
+    assert!(error.message().contains("article 64 (gave up)"), "{}", error.message());
+    let queued = env.queue(64).await;
+    assert_eq!(
+        (queued.status.as_str(), i64::from(queued.attempts)),
+        ("failed", OUTAGE_MAX_ATTEMPTS)
+    );
+    // With nothing waiting on it any more the outage notification is closed, so that the
+    // next outage is reported.
+    let resolved = env.notifier.resolved();
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == "tikhub:outage:zhihu").expect("closed");
+    assert_eq!(
+        (resolution.kind.as_str(), resolution.body.as_str()),
+        ("download_failed", "No link waits on the outage any more: the last was given up.")
+    );
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn a_zhihu_link_saved_after_an_outage_closes_its_notification() {
+    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()), (zhihu_pic("A"), jpeg())]);
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
+    env.tikhub("tikhub-key");
+    env.run_err().await;
+    env.set_attempts(64, i32::try_from(MAX_ATTEMPTS + 2).expect("small")).await;
+    env.run_ok().await;
+    assert_eq!(env.notifier.sent().len(), 1);
+    assert!(env.notifier.resolved().is_empty());
+
+    // TikHub answers again.
+    env.sites().responses.insert(ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    env.run_ok().await;
+
+    assert_eq!(env.status(64).await, "done");
+    let resolved = env.notifier.resolved();
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == "tikhub:outage:zhihu").expect("closed");
+    assert_eq!(
+        (resolution.kind.as_str(), resolution.header.as_str(), resolution.title.as_str()),
+        ("job_recovered", "WeChat", ZHIHU_TITLE)
+    );
+    assert_eq!(
+        resolution.body,
+        "The outage is over: this link was saved, and none is waiting any more."
+    );
+    env.finish().await;
+}
+
+/// The answer of another question, shared the same way and looked up apart from the first.
+const OTHER_ZHIHU_TIKHUB: &str = "https://api.tikhub.io/api/v1/zhihu/web/fetch_answer_detail?answer_id=2100311203096573241";
+
+fn other_zhihu_share_message(msg_id: i64) -> Json {
+    let url = ZHIHU_SHARE_URL.replace("2100311203096573240", "2100311203096573241");
+    app_message(msg_id, &share(&url, "5"))
+}
+
+/// The notification stands while a link still waits: a service that fails on and off, or
+/// for one post only, would otherwise close and reopen it with every save in between.
+#[tokio::test]
+async fn an_outage_stays_reported_until_the_last_waiting_link_is_saved() {
+    let sites = Sites::with(vec![
+        (ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()),
+        (OTHER_ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()),
+        (zhihu_pic("A"), jpeg()),
+    ]);
+    let events = vec![event(5, zhihu_share_message(64)), event(6, other_zhihu_share_message(66))];
+    let mut env = Env::new(Inbox::bridge(events), sites).await;
+    env.tikhub("tikhub-key");
+    env.run_err().await;
+    for msg_id in [64, 66] {
+        env.set_attempts(msg_id, i32::try_from(MAX_ATTEMPTS - 1).expect("small")).await;
+    }
+    env.run_ok().await;
+    assert_eq!(env.notifier.sent().len(), 1);
+
+    // One of the two is answered again: saved, with the other still waiting.
+    env.sites().responses.insert(OTHER_ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    env.run_ok().await;
+    assert_eq!((env.status(64).await.as_str(), env.status(66).await.as_str()), ("pending", "done"));
+    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "tikhub:outage:zhihu"));
+    assert_eq!(
+        env.notifier
+            .sent()
+            .iter()
+            .filter(|sent| sent.dedupe_key == "tikhub:outage:zhihu")
+            .count(),
+        1
+    );
+
+    env.sites().responses.insert(ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    env.run_ok().await;
+    assert_eq!(env.status(64).await, "done");
+    assert_eq!(
+        env.notifier
+            .resolved()
+            .iter()
+            .filter(|(key, _)| key == "tikhub:outage:zhihu")
+            .count(),
+        1
+    );
+    env.finish().await;
+}
+
+/// An outage Telegram reported, say: a link saved here on its first tries did not wait on
+/// it, and says nothing about the links that do.
+#[tokio::test]
+async fn a_zhihu_link_that_never_waited_closes_no_outage() {
+    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), zhihu_answer()), (zhihu_pic("A"), jpeg())]);
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
+    env.tikhub("tikhub-key");
+    let reported = NewNotification {
+        dedupe_key: "tikhub:outage:zhihu".to_owned(),
+        ..NewNotification::default()
+    };
+    env.notifier.enqueue(reported).await.expect("reported");
+
+    env.run_ok().await;
+
+    assert_eq!(env.status(64).await, "done");
+    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "tikhub:outage:zhihu"));
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn a_zhihu_link_saved_with_no_outage_open_resolves_nothing() {
+    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), zhihu_answer()), (zhihu_pic("A"), jpeg())]);
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
+    env.tikhub("tikhub-key");
+
+    env.run_ok().await;
+
+    assert_eq!(env.status(64).await, "done");
+    assert!(env.notifier.resolved().iter().all(|(key, _)| !key.starts_with("tikhub:outage")));
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn a_zhihu_post_tikhub_cannot_read_is_given_up_at_its_fifth_try_whatever_came_before() {
+    let gone = Reply::json(200, &json!({"data": {}}));
+    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), gone)]);
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
+    env.tikhub("tikhub-key");
+    env.run_err().await;
+    // As a link is left that waited out an outage for a while.
+    env.set_attempts(64, i32::try_from(MAX_ATTEMPTS + 6).expect("small")).await;
+
+    let error = env.run_err().await;
+
+    assert!(error.message().contains("article 64 (gave up)"), "{}", error.message());
+    assert_eq!(env.status(64).await, "failed");
+    assert!(env.notifier.sent().is_empty());
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn a_video_waits_out_a_tikhub_outage_and_closes_it_once_saved() {
+    let mut env = Env::new(
+        Inbox::bridge(vec![event(1, video_message(65))]),
+        video_sites(None, Some(tikhub_request_failed())),
+    )
+    .await;
+    env.tikhub("tikhub-key");
+    let error = env.run_err().await;
+    assert!(
+        error.message().contains("HTTP 400: Request failed. Please retry"),
+        "{}",
+        error.message()
+    );
+    env.set_attempts(65, i32::try_from(MAX_ATTEMPTS - 1).expect("small")).await;
+
+    // TikHub's wrapper, then a server error, then no answer at all: each is TikHub's failing.
+    env.run_ok().await;
+    env.sites()
+        .responses
+        .insert(TIKHUB_DETAIL.to_owned(), Reply::json(502, &json!({"detail": "bad gateway"})));
+    env.run_ok().await;
+    env.sites().responses.insert(TIKHUB_DETAIL.to_owned(), Reply::Reset);
+    env.run_ok().await;
+
+    let queued = env.queue(65).await;
+    assert_eq!((queued.status.as_str(), i64::from(queued.attempts)), ("pending", MAX_ATTEMPTS + 2));
+    let sent = env.notifier.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        (sent[0].kind.as_str(), sent[0].dedupe_key.as_str(), sent[0].header.as_str()),
+        ("download_failed", "tikhub:outage:channels", "WeChat")
+    );
+    assert_eq!(sent[0].title, video_title(&parsed_video(&default_finder())));
+    assert!(
+        sent[0].body.starts_with("Waiting out an outage: videos it stops"),
+        "{}",
+        sent[0].body
+    );
+    assert!(env.files().is_empty());
+
+    env.sites().responses.insert(TIKHUB_DETAIL.to_owned(), tikhub_answer());
+    env.run_ok().await;
+
+    assert_eq!(env.status(65).await, "done");
+    let resolved = env.notifier.resolved();
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == "tikhub:outage:channels").expect("closed");
+    assert_eq!(
+        resolution.body,
+        "The outage is over: this video was saved, and none is waiting any more."
+    );
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn a_video_tikhub_answers_about_is_given_up_at_its_fifth_try() {
+    let not_found = Reply::json(404, &json!({"detail": {"code": 404, "message": "video not found"}}));
+    let mut env = Env::new(Inbox::bridge(vec![event(1, video_message(65))]), video_sites(None, Some(not_found))).await;
+    env.tikhub("tikhub-key");
+    env.run_err().await;
+    env.set_attempts(65, i32::try_from(MAX_ATTEMPTS - 1).expect("small")).await;
+
+    let error = env.run_err().await;
+
+    assert!(error.message().contains("channel_video 65 (gave up)"), "{}", error.message());
+    assert_eq!(env.status(65).await, "failed");
+    assert!(env.notifier.sent().is_empty());
     env.finish().await;
 }
 

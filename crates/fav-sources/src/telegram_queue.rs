@@ -345,6 +345,25 @@ pub async fn mark_retry(db: &Db, job: &TelegramMediaJob, owner_token: &str, erro
     Ok(!rows.is_empty())
 }
 
+/// How many of the account's links besides `job` are past `tries` failed tries and still
+/// queued: the ones that wait, on an outage or on a setting. One being tried counts once
+/// the try is past those, as the claim has counted it already.
+pub async fn waiting_links(db: &Db, job: &TelegramMediaJob, tries: i64) -> Result<i64, PyError> {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM telegram_media_queue
+        WHERE account_name = $1 AND media_type = 'link'
+          AND NOT (channel_id = $2 AND message_id = $3)
+          AND ((status = 'pending' AND attempt_count >= $4) OR (status = 'processing' AND attempt_count > $4))",
+    )
+    .bind(&job.account_name)
+    .bind(job.channel_id)
+    .bind(job.message_id)
+    .bind(tries)
+    .fetch_one(db.pool())
+    .await
+    .map_err(sql_error)
+}
+
 /// `telegram_media_retry_delay`: 30 s, doubling per attempt, capped at 30 minutes.
 pub fn retry_delay(attempt_count: i64) -> f64 {
     let exponent = u32::try_from(attempt_count.saturating_sub(1).max(0)).unwrap_or(u32::MAX);

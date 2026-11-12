@@ -247,14 +247,14 @@ async fn a_key_is_open_from_its_enqueue_to_its_resolve() {
         kind: "download_failed".to_owned(),
         source: "telegram".to_owned(),
         title: "A link".to_owned(),
-        dedupe_key: "telegram:links:outage".to_owned(),
+        dedupe_key: "tikhub:outage:zhihu".to_owned(),
         ..NewNotification::default()
     };
     let key = notification.dedupe_key.as_str();
     assert!(!outbox.is_open(key).await.expect("asked"));
     outbox.enqueue(&notification).await.expect("enqueued").expect("row");
     assert!(outbox.is_open(key).await.expect("asked"));
-    assert!(!outbox.is_open("telegram:links:other").await.expect("asked"));
+    assert!(!outbox.is_open("tikhub:outage:other").await.expect("asked"));
     assert!(!outbox.is_open("  ").await.expect("asked"));
 
     outbox

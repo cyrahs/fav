@@ -32,8 +32,6 @@ use crate::wechat_article::{ArticlePage, PostVideo};
 
 /// TikHub's answers to a missing, invalid or spent key.
 const TIKHUB_ACCOUNT_STATUSES: [u16; 3] = [401, 402, 403];
-/// How TikHub's message starts when it could not carry a request out at all.
-const TIKHUB_REQUEST_FAILED: &str = "Request failed. Please retry";
 pub const LENS_API: &str = "https://lens.zhihu.com/api/v4/videos/";
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36";
 const PIN_TITLE_BYTES: usize = 80;
@@ -445,25 +443,6 @@ pub fn parse_post(link: &ZhihuLink, data: &Dict) -> Result<ZhihuPost, PyError> {
     })
 }
 
-/// Why an answer without the post's data is TikHub's failure and not the post's: a rate
-/// limit, a server error, or the wrapper TikHub puts around a request it could not carry
-/// out (`{"detail": {"code": 400, "message": "Request failed. Please retry. ..."}}`, which
-/// it sends for every Zhihu lookup while its Zhihu API is down). `None` for any other
-/// answer, such as a post that is gone.
-fn outage_reason(status: u16, detail: Option<&Value>) -> Option<String> {
-    let message = detail.map(|detail| match detail {
-        Value::Dict(fields) => fields
-            .get("message")
-            .filter(|message| message.is_truthy())
-            .map_or_else(|| py_str(detail), py_str),
-        _ => py_str(detail),
-    });
-    if status == 429 || status >= 500 {
-        return Some(message.unwrap_or_else(|| "no data".to_owned()));
-    }
-    message.filter(|message| message.starts_with(TIKHUB_REQUEST_FAILED))
-}
-
 /// `fetch_post`: look the post up through TikHub.
 pub async fn fetch_post(client: &PostClient, link: &ZhihuLink, api_url: &str, token: &str) -> Result<ZhihuPost, ZhihuError> {
     if token.is_empty() {
@@ -510,7 +489,7 @@ pub async fn fetch_post(client: &PostClient, link: &ZhihuLink, api_url: &str, to
             Value::Dict(payload) => payload.get("detail").filter(|detail| detail.is_truthy()),
             _ => None,
         };
-        if let Some(reason) = outage_reason(fetched.status, detail) {
+        if let Some(reason) = crate::tikhub::outage_reason(fetched.status, detail) {
             return Err(ZhihuError::Outage(format!(
                 "TikHub is failing for {} (HTTP {}): {reason}",
                 link.url(),
