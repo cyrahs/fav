@@ -633,8 +633,15 @@ impl ChromiumZhihuReader {
             .map_err(|error| PyError::new("RuntimeError", error.to_string()))?;
         let rednote = &settings.web.rednote;
         let profile = fav_browser::zhihu::profile_dir(rednote.profile_path.as_path());
-        let browser = fav_browser::zhihu::ZhihuBrowser::new(self.executable.clone(), &profile, &rednote.proxy, rednote.headless)
-            .map_err(|error| PyError::new(error.class, error.message))?;
+        // Always headless: the worker has no display (the login window brings its own).
+        let browser = fav_browser::zhihu::ZhihuBrowser::new(self.executable.clone(), &profile, &rednote.proxy, true).map_err(|error| {
+            ZhihuError::Outage(format!(
+                "The Zhihu browser cannot use web.rednote.proxy ({}: {}) for {}",
+                error.class,
+                error.message,
+                link.url()
+            ))
+        })?;
         let lock = self.lock(&fav_browser::zhihu::profile_lock_name(&profile), link).await?;
         let read = browser.read(&link.url(), link.kind.as_str(), &link.id).await;
         // Only once the browser is down: the lock is what keeps a login out of the profile.
@@ -662,8 +669,10 @@ pub fn page_state(link: &ZhihuLink, state: fav_browser::zhihu::PageState) -> Res
             "Zhihu is not signed in any more (reading {}); sign in to 知乎 on the 登录态 page.",
             link.url()
         ))),
-        PageState::Challenge(href) => Err(ZhihuError::Login(format!(
-            "Zhihu put a security check in front of {} ({href}); open 知乎 on the 登录态 page and pass it.",
+        // Waited out rather than waited on: the login window may never be shown the check,
+        // and a link must not wait on it for good. Signing in to 知乎 again may clear it.
+        PageState::Challenge(href) => Err(ZhihuError::Outage(format!(
+            "Zhihu put a security check in front of {} ({href}); signing in to 知乎 again on the 登录态 page may clear it",
             link.url()
         ))),
         PageState::Missing(summary) => Err(ZhihuError::Zhihu(format!(

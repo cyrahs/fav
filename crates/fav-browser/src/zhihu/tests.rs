@@ -58,6 +58,12 @@ fn a_page_is_classified_by_what_it_shows() {
     );
     assert_eq!(
         classify(&probe(
+            json!({"href": "https://www.zhihu.com/answer/2", "api_status": 403, "api_error": "请先登录"})
+        )),
+        PageState::SignedOut
+    );
+    assert_eq!(
+        classify(&probe(
             json!({"href": "https://www.zhihu.com/account/unhuman?type=U4E3Z1&need_login=true", "post": null})
         )),
         PageState::Challenge("https://www.zhihu.com/account/unhuman?type=U4E3Z1&need_login=true".to_owned())

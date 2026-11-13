@@ -160,19 +160,25 @@ pub const READ_SCRIPT: &str = r"async (arg) => {
         const questions = entities.questions || {};
         if (post.question != null && typeof post.question !== 'object' && questions[post.question]) {
             post.question = questions[post.question];
+        } else if (post.question && typeof post.question === 'object' && !post.question.title && questions[post.question.id]) {
+            post.question = Object.assign({}, post.question, questions[post.question.id]);
         }
         result.post = convert(post);
         result.source = 'page';
         return result;
     }
     if (!arg.api) { return result; }
+    // Asked on the page's own origin, which its cookies go to without CORS: a column
+    // article's page is on zhuanlan, whose API has the article at /api/articles/<id>.
+    const zhuanlan = location.hostname === 'zhuanlan.zhihu.com';
+    const origin = /(^|\.)zhihu\.com$/.test(location.hostname) ? location.origin : 'https://www.zhihu.com';
     const paths = {
         answer: '/api/v4/answers/' + id + '?include=content,question,author,created_time',
-        article: '/api/v4/articles/' + id,
+        article: (zhuanlan ? '/api/articles/' : '/api/v4/articles/') + id,
         pin: '/api/v4/pins/' + id,
     };
     try {
-        const response = await fetch('https://www.zhihu.com' + paths[kind], { credentials: 'include' });
+        const response = await fetch(origin + paths[kind], { credentials: 'include' });
         result.api_status = response.status;
         let data = null;
         try { data = await response.json(); } catch (error) { data = null; }
@@ -195,8 +201,8 @@ pub enum PageState {
     Post(Value),
     /// The page wants a sign-in: the profile's session is gone.
     SignedOut,
-    /// Zhihu put a security check in front of the page, which a person has to pass in the
-    /// login window.
+    /// Zhihu put a security check in front of the page. The login window may not be shown
+    /// it, so this is waited out as an outage rather than waited on as a setting.
     Challenge(String),
     /// The post is not there (deleted, or never was).
     Missing(String),
@@ -242,7 +248,9 @@ pub fn classify(probe: &Map<String, Value>) -> PageState {
         return PageState::SignedOut;
     }
     let api_status = probe.get("api_status").and_then(Value::as_i64).unwrap_or(0);
-    if api_status == 401 {
+    // The API's refusal of a visitor with no session: 401, or a 403 whose message asks
+    // for a sign-in (40353 `need_login`).
+    if api_status == 401 || (api_status == 403 && text(probe, "api_error").contains("登录")) {
         return PageState::SignedOut;
     }
     let summary = summary(probe);

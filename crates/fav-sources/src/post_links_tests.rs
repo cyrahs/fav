@@ -1159,7 +1159,7 @@ fn what_the_profile_page_showed_is_the_error_a_source_waits_on() {
     ));
     assert!(matches!(
         zhihu_post::page_state(&link, PageState::Challenge("https://www.zhihu.com/account/unhuman".to_owned())),
-        Err(ZhihuError::Login(message)) if message.contains("security check")
+        Err(ZhihuError::Outage(message)) if message.contains("security check")
     ));
     assert_eq!(
         zhihu_post::page_state(&link, PageState::Missing("\"知乎\" at https://www.zhihu.com/pin/7".to_owned())),
