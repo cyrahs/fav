@@ -21,8 +21,9 @@
 //! through the notification channels, and the row waits as `reported` until this source
 //! learns to save it. A failed item is retried as [`crate::link_retry`] says, the rule
 //! Telegram's links follow too: up to [`MAX_ATTEMPTS`] times, one per run, and through
-//! [`OUTAGE_MAX_ATTEMPTS`] when what failed is TikHub and not the item (DIVERGENCES.md
-//! D185). Last, the run drains the inbox, which catches what the event log misses.
+//! [`OUTAGE_MAX_ATTEMPTS`] when what failed is the service that reads it (the Zhihu
+//! browser, TikHub) and not the item (DIVERGENCES.md D185). Last, the run drains the
+//! inbox, which catches what the event log misses.
 //!
 //! Items are keyed on WeChat's local `msg_id` together with the message's `create_time`.
 //!
@@ -88,7 +89,8 @@ const MAGIC_EXTENSIONS: [(&[u8], &str); 4] = [(b"\xff\xd8\xff", "jpg"), (b"\x89P
 pub const REQUEST_TIMEOUT_SECONDS: u64 = 60;
 pub const EVENT_PAGE_SIZE: usize = 200;
 pub const MAX_ATTEMPTS: i64 = link_retry::MAX_ATTEMPTS;
-/// How many tries an item gets that TikHub's failing keeps from being looked up
+/// How many tries an item gets that the service reading it (the Zhihu browser, TikHub)
+/// keeps from being read by failing
 /// ([`link_retry::Next::WaitOut`]): one per run, and the job runs every half hour, which
 /// makes about a day (D185).
 pub const OUTAGE_MAX_ATTEMPTS: i64 = 48;
@@ -108,7 +110,7 @@ pub const WORK_VERSION_KEY: &str = "work_version";
 pub const UNSUPPORTED_SINCE_KEY: &str = "unsupported_since";
 pub const NGA_LOGIN_KEY: &str = "wechat:nga-login";
 pub const TIKHUB_KEY: &str = "wechat:tikhub";
-/// A Zhihu post waits for the Zhihu profile to be signed in again (D186).
+/// A Zhihu post waits for the Zhihu profile to be signed in (D186, D187).
 pub const ZHIHU_LOGIN_KEY: &str = "wechat:zhihu-login";
 const AUTH_KEY: &str = "wechat:auth";
 const UNREACHABLE_KEY: &str = "wechat:unreachable";
@@ -1187,12 +1189,12 @@ impl Wechat {
 
     /// A queued item is done with, saved or given up: if it had waited on an outage, the
     /// outage notification is closed with it, unless more items of its kind still wait
-    /// ([`Outages::settle`]). Only an item TikHub looks up is still queued past the tries
-    /// any item gets, so the kind names the service. A count that cannot be read closes
+    /// ([`Outages::settle`]). Only an item a failing service reads (a Zhihu link, a 视频号
+    /// video) is still queued past the tries any item gets, so the kind names the service. A count that cannot be read closes
     /// nothing.
     async fn settle_outage(&self, row: &QueueRow, end: End) {
         let service = match row.work.as_str() {
-            WORK_ARTICLE => Service::TikHubZhihu,
+            WORK_ARTICLE => Service::Zhihu,
             WORK_CHANNEL_VIDEO => Service::TikHubChannels,
             _ => return,
         };
@@ -1997,11 +1999,10 @@ impl Wechat {
         match self.web.fetch_page(link).await {
             Ok(page) => Ok(page),
             Err(PostError::Link(error)) if error.captcha => self.image_post(message, link, final_attempt).await,
-            Err(PostError::Link(error)) if error.outage => Err(Failure::outage(error.message, Service::TikHubZhihu)),
+            Err(PostError::Link(error)) if error.outage => Err(Failure::outage(error.message, Service::Zhihu)),
             Err(PostError::Link(error)) => {
                 let key = match error.needs {
                     Needs::NgaLogin => NGA_LOGIN_KEY,
-                    Needs::TikHub => TIKHUB_KEY,
                     Needs::ZhihuLogin => ZHIHU_LOGIN_KEY,
                     Needs::Nothing => "",
                 };
@@ -2598,7 +2599,7 @@ impl Source for WechatJob {
             let clients = Clients::new(token, None, &[]).map_err(build_error)?;
             let sessions: Arc<dyn SessionStore> = Arc::new(self.ctx.db.clone());
             let zhihu = Arc::new(ChromiumZhihuReader::new(self.ctx.db.clone(), Arc::clone(&self.ctx.settings)));
-            let web = PostLinks::new(PostClient::new().map_err(build_error)?, Arc::clone(&self.ctx.settings), sessions).with_zhihu(zhihu);
+            let web = PostLinks::new(PostClient::new().map_err(build_error)?, sessions).with_zhihu(zhihu);
             let notifier: SharedNotifier = Arc::new(OutboxNotifier(Outbox::new(self.ctx.db.clone(), Arc::clone(&self.ctx.settings))));
             let mut source = Wechat::new(self.ctx.db.clone(), notifier, Arc::clone(&self.ctx.settings), cfg, clients, web);
             source.update().await

@@ -3,12 +3,10 @@
 //! Python origin: `src/web/zhihu_post.py`.
 //!
 //! Zhihu answers the cluster's addresses with HTTP 403 for every page and for its
-//! `/api/v4` JSON unless the visitor is signed in. With a Zhihu login captured on the
-//! 登录态 page, the post is read in that signed-in Chromium profile ([`ZhihuReader`],
-//! `fav_browser::zhihu`, DIVERGENCES.md D186); without one it is looked up through TikHub
-//! (`fetch_answer_detail`, `fetch_column_article_detail` and `fetch_pin_detail`, each
-//! billed), with the key in `services.tikhub` that 视频号 lookups use too. Either way the
-//! post's data is keyed as the API keys it, and read by [`parse_post`].
+//! `/api/v4` JSON unless the visitor is signed in, so a post is read in the Chromium
+//! profile signed in to 知乎 on the 登录态 page ([`ZhihuReader`], `fav_browser::zhihu`,
+//! DIVERGENCES.md D186). TikHub, which looked posts up before, is no longer asked (D187).
+//! The post's data is keyed as the API keys it, and read by [`parse_post`].
 //!
 //! Everything after that is public. An answer's or article's `content` is HTML: each
 //! picture is an `<img>` whose `data-original` is the full-size upload on `*.zhimg.com`,
@@ -32,13 +30,11 @@ use fav_net::Request;
 use fav_runtime::BoxFuture;
 
 use crate::post_links::{Fetched, PostClient, is_http_error};
-use crate::pydecode::{PyError, json_from_bytes, py_int, urlencode};
+use crate::pydecode::{PyError, json_from_bytes, py_int};
 use crate::pyre::{compile, strip_tags};
 use crate::pyval::{as_str, first_truthy, float, fromtimestamp_utc, py_str, split, str_or_empty, unique};
 use crate::wechat_article::{ArticlePage, PostVideo};
 
-/// TikHub's answers to a missing, invalid or spent key.
-const TIKHUB_ACCOUNT_STATUSES: [u16; 3] = [401, 402, 403];
 pub const LENS_API: &str = "https://lens.zhihu.com/api/v4/videos/";
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36";
 const PIN_TITLE_BYTES: usize = 80;
@@ -83,15 +79,6 @@ impl ZhihuKind {
             "article" => Some(Self::Article),
             "pin" => Some(Self::Pin),
             _ => None,
-        }
-    }
-
-    /// `_TIKHUB_ENDPOINTS[kind]`: the detail path and its id parameter.
-    fn endpoint(self) -> (&'static str, &'static str) {
-        match self {
-            Self::Answer => ("/api/v1/zhihu/web/fetch_answer_detail", "answer_id"),
-            Self::Article => ("/api/v1/zhihu/web/fetch_column_article_detail", "article_id"),
-            Self::Pin => ("/api/v1/zhihu/web/fetch_pin_detail", "pin_id"),
         }
     }
 }
@@ -144,16 +131,12 @@ pub enum ZhihuError {
     /// `ZhihuError`: retried later.
     #[error("{0}")]
     Zhihu(String),
-    /// `ZhihuAccountError`: TikHub refused the key, settings to fix rather than a failed try.
-    #[error("{0}")]
-    Account(String),
-    /// The signed-in profile is not signed in any more, or Zhihu wants a person to pass a
-    /// security check in it: the 登录态 page to visit rather than a failed try.
+    /// The Zhihu profile is not signed in (never was, or lost its login): the 登录态 page
+    /// to visit rather than a failed try.
     #[error("{0}")]
     Login(String),
-    /// TikHub itself is failing (it did not answer, answered with a server error, or with
-    /// its own "Request failed" wrapper): an outage to wait out, which says nothing about
-    /// the post (DIVERGENCES.md D185).
+    /// What reads the post is failing, not the post (the browser, or a page that shows no
+    /// post): an outage to wait out (DIVERGENCES.md D185, D186).
     #[error("{0}")]
     Outage(String),
     /// Any other exception Python lets through.
@@ -413,7 +396,8 @@ pub(crate) fn short(text: &str, max_bytes: usize) -> String {
     format!("{}…", text[..end].trim_end_matches(is_py_space))
 }
 
-/// `parse_post`: the pictures and videos of a TikHub detail answer's `data`.
+/// `parse_post`: the pictures and videos of a post's API fields, as the Zhihu profile reads
+/// them (Python read TikHub's detail answer's `data`, which has the same fields).
 pub fn parse_post(link: &ZhihuLink, data: &Dict) -> Result<ZhihuPost, PyError> {
     let author = author(data);
     if link.kind == ZhihuKind::Pin {
@@ -454,78 +438,6 @@ pub fn parse_post(link: &ZhihuLink, data: &Dict) -> Result<ZhihuPost, PyError> {
     })
 }
 
-/// `fetch_post`: look the post up through TikHub.
-pub async fn fetch_post(client: &PostClient, link: &ZhihuLink, api_url: &str, token: &str) -> Result<ZhihuPost, ZhihuError> {
-    if token.is_empty() {
-        return Err(ZhihuError::Account(
-            "Zhihu links need a TikHub API key (services.tikhub)".to_owned(),
-        ));
-    }
-    let (path, param) = link.kind.endpoint();
-    let url = format!("{}{path}?{}", api_url.trim_end_matches('/'), urlencode(&[(param, link.id.clone())]));
-    let request = Request::get(url).header("Authorization", format!("Bearer {token}"));
-    let fetched = match Fetched::send(client.lookup(), request).await {
-        Ok(fetched) => fetched,
-        Err(error) if is_http_error(&error) => {
-            return Err(ZhihuError::Outage(format!(
-                "TikHub did not answer for {}: {}: {}",
-                link.url(),
-                error.class,
-                error.message
-            )));
-        }
-        Err(error) => return Err(error.into()),
-    };
-    if TIKHUB_ACCOUNT_STATUSES.contains(&fetched.status) {
-        return Err(ZhihuError::Account(format!(
-            "TikHub refused the API key (HTTP {}); check the key in services.tikhub and the account balance",
-            fetched.status
-        )));
-    }
-    let server_error = fetched.status == 429 || fetched.status >= 500;
-    let Ok(payload) = json_from_bytes(&fetched.body) else {
-        let message = format!("TikHub answered {} with HTTP {} and no JSON", link.url(), fetched.status);
-        return Err(if server_error {
-            ZhihuError::Outage(message)
-        } else {
-            ZhihuError::Zhihu(message)
-        });
-    };
-    let data = match &payload {
-        Value::Dict(payload) => payload.get("data").and_then(Value::as_dict),
-        _ => None,
-    };
-    let Some(data) = data.filter(|data| fetched.status == 200 && !data.is_empty()) else {
-        let detail = match &payload {
-            Value::Dict(payload) => payload.get("detail").filter(|detail| detail.is_truthy()),
-            _ => None,
-        };
-        if let Some(reason) = crate::tikhub::outage_reason(fetched.status, detail) {
-            return Err(ZhihuError::Outage(format!(
-                "TikHub is failing for {} (HTTP {}): {reason}",
-                link.url(),
-                fetched.status
-            )));
-        }
-        return Err(ZhihuError::Zhihu(format!(
-            "TikHub could not read {} (HTTP {}): {}; it may have been deleted",
-            link.url(),
-            fetched.status,
-            detail.map(py_str).as_deref().unwrap_or("no data")
-        )));
-    };
-    if let Some(error) = data.get("error")
-        && let Value::Dict(fields) = error
-    {
-        let message = match fields.get("message") {
-            Some(message) if message.is_truthy() => py_str(message),
-            _ => py_str(error),
-        };
-        return Err(ZhihuError::Zhihu(format!("Zhihu refused {}: {message}", link.url())));
-    }
-    Ok(parse_post(link, data)?)
-}
-
 /// `resolve_video`: a fresh MP4 URL for the video at its best quality, or `""` when Zhihu
 /// has none.
 pub async fn resolve_video(client: &PostClient, video: &ZhihuVideo) -> Result<String, PyError> {
@@ -544,13 +456,6 @@ pub async fn resolve_video(client: &PostClient, video: &ZhihuVideo) -> Result<St
     };
     let url = best_playlist_url(playlist)?;
     Ok(if url.is_empty() { video.fallback_url.clone() } else { url })
-}
-
-/// `fetch_page`: the post as a page of pictures and videos, each video resolved to a URL
-/// to download now.
-pub async fn fetch_page(client: &PostClient, link: &ZhihuLink, api_url: &str, token: &str) -> Result<ArticlePage, ZhihuError> {
-    let post = fetch_post(client, link, api_url, token).await?;
-    Ok(page_of(client, link, post).await?)
 }
 
 /// The post as a page, its videos resolved to URLs to download now.

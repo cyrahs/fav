@@ -329,3 +329,86 @@ async fn answer(mut stream: impl Connection, scheme: &str, head: &str, mut body:
         }
     }
 }
+
+type ZhihuAnswer = Result<fav_core::pyjson::Dict, crate::zhihu_post::ZhihuError>;
+
+/// A Zhihu reader standing in for the signed-in Chromium profile (D186): it answers a post
+/// with what was scripted for its URL, any other with one result, and keeps what it read.
+pub(crate) struct FakeZhihu {
+    answer: ZhihuAnswer,
+    posts: Mutex<HashMap<String, ZhihuAnswer>>,
+    read: Mutex<Vec<crate::zhihu_post::ZhihuLink>>,
+}
+
+/// A post's fields, as Zhihu's API names them, in the reader's form.
+fn zhihu_post(post: &serde_json::Value) -> fav_core::pyjson::Dict {
+    let text = serde_json::to_string(post).expect("serialisable");
+    match fav_core::pyjson::loads(&text).expect("JSON") {
+        fav_core::pyjson::Value::Dict(post) => post,
+        _ => panic!("a post is an object: {text}"),
+    }
+}
+
+impl FakeZhihu {
+    /// A reader that finds `post` wherever it looks.
+    pub(crate) fn finding(post: &serde_json::Value) -> Arc<Self> {
+        Self::answering(Ok(zhihu_post(post)))
+    }
+
+    /// A reader that fails every read with `error`, but for the posts given their own answer.
+    pub(crate) fn failing(error: crate::zhihu_post::ZhihuError) -> Arc<Self> {
+        Self::answering(Err(error))
+    }
+
+    fn answering(answer: ZhihuAnswer) -> Arc<Self> {
+        Arc::new(Self {
+            answer,
+            posts: Mutex::new(HashMap::new()),
+            read: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// From now on the post at `url` (as [`crate::zhihu_post::ZhihuLink::url`] names it) is `post`.
+    pub(crate) fn find(&self, url: &str, post: &serde_json::Value) {
+        self.posts.lock().expect("lock").insert(url.to_owned(), Ok(zhihu_post(post)));
+    }
+
+    /// The posts read so far, as their URLs.
+    pub(crate) fn read(&self) -> Vec<String> {
+        self.read
+            .lock()
+            .expect("lock")
+            .iter()
+            .map(crate::zhihu_post::ZhihuLink::url)
+            .collect()
+    }
+}
+
+impl crate::zhihu_post::ZhihuReader for FakeZhihu {
+    fn read<'a>(&'a self, link: &'a crate::zhihu_post::ZhihuLink) -> fav_runtime::BoxFuture<'a, ZhihuAnswer> {
+        self.read.lock().expect("lock").push(link.clone());
+        let answer = self
+            .posts
+            .lock()
+            .expect("lock")
+            .get(&link.url())
+            .cloned()
+            .unwrap_or_else(|| self.answer.clone());
+        Box::pin(async move { answer })
+    }
+}
+
+/// Store a Zhihu login, as signing in on the 登录态 page leaves one: the session cookie's
+/// value stays in the profile.
+pub(crate) async fn sign_in_to_zhihu(db: &fav_db::Db) {
+    let cookie = fav_runtime::site_sessions::StoredCookie {
+        name: fav_browser::zhihu::SESSION_COOKIE.to_owned(),
+        value: fav_runtime::site_sessions::VALUE_IN_PROFILE.to_owned(),
+        domain: ".zhihu.com".to_owned(),
+        path: "/".to_owned(),
+        expires: None,
+    };
+    fav_runtime::site_sessions::save_signed_in(db, fav_browser::zhihu::SESSION_SITE, &[cookie], "某人 (some-one)", None, &[])
+        .await
+        .expect("saved");
+}

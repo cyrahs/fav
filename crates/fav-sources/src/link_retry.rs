@@ -22,18 +22,18 @@ pub const MAX_ATTEMPTS: i64 = 5;
 /// A service an item is looked up through, whose outages the item waits out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Service {
-    /// TikHub's Zhihu API: answers, articles and pins linked from Telegram or WeChat.
-    TikHubZhihu,
+    /// The Zhihu browser: answers, articles and pins linked from Telegram or WeChat (D187).
+    Zhihu,
     /// TikHub's 视频号 API: the videos forwarded in WeChat.
     TikHubChannels,
 }
 
 impl Service {
     /// The dedupe key of the one notification its outage has, whichever source reports it.
-    /// TikHub's APIs fail apart from each other, so each has a notification of its own.
+    /// The services fail apart from each other, so each has a notification of its own.
     pub fn outage_key(self) -> &'static str {
         match self {
-            Self::TikHubZhihu => "tikhub:outage:zhihu",
+            Self::Zhihu => "zhihu:outage",
             Self::TikHubChannels => "tikhub:outage:channels",
         }
     }
@@ -41,7 +41,7 @@ impl Service {
     /// What it looks up, as the notifications call one of them.
     fn item(self) -> &'static str {
         match self {
-            Self::TikHubZhihu => "link",
+            Self::Zhihu => "link",
             Self::TikHubChannels => "video",
         }
     }
@@ -210,11 +210,11 @@ mod tests {
 
     #[test]
     fn an_outage_is_waited_out_from_the_fifth_try_until_the_day_is_over() {
-        let outage = Some(Service::TikHubZhihu);
+        let outage = Some(Service::Zhihu);
         // The first tries are any item's.
         assert_eq!(next(false, outage, MAX_ATTEMPTS - 1, DAY), Next::Retry);
-        assert_eq!(next(false, outage, MAX_ATTEMPTS, DAY), Next::WaitOut(Service::TikHubZhihu));
-        assert_eq!(next(false, outage, DAY - 1, DAY), Next::WaitOut(Service::TikHubZhihu));
+        assert_eq!(next(false, outage, MAX_ATTEMPTS, DAY), Next::WaitOut(Service::Zhihu));
+        assert_eq!(next(false, outage, DAY - 1, DAY), Next::WaitOut(Service::Zhihu));
         assert_eq!(next(false, outage, DAY, DAY), Next::GiveUp);
         // Past its fifth try an item is given up by the first failure that is its own.
         assert_eq!(next(false, None, MAX_ATTEMPTS + 3, DAY), Next::GiveUp);
@@ -241,9 +241,9 @@ mod tests {
         let telegram = outages(&notifier, "telegram", "Telegram");
         let wechat = outages(&notifier, "wechat", "WeChat");
 
-        telegram.report(Service::TikHubZhihu, "message 1", "A", "TikHub is failing").await;
-        wechat.report(Service::TikHubZhihu, "article 2", "B", "TikHub is failing").await;
-        telegram.report(Service::TikHubZhihu, "message 3", "C", "TikHub is failing").await;
+        telegram.report(Service::Zhihu, "message 1", "A", "Zhihu is failing").await;
+        wechat.report(Service::Zhihu, "article 2", "B", "Zhihu is failing").await;
+        telegram.report(Service::Zhihu, "message 3", "C", "Zhihu is failing").await;
 
         let sent = notifier.sent();
         assert_eq!(sent.len(), 1);
@@ -256,18 +256,18 @@ mod tests {
             ),
             ("download_failed", "telegram", "Telegram", "A")
         );
-        assert_eq!(sent[0].dedupe_key, "tikhub:outage:zhihu");
+        assert_eq!(sent[0].dedupe_key, "zhihu:outage");
         assert_eq!(
             sent[0].body,
-            "Waiting out an outage: links it stops are tried again for a day. TikHub is failing"
+            "Waiting out an outage: links it stops are tried again for a day. Zhihu is failing"
         );
 
-        wechat.settle(Service::TikHubZhihu, "article 2", "B", End::Saved, 0).await;
-        wechat.settle(Service::TikHubZhihu, "article 4", "D", End::Saved, 0).await;
+        wechat.settle(Service::Zhihu, "article 2", "B", End::Saved, 0).await;
+        wechat.settle(Service::Zhihu, "article 4", "D", End::Saved, 0).await;
 
         let resolved = notifier.resolved();
         assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved[0].0, "tikhub:outage:zhihu");
+        assert_eq!(resolved[0].0, "zhihu:outage");
         assert_eq!(
             (
                 resolved[0].1.kind.as_str(),
@@ -282,7 +282,7 @@ mod tests {
         );
 
         // The next outage starts a notification of its own.
-        wechat.report(Service::TikHubZhihu, "article 5", "E", "TikHub is failing").await;
+        wechat.report(Service::Zhihu, "article 5", "E", "Zhihu is failing").await;
         assert_eq!(notifier.sent().len(), 2);
     }
 
@@ -291,7 +291,7 @@ mod tests {
         let notifier = Arc::new(RecordingNotifier::default());
         let wechat = outages(&notifier, "wechat", "WeChat");
 
-        wechat.report(Service::TikHubZhihu, "article 1", "A", "down").await;
+        wechat.report(Service::Zhihu, "article 1", "A", "down").await;
         wechat.report(Service::TikHubChannels, "channel_video 2", "B", "down").await;
         // A video saved says nothing about the Zhihu API.
         wechat.settle(Service::TikHubChannels, "channel_video 3", "C", End::Saved, 0).await;
@@ -299,7 +299,7 @@ mod tests {
         let sent = notifier.sent();
         assert_eq!(
             sent.iter().map(|sent| sent.dedupe_key.as_str()).collect::<Vec<_>>(),
-            ["tikhub:outage:zhihu", "tikhub:outage:channels"]
+            ["zhihu:outage", "tikhub:outage:channels"]
         );
         assert_eq!(
             sent[1].body,
@@ -318,17 +318,17 @@ mod tests {
     async fn an_outage_stays_open_while_an_item_still_waits_on_it() {
         let notifier = Arc::new(RecordingNotifier::default());
         let telegram = outages(&notifier, "telegram", "Telegram");
-        telegram.report(Service::TikHubZhihu, "message 1", "A", "down").await;
+        telegram.report(Service::Zhihu, "message 1", "A", "down").await;
 
         // A service that fails on and off: a save in between closes nothing, so the next
         // failed try has nothing to report again.
-        telegram.settle(Service::TikHubZhihu, "message 2", "B", End::Saved, 2).await;
-        telegram.report(Service::TikHubZhihu, "message 1", "A", "down").await;
-        telegram.settle(Service::TikHubZhihu, "message 3", "C", End::GivenUp, 1).await;
+        telegram.settle(Service::Zhihu, "message 2", "B", End::Saved, 2).await;
+        telegram.report(Service::Zhihu, "message 1", "A", "down").await;
+        telegram.settle(Service::Zhihu, "message 3", "C", End::GivenUp, 1).await;
         assert!(notifier.resolved().is_empty());
         assert_eq!(notifier.sent().len(), 1);
 
-        telegram.settle(Service::TikHubZhihu, "message 1", "A", End::Saved, 0).await;
+        telegram.settle(Service::Zhihu, "message 1", "A", End::Saved, 0).await;
         assert_eq!(notifier.resolved().len(), 1);
     }
 
@@ -363,14 +363,14 @@ mod tests {
     async fn a_notifier_that_fails_is_only_logged() {
         let failing = RecordingNotifier::failing();
         outages(&failing, "wechat", "WeChat")
-            .report(Service::TikHubZhihu, "article 1", "A", "down")
+            .report(Service::Zhihu, "article 1", "A", "down")
             .await;
         assert!(failing.sent().is_empty());
 
         let failing = RecordingNotifier::failing_resolve();
         let wechat = outages(&failing, "wechat", "WeChat");
-        wechat.report(Service::TikHubZhihu, "article 1", "A", "down").await;
-        wechat.settle(Service::TikHubZhihu, "article 2", "B", End::Saved, 0).await;
+        wechat.report(Service::Zhihu, "article 1", "A", "down").await;
+        wechat.settle(Service::Zhihu, "article 2", "B", End::Saved, 0).await;
         assert!(failing.resolved().is_empty());
     }
 }
