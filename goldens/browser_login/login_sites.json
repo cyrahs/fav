@@ -70,6 +70,23 @@
           "has_lock_name": true,
           "has_after_login": false,
           "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。"
+        },
+        {
+          "key": "zhihu",
+          "label": "知乎",
+          "login_url": "https://www.zhihu.com/signin?next=%2F",
+          "cookie_urls": [
+            "https://www.zhihu.com",
+            "https://zhuanlan.zhihu.com"
+          ],
+          "session_cookie": "z_c0",
+          "controlled": true,
+          "store_cookie_values": false,
+          "verifies_in_browser": true,
+          "has_profile_dir": true,
+          "has_lock_name": true,
+          "has_after_login": false,
+          "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。"
         }
       ]
     },
@@ -141,6 +158,23 @@
           "has_lock_name": true,
           "has_after_login": false,
           "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。"
+        },
+        {
+          "key": "zhihu",
+          "label": "知乎",
+          "login_url": "https://www.zhihu.com/signin?next=%2F",
+          "cookie_urls": [
+            "https://www.zhihu.com",
+            "https://zhuanlan.zhihu.com"
+          ],
+          "session_cookie": "z_c0",
+          "controlled": true,
+          "store_cookie_values": false,
+          "verifies_in_browser": true,
+          "has_profile_dir": true,
+          "has_lock_name": true,
+          "has_after_login": false,
+          "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。"
         },
         {
           "key": "bilibili-main",
@@ -229,6 +263,23 @@
           "has_lock_name": true,
           "has_after_login": false,
           "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。"
+        },
+        {
+          "key": "zhihu",
+          "label": "知乎",
+          "login_url": "https://www.zhihu.com/signin?next=%2F",
+          "cookie_urls": [
+            "https://www.zhihu.com",
+            "https://zhuanlan.zhihu.com"
+          ],
+          "session_cookie": "z_c0",
+          "controlled": true,
+          "store_cookie_values": false,
+          "verifies_in_browser": true,
+          "has_profile_dir": true,
+          "has_lock_name": true,
+          "has_after_login": false,
+          "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。"
         },
         {
           "key": "bilibili-main",

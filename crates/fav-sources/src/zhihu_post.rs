@@ -1,11 +1,14 @@
-//! Zhihu answers, column articles and pins shared as links, read through TikHub.
+//! Zhihu answers, column articles and pins shared as links.
 //!
 //! Python origin: `src/web/zhihu_post.py`.
 //!
 //! Zhihu answers the cluster's addresses with HTTP 403 for every page and for its
-//! `/api/v4` JSON, so the post itself is looked up through TikHub (`fetch_answer_detail`,
-//! `fetch_column_article_detail` and `fetch_pin_detail`, each billed), with the key in
-//! `services.tikhub` that 视频号 lookups use too.
+//! `/api/v4` JSON unless the visitor is signed in. With a Zhihu login captured on the
+//! 登录态 page, the post is read in that signed-in Chromium profile ([`ZhihuReader`],
+//! `fav_browser::zhihu`, DIVERGENCES.md D186); without one it is looked up through TikHub
+//! (`fetch_answer_detail`, `fetch_column_article_detail` and `fetch_pin_detail`, each
+//! billed), with the key in `services.tikhub` that 视频号 lookups use too. Either way the
+//! post's data is keyed as the API keys it, and read by [`parse_post`].
 //!
 //! Everything after that is public. An answer's or article's `content` is HTML: each
 //! picture is an `<img>` whose `data-original` is the full-size upload on `*.zhimg.com`,
@@ -15,14 +18,18 @@
 //! URLs for each quality; the widest one is kept. Those URLs expire within the hour, so a
 //! video is downloaded as soon as it is resolved.
 
-use std::sync::LazyLock;
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use fav_core::pyhtml::unescape;
 use fav_core::pyjson::{Dict, Value};
 use fav_core::pytext::{is_py_space, py_isdigit, py_strip};
 use fav_core::pyurl::unquote;
+use fav_db::{Db, SettingsStore};
 use fav_net::Request;
+use fav_runtime::BoxFuture;
 
 use crate::post_links::{Fetched, PostClient, is_http_error};
 use crate::pydecode::{PyError, json_from_bytes, py_int, urlencode};
@@ -140,6 +147,10 @@ pub enum ZhihuError {
     /// `ZhihuAccountError`: TikHub refused the key, settings to fix rather than a failed try.
     #[error("{0}")]
     Account(String),
+    /// The signed-in profile is not signed in any more, or Zhihu wants a person to pass a
+    /// security check in it: the 登录态 page to visit rather than a failed try.
+    #[error("{0}")]
+    Login(String),
     /// TikHub itself is failing (it did not answer, answered with a server error, or with
     /// its own "Request failed" wrapper): an outage to wait out, which says nothing about
     /// the post (DIVERGENCES.md D185).
@@ -539,6 +550,11 @@ pub async fn resolve_video(client: &PostClient, video: &ZhihuVideo) -> Result<St
 /// to download now.
 pub async fn fetch_page(client: &PostClient, link: &ZhihuLink, api_url: &str, token: &str) -> Result<ArticlePage, ZhihuError> {
     let post = fetch_post(client, link, api_url, token).await?;
+    Ok(page_of(client, link, post).await?)
+}
+
+/// The post as a page, its videos resolved to URLs to download now.
+pub async fn page_of(client: &PostClient, link: &ZhihuLink, post: ZhihuPost) -> Result<ArticlePage, PyError> {
     let mut videos = Vec::new();
     for video in &post.videos {
         let url = resolve_video(client, video).await?;
@@ -556,4 +572,104 @@ pub async fn fetch_page(client: &PostClient, link: &ZhihuLink, api_url: &str, to
         picture_count: 0,
         videos,
     })
+}
+
+/// Reads a post's data, keyed as the API keys it, in the signed-in Zhihu profile.
+pub trait ZhihuReader: Send + Sync {
+    fn read<'a>(&'a self, link: &'a ZhihuLink) -> BoxFuture<'a, Result<Dict, ZhihuError>>;
+}
+
+/// How long a read waits for the profile while a login or another source holds it.
+const PROFILE_WAIT: Duration = Duration::from_secs(90);
+const PROFILE_WAIT_POLL: Duration = Duration::from_secs(2);
+
+/// [`ZhihuReader`] in Chromium: the profile next to RedNote's, through RedNote's proxy
+/// (`web.rednote`), one browser per post, under the profile's advisory lock.
+pub struct ChromiumZhihuReader {
+    db: Db,
+    settings: Arc<SettingsStore>,
+    executable: PathBuf,
+}
+
+impl std::fmt::Debug for ChromiumZhihuReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChromiumZhihuReader")
+            .field("executable", &self.executable)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ChromiumZhihuReader {
+    pub fn new(db: Db, settings: Arc<SettingsStore>) -> Self {
+        Self {
+            db,
+            settings,
+            executable: fav_browser::chromium::playwright_chromium_executable(),
+        }
+    }
+
+    async fn lock(&self, name: &str, link: &ZhihuLink) -> Result<fav_db::lock::AdvisoryLock, ZhihuError> {
+        let started = tokio::time::Instant::now();
+        loop {
+            match self.db.try_advisory_lock(name).await {
+                Ok(Some(lock)) => return Ok(lock),
+                Ok(None) if started.elapsed() < PROFILE_WAIT => tokio::time::sleep(PROFILE_WAIT_POLL).await,
+                Ok(None) => {
+                    return Err(ZhihuError::Outage(format!(
+                        "The Zhihu browser profile stayed busy (a 登录态 login, or another source reading Zhihu) while reading {}",
+                        link.url()
+                    )));
+                }
+                Err(error) => return Err(PyError::new("OperationalError", error.to_string()).into()),
+            }
+        }
+    }
+
+    async fn read_post(&self, link: &ZhihuLink) -> Result<Dict, ZhihuError> {
+        let settings = self
+            .settings
+            .load()
+            .await
+            .map_err(|error| PyError::new("RuntimeError", error.to_string()))?;
+        let rednote = &settings.web.rednote;
+        let profile = fav_browser::zhihu::profile_dir(rednote.profile_path.as_path());
+        let browser = fav_browser::zhihu::ZhihuBrowser::new(self.executable.clone(), &profile, &rednote.proxy, rednote.headless)
+            .map_err(|error| PyError::new(error.class, error.message))?;
+        let lock = self.lock(&fav_browser::zhihu::profile_lock_name(&profile), link).await?;
+        let read = browser.read(&link.url(), link.kind.as_str(), &link.id).await;
+        // Only once the browser is down: the lock is what keeps a login out of the profile.
+        lock.release().await;
+        let state = read.map_err(|error| ZhihuError::Outage(format!("The Zhihu browser failed reading {}: {error}", link.url())))?;
+        page_state(link, state)
+    }
+}
+
+impl ZhihuReader for ChromiumZhihuReader {
+    fn read<'a>(&'a self, link: &'a ZhihuLink) -> BoxFuture<'a, Result<Dict, ZhihuError>> {
+        Box::pin(self.read_post(link))
+    }
+}
+
+/// What a page showed, as the post's data or the error it is.
+pub fn page_state(link: &ZhihuLink, state: fav_browser::zhihu::PageState) -> Result<Dict, ZhihuError> {
+    use fav_browser::zhihu::PageState;
+    match state {
+        PageState::Post(post) => match Value::from_serde(&post) {
+            Value::Dict(post) => Ok(post),
+            _ => Err(ZhihuError::Outage(format!("Zhihu answered {} with no post", link.url()))),
+        },
+        PageState::SignedOut => Err(ZhihuError::Login(format!(
+            "Zhihu is not signed in any more (reading {}); sign in to 知乎 on the 登录态 page.",
+            link.url()
+        ))),
+        PageState::Challenge(href) => Err(ZhihuError::Login(format!(
+            "Zhihu put a security check in front of {} ({href}); open 知乎 on the 登录态 page and pass it.",
+            link.url()
+        ))),
+        PageState::Missing(summary) => Err(ZhihuError::Zhihu(format!(
+            "Zhihu has no post at {} ({summary}); it may have been deleted",
+            link.url()
+        ))),
+        PageState::Unknown(summary) => Err(ZhihuError::Outage(format!("Zhihu showed no post at {} ({summary})", link.url()))),
+    }
 }

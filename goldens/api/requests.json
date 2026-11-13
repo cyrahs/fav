@@ -5752,6 +5752,19 @@
                   "checked_at": null
                 },
                 {
+                  "site": "zhihu",
+                  "label": "知乎",
+                  "signed_in": false,
+                  "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
+                  "account": "",
+                  "status": "",
+                  "message": "",
+                  "cookie_count": 0,
+                  "expires_at": null,
+                  "signed_in_at": null,
+                  "checked_at": null
+                },
+                {
                   "site": "bilibili-main",
                   "label": "Bilibili（main）",
                   "signed_in": true,
@@ -5878,6 +5891,19 @@
                   "label": "小红书",
                   "signed_in": false,
                   "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
+                  "account": "",
+                  "status": "",
+                  "message": "",
+                  "cookie_count": 0,
+                  "expires_at": null,
+                  "signed_in_at": null,
+                  "checked_at": null
+                },
+                {
+                  "site": "zhihu",
+                  "label": "知乎",
+                  "signed_in": false,
+                  "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
                   "account": "",
                   "status": "",
                   "message": "",

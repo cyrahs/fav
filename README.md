@@ -637,9 +637,15 @@ one module, `crates/fav-sources/src/post_links.rs`: 公众号 articles, Baidu Ti
 decides where the files go and how the save is recorded.
 
 An NGA thread needs the NGA login captured on the 登录态 page. Zhihu answers datacenter addresses with HTTP 403 and a
-login wall, so a Zhihu post is looked up through TikHub (`fetch_answer_detail`, `fetch_column_article_detail`,
-`fetch_pin_detail`, about $0.001 a lookup); its pictures come at full size from `*.zhimg.com` and its videos at the widest
-quality `lens.zhihu.com` lists. Without the login or the TikHub key, a link waits without using up its tries. A 公众号
+login wall, so a Zhihu post is read in a signed-in Chromium profile: sign in to 知乎 on the 登录态 page once, and every
+Zhihu link opens its page in that profile (`<RedNote profile's folder>/zhihu-profile`, through `web.rednote.proxy`, one
+browser per post under the profile's advisory lock) and takes the post from the page's own `js-initialData`, or from
+`/api/v4` asked inside the page. Until Zhihu is signed in there, a post is looked up through TikHub instead
+(`fetch_answer_detail`, `fetch_column_article_detail`, `fetch_pin_detail`, about $0.001 a lookup). Either way its
+pictures come at full size from `*.zhimg.com` and its videos at the widest quality `lens.zhihu.com` lists. A profile that
+lost its login, or that Zhihu puts a security check in front of, marks the 知乎 session invalid and its links wait for a
+new sign-in; a browser that fails to read the page counts as an outage ([When TikHub is failing](#when-tikhub-is-failing)).
+Without the login or the TikHub key, a link waits without using up its tries. A 公众号
 image post sent through Telegram cannot be read (mp.weixin.qq.com puts it behind a captcha); share it to WeChat instead.
 
 ### Messages With Nothing To Save

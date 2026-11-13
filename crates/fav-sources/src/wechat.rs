@@ -69,6 +69,7 @@ use crate::wechat_channels::{
     ChannelVideo, ENCRYPTED_BYTES, VideoSource, decrypt_in_place, parse_channel_video, parse_video_source, tikhub_lookup, video_title,
 };
 use crate::wechat_emoji::{Sticker, decrypt_sticker, matches, parse_sticker};
+use crate::zhihu_post::ChromiumZhihuReader;
 
 pub const JOB_KEY: &str = "wechat";
 /// The source's `JOB_SPECS` name.
@@ -107,6 +108,8 @@ pub const WORK_VERSION_KEY: &str = "work_version";
 pub const UNSUPPORTED_SINCE_KEY: &str = "unsupported_since";
 pub const NGA_LOGIN_KEY: &str = "wechat:nga-login";
 pub const TIKHUB_KEY: &str = "wechat:tikhub";
+/// A Zhihu post waits for the Zhihu profile to be signed in again (D186).
+pub const ZHIHU_LOGIN_KEY: &str = "wechat:zhihu-login";
 const AUTH_KEY: &str = "wechat:auth";
 const UNREACHABLE_KEY: &str = "wechat:unreachable";
 const BRIDGE_KEY: &str = "wechat:bridge";
@@ -1346,8 +1349,8 @@ impl Wechat {
                 Err(failure) if failure.is_caught() => {
                     let error = failure.text_or_class();
                     log().warning(format_args!("Failed to save WeChat {} {}: {error}", row.work, row.msg_id));
-                    // A missing NGA login or TikHub key is a setting to fix, not a failed try.
-                    let waits = [NGA_LOGIN_KEY, TIKHUB_KEY].contains(&failure.dedupe_key());
+                    // A missing NGA or Zhihu login or TikHub key is a setting to fix, not a failed try.
+                    let waits = [NGA_LOGIN_KEY, TIKHUB_KEY, ZHIHU_LOGIN_KEY].contains(&failure.dedupe_key());
                     let attempts = row.attempts + i64::from(!waits);
                     let next = link_retry::next(waits, failure.failing_service(), attempts, OUTAGE_MAX_ATTEMPTS);
                     let gave_up = next == Next::GiveUp;
@@ -1999,6 +2002,7 @@ impl Wechat {
                 let key = match error.needs {
                     Needs::NgaLogin => NGA_LOGIN_KEY,
                     Needs::TikHub => TIKHUB_KEY,
+                    Needs::ZhihuLogin => ZHIHU_LOGIN_KEY,
                     Needs::Nothing => "",
                 };
                 Err(Failure::keyed(error.message, key))
@@ -2593,7 +2597,8 @@ impl Source for WechatJob {
             };
             let clients = Clients::new(token, None, &[]).map_err(build_error)?;
             let sessions: Arc<dyn SessionStore> = Arc::new(self.ctx.db.clone());
-            let web = PostLinks::new(PostClient::new().map_err(build_error)?, Arc::clone(&self.ctx.settings), sessions);
+            let zhihu = Arc::new(ChromiumZhihuReader::new(self.ctx.db.clone(), Arc::clone(&self.ctx.settings)));
+            let web = PostLinks::new(PostClient::new().map_err(build_error)?, Arc::clone(&self.ctx.settings), sessions).with_zhihu(zhihu);
             let notifier: SharedNotifier = Arc::new(OutboxNotifier(Outbox::new(self.ctx.db.clone(), Arc::clone(&self.ctx.settings))));
             let mut source = Wechat::new(self.ctx.db.clone(), notifier, Arc::clone(&self.ctx.settings), cfg, clients, web);
             source.update().await

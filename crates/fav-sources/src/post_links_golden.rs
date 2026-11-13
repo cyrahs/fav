@@ -154,6 +154,8 @@ fn zhihu_error(failure: &ZhihuError) -> Value {
         // An outage is a `ZhihuError` in Python (D185).
         ZhihuError::Zhihu(message) | ZhihuError::Outage(message) => error("ZhihuError", message),
         ZhihuError::Account(message) => error("ZhihuAccountError", message),
+        // Python never read Zhihu in a browser (D186).
+        ZhihuError::Login(message) => error("ZhihuLoginError", message),
         ZhihuError::Other(failure) => py_error(failure),
     }
 }
