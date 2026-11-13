@@ -396,7 +396,8 @@ pub(crate) fn short(text: &str, max_bytes: usize) -> String {
     format!("{}…", text[..end].trim_end_matches(is_py_space))
 }
 
-/// `parse_post`: the pictures and videos of a TikHub detail answer's `data`.
+/// `parse_post`: the pictures and videos of a post's API fields, as the Zhihu profile reads
+/// them (Python read TikHub's detail answer's `data`, which has the same fields).
 pub fn parse_post(link: &ZhihuLink, data: &Dict) -> Result<ZhihuPost, PyError> {
     let author = author(data);
     if link.kind == ZhihuKind::Pin {

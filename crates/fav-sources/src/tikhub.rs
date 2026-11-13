@@ -2,9 +2,9 @@
 //!
 //! Python origin: `src/tool/tikhub.py`.
 //!
-//! TikHub (<https://tikhub.io>) bills each lookup against one balance, whichever source
-//! makes it (视频号 videos in WeChat, Zhihu posts linked from WeChat or Telegram), so the
-//! settings page checks the key and shows that balance in one place.
+//! TikHub (<https://tikhub.io>) bills each lookup against one balance (视频号 videos in
+//! WeChat; Zhihu posts are read in the 知乎 profile since D187), so the settings page
+//! checks the key and shows that balance in one place.
 
 use std::time::Duration;
 
