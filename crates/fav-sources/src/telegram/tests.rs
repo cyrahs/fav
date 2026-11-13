@@ -32,10 +32,11 @@ use crate::notifier::SharedNotifier;
 use crate::post_links::{Endpoints, PostClient, PostLinks, SessionStore};
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob};
 use crate::testkit::RecordingNotifier;
-use crate::testutil::{FakeWeb, Reply, database, test_roots};
+use crate::testutil::{FakeWeb, FakeZhihu, Reply, database, sign_in_to_zhihu, test_roots};
+use crate::zhihu_post::{ZhihuError, ZhihuReader};
 
 /// The notification an outage of the service that reads Zhihu posts has.
-const OUTAGE_KEY: &str = "tikhub:outage:zhihu";
+const OUTAGE_KEY: &str = "zhihu:outage";
 const CHANNEL: i64 = 123;
 const ZHIHU_SHARE: &str =
     "高跟鞋配白丝真的很难看吗？ - 知乎用户的回答 - 知乎\nhttps://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240";
@@ -268,6 +269,8 @@ struct Env {
     sleeps: Arc<Mutex<Vec<f64>>>,
     dir: tempfile::TempDir,
     web: Option<FakeWeb>,
+    /// What reads Zhihu posts in place of the signed-in browser profile.
+    zhihu: Option<Arc<FakeZhihu>>,
 }
 
 impl Env {
@@ -287,11 +290,18 @@ impl Env {
             sleeps: Arc::new(Mutex::new(Vec::new())),
             dir: tempfile::tempdir().expect("temp dir"),
             web: None,
+            zhihu: None,
         }
     }
 
     fn db(&self) -> &Db {
         self.database.db()
+    }
+
+    /// Sign in to Zhihu and read its posts with `reader`.
+    async fn read_zhihu(&mut self, reader: Arc<FakeZhihu>) {
+        sign_in_to_zhihu(self.db()).await;
+        self.zhihu = Some(reader);
     }
 
     fn client(&self) -> &FakeClient {
@@ -307,7 +317,11 @@ impl Env {
         let links = self.web.as_ref().map(|web| {
             let client = PostClient::with_roots(Some(&web.proxy), Endpoints::default(), &test_roots()).expect("client");
             let sessions: Arc<dyn SessionStore> = Arc::new(self.db().clone());
-            PostLinks::new(client, Arc::clone(&store), sessions)
+            let links = PostLinks::new(client, sessions);
+            match &self.zhihu {
+                Some(zhihu) => links.with_zhihu(Arc::clone(zhihu) as Arc<dyn ZhihuReader>),
+                None => links,
+            }
         });
         let sleeps = Arc::clone(&self.sleeps);
         let sleeper: Sleeper = Arc::new(move |seconds| {
@@ -1270,10 +1284,9 @@ async fn account_lock_name_uses_effective_telethon_session_file() {
 
 // ---------- links ----------
 
-const ZHIHU_TIKHUB_PATH: &str = "/api/v1/zhihu/web/fetch_answer_detail";
 const ZHIHU_ANSWER_URL: &str = "https://www.zhihu.com/answer/2100311203096573240";
 
-/// TikHub's answer for the share's answer, with `figures` pictures and `videos` lens ids.
+/// The share's answer as the Zhihu profile reads it, with `images` pictures and `videos` lens ids.
 fn zhihu_answer(title: &str, images: &[&str], videos: &[&str]) -> serde_json::Value {
     let mut content = String::new();
     for url in images {
@@ -1290,7 +1303,7 @@ fn zhihu_answer(title: &str, images: &[&str], videos: &[&str]) -> serde_json::Va
             r#"<a class="video-box" href="https://www.zhihu.com/video/{id}"{poster} data-lens-id="{id}"></a>"#
         );
     }
-    json!({"data": {"content": content, "author": {"name": "someone"}, "question": {"title": title}}})
+    json!({"content": content, "author": {"name": "someone"}, "question": {"title": title}})
 }
 
 fn image_reply(content: &[u8], content_type: &str) -> Reply {
@@ -1301,13 +1314,23 @@ fn image_reply(content: &[u8], content_type: &str) -> Reply {
     }
 }
 
-/// The web a Zhihu link job reads: TikHub with `answer`, lens and the media.
-async fn zhihu_web(answer: Option<serde_json::Value>) -> FakeWeb {
+/// Zhihu's page for a post it does not have.
+fn zhihu_missing() -> Arc<FakeZhihu> {
+    FakeZhihu::failing(ZhihuError::Zhihu(format!(
+        "Zhihu has no post at {ZHIHU_ANSWER_URL} (\"知乎\" at {ZHIHU_ANSWER_URL}); it may have been deleted"
+    )))
+}
+
+/// The Zhihu browser failing, whatever the post.
+fn zhihu_outage() -> Arc<FakeZhihu> {
+    FakeZhihu::failing(ZhihuError::Outage(format!(
+        "The Zhihu browser failed reading {ZHIHU_ANSWER_URL}: Timeout 45000ms exceeded."
+    )))
+}
+
+/// The web a Zhihu link job reads after the post: lens and the media.
+async fn zhihu_web() -> FakeWeb {
     FakeWeb::start(move |seen| match (seen.host(), seen.path()) {
-        ("api.tikhub.io", ZHIHU_TIKHUB_PATH) => match &answer {
-            Some(answer) => Reply::json(200, answer),
-            None => Reply::json(404, &json!({"detail": {"code": 404, "message": "not found"}})),
-        },
         ("lens.zhihu.com", path) => {
             let id = path.rsplit('/').next().unwrap_or_default();
             Reply::json(
@@ -1326,10 +1349,7 @@ async fn zhihu_web(answer: Option<serde_json::Value>) -> FakeWeb {
 }
 
 fn media_urls(web: &FakeWeb) -> Vec<String> {
-    web.urls()
-        .into_iter()
-        .filter(|url| !url.contains("api.tikhub.io") && !url.contains("lens.zhihu.com"))
-        .collect()
+    web.urls().into_iter().filter(|url| !url.contains("lens.zhihu.com")).collect()
 }
 
 // py: tests/test_telegram.py::test_post_link_messages_are_scanned_as_links
@@ -1379,9 +1399,14 @@ fn post_link_messages_are_scanned_as_links() {
 async fn link_job_saves_pictures_and_videos_to_their_routes() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE)]).await;
     let images = ["https://pica.zhimg.com/v2-a_r.jpg", "https://pica.zhimg.com/v2-b_r.png"];
-    let web = zhihu_web(Some(zhihu_answer("高跟鞋配白丝真的很难看吗？", &images, &["2091194612627121396"]))).await;
+    let web = zhihu_web().await;
+    env.read_zhihu(FakeZhihu::finding(&zhihu_answer(
+        "高跟鞋配白丝真的很难看吗？",
+        &images,
+        &["2091194612627121396"],
+    )))
+    .await;
     env.web = Some(web.clone());
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
     let account = env.split(false);
     let job = env.claimed(10, JobType::Link, 1).await;
     let telegram = env.telegram();
@@ -1445,9 +1470,14 @@ async fn link_job_saves_pictures_and_videos_to_their_routes() {
 #[tokio::test]
 async fn link_job_of_videos_alone_shows_the_video_cover() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE)]).await;
-    let web = zhihu_web(Some(zhihu_answer("黑色高跟鞋搭配什么颜色袜子好看？", &[], &["1", "2"]))).await;
+    let web = zhihu_web().await;
+    env.read_zhihu(FakeZhihu::finding(&zhihu_answer(
+        "黑色高跟鞋搭配什么颜色袜子好看？",
+        &[],
+        &["1", "2"],
+    )))
+    .await;
     env.web = Some(web);
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
     let job = env.claimed(10, JobType::Link, 1).await;
 
     let downloaded = env
@@ -1473,8 +1503,8 @@ async fn link_job_of_videos_alone_shows_the_video_cover() {
 #[tokio::test]
 async fn unreadable_link_is_retried_then_given_up() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE)]).await;
-    env.web = Some(zhihu_web(None).await);
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
+    env.web = Some(zhihu_web().await);
+    env.read_zhihu(zhihu_missing()).await;
     let account = env.split(false);
     let telegram = env.telegram();
 
@@ -1510,22 +1540,11 @@ async fn unreadable_link_is_retried_then_given_up() {
     assert_eq!(env.channel_cooldown().await, None, "a link job must not cool the channel down");
 }
 
-/// What TikHub answers every Zhihu lookup with while its Zhihu API is down.
-async fn zhihu_outage_web() -> FakeWeb {
-    FakeWeb::start(|_| {
-        Reply::json(
-            400,
-            &json!({"detail": {"code": 400, "message": "Request failed. Please retry. You won't be charged for this request."}}),
-        )
-    })
-    .await
-}
-
 #[tokio::test]
 async fn link_waits_out_an_outage_for_a_day_before_it_is_given_up() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE), text(12, ZHIHU_SHARE)]).await;
-    env.web = Some(zhihu_outage_web().await);
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
+    env.web = Some(zhihu_web().await);
+    env.read_zhihu(zhihu_outage()).await;
     let account = env.split(false);
     let telegram = env.telegram();
 
@@ -1538,9 +1557,7 @@ async fn link_waits_out_an_outage_for_a_day_before_it_is_given_up() {
     let (status, error) = env.status(10).await;
     assert_eq!(status, "pending");
     assert!(
-        error.starts_with(&format!(
-            "PostLinkError: TikHub is failing for {ZHIHU_ANSWER_URL} (HTTP 400): Request failed. "
-        )),
+        error.starts_with(&format!("PostLinkError: The Zhihu browser failed reading {ZHIHU_ANSWER_URL}: ")),
         "{error}"
     );
     let due = env.due_in(10).await;
@@ -1588,8 +1605,8 @@ async fn link_waits_out_an_outage_for_a_day_before_it_is_given_up() {
 #[tokio::test]
 async fn outage_is_reported_by_the_first_try_past_the_fifth_that_finds_it_unreported() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE)]).await;
-    env.web = Some(zhihu_outage_web().await);
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
+    env.web = Some(zhihu_web().await);
+    env.read_zhihu(zhihu_outage()).await;
     let account = env.split(false);
     let telegram = env.telegram();
 
@@ -1618,8 +1635,8 @@ async fn outage_is_reported_by_the_first_try_past_the_fifth_that_finds_it_unrepo
 #[tokio::test]
 async fn link_past_its_fifth_try_whose_post_cannot_be_read_is_given_up() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE)]).await;
-    env.web = Some(zhihu_web(None).await);
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
+    env.web = Some(zhihu_web().await);
+    env.read_zhihu(zhihu_missing()).await;
     let job = env.claimed(10, JobType::Link, MAX_ATTEMPTS + 4).await;
 
     env.telegram()
@@ -1638,11 +1655,11 @@ async fn link_past_its_fifth_try_whose_post_cannot_be_read_is_given_up() {
 #[tokio::test]
 async fn outage_report_is_closed_by_the_last_waiting_link_saved_and_by_no_other() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE), text(12, ZHIHU_SHARE)]).await;
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
     let account = env.split(false);
     let closed = |env: &Env| -> usize { env.notifier.resolved().iter().filter(|(key, _)| key == OUTAGE_KEY).count() };
 
-    env.web = Some(zhihu_outage_web().await);
+    env.web = Some(zhihu_web().await);
+    env.read_zhihu(zhihu_outage()).await;
     for message_id in [10, 11] {
         let waiting = env.claimed(message_id, JobType::Link, MAX_ATTEMPTS).await;
         env.telegram()
@@ -1653,9 +1670,9 @@ async fn outage_report_is_closed_by_the_last_waiting_link_saved_and_by_no_other(
     }
     assert_eq!(env.notifier.sent().len(), 1);
 
-    // TikHub answers again. A link that never waited says nothing about the ones that do.
+    // Zhihu reads again. A link that never waited says nothing about the ones that do.
     let images = ["https://pica.zhimg.com/v2-a_r.jpg"];
-    env.web = Some(zhihu_web(Some(zhihu_answer("Q", &images, &[]))).await);
+    env.zhihu = Some(FakeZhihu::finding(&zhihu_answer("Q", &images, &[])));
     let telegram = env.telegram();
     let saved = |job: TelegramMediaJob| {
         let (telegram, account, client) = (&telegram, &account, env.client());
@@ -1687,8 +1704,8 @@ async fn outage_report_is_closed_by_the_last_waiting_link_saved_and_by_no_other(
 #[tokio::test]
 async fn outage_report_is_closed_by_the_last_waiting_link_given_up() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE)]).await;
-    env.web = Some(zhihu_outage_web().await);
-    env.settings.services.tikhub.token = "tikhub-key".to_owned();
+    env.web = Some(zhihu_web().await);
+    env.read_zhihu(zhihu_outage()).await;
     let account = env.split(false);
     let telegram = env.telegram();
     let closed = |env: &Env| -> usize { env.notifier.resolved().iter().filter(|(key, _)| key == OUTAGE_KEY).count() };
@@ -1728,9 +1745,11 @@ async fn outage_report_is_closed_by_the_last_waiting_link_given_up() {
 #[tokio::test]
 async fn link_waiting_on_a_setting_is_never_given_up() {
     let mut env = Env::new(vec![text(10, ZHIHU_SHARE)]).await;
-    let web = zhihu_web(None).await;
+    let web = zhihu_web().await;
     env.web = Some(web.clone());
-    // No TikHub key.
+    // Not signed in to Zhihu.
+    let reader = zhihu_missing();
+    env.zhihu = Some(Arc::clone(&reader));
     let job = env.claimed(10, JobType::Link, MAX_ATTEMPTS + 3).await;
 
     env.telegram()
@@ -1744,8 +1763,9 @@ async fn link_waiting_on_a_setting_is_never_given_up() {
     let due = env.due_in(10).await;
     assert!((LINK_WAIT_SECONDS - 1.0..=LINK_WAIT_SECONDS).contains(&due), "{due}");
     let sent = env.notifier.sent();
-    assert_eq!(sent[0].dedupe_key, "telegram:links:tikhub");
+    assert_eq!(sent[0].dedupe_key, "telegram:links:zhihu-login");
     assert!(web.urls().is_empty());
+    assert!(reader.read().is_empty(), "the browser is not opened without a login");
 }
 
 // ---------- unsupported messages ----------

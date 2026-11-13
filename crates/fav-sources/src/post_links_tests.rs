@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Datelike as _;
 use fav_core::pyjson::{self, Dict, Value};
-use fav_db::SettingsStore;
 use fav_runtime::BoxFuture;
 use fav_runtime::site_sessions::{SiteSession, StoredCookie};
 
@@ -97,11 +96,8 @@ impl SessionStore for Sessions {
     }
 }
 
-fn links(web: &FakeWeb, tikhub_token: &str) -> PostLinks {
-    let mut settings = fav_db::settings_store::default_settings();
-    settings.services.tikhub.api_url = "http://api.tikhub.dev".to_owned();
-    settings.services.tikhub.token = tikhub_token.to_owned();
-    PostLinks::new(client(web), Arc::new(SettingsStore::pinned(settings)), Sessions::none())
+fn links(web: &FakeWeb) -> PostLinks {
+    PostLinks::new(client(web), Sessions::none())
 }
 
 fn link_for(url: &str) -> ArticleLink {
@@ -176,42 +172,20 @@ fn a_wechat_card_for_a_zhihu_answer_is_a_shared_link() {
     assert_eq!(post_links::site_name(&link).expect("parses"), "Zhihu");
 }
 
-// py: tests/test_post_links.py::test_a_zhihu_post_is_read_with_the_tikhub_service_key
+/// Without the Zhihu login a Zhihu post waits for one (D187: TikHub no longer reads it).
 #[tokio::test]
-async fn a_zhihu_post_is_read_with_the_tikhub_service_key() {
-    let web = FakeWeb::start(|_| {
-        json_reply(
-            200,
-            r#"{"data": {"title": "T", "content": "<img data-original=\"https://pic1.zhimg.com/v2-a_r.jpg\"/>"}}"#,
-        )
-    })
-    .await;
-    let (page, html) = links(&web, "service-key")
-        .fetch_page(&link_for("https://zhuanlan.zhihu.com/p/42"))
-        .await
-        .expect("read");
-    assert_eq!(
-        (page.title.as_str(), page.images.clone(), html.as_str()),
-        ("T", vec!["https://pic1.zhimg.com/v2-a_r.jpg".to_owned()], "")
-    );
-    let seen = web.seen();
-    assert_eq!(seen[0].host(), "api.tikhub.dev");
-    assert_eq!(seen[0].header("authorization"), Some("Bearer service-key"));
-}
-
-// py: tests/test_post_links.py::test_a_zhihu_post_without_a_tikhub_key_waits_for_one
-#[tokio::test]
-async fn a_zhihu_post_without_a_tikhub_key_waits_for_one() {
+async fn a_zhihu_post_without_a_zhihu_login_waits_for_one() {
     let web = FakeWeb::start(|_| Reply::status(500)).await;
-    let error = link_error(links(&web, "").fetch_page(&link_for("https://www.zhihu.com/pin/7")).await);
-    assert_eq!(error.needs, Needs::TikHub);
+    let error = link_error(links(&web).fetch_page(&link_for("https://www.zhihu.com/pin/7")).await);
+    assert_eq!(error.needs, Needs::ZhihuLogin);
+    assert!(web.seen().is_empty(), "no request without a login");
 }
 
 // py: tests/test_post_links.py::test_an_nga_thread_without_a_login_waits_for_one
 #[tokio::test]
 async fn an_nga_thread_without_a_login_waits_for_one() {
     let web = FakeWeb::start(|_| Reply::status(500)).await;
-    let error = link_error(links(&web, "").fetch_page(&link_for("https://bbs.nga.cn/read.php?tid=1")).await);
+    let error = link_error(links(&web).fetch_page(&link_for("https://bbs.nga.cn/read.php?tid=1")).await);
     assert_eq!(error.needs, Needs::NgaLogin);
 }
 
@@ -235,7 +209,7 @@ async fn a_wechat_image_post_behind_the_captcha_is_its_own_error() {
     .await;
     // `link_for_url` would make the article https, which the fake web does not serve.
     let link = ArticleLink::new("http://mp.weixin.qq.com/s?__biz=a&mid=1&idx=1&sn=b", "", "");
-    let error = link_error(links(&web, "").fetch_page(&link).await);
+    let error = link_error(links(&web).fetch_page(&link).await);
     assert!(error.captcha);
     assert_eq!(error.class_name(), "PostCaptchaError");
 }
@@ -415,118 +389,6 @@ fn parse_pin_reads_items() {
     );
 }
 
-// py: tests/test_zhihu_post.py::test_fetch_post_calls_the_endpoint_for_the_kind
-#[tokio::test]
-async fn fetch_post_calls_the_endpoint_for_the_kind() {
-    let body = pyjson::dumps(
-        &Value::Dict({
-            let mut payload = Dict::new();
-            payload.insert("code", Value::Int(200));
-            let mut data = object(r#"{"title": "Article", "author": {"name": "a"}}"#);
-            data.insert("content", Value::from(ANSWER_HTML));
-            payload.insert("data", Value::Dict(data));
-            payload
-        }),
-        &pyjson::DumpOptions::compact(),
-    )
-    .expect("dumpable");
-    let web = FakeWeb::start(move |_| json_reply(200, &body)).await;
-    let post = zhihu_post::fetch_post(
-        &client(&web),
-        &ZhihuLink::new(ZhihuKind::Article, "42"),
-        "http://api.tikhub.io/",
-        "key",
-    )
-    .await
-    .expect("read");
-    assert_eq!(post.title, "Article");
-    let seen = web.seen();
-    assert_eq!(seen[0].path(), "/api/v1/zhihu/web/fetch_column_article_detail");
-    assert_eq!(seen[0].query(), "article_id=42");
-    assert_eq!(seen[0].header("Authorization"), Some("Bearer key"));
-}
-
-// py: tests/test_zhihu_post.py::test_fetch_post_failures
-#[tokio::test]
-async fn fetch_post_failures() {
-    for (status, body, account) in [
-        (402, r#"{"detail": "balance"}"#, true),
-        (400, r#"{"detail": {"message": "not found"}}"#, false),
-        (200, r#"{"code": 200, "data": {}}"#, false),
-    ] {
-        let web = FakeWeb::start(move |_| json_reply(status, body)).await;
-        let error = zhihu_post::fetch_post(
-            &client(&web),
-            &ZhihuLink::new(ZhihuKind::Answer, "1"),
-            "http://api.tikhub.io",
-            "key",
-        )
-        .await
-        .expect_err("fails");
-        if account {
-            assert!(matches!(error, ZhihuError::Account(_)), "{status}: {error:?}");
-        } else {
-            assert!(matches!(error, ZhihuError::Zhihu(_)), "{status}: {error:?}");
-        }
-    }
-}
-
-/// TikHub failing is told apart from a post it could not read (D185).
-#[tokio::test]
-async fn fetch_post_tells_an_outage_from_an_unreadable_post() {
-    const REQUEST_FAILED: &str =
-        r#"{"detail": {"code": 400, "message": "Request failed. Please retry. You won't be charged for this request."}}"#;
-    for (reply, outage) in [
-        (json_reply(400, REQUEST_FAILED), true),
-        (json_reply(200, REQUEST_FAILED), true),
-        (json_reply(500, r#"{"detail": "upstream"}"#), true),
-        (json_reply(503, r#"{"detail": {"code": 503}}"#), true),
-        (json_reply(429, r#"{"detail": {"message": "slow down"}}"#), true),
-        (text_reply(502, "<html>Bad Gateway</html>"), true),
-        (Reply::Close, true),
-        (json_reply(400, r#"{"detail": {"code": 400, "message": "not found"}}"#), false),
-        (json_reply(404, r#"{"detail": "gone"}"#), false),
-        (text_reply(200, "not json"), false),
-    ] {
-        let label = format!("{reply:?}");
-        let web = FakeWeb::start(move |_| reply.clone()).await;
-        let error = zhihu_post::fetch_post(
-            &client(&web),
-            &ZhihuLink::new(ZhihuKind::Answer, "1"),
-            "http://api.tikhub.io",
-            "key",
-        )
-        .await
-        .expect_err("fails");
-        assert_eq!(matches!(error, ZhihuError::Outage(_)), outage, "{label}: {error:?}");
-        assert_eq!(matches!(error, ZhihuError::Zhihu(_)), !outage, "{label}: {error:?}");
-    }
-    let web = FakeWeb::start(|_| json_reply(400, REQUEST_FAILED)).await;
-    let error = zhihu_post::fetch_post(
-        &client(&web),
-        &ZhihuLink::new(ZhihuKind::Answer, "1"),
-        "http://api.tikhub.io",
-        "key",
-    )
-    .await
-    .expect_err("fails");
-    assert_eq!(
-        error.to_string(),
-        "TikHub is failing for https://www.zhihu.com/answer/1 (HTTP 400): Request failed. Please retry. You won't be charged for this request."
-    );
-}
-
-// py: tests/test_zhihu_post.py::test_fetch_post_without_key_makes_no_request
-#[tokio::test]
-async fn fetch_post_without_key_makes_no_request() {
-    let web = FakeWeb::start(|_| Reply::status(500)).await;
-    let error = zhihu_post::fetch_post(&client(&web), &ZhihuLink::new(ZhihuKind::Answer, "1"), "http://api.tikhub.io", "")
-        .await
-        .expect_err("fails");
-    assert!(matches!(error, ZhihuError::Account(_)), "{error:?}");
-    assert!(web.seen().is_empty(), "no request without a key");
-}
-
 const LENS_TWO_QUALITIES: &str = r#"{"playlist": {
     "LD": {"width": 476, "height": 848, "bitrate": 379.5, "play_url": "https://vdn3.vzuu.com/SD/v.mp4"},
     "HD": {"width": 720, "height": 1280, "bitrate": 559.1, "play_url": "https://vdn3.vzuu.com/HD/v.mp4"}
@@ -563,17 +425,12 @@ async fn resolve_video_takes_widest_lens_entry_and_falls_back() {
 
 // py: tests/test_zhihu_post.py::test_fetch_page_resolves_videos_and_drops_ones_without_a_play_url
 #[tokio::test]
-async fn fetch_page_resolves_videos_and_drops_ones_without_a_play_url() {
+async fn page_of_resolves_videos_and_drops_ones_without_a_play_url() {
     let content = format!("{ANSWER_HTML}{}", ANSWER_HTML.replace("2091194612627121396", "1"));
     let mut data = object(r#"{"author": {"name": "a"}, "question": {"title": "Q"}}"#);
     data.insert("content", Value::Str(content));
-    let mut payload = Dict::new();
-    payload.insert("data", Value::Dict(data));
-    let answer = pyjson::dumps(&Value::Dict(payload), &pyjson::DumpOptions::compact()).expect("dumpable");
     let web = FakeWeb::start(move |seen| {
-        if seen.host() == "api.tikhub.io" {
-            json_reply(200, &answer)
-        } else if seen.path().ends_with("/2091194612627121396") {
+        if seen.path().ends_with("/2091194612627121396") {
             json_reply(
                 200,
                 r#"{"playlist": {"HD": {"width": 720, "height": 1280, "play_url": "https://vdn3.vzuu.com/HD/v.mp4"}}}"#,
@@ -583,14 +440,9 @@ async fn fetch_page_resolves_videos_and_drops_ones_without_a_play_url() {
         }
     })
     .await;
-    let page = zhihu_post::fetch_page(
-        &client(&web),
-        &ZhihuLink::new(ZhihuKind::Answer, "9"),
-        "http://api.tikhub.io",
-        "key",
-    )
-    .await
-    .expect("read");
+    let link = ZhihuLink::new(ZhihuKind::Answer, "9");
+    let post = zhihu_post::parse_post(&link, &data).expect("parses");
+    let page = zhihu_post::page_of(&client(&web), &link, post).await.expect("read");
     assert_eq!((page.title.as_str(), page.account.as_str()), ("Q", "a"));
     assert_eq!(page.images.len(), 2);
     assert_eq!(
@@ -868,14 +720,13 @@ async fn an_nga_read_records_whether_the_session_worked() {
         }
     })
     .await;
-    let settings = Arc::new(SettingsStore::pinned(fav_db::settings_store::default_settings()));
     let link = link_for("https://bbs.nga.cn/read.php?tid=1");
     for (cid, worked) in [("session-cid", true), ("stale", false)] {
         let sessions = Arc::new(Sessions {
             login: Some(nga_cookies(&[("ngaPassportUid", "42"), ("ngaPassportCid", cid)])),
             checks: Mutex::new(Vec::new()),
         });
-        let links = PostLinks::new(client(&web), Arc::clone(&settings), Arc::clone(&sessions) as Arc<dyn SessionStore>);
+        let links = PostLinks::new(client(&web), Arc::clone(&sessions) as Arc<dyn SessionStore>);
         let result = links.fetch_page(&link).await;
         let checks = sessions.checks.lock().expect("lock").clone();
         if worked {
@@ -898,7 +749,7 @@ async fn an_nga_read_records_whether_the_session_worked() {
 async fn a_wechat_page_that_does_not_answer_could_not_be_read() {
     let web = FakeWeb::start(|_| Reply::Close).await;
     let link = ArticleLink::new("http://mp.weixin.qq.com/s?__biz=a&mid=1&idx=1&sn=b&chksm=c", "", "");
-    let error = link_error(links(&web, "").fetch_page(&link).await);
+    let error = link_error(links(&web).fetch_page(&link).await);
     assert!(
         error
             .message
@@ -907,22 +758,6 @@ async fn a_wechat_page_that_does_not_answer_could_not_be_read() {
         error.message
     );
     assert_eq!((error.needs, error.captcha), (Needs::Nothing, false));
-}
-
-/// TikHub hanging up on a Zhihu lookup names the post and httpx's class, and is an outage
-/// rather than a post that could not be read (D185).
-#[tokio::test]
-async fn a_tikhub_lookup_that_does_not_answer_names_the_post() {
-    let web = FakeWeb::start(|_| Reply::Close).await;
-    let link = ZhihuLink::new(ZhihuKind::Answer, "1");
-    let error = zhihu_post::fetch_post(&client(&web), &link, "http://api.tikhub.io", "key")
-        .await
-        .expect_err("fails");
-    let ZhihuError::Outage(message) = error else {
-        panic!("expected an outage, got {error:?}");
-    };
-    let prefix = format!("TikHub did not answer for {}: RemoteProtocolError: ", link.url());
-    assert!(message.starts_with(&prefix), "{message}");
 }
 
 /// Zhihu's lens hanging up is no play URL: the video falls back to the one in the post.
@@ -1032,19 +867,12 @@ fn zhihu_signed_in() -> Arc<Sessions> {
 }
 
 fn links_reading(web: &FakeWeb, sessions: &Arc<Sessions>, reader: &Arc<FakeReader>) -> PostLinks {
-    let mut settings = fav_db::settings_store::default_settings();
-    settings.services.tikhub.api_url = "http://api.tikhub.dev".to_owned();
-    settings.services.tikhub.token = "service-key".to_owned();
-    PostLinks::new(
-        client(web),
-        Arc::new(SettingsStore::pinned(settings)),
-        Arc::clone(sessions) as Arc<dyn SessionStore>,
-    )
-    .with_zhihu(Arc::clone(reader) as Arc<dyn zhihu_post::ZhihuReader>)
+    PostLinks::new(client(web), Arc::clone(sessions) as Arc<dyn SessionStore>)
+        .with_zhihu(Arc::clone(reader) as Arc<dyn zhihu_post::ZhihuReader>)
 }
 
 #[tokio::test]
-async fn a_zhihu_post_is_read_in_the_signed_in_profile_instead_of_tikhub() {
+async fn a_zhihu_post_is_read_in_the_signed_in_profile() {
     let web = FakeWeb::start(|seen| {
         if seen.host() == "lens.zhihu.com" {
             json_reply(
@@ -1077,7 +905,7 @@ async fn a_zhihu_post_is_read_in_the_signed_in_profile_instead_of_tikhub() {
     );
     assert_eq!(page.videos.len(), 1);
     assert_eq!(page.videos[0].url, "https://vdn.vzuu.com/hd.mp4");
-    // TikHub is not asked; the lens call is the only request.
+    // The lens call is the only request.
     assert!(web.seen().iter().all(|seen| seen.host() == "lens.zhihu.com"));
     assert_eq!(*sessions.checks.lock().unwrap(), [(true, String::new())]);
 }
@@ -1130,21 +958,23 @@ async fn a_failing_zhihu_browser_is_an_outage_to_wait_out() {
 }
 
 #[tokio::test]
-async fn without_a_zhihu_login_the_post_is_still_looked_up_through_tikhub() {
-    let web = FakeWeb::start(|_| json_reply(200, r#"{"data": {"title": "T", "content": ""}}"#)).await;
+async fn without_a_zhihu_login_the_browser_is_not_opened() {
+    let web = FakeWeb::start(|_| Reply::status(500)).await;
     let reader = Arc::new(FakeReader {
         answer: Err(ZhihuError::Zhihu("not asked".to_owned())),
         read: Mutex::new(Vec::new()),
     });
 
-    let (page, _) = links_reading(&web, &Sessions::none(), &reader)
-        .fetch_page(&link_for("https://zhuanlan.zhihu.com/p/42"))
-        .await
-        .expect("read");
+    let error = link_error(
+        links_reading(&web, &Sessions::none(), &reader)
+            .fetch_page(&link_for("https://zhuanlan.zhihu.com/p/42"))
+            .await,
+    );
 
-    assert_eq!(page.title, "T");
+    assert_eq!((error.needs, error.outage), (Needs::ZhihuLogin, false));
+    assert!(error.message.contains("https://zhuanlan.zhihu.com/p/42"), "{}", error.message);
     assert!(reader.read.lock().unwrap().is_empty());
-    assert_eq!(web.seen()[0].host(), "api.tikhub.dev");
+    assert!(web.seen().is_empty());
 }
 
 #[test]

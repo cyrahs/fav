@@ -26,10 +26,11 @@ use super::*;
 use crate::notifier::Notifier as _;
 use crate::post_links::Endpoints;
 use crate::testkit::RecordingNotifier;
-use crate::testutil::{FakeWeb, Reply, Seen, test_roots};
+use crate::testutil::{FakeWeb, FakeZhihu, Reply, Seen, test_roots};
 use crate::wechat_article::{image_extension, original_image_url, parse_article_link};
 use crate::wechat_channels::{ENCRYPTED_BYTES, best_quality, decrypt_head, keystream};
 use crate::wechat_emoji::md5_hex;
+use crate::zhihu_post::{ZhihuError, ZhihuReader};
 
 type Json = serde_json::Value;
 
@@ -377,24 +378,31 @@ impl Sites {
     }
 }
 
-/// `site_sessions` with an optional NGA login, and the checks recorded.
+/// `site_sessions` with an optional NGA login and, if `zhihu`, a Zhihu one, and the NGA
+/// checks recorded.
 struct Sessions {
     login: Option<Vec<(&'static str, &'static str)>>,
+    zhihu: bool,
     checks: Mutex<Vec<(bool, String)>>,
 }
 
 impl SessionStore for Sessions {
     fn load<'a>(&'a self, site: &'a str) -> BoxFuture<'a, Result<Option<fav_runtime::site_sessions::SiteSession>, fav_runtime::Error>> {
-        assert_eq!(site, "nga");
+        const ZHIHU_LOGIN: [(&str, &str); 1] = [("z_c0", fav_runtime::site_sessions::VALUE_IN_PROFILE)];
+        let (login, domain) = match site {
+            "nga" => (self.login.as_deref(), ".nga.cn"),
+            "zhihu" => (self.zhihu.then_some(&ZHIHU_LOGIN[..]), ".zhihu.com"),
+            other => panic!("no session for {other}"),
+        };
         Box::pin(async move {
-            Ok(self.login.as_ref().map(|login| fav_runtime::site_sessions::SiteSession {
+            Ok(login.map(|login| fav_runtime::site_sessions::SiteSession {
                 site: site.to_owned(),
                 cookies: login
                     .iter()
                     .map(|(name, value)| fav_runtime::site_sessions::StoredCookie {
                         name: (*name).to_owned(),
                         value: (*value).to_owned(),
-                        domain: ".nga.cn".to_owned(),
+                        domain: domain.to_owned(),
                         path: "/".to_owned(),
                         expires: None,
                     })
@@ -411,6 +419,9 @@ impl SessionStore for Sessions {
     }
 
     fn record_check<'a>(&'a self, site: &'a str, ok: bool, message: &'a str) -> BoxFuture<'a, Result<(), fav_runtime::Error>> {
+        if site == "zhihu" {
+            return Box::pin(async { Ok(()) });
+        }
         assert_eq!(site, "nga");
         self.checks.lock().expect("lock").push((ok, message.to_owned()));
         Box::pin(async { Ok(()) })
@@ -429,6 +440,8 @@ struct Env {
     dir: tempfile::TempDir,
     settings: Settings,
     sessions: Arc<Sessions>,
+    /// What reads Zhihu posts in place of the signed-in browser profile.
+    zhihu: Arc<FakeZhihu>,
 }
 
 impl Env {
@@ -459,9 +472,21 @@ impl Env {
             settings,
             sessions: Arc::new(Sessions {
                 login: Some(NGA_LOGIN.to_vec()),
+                zhihu: false,
                 checks: Mutex::new(Vec::new()),
             }),
+            zhihu: FakeZhihu::failing(ZhihuError::Zhihu("no Zhihu post is scripted".to_owned())),
         }
+    }
+
+    /// Sign in to Zhihu and read its posts with `reader`.
+    fn read_zhihu(&mut self, reader: &Arc<FakeZhihu>) {
+        self.sessions = Arc::new(Sessions {
+            login: self.sessions.login.clone(),
+            zhihu: true,
+            checks: Mutex::new(Vec::new()),
+        });
+        self.zhihu = Arc::clone(reader);
     }
 
     fn tikhub(&mut self, token: &str) {
@@ -475,7 +500,7 @@ impl Env {
         let store = Arc::new(SettingsStore::pinned(self.settings.clone()));
         let post_client = PostClient::with_roots(Some(&self.web.proxy), Endpoints::default(), &roots).expect("client");
         let sessions: Arc<dyn SessionStore> = Arc::clone(&self.sessions) as Arc<dyn SessionStore>;
-        let web = PostLinks::new(post_client, Arc::clone(&store), sessions);
+        let web = PostLinks::new(post_client, sessions).with_zhihu(Arc::clone(&self.zhihu) as Arc<dyn ZhihuReader>);
         let notifier: SharedNotifier = Arc::clone(&self.notifier) as SharedNotifier;
         Wechat::new(self.database.db().clone(), notifier, store, cfg, clients, web)
     }
@@ -954,13 +979,10 @@ async fn an_unconfigured_source_does_nothing() {
     let clients = Clients::new("", Some(&web.proxy), &[]).expect("clients");
     let sessions: Arc<dyn SessionStore> = Arc::new(Sessions {
         login: None,
+        zhihu: false,
         checks: Mutex::new(Vec::new()),
     });
-    let links = PostLinks::new(
-        PostClient::with(Some(&web.proxy), Endpoints::default()).expect("client"),
-        Arc::clone(&store),
-        sessions,
-    );
+    let links = PostLinks::new(PostClient::with(Some(&web.proxy), Endpoints::default()).expect("client"), sessions);
     let notifier: SharedNotifier = Arc::new(RecordingNotifier::default());
     let mut source = Wechat::new(db, notifier, store, settings.web.wechat.clone(), clients, links);
 
@@ -1783,7 +1805,7 @@ async fn a_tieba_post_keeps_the_pictures_of_its_first_floor() {
 }
 
 const ZHIHU_SHARE_URL: &str = "https://www.zhihu.com/question/1981023166554989468/answer/2100311203096573240?share_code=x";
-const ZHIHU_TIKHUB: &str = "https://api.tikhub.io/api/v1/zhihu/web/fetch_answer_detail?answer_id=2100311203096573240";
+const ZHIHU_ANSWER_URL: &str = "https://www.zhihu.com/answer/2100311203096573240";
 
 fn zhihu_pic(name: &str) -> String {
     format!("https://pica.zhimg.com/v2-{name}_r.jpg")
@@ -1798,34 +1820,23 @@ async fn a_zhihu_answer_is_saved_like_any_shared_post() {
         .map(|name| format!("<figure><img data-original=\"{}\"/></figure>", zhihu_pic(name)))
         .collect();
     let answer = json!({
-        "data": {
-            "content": figures,
-            "author": {"name": "知乎用户"},
-            "question": {"title": "高跟鞋配白丝真的很难看吗？"},
-            "created_time": 1_793_533_212,
-        },
+        "content": figures,
+        "author": {"name": "知乎用户"},
+        "question": {"title": "高跟鞋配白丝真的很难看吗？"},
+        "created_time": 1_793_533_212,
     });
-    let sites = Sites::with(vec![
-        (ZHIHU_TIKHUB.to_owned(), Reply::json(200, &answer)),
-        (zhihu_pic("A"), jpeg()),
-        (zhihu_pic("B"), jpeg()),
-    ]);
+    let sites = Sites::with(vec![(zhihu_pic("A"), jpeg()), (zhihu_pic("B"), jpeg())]);
     let mut env = Env::new(Inbox::bridge(vec![event(5, app_message(64, &content))]), sites).await;
-    env.tikhub("tikhub-key");
+    let reader = FakeZhihu::finding(&answer);
+    env.read_zhihu(&reader);
 
     env.run_ok().await;
 
-    let requests = env.web_requests();
-    let tikhub = requests.iter().find(|seen| seen.host() == "api.tikhub.io").expect("asked TikHub");
-    assert_eq!(tikhub.header("authorization"), Some("Bearer tikhub-key"));
+    assert_eq!(reader.read(), [ZHIHU_ANSWER_URL]);
     let row = env.article().await;
     assert_eq!(
         (row.url.as_str(), row.title.as_str(), row.account.as_str()),
-        (
-            "https://www.zhihu.com/answer/2100311203096573240",
-            "高跟鞋配白丝真的很难看吗？",
-            "知乎用户"
-        )
+        (ZHIHU_ANSWER_URL, "高跟鞋配白丝真的很难看吗？", "知乎用户")
     );
     assert_eq!(names(&env.path().join(&row.local_path)), ["01.jpg", "02.jpg", "article.json"]);
     assert_eq!(env.status(64).await, "done");
@@ -2102,6 +2113,7 @@ async fn an_nga_thread_waits_for_a_login_without_using_up_its_tries() {
     let mut env = Env::new(Inbox::bridge(vec![event(5, nga_message())]), nga_sites()).await;
     env.sessions = Arc::new(Sessions {
         login: None,
+        zhihu: false,
         checks: Mutex::new(Vec::new()),
     });
 
@@ -2120,6 +2132,7 @@ async fn an_expired_nga_login_is_reported_as_a_login_problem() {
     let mut env = Env::new(Inbox::bridge(vec![event(5, nga_message())]), nga_sites()).await;
     env.sessions = Arc::new(Sessions {
         login: Some(vec![("ngaPassportUid", "42"), ("ngaPassportCid", "stale")]),
+        zhihu: false,
         checks: Mutex::new(Vec::new()),
     });
 
@@ -2752,7 +2765,7 @@ async fn a_video_that_does_not_decrypt_to_an_mp4_is_not_kept() {
     env.finish().await;
 }
 
-// ---------- waiting out a TikHub outage (D185: not in the Python baseline) ----------
+// ---------- waiting out an outage (D185: not in the Python baseline) ----------
 
 /// What TikHub answers every lookup with while one of its APIs is down.
 fn tikhub_request_failed() -> Reply {
@@ -2769,18 +2782,20 @@ fn zhihu_share_message(msg_id: i64) -> Json {
     app_message(msg_id, &content)
 }
 
-fn zhihu_answer() -> Reply {
-    Reply::json(
-        200,
-        &json!({
-            "data": {
-                "content": format!("<figure><img data-original=\"{}\"/></figure>", zhihu_pic("A")),
-                "author": {"name": "知乎用户"},
-                "question": {"title": ZHIHU_TITLE},
-                "created_time": 1_793_533_212,
-            },
-        }),
-    )
+fn zhihu_answer() -> serde_json::Value {
+    json!({
+        "content": format!("<figure><img data-original=\"{}\"/></figure>", zhihu_pic("A")),
+        "author": {"name": "知乎用户"},
+        "question": {"title": ZHIHU_TITLE},
+        "created_time": 1_793_533_212,
+    })
+}
+
+/// The Zhihu browser failing, whatever the post.
+fn zhihu_outage() -> Arc<FakeZhihu> {
+    FakeZhihu::failing(ZhihuError::Outage(format!(
+        "The Zhihu browser failed reading {ZHIHU_ANSWER_URL}: Timeout 45000ms exceeded."
+    )))
 }
 
 fn link_opens(env: &Env) -> usize {
@@ -2788,16 +2803,15 @@ fn link_opens(env: &Env) -> usize {
 }
 
 #[tokio::test]
-async fn a_zhihu_link_waits_out_a_tikhub_outage_for_a_day_before_it_is_given_up() {
-    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), tikhub_request_failed())]);
-    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
-    env.tikhub("tikhub-key");
+async fn a_zhihu_link_waits_out_an_outage_for_a_day_before_it_is_given_up() {
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), Sites::default()).await;
+    env.read_zhihu(&zhihu_outage());
 
     // The tries any item gets fail the run, as before.
     for run in 1..MAX_ATTEMPTS {
         let error = env.run_err().await;
         assert_eq!(error.notification_dedupe_key(), Some("wechat:work"));
-        assert!(error.message().contains("TikHub is failing for"), "{}", error.message());
+        assert!(error.message().contains("The Zhihu browser failed reading"), "{}", error.message());
         assert_eq!(i64::from(env.queue(64).await.attempts), run);
     }
     assert!(env.notifier.sent().is_empty());
@@ -2807,7 +2821,7 @@ async fn a_zhihu_link_waits_out_a_tikhub_outage_for_a_day_before_it_is_given_up(
     env.run_ok().await;
     let queued = env.queue(64).await;
     assert_eq!((queued.status.as_str(), i64::from(queued.attempts)), ("pending", MAX_ATTEMPTS));
-    assert!(queued.last_error.contains("Request failed. Please retry"), "{}", queued.last_error);
+    assert!(queued.last_error.contains("Timeout 45000ms exceeded"), "{}", queued.last_error);
     let sent = env.notifier.sent();
     assert_eq!(sent.len(), 1);
     assert_eq!(
@@ -2817,7 +2831,7 @@ async fn a_zhihu_link_waits_out_a_tikhub_outage_for_a_day_before_it_is_given_up(
             sent[0].header.as_str(),
             sent[0].title.as_str()
         ),
-        ("download_failed", "tikhub:outage:zhihu", "WeChat", ZHIHU_TITLE)
+        ("download_failed", "zhihu:outage", "WeChat", ZHIHU_TITLE)
     );
     assert!(
         sent[0].body.starts_with("Waiting out an outage: links it stops"),
@@ -2844,7 +2858,7 @@ async fn a_zhihu_link_waits_out_a_tikhub_outage_for_a_day_before_it_is_given_up(
     // With nothing waiting on it any more the outage notification is closed, so that the
     // next outage is reported.
     let resolved = env.notifier.resolved();
-    let (_, resolution) = resolved.iter().find(|(key, _)| key == "tikhub:outage:zhihu").expect("closed");
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == "zhihu:outage").expect("closed");
     assert_eq!(
         (resolution.kind.as_str(), resolution.body.as_str()),
         ("download_failed", "No link waits on the outage any more: the last was given up.")
@@ -2854,22 +2868,23 @@ async fn a_zhihu_link_waits_out_a_tikhub_outage_for_a_day_before_it_is_given_up(
 
 #[tokio::test]
 async fn a_zhihu_link_saved_after_an_outage_closes_its_notification() {
-    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()), (zhihu_pic("A"), jpeg())]);
+    let sites = Sites::with(vec![(zhihu_pic("A"), jpeg())]);
     let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
-    env.tikhub("tikhub-key");
+    let reader = zhihu_outage();
+    env.read_zhihu(&reader);
     env.run_err().await;
     env.set_attempts(64, i32::try_from(MAX_ATTEMPTS + 2).expect("small")).await;
     env.run_ok().await;
     assert_eq!(env.notifier.sent().len(), 1);
     assert!(env.notifier.resolved().is_empty());
 
-    // TikHub answers again.
-    env.sites().responses.insert(ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    // Zhihu reads again.
+    reader.find(ZHIHU_ANSWER_URL, &zhihu_answer());
     env.run_ok().await;
 
     assert_eq!(env.status(64).await, "done");
     let resolved = env.notifier.resolved();
-    let (_, resolution) = resolved.iter().find(|(key, _)| key == "tikhub:outage:zhihu").expect("closed");
+    let (_, resolution) = resolved.iter().find(|(key, _)| key == "zhihu:outage").expect("closed");
     assert_eq!(
         (resolution.kind.as_str(), resolution.header.as_str(), resolution.title.as_str()),
         ("job_recovered", "WeChat", ZHIHU_TITLE)
@@ -2881,8 +2896,8 @@ async fn a_zhihu_link_saved_after_an_outage_closes_its_notification() {
     env.finish().await;
 }
 
-/// The answer of another question, shared the same way and looked up apart from the first.
-const OTHER_ZHIHU_TIKHUB: &str = "https://api.tikhub.io/api/v1/zhihu/web/fetch_answer_detail?answer_id=2100311203096573241";
+/// The answer of another question, shared the same way and read apart from the first.
+const OTHER_ZHIHU_ANSWER_URL: &str = "https://www.zhihu.com/answer/2100311203096573241";
 
 fn other_zhihu_share_message(msg_id: i64) -> Json {
     let url = ZHIHU_SHARE_URL.replace("2100311203096573240", "2100311203096573241");
@@ -2893,14 +2908,11 @@ fn other_zhihu_share_message(msg_id: i64) -> Json {
 /// for one post only, would otherwise close and reopen it with every save in between.
 #[tokio::test]
 async fn an_outage_stays_reported_until_the_last_waiting_link_is_saved() {
-    let sites = Sites::with(vec![
-        (ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()),
-        (OTHER_ZHIHU_TIKHUB.to_owned(), tikhub_request_failed()),
-        (zhihu_pic("A"), jpeg()),
-    ]);
+    let sites = Sites::with(vec![(zhihu_pic("A"), jpeg())]);
     let events = vec![event(5, zhihu_share_message(64)), event(6, other_zhihu_share_message(66))];
     let mut env = Env::new(Inbox::bridge(events), sites).await;
-    env.tikhub("tikhub-key");
+    let reader = zhihu_outage();
+    env.read_zhihu(&reader);
     env.run_err().await;
     for msg_id in [64, 66] {
         env.set_attempts(msg_id, i32::try_from(MAX_ATTEMPTS - 1).expect("small")).await;
@@ -2909,30 +2921,19 @@ async fn an_outage_stays_reported_until_the_last_waiting_link_is_saved() {
     assert_eq!(env.notifier.sent().len(), 1);
 
     // One of the two is answered again: saved, with the other still waiting.
-    env.sites().responses.insert(OTHER_ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    reader.find(OTHER_ZHIHU_ANSWER_URL, &zhihu_answer());
     env.run_ok().await;
     assert_eq!((env.status(64).await.as_str(), env.status(66).await.as_str()), ("pending", "done"));
-    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "tikhub:outage:zhihu"));
+    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "zhihu:outage"));
     assert_eq!(
-        env.notifier
-            .sent()
-            .iter()
-            .filter(|sent| sent.dedupe_key == "tikhub:outage:zhihu")
-            .count(),
+        env.notifier.sent().iter().filter(|sent| sent.dedupe_key == "zhihu:outage").count(),
         1
     );
 
-    env.sites().responses.insert(ZHIHU_TIKHUB.to_owned(), zhihu_answer());
+    reader.find(ZHIHU_ANSWER_URL, &zhihu_answer());
     env.run_ok().await;
     assert_eq!(env.status(64).await, "done");
-    assert_eq!(
-        env.notifier
-            .resolved()
-            .iter()
-            .filter(|(key, _)| key == "tikhub:outage:zhihu")
-            .count(),
-        1
-    );
+    assert_eq!(env.notifier.resolved().iter().filter(|(key, _)| key == "zhihu:outage").count(), 1);
     env.finish().await;
 }
 
@@ -2940,11 +2941,11 @@ async fn an_outage_stays_reported_until_the_last_waiting_link_is_saved() {
 /// it, and says nothing about the links that do.
 #[tokio::test]
 async fn a_zhihu_link_that_never_waited_closes_no_outage() {
-    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), zhihu_answer()), (zhihu_pic("A"), jpeg())]);
+    let sites = Sites::with(vec![(zhihu_pic("A"), jpeg())]);
     let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
-    env.tikhub("tikhub-key");
+    env.read_zhihu(&FakeZhihu::finding(&zhihu_answer()));
     let reported = NewNotification {
-        dedupe_key: "tikhub:outage:zhihu".to_owned(),
+        dedupe_key: "zhihu:outage".to_owned(),
         ..NewNotification::default()
     };
     env.notifier.enqueue(reported).await.expect("reported");
@@ -2952,29 +2953,28 @@ async fn a_zhihu_link_that_never_waited_closes_no_outage() {
     env.run_ok().await;
 
     assert_eq!(env.status(64).await, "done");
-    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "tikhub:outage:zhihu"));
+    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "zhihu:outage"));
     env.finish().await;
 }
 
 #[tokio::test]
 async fn a_zhihu_link_saved_with_no_outage_open_resolves_nothing() {
-    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), zhihu_answer()), (zhihu_pic("A"), jpeg())]);
+    let sites = Sites::with(vec![(zhihu_pic("A"), jpeg())]);
     let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
-    env.tikhub("tikhub-key");
+    env.read_zhihu(&FakeZhihu::finding(&zhihu_answer()));
 
     env.run_ok().await;
 
     assert_eq!(env.status(64).await, "done");
-    assert!(env.notifier.resolved().iter().all(|(key, _)| !key.starts_with("tikhub:outage")));
+    assert!(env.notifier.resolved().iter().all(|(key, _)| key != "zhihu:outage"));
     env.finish().await;
 }
 
 #[tokio::test]
-async fn a_zhihu_post_tikhub_cannot_read_is_given_up_at_its_fifth_try_whatever_came_before() {
-    let gone = Reply::json(200, &json!({"data": {}}));
-    let sites = Sites::with(vec![(ZHIHU_TIKHUB.to_owned(), gone)]);
-    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), sites).await;
-    env.tikhub("tikhub-key");
+async fn a_zhihu_post_that_cannot_be_read_is_given_up_at_its_fifth_try_whatever_came_before() {
+    let gone = ZhihuError::Zhihu(format!("Zhihu has no post at {ZHIHU_ANSWER_URL}; it may have been deleted"));
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), Sites::default()).await;
+    env.read_zhihu(&FakeZhihu::failing(gone));
     env.run_err().await;
     // As a link is left that waited out an outage for a while.
     env.set_attempts(64, i32::try_from(MAX_ATTEMPTS + 6).expect("small")).await;
@@ -2984,6 +2984,23 @@ async fn a_zhihu_post_tikhub_cannot_read_is_given_up_at_its_fifth_try_whatever_c
     assert!(error.message().contains("article 64 (gave up)"), "{}", error.message());
     assert_eq!(env.status(64).await, "failed");
     assert!(env.notifier.sent().is_empty());
+    env.finish().await;
+}
+
+/// Without the Zhihu login a Zhihu link waits for one, its tries untouched, and the
+/// browser is not opened (D187: TikHub no longer reads it).
+#[tokio::test]
+async fn a_zhihu_link_waits_for_the_zhihu_login_without_using_up_its_tries() {
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), Sites::default()).await;
+    let reader = FakeZhihu::finding(&zhihu_answer());
+    env.zhihu = Arc::clone(&reader);
+
+    let error = env.run_err().await;
+
+    assert!(error.message().contains("Zhihu login"), "{}", error.message());
+    let queued = env.queue(64).await;
+    assert_eq!((queued.status.as_str(), queued.attempts), ("pending", 0));
+    assert!(reader.read().is_empty());
     env.finish().await;
 }
 

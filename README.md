@@ -357,8 +357,8 @@ keystream that key seeds. Without a key the video waits without using up its tri
 `<path>/<YYYY-MM>/<YYYY-MM-DD HHMMSS> <caption> [<msg_id>].mp4` with its cover beside it, recorded in
 `wechat_channel_video`, and a second forward of the same video (by object id) is skipped. All three
 tables are keyed `(msg_id, create_time)`. A failed item is
-retried on the next runs, five times at most, and for about a day when what failed is TikHub and not
-the item (see [When TikHub is failing](#when-tikhub-is-failing)). When the source learns a new kind of message, it reads
+retried on the next runs, five times at most, and for about a day when what failed is the service that reads it
+(TikHub, the Zhihu browser) and not the item (see [When a service is failing](#when-a-service-is-failing)). When the source learns a new kind of message, it reads
 the bridge's event log again from the start once, so earlier messages of that kind are picked up. The run then drains the inbox as a fallback: it downloads what
 is not stored yet, and acknowledges each item, which deletes the host's copy. Chat videos and files
 are not collected yet.
@@ -640,12 +640,11 @@ An NGA thread needs the NGA login captured on the 登录态 page. Zhihu answers 
 login wall, so a Zhihu post is read in a signed-in Chromium profile: sign in to 知乎 on the 登录态 page once, and every
 Zhihu link opens its page in that profile (`<RedNote profile's folder>/zhihu-profile`, through `web.rednote.proxy`, one
 browser per post under the profile's advisory lock) and takes the post from the page's own `js-initialData`, or from
-`/api/v4` asked inside the page. Until Zhihu is signed in there, a post is looked up through TikHub instead
-(`fetch_answer_detail`, `fetch_column_article_detail`, `fetch_pin_detail`, about $0.001 a lookup). Either way its
-pictures come at full size from `*.zhimg.com` and its videos at the widest quality `lens.zhihu.com` lists. A profile that
-lost its login marks the 知乎 session invalid and its links wait for a new sign-in; a security check, or a browser that
-fails to read the page, counts as an outage ([When TikHub is failing](#when-tikhub-is-failing)).
-Without the login or the TikHub key, a link waits without using up its tries. A 公众号
+`/api/v4` asked inside the page (TikHub no longer reads Zhihu, D187). Its pictures come at full size from
+`*.zhimg.com` and its videos at the widest quality `lens.zhihu.com` lists. A profile that lost its login marks the 知乎
+session invalid and its links wait for a new sign-in; a security check, or a browser that fails to read the page, counts
+as an outage ([When a service is failing](#when-a-service-is-failing)).
+Without the login, a link waits without using up its tries. A 公众号
 image post sent through Telegram cannot be read (mp.weixin.qq.com puts it behind a captcha); share it to WeChat instead.
 
 ### Messages With Nothing To Save
@@ -667,15 +666,17 @@ ignored.
 ### TikHub
 
 TikHub is configured once, in its own `services.tikhub` section (`token`, `api_url`; 设置 → 第三方服务), and used by the
-WeChat 视频号 lookup and by Zhihu links from either source. `POST /api/v2/services/tikhub/test` checks the saved key with
+WeChat 视频号 lookup (Zhihu links are read in the 知乎 profile instead, D187). `POST /api/v2/services/tikhub/test` checks the saved key with
 TikHub's free account lookup and answers with the key's name, balance and free credit; the settings page shows it
 when the section opens, with a button to refresh it. A database that still holds the
 key under the old `web.wechat.tikhub_token` / `tikhub_api_url` fields has them moved to `services.tikhub` at startup.
 
-#### When TikHub is failing
+#### When a service is failing
 
-A lookup can fail because TikHub itself is failing: no answer, a rate limit or a server error, or its "Request failed.
-Please retry" answer, which it gives for every lookup while one of its APIs is down. The post or video may be fine then,
+A lookup can fail because what reads the item is failing, not the item. For a 视频号 video that is TikHub: no answer, a
+rate limit or a server error, or its "Request failed. Please retry" answer, which it gives for every lookup while one of
+its APIs is down. For a Zhihu post it is the 知乎 profile's browser: a security check, a page that shows no post, or a
+browser that fails to start or read. The post or video may be fine then,
 so it is not given up with the five tries an unreadable one gets. Telegram and WeChat follow one rule for this
 (`link_retry`): its first four failed tries are retried like any other item's; a fifth that fails this way no longer
 gives it up: it stays queued and is tried again for about a day before it is given up and reported. Each source keeps its own pace. A Telegram link is retried with the
@@ -685,12 +686,12 @@ it; a link is not opened in WeChat again for those later tries.
 
 The outage has one `download_failed` notification for everything it stops, whichever source runs into it: it is sent by
 the first item that reaches its fifth try while none is open. It is resolved when the last item of a source that waited
-on the outage is saved or given up, and not by a save in between: while TikHub fails on and off, or for one post only,
-the notification stands instead of being closed and sent again with every save. TikHub's Zhihu API and its 视频号 API
-fail apart from each other, so each has a notification of its own (`tikhub:outage:zhihu`, `tikhub:outage:channels`).
-TikHub gives the same "Request failed" answer for some posts it cannot read at all; such an item also waits the day out,
+on the outage is saved or given up, and not by a save in between: while a service fails on and off, or for one item only,
+the notification stands instead of being closed and sent again with every save. The Zhihu browser and TikHub's 视频号 API
+fail apart from each other, so each has a notification of its own (`zhihu:outage`, `tikhub:outage:channels`).
+TikHub gives the same "Request failed" answer for some videos it cannot read at all; such an item also waits the day out,
 and closes the notification when it is given up. An item that waited is given up by the first failure of its own (a
-post that is gone, a download that fails) once TikHub answers again.
+post that is gone, a download that fails) once the service answers again.
 
 ### In Telegram
 
@@ -699,8 +700,8 @@ channel. The pictures go to the channel's `image` route and the videos to its `v
 route takes both. Files are named `[author]title-N [message id].ext`, where the title is the post's (for Zhihu, the
 question's, the article's or the pin's opening text). A link whose post cannot be read is retried with the queue's backoff
 and given up after five tries with a `download_failed` notification; one that waits on a login or a key is retried every
-30 minutes with a notification saying what it needs. One whose lookup fails because TikHub itself is failing waits the
-outage out for about a day instead (see [When TikHub is failing](#when-tikhub-is-failing)). Links are scanned as a type of their own, so the first run after an
+30 minutes with a notification saying what it needs. One whose read fails because the Zhihu browser is failing waits the
+outage out for about a day instead (see [When a service is failing](#when-a-service-is-failing)). Links are scanned as a type of their own, so the first run after an
 upgrade backfills the latest `scan_limit` messages of each channel for them, as for a newly configured media type.
 
 ## Telegram Downloader Safety

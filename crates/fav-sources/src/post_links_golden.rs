@@ -13,7 +13,6 @@ use chrono::{DateTime, Utc};
 use fav_core::golden;
 use fav_core::logging;
 use fav_core::pyjson::{self, Dict, DumpOptions, Value};
-use fav_db::SettingsStore;
 use fav_runtime::BoxFuture;
 use fav_runtime::site_sessions::{SiteSession, StoredCookie};
 
@@ -24,7 +23,7 @@ use crate::testutil::{FakeWeb, Reply, Seen};
 use crate::tieba_post::{self, TiebaError};
 use crate::tikhub::{self, TikHubAccount, TikHubError};
 use crate::wechat_article::{self, ArticleLink, ArticlePage, PostVideo};
-use crate::zhihu_post::{self, ZhihuError, ZhihuKind, ZhihuLink, ZhihuPost, ZhihuVideo};
+use crate::zhihu_post::{self, ZhihuKind, ZhihuLink, ZhihuPost, ZhihuVideo};
 
 // ---------- Python's `_plain` of each answer ----------
 
@@ -146,17 +145,6 @@ fn nga_error(failure: &NgaError) -> Value {
         NgaError::Nga(message) => error("NgaError", message),
         NgaError::Login(message) => error("NgaLoginError", message),
         NgaError::Other(failure) => py_error(failure),
-    }
-}
-
-fn zhihu_error(failure: &ZhihuError) -> Value {
-    match failure {
-        // An outage is a `ZhihuError` in Python (D185).
-        ZhihuError::Zhihu(message) | ZhihuError::Outage(message) => error("ZhihuError", message),
-        ZhihuError::Account(message) => error("ZhihuAccountError", message),
-        // Python never read Zhihu in a browser (D186).
-        ZhihuError::Login(message) => error("ZhihuLoginError", message),
-        ZhihuError::Other(failure) => py_error(failure),
     }
 }
 
@@ -528,14 +516,6 @@ impl SessionStore for Sessions {
     }
 }
 
-fn zhihu_args(args: &Value) -> (ZhihuLink, String, String) {
-    (
-        ZhihuLink::new(kind_arg(golden::get(args, "kind")), field(args, "id")),
-        field(args, "api_url"),
-        field(args, "token"),
-    )
-}
-
 async fn call(case: &Value, web: &FakeWeb, sessions: Arc<Sessions>, folder: &std::path::Path) -> Value {
     let args = golden::get(case, "args");
     let name = golden::string(golden::get(case, "call"));
@@ -568,18 +548,6 @@ async fn call(case: &Value, web: &FakeWeb, sessions: Arc<Sessions>, folder: &std
                 .await
                 .map_or_else(|failure| nga_error(&failure), |found| page(&found))
         }
-        "zhihu_post.fetch_post" => {
-            let (target, api_url, token) = zhihu_args(args);
-            zhihu_post::fetch_post(&client, &target, &api_url, &token)
-                .await
-                .map_or_else(|failure| zhihu_error(&failure), |found| zhihu_post(&found))
-        }
-        "zhihu_post.fetch_page" => {
-            let (target, api_url, token) = zhihu_args(args);
-            zhihu_post::fetch_page(&client, &target, &api_url, &token)
-                .await
-                .map_or_else(|failure| zhihu_error(&failure), |found| page(&found))
-        }
         "zhihu_post.resolve_video" => {
             let target = golden::get(args, "video");
             let target = ZhihuVideo {
@@ -590,11 +558,7 @@ async fn call(case: &Value, web: &FakeWeb, sessions: Arc<Sessions>, folder: &std
             answer(zhihu_post::resolve_video(&client, &target).await, Value::Str)
         }
         "post_links.fetch_page" => {
-            let mut settings = fav_db::settings_store::default_settings();
-            let tikhub = args.get("tikhub");
-            settings.services.tikhub.api_url = tikhub.map_or_else(|| "http://api.tikhub.dev".to_owned(), |cfg| field(cfg, "api_url"));
-            settings.services.tikhub.token = tikhub.map(|cfg| field(cfg, "token")).unwrap_or_default();
-            let links = PostLinks::new(client, Arc::new(SettingsStore::pinned(settings)), sessions);
+            let links = PostLinks::new(client, sessions);
             links.fetch_page(&link()).await.map_or_else(
                 |failure| post_error(&failure),
                 |(found, html)| Value::List(vec![page(&found), Value::Str(html)]),

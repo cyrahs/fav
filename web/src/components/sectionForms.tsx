@@ -658,7 +658,6 @@ function TikHubForm(props: SectionFormProps) {
         <h4>用在</h4>
         <ul className="muted">
           <li>微信转发的视频号：每条约 0.01 美元</li>
-          <li>微信或 Telegram 发来的知乎链接：每条约 0.001 美元</li>
         </ul>
       </div>
     </div>

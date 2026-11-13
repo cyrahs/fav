@@ -517,10 +517,7 @@ impl Telegram {
         let client = PostClient::new().map_err(|error| TgError::runtime(error.to_string()))?;
         let sessions: Arc<dyn SessionStore> = Arc::new(self.inner.db.clone());
         let zhihu = Arc::new(ChromiumZhihuReader::new(self.inner.db.clone(), Arc::clone(&self.inner.settings)));
-        let _ = self
-            .inner
-            .links
-            .set(PostLinks::new(client, Arc::clone(&self.inner.settings), sessions).with_zhihu(zhihu));
+        let _ = self.inner.links.set(PostLinks::new(client, sessions).with_zhihu(zhihu));
         self.inner
             .links
             .get()
@@ -1481,7 +1478,7 @@ impl Telegram {
         };
         self.enqueue_notification(notification, "the link download notification", job.message_id)
             .await;
-        if post_links::reads_through_tikhub(link).map_err(py)? {
+        if post_links::waits_out_outages(link).map_err(py)? {
             self.settle_link_outage(job, &title, End::Saved).await;
         }
         Ok(images.into_iter().chain(videos).next().unwrap_or_default())
@@ -1493,7 +1490,7 @@ impl Telegram {
     async fn link_failed(&self, job: &TelegramMediaJob, owner_token: &str, error: &PostLinkError) -> Result<(), TgError> {
         let text = format!("{}: {error}", error.class_name());
         let py = |error: crate::pydecode::PyError| TgError::py(&error);
-        let outage = error.outage.then_some(Service::TikHubZhihu);
+        let outage = error.outage.then_some(Service::Zhihu);
         match link_retry::next(error.needs != Needs::Nothing, outage, job.attempt_count, LINK_OUTAGE_MAX_ATTEMPTS) {
             Next::WaitForSetting => {
                 let needs = error.needs.as_str();
@@ -1558,7 +1555,7 @@ impl Telegram {
             }
         };
         self.outages()
-            .settle(Service::TikHubZhihu, &format!("message {}", job.message_id), title, end, waiting)
+            .settle(Service::Zhihu, &format!("message {}", job.message_id), title, end, waiting)
             .await;
     }
 

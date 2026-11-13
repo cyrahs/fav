@@ -12,17 +12,16 @@
 //!
 //! Two of the kinds need something only a person can set up: an NGA thread is read with
 //! the NGA login captured on the 登录态 page, and a Zhihu post is read in the Zhihu profile
-//! signed in on that page, or, while there is no Zhihu login, looked up through TikHub with
-//! the key in `services.tikhub` (D186). Without either, the error says so in
+//! signed in on that page (D186, D187). Without either login, the error says so in
 //! [`PostLinkError::needs`], so a source can wait for it rather than spend its tries. A
 //! 公众号 image post is put behind a captcha whatever the client; that is
 //! [`PostLinkError::captcha`], which WeChat answers by opening the post in WeChat itself.
-//! A lookup that fails because TikHub itself is failing is [`PostLinkError::outage`]: the
-//! post may be fine, so a source can keep the link waiting for longer than it retries one
-//! it could not read (DIVERGENCES.md D185).
+//! A read that fails because what reads the post is failing (the Zhihu browser) is
+//! [`PostLinkError::outage`]: the post may be fine, so a source can keep the link waiting
+//! for longer than it retries one it could not read (DIVERGENCES.md D185).
 //!
 //! Python reads and downloads everything with one `httpx.AsyncClient` and passes a
-//! per-request timeout for the TikHub lookup, the lens call and the video download;
+//! per-request timeout for the lens call and the video download;
 //! [`PostClient`] holds one client per timeout instead (DIVERGENCES.md D127).
 
 use std::path::Path;
@@ -30,7 +29,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use bytes::Bytes;
-use fav_db::{Db, SettingsStore};
+use fav_db::Db;
 use fav_net::client::{BuildError, header_text};
 use fav_net::download::{io_class_name, py_os_error_text};
 use fav_net::reqwest::header::HeaderMap;
@@ -55,9 +54,6 @@ const ARTICLE_HOST: &str = "mp.weixin.qq.com";
 pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 60;
 /// How long a post's video may take to download from its CDN.
 pub const VIDEO_READ_SECONDS: u64 = 600;
-/// `httpx.Timeout(30.0, read=60.0)`, the TikHub lookup's.
-const LOOKUP_CONNECT_SECONDS: u64 = 30;
-const LOOKUP_READ_SECONDS: u64 = 60;
 /// The lens call's `timeout=30.0`.
 const LENS_TIMEOUT_SECONDS: u64 = 30;
 /// A phone browser, as a share link would open in. mp.weixin.qq.com serves the full page
@@ -66,24 +62,22 @@ pub const USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36
 static URL_IN_TEXT: LazyLock<regex::Regex> = LazyLock::new(|| compile("https?://[^\\s<>\"'\\]\u{ff09}\u{3011}]+", true, false));
 const MAGIC_EXTENSIONS: [(&[u8], &str); 3] = [(b"\xff\xd8\xff", "jpg"), (b"\x89PNG", "png"), (b"GIF8", "gif")];
 
-/// `Needs`: what a failure waits on, a login to capture or a key to set, not another try.
+/// `Needs`: what a failure waits on, a login to capture, not another try.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Needs {
     #[default]
     Nothing,
     NgaLogin,
-    TikHub,
-    /// The Zhihu profile lost its login, or Zhihu wants a security check passed in it.
+    /// The Zhihu profile is not signed in.
     ZhihuLogin,
 }
 
 impl Needs {
-    /// The value Python's `needs` holds: `''`, `'nga-login'` or `'tikhub'`.
+    /// The value Python's `needs` holds (`''`, `'nga-login'`), or `'zhihu-login'`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Nothing => "",
             Self::NgaLogin => "nga-login",
-            Self::TikHub => "tikhub",
             Self::ZhihuLogin => "zhihu-login",
         }
     }
@@ -195,7 +189,6 @@ impl Default for Endpoints {
 #[derive(Debug, Clone)]
 pub struct PostClient {
     page: HttpClient,
-    lookup: HttpClient,
     lens: HttpClient,
     video: HttpClient,
     endpoints: Endpoints,
@@ -229,7 +222,6 @@ impl PostClient {
         };
         Ok(Self {
             page: build(REQUEST_TIMEOUT_SECONDS, REQUEST_TIMEOUT_SECONDS)?,
-            lookup: build(LOOKUP_READ_SECONDS, LOOKUP_CONNECT_SECONDS)?,
             lens: build(LENS_TIMEOUT_SECONDS, LENS_TIMEOUT_SECONDS)?,
             video: build(VIDEO_READ_SECONDS, REQUEST_TIMEOUT_SECONDS)?,
             endpoints,
@@ -239,10 +231,6 @@ impl PostClient {
     /// The client with the 60 s timeout, for pages and pictures.
     pub fn http(&self) -> &HttpClient {
         &self.page
-    }
-
-    pub(crate) fn lookup(&self) -> &HttpClient {
-        &self.lookup
     }
 
     pub(crate) fn lens(&self) -> &HttpClient {
@@ -518,16 +506,15 @@ pub fn site_name(link: &ArticleLink) -> Result<&'static str, PyError> {
     Ok("WeChat article")
 }
 
-/// Whether the link's post is looked up through TikHub, whose outages a link can wait out
+/// Whether the link's post is read in the Zhihu browser, whose outages a link can wait out
 /// ([`PostLinkError::outage`]).
-pub fn reads_through_tikhub(link: &ArticleLink) -> Result<bool, PyError> {
+pub fn waits_out_outages(link: &ArticleLink) -> Result<bool, PyError> {
     Ok(zhihu_post::parse_zhihu_url(&link.url)?.is_some())
 }
 
 /// A failed Zhihu read as the error a source sees.
 fn zhihu_error(error: ZhihuError) -> PostError {
     match error {
-        ZhihuError::Account(message) => PostLinkError::needing(message, Needs::TikHub).into(),
         ZhihuError::Login(message) => PostLinkError::needing(message, Needs::ZhihuLogin).into(),
         ZhihuError::Zhihu(message) => PostLinkError::new(message).into(),
         ZhihuError::Outage(message) => PostLinkError::outage(message).into(),
@@ -579,12 +566,11 @@ fn store_error(error: &fav_runtime::Error) -> PyError {
     PyError::new(job.class_name(), job.message())
 }
 
-/// What reading a linked post needs besides the client: the settings (the TikHub key), the
-/// stored sessions (the NGA and Zhihu logins) and the browser that reads Zhihu.
+/// What reading a linked post needs besides the client: the stored sessions (the NGA and
+/// Zhihu logins) and the browser that reads Zhihu.
 #[derive(Clone)]
 pub struct PostLinks {
     client: PostClient,
-    settings: Arc<SettingsStore>,
     sessions: Arc<dyn SessionStore>,
     zhihu: Option<Arc<dyn ZhihuReader>>,
 }
@@ -596,10 +582,9 @@ impl std::fmt::Debug for PostLinks {
 }
 
 impl PostLinks {
-    pub fn new(client: PostClient, settings: Arc<SettingsStore>, sessions: Arc<dyn SessionStore>) -> Self {
+    pub fn new(client: PostClient, sessions: Arc<dyn SessionStore>) -> Self {
         Self {
             client,
-            settings,
             sessions,
             zhihu: None,
         }
@@ -682,18 +667,16 @@ impl PostLinks {
         let Some(zhihu) = zhihu_post::parse_zhihu_url(&link.url)? else {
             return Err(PostLinkError::new(format!("{} is not a Zhihu post", link.url)).into());
         };
-        if let Some(reader) = self.zhihu_reader().await? {
-            return self.zhihu_page_in_browser(reader.as_ref(), &zhihu).await;
-        }
-        let settings = self
-            .settings
-            .load()
-            .await
-            .map_err(|error| PyError::new("RuntimeError", error.to_string()))?;
-        let tikhub = &settings.services.tikhub;
-        match zhihu_post::fetch_page(&self.client, &zhihu, &tikhub.api_url, &tikhub.token).await {
-            Ok(page) => Ok(page),
-            Err(error) => Err(zhihu_error(error)),
+        match self.zhihu_reader().await? {
+            Some(reader) => self.zhihu_page_in_browser(reader.as_ref(), &zhihu).await,
+            None => Err(PostLinkError::needing(
+                format!(
+                    "A Zhihu post needs the Zhihu login, and 知乎 is not signed in. Sign in to 知乎 on the 登录态 page ({}).",
+                    zhihu.url()
+                ),
+                Needs::ZhihuLogin,
+            )
+            .into()),
         }
     }
 
