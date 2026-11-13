@@ -53,6 +53,7 @@ use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::post_links::{self, Needs, PostClient, PostError, PostLinkError, PostLinks, SessionStore};
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob, sql_error};
 use crate::wechat_article::{ArticleLink, ArticlePage, canonical_url};
+use crate::zhihu_post::ChromiumZhihuReader;
 
 /// The job key, and the `source` of its notifications.
 pub const JOB_KEY: &str = "telegram";
@@ -515,10 +516,11 @@ impl Telegram {
         }
         let client = PostClient::new().map_err(|error| TgError::runtime(error.to_string()))?;
         let sessions: Arc<dyn SessionStore> = Arc::new(self.inner.db.clone());
+        let zhihu = Arc::new(ChromiumZhihuReader::new(self.inner.db.clone(), Arc::clone(&self.inner.settings)));
         let _ = self
             .inner
             .links
-            .set(PostLinks::new(client, Arc::clone(&self.inner.settings), sessions));
+            .set(PostLinks::new(client, Arc::clone(&self.inner.settings), sessions).with_zhihu(zhihu));
         self.inner
             .links
             .get()

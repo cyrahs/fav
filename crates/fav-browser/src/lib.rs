@@ -12,6 +12,8 @@
 //! - [`proxy`], [`profile`]: proxy URLs and Chromium profile locks.
 //! - [`rednote`]: what RedNote's crawler and its login share (init scripts, the
 //!   signed-in probe, the macOS user agent).
+//! - [`zhihu`]: the Zhihu profile, its login check and the reader that opens one post
+//!   in it.
 //! - [`login`], [`window`], [`vnc`]: the login window: one sign-in at a time in a
 //!   Chromium shown over VNC, its cookies polled until a site accepts them.
 
@@ -25,6 +27,7 @@ pub mod rednote;
 pub mod site_checks;
 pub mod vnc;
 pub mod window;
+pub mod zhihu;
 
 #[cfg(test)]
 mod testutil;

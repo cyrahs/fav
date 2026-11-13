@@ -1001,3 +1001,175 @@ fn a_video_download_that_breaks_off_leaves_nothing_behind() {
         );
     }
 }
+
+// ---------- the signed-in Zhihu profile (D186) ----------
+
+/// A Zhihu reader that answers every post with one scripted result.
+struct FakeReader {
+    answer: Result<Dict, ZhihuError>,
+    read: Mutex<Vec<ZhihuLink>>,
+}
+
+impl zhihu_post::ZhihuReader for FakeReader {
+    fn read<'a>(&'a self, link: &'a ZhihuLink) -> BoxFuture<'a, Result<Dict, ZhihuError>> {
+        self.read.lock().expect("lock").push(link.clone());
+        let answer = self.answer.clone();
+        Box::pin(async move { answer })
+    }
+}
+
+fn zhihu_signed_in() -> Arc<Sessions> {
+    Arc::new(Sessions {
+        login: Some(vec![StoredCookie {
+            name: "z_c0".to_owned(),
+            value: fav_runtime::site_sessions::VALUE_IN_PROFILE.to_owned(),
+            domain: ".zhihu.com".to_owned(),
+            path: "/".to_owned(),
+            expires: None,
+        }]),
+        checks: Mutex::new(Vec::new()),
+    })
+}
+
+fn links_reading(web: &FakeWeb, sessions: &Arc<Sessions>, reader: &Arc<FakeReader>) -> PostLinks {
+    let mut settings = fav_db::settings_store::default_settings();
+    settings.services.tikhub.api_url = "http://api.tikhub.dev".to_owned();
+    settings.services.tikhub.token = "service-key".to_owned();
+    PostLinks::new(
+        client(web),
+        Arc::new(SettingsStore::pinned(settings)),
+        Arc::clone(sessions) as Arc<dyn SessionStore>,
+    )
+    .with_zhihu(Arc::clone(reader) as Arc<dyn zhihu_post::ZhihuReader>)
+}
+
+#[tokio::test]
+async fn a_zhihu_post_is_read_in_the_signed_in_profile_instead_of_tikhub() {
+    let web = FakeWeb::start(|seen| {
+        if seen.host() == "lens.zhihu.com" {
+            json_reply(
+                200,
+                r#"{"playlist": {"HD": {"play_url": "https://vdn.vzuu.com/hd.mp4", "width": 1280, "height": 720}}}"#,
+            )
+        } else {
+            Reply::status(500)
+        }
+    })
+    .await;
+    let reader = Arc::new(FakeReader {
+        answer: Ok(object(
+            r#"{"content": "<p><img data-original=\"https://pic1.zhimg.com/v2-a_r.jpg\"></p><a class=\"video-box\" data-lens-id=\"77\"></a>",
+                "question": {"title": "一个问题"}, "author": {"name": "某人"}, "created_time": 1700000000}"#,
+        )),
+        read: Mutex::new(Vec::new()),
+    });
+    let sessions = zhihu_signed_in();
+
+    let (page, html) = links_reading(&web, &sessions, &reader)
+        .fetch_page(&link_for("https://www.zhihu.com/question/1/answer/22"))
+        .await
+        .expect("read");
+
+    assert_eq!(*reader.read.lock().unwrap(), [ZhihuLink::new(ZhihuKind::Answer, "22")]);
+    assert_eq!(
+        (page.title.as_str(), page.account.as_str(), page.images.clone(), html.as_str()),
+        ("一个问题", "某人", vec!["https://pic1.zhimg.com/v2-a_r.jpg".to_owned()], "")
+    );
+    assert_eq!(page.videos.len(), 1);
+    assert_eq!(page.videos[0].url, "https://vdn.vzuu.com/hd.mp4");
+    // TikHub is not asked; the lens call is the only request.
+    assert!(web.seen().iter().all(|seen| seen.host() == "lens.zhihu.com"));
+    assert_eq!(*sessions.checks.lock().unwrap(), [(true, String::new())]);
+}
+
+#[tokio::test]
+async fn a_zhihu_profile_that_lost_its_login_waits_for_one() {
+    let web = FakeWeb::start(|_| Reply::status(500)).await;
+    let message = "Zhihu is not signed in any more (reading https://www.zhihu.com/pin/7); sign in to 知乎 on the 登录态 page.";
+    let reader = Arc::new(FakeReader {
+        answer: Err(ZhihuError::Login(message.to_owned())),
+        read: Mutex::new(Vec::new()),
+    });
+    let sessions = zhihu_signed_in();
+
+    let error = link_error(
+        links_reading(&web, &sessions, &reader)
+            .fetch_page(&link_for("https://www.zhihu.com/pin/7"))
+            .await,
+    );
+
+    assert_eq!(
+        (error.needs, error.outage, error.message.as_str()),
+        (Needs::ZhihuLogin, false, message)
+    );
+    assert_eq!(error.needs.as_str(), "zhihu-login");
+    assert_eq!(*sessions.checks.lock().unwrap(), [(false, message.to_owned())]);
+    assert!(web.seen().is_empty());
+}
+
+#[tokio::test]
+async fn a_failing_zhihu_browser_is_an_outage_to_wait_out() {
+    let web = FakeWeb::start(|_| Reply::status(500)).await;
+    let reader = Arc::new(FakeReader {
+        answer: Err(ZhihuError::Outage(
+            "The Zhihu browser failed reading https://www.zhihu.com/pin/7: Timeout 45000ms exceeded.".to_owned(),
+        )),
+        read: Mutex::new(Vec::new()),
+    });
+    let sessions = zhihu_signed_in();
+
+    let error = link_error(
+        links_reading(&web, &sessions, &reader)
+            .fetch_page(&link_for("https://www.zhihu.com/pin/7"))
+            .await,
+    );
+
+    assert_eq!((error.needs, error.outage), (Needs::Nothing, true));
+    // Only a lost login is recorded against the session.
+    assert!(sessions.checks.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn without_a_zhihu_login_the_post_is_still_looked_up_through_tikhub() {
+    let web = FakeWeb::start(|_| json_reply(200, r#"{"data": {"title": "T", "content": ""}}"#)).await;
+    let reader = Arc::new(FakeReader {
+        answer: Err(ZhihuError::Zhihu("not asked".to_owned())),
+        read: Mutex::new(Vec::new()),
+    });
+
+    let (page, _) = links_reading(&web, &Sessions::none(), &reader)
+        .fetch_page(&link_for("https://zhuanlan.zhihu.com/p/42"))
+        .await
+        .expect("read");
+
+    assert_eq!(page.title, "T");
+    assert!(reader.read.lock().unwrap().is_empty());
+    assert_eq!(web.seen()[0].host(), "api.tikhub.dev");
+}
+
+#[test]
+fn what_the_profile_page_showed_is_the_error_a_source_waits_on() {
+    use fav_browser::zhihu::PageState;
+    let link = ZhihuLink::new(ZhihuKind::Pin, "7");
+    let post = zhihu_post::page_state(&link, PageState::Post(serde_json::json!({"content": []}))).expect("a post");
+    assert!(post.get("content").is_some());
+    assert!(matches!(
+        zhihu_post::page_state(&link, PageState::SignedOut),
+        Err(ZhihuError::Login(_))
+    ));
+    assert!(matches!(
+        zhihu_post::page_state(&link, PageState::Challenge("https://www.zhihu.com/account/unhuman".to_owned())),
+        Err(ZhihuError::Outage(message)) if message.contains("security check")
+    ));
+    assert_eq!(
+        zhihu_post::page_state(&link, PageState::Missing("\"知乎\" at https://www.zhihu.com/pin/7".to_owned())),
+        Err(ZhihuError::Zhihu(
+            "Zhihu has no post at https://www.zhihu.com/pin/7 (\"知乎\" at https://www.zhihu.com/pin/7); it may have been deleted"
+                .to_owned()
+        ))
+    );
+    assert!(matches!(
+        zhihu_post::page_state(&link, PageState::Unknown("x".to_owned())),
+        Err(ZhihuError::Outage(_))
+    ));
+}

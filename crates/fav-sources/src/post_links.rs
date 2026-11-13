@@ -11,8 +11,9 @@
 //! recorded and announced, stays with each source.
 //!
 //! Two of the kinds need something only a person can set up: an NGA thread is read with
-//! the NGA login captured on the 登录态 page, and a Zhihu post is looked up through TikHub
-//! with the key in `services.tikhub`. Without either, the error says so in
+//! the NGA login captured on the 登录态 page, and a Zhihu post is read in the Zhihu profile
+//! signed in on that page, or, while there is no Zhihu login, looked up through TikHub with
+//! the key in `services.tikhub` (D186). Without either, the error says so in
 //! [`PostLinkError::needs`], so a source can wait for it rather than spend its tries. A
 //! 公众号 image post is put behind a captcha whatever the client; that is
 //! [`PostLinkError::captcha`], which WeChat answers by opening the post in WeChat itself.
@@ -48,7 +49,7 @@ use crate::wechat_article::{
     ArticleLink, ArticlePage, LINK_SHARE_TYPE, PostVideo, VIDEO_SHARE_TYPE, appmsg_link, canonical_url, image_extension, is_captcha,
     original_image_url, parse_article_link, parse_article_page,
 };
-use crate::zhihu_post::{self, ZhihuError};
+use crate::zhihu_post::{self, ZhihuError, ZhihuReader};
 
 const ARTICLE_HOST: &str = "mp.weixin.qq.com";
 pub(crate) const REQUEST_TIMEOUT_SECONDS: u64 = 60;
@@ -72,6 +73,8 @@ pub enum Needs {
     Nothing,
     NgaLogin,
     TikHub,
+    /// The Zhihu profile lost its login, or Zhihu wants a security check passed in it.
+    ZhihuLogin,
 }
 
 impl Needs {
@@ -81,6 +84,7 @@ impl Needs {
             Self::Nothing => "",
             Self::NgaLogin => "nga-login",
             Self::TikHub => "tikhub",
+            Self::ZhihuLogin => "zhihu-login",
         }
     }
 }
@@ -520,6 +524,17 @@ pub fn reads_through_tikhub(link: &ArticleLink) -> Result<bool, PyError> {
     Ok(zhihu_post::parse_zhihu_url(&link.url)?.is_some())
 }
 
+/// A failed Zhihu read as the error a source sees.
+fn zhihu_error(error: ZhihuError) -> PostError {
+    match error {
+        ZhihuError::Account(message) => PostLinkError::needing(message, Needs::TikHub).into(),
+        ZhihuError::Login(message) => PostLinkError::needing(message, Needs::ZhihuLogin).into(),
+        ZhihuError::Zhihu(message) => PostLinkError::new(message).into(),
+        ZhihuError::Outage(message) => PostLinkError::outage(message).into(),
+        ZhihuError::Other(error) => error.into(),
+    }
+}
+
 /// `sniff_extension`: a picture's type from its first bytes.
 pub fn sniff_extension(content: &[u8]) -> Option<&'static str> {
     for (magic, extension) in MAGIC_EXTENSIONS {
@@ -564,13 +579,14 @@ fn store_error(error: &fav_runtime::Error) -> PyError {
     PyError::new(job.class_name(), job.message())
 }
 
-/// What reading a linked post needs besides the client: the settings (the TikHub key) and
-/// the stored sessions (the NGA login).
+/// What reading a linked post needs besides the client: the settings (the TikHub key), the
+/// stored sessions (the NGA and Zhihu logins) and the browser that reads Zhihu.
 #[derive(Clone)]
 pub struct PostLinks {
     client: PostClient,
     settings: Arc<SettingsStore>,
     sessions: Arc<dyn SessionStore>,
+    zhihu: Option<Arc<dyn ZhihuReader>>,
 }
 
 impl std::fmt::Debug for PostLinks {
@@ -585,7 +601,15 @@ impl PostLinks {
             client,
             settings,
             sessions,
+            zhihu: None,
         }
+    }
+
+    /// Read Zhihu posts with `reader` once Zhihu is signed in on the 登录态 page.
+    #[must_use]
+    pub fn with_zhihu(mut self, reader: Arc<dyn ZhihuReader>) -> Self {
+        self.zhihu = Some(reader);
+        self
     }
 
     pub fn client(&self) -> &PostClient {
@@ -614,8 +638,12 @@ impl PostLinks {
     }
 
     async fn record_check(&self, ok: bool, message: &str) -> Result<(), PostError> {
+        self.record_site_check(nga_post::SESSION_SITE, ok, message).await
+    }
+
+    async fn record_site_check(&self, site: &str, ok: bool, message: &str) -> Result<(), PostError> {
         self.sessions
-            .record_check(nga_post::SESSION_SITE, ok, message)
+            .record_check(site, ok, message)
             .await
             .map_err(|error| store_error(&error).into())
     }
@@ -636,10 +664,27 @@ impl PostLinks {
         }
     }
 
+    /// The Zhihu reader, when there is one and a Zhihu login is stored for it.
+    async fn zhihu_reader(&self) -> Result<Option<&Arc<dyn ZhihuReader>>, PostError> {
+        let Some(reader) = &self.zhihu else {
+            return Ok(None);
+        };
+        let stored = self
+            .sessions
+            .load(fav_browser::zhihu::SESSION_SITE)
+            .await
+            .map_err(|error| store_error(&error))?;
+        let signed_in = stored.is_some_and(|stored| !stored.cookie(fav_browser::zhihu::SESSION_COOKIE).is_empty());
+        Ok(signed_in.then_some(reader))
+    }
+
     async fn zhihu_page(&self, link: &ArticleLink) -> Result<ArticlePage, PostError> {
         let Some(zhihu) = zhihu_post::parse_zhihu_url(&link.url)? else {
             return Err(PostLinkError::new(format!("{} is not a Zhihu post", link.url)).into());
         };
+        if let Some(reader) = self.zhihu_reader().await? {
+            return self.zhihu_page_in_browser(reader.as_ref(), &zhihu).await;
+        }
         let settings = self
             .settings
             .load()
@@ -648,11 +693,25 @@ impl PostLinks {
         let tikhub = &settings.services.tikhub;
         match zhihu_post::fetch_page(&self.client, &zhihu, &tikhub.api_url, &tikhub.token).await {
             Ok(page) => Ok(page),
-            Err(ZhihuError::Account(message)) => Err(PostLinkError::needing(message, Needs::TikHub).into()),
-            Err(ZhihuError::Zhihu(message)) => Err(PostLinkError::new(message).into()),
-            Err(ZhihuError::Outage(message)) => Err(PostLinkError::outage(message).into()),
-            Err(ZhihuError::Other(error)) => Err(error.into()),
+            Err(error) => Err(zhihu_error(error)),
         }
+    }
+
+    /// The post read in the signed-in profile; how the login fared is recorded on it, as an
+    /// NGA read records the NGA login's.
+    async fn zhihu_page_in_browser(&self, reader: &dyn ZhihuReader, zhihu: &zhihu_post::ZhihuLink) -> Result<ArticlePage, PostError> {
+        let site = fav_browser::zhihu::SESSION_SITE;
+        let data = match reader.read(zhihu).await {
+            Ok(data) => data,
+            Err(ZhihuError::Login(message)) => {
+                self.record_site_check(site, false, &message).await?;
+                return Err(zhihu_error(ZhihuError::Login(message)));
+            }
+            Err(error) => return Err(zhihu_error(error)),
+        };
+        self.record_site_check(site, true, "").await?;
+        let post = zhihu_post::parse_post(zhihu, &data)?;
+        Ok(zhihu_post::page_of(&self.client, zhihu, post).await?)
     }
 
     /// `fetch_page`: the linked post as pictures and videos, with the page's HTML where

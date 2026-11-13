@@ -30,6 +30,12 @@
           "label": "小红书",
           "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
           "session_cookie": "web_session"
+        },
+        {
+          "key": "zhihu",
+          "label": "知乎",
+          "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
+          "session_cookie": "z_c0"
         }
       ]
     },
@@ -61,6 +67,12 @@
           "label": "小红书",
           "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
           "session_cookie": "web_session"
+        },
+        {
+          "key": "zhihu",
+          "label": "知乎",
+          "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
+          "session_cookie": "z_c0"
         },
         {
           "key": "bilibili-main",
@@ -99,6 +111,12 @@
           "label": "小红书",
           "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
           "session_cookie": "web_session"
+        },
+        {
+          "key": "zhihu",
+          "label": "知乎",
+          "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
+          "session_cookie": "z_c0"
         },
         {
           "key": "bilibili-main",
@@ -144,6 +162,12 @@
           "label": "小红书",
           "hint": "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。",
           "session_cookie": "web_session"
+        },
+        {
+          "key": "zhihu",
+          "label": "知乎",
+          "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
+          "session_cookie": "z_c0"
         },
         {
           "key": "bilibili-a_b",
