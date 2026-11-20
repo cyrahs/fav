@@ -647,6 +647,17 @@ as an outage ([When a service is failing](#when-a-service-is-failing)).
 Without the login, a link waits without using up its tries. A 公众号
 image post sent through Telegram cannot be read (mp.weixin.qq.com puts it behind a captcha); share it to WeChat instead.
 
+### Each Post Is Saved Once
+
+A post is saved once, whichever source it comes through and however often it is sent (D188). Both sources look its
+canonical URL up in `saved_post_link` before they read the post: a Zhihu answer is `https://www.zhihu.com/answer/<id>`
+whether it was shared under its question or not, a 公众号 article keeps `__biz`, `mid`, `idx` and `sn`, and share
+parameters are dropped. A post saved before is not read again: the message is set aside (Telegram marks its queue row
+`discarded` with the reason, WeChat marks its item done) and an `already_saved` notification names where the earlier copy
+is. Every save adds its URL. The posts saved before the table existed are carried into it at the first start
+(`saved_links::carry_over`: WeChat's `wechat_article` rows, and Telegram's link downloads read back from their notifications). To let a post be
+saved again, delete its row: `DELETE FROM saved_post_link WHERE url = '<url>'`.
+
 ### Messages With Nothing To Save
 
 Every message sent to the WeChat account, or to a Telegram channel with `report_unsupported` on (设置 → Telegram, 报告未下载:

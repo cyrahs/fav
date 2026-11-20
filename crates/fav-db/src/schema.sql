@@ -606,6 +606,17 @@ CREATE TABLE IF NOT EXISTS wechat_state (
     value TEXT NOT NULL
 );
 
+-- fav-sources/src/saved_links.rs (no Python origin, DIVERGENCES.md D188): the posts
+-- Telegram and WeChat saved from links, by canonical URL, so each is saved once.
+CREATE TABLE IF NOT EXISTS saved_post_link (
+    url TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    item TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    saved_path TEXT NOT NULL DEFAULT '',
+    saved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================================
 -- Columns added after a table was first created, for databases that predate them
 -- ============================================================================

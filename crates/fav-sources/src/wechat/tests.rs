@@ -25,6 +25,7 @@ use serde_json::json;
 use super::*;
 use crate::notifier::Notifier as _;
 use crate::post_links::Endpoints;
+use crate::saved_links;
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, FakeZhihu, Reply, Seen, test_roots};
 use crate::wechat_article::{image_extension, original_image_url, parse_article_link};
@@ -1692,7 +1693,19 @@ async fn a_second_forward_of_a_saved_article_is_not_saved_again() {
 
     assert_eq!(env.articles().await.iter().map(|row| row.msg_id).collect::<Vec<_>>(), [44]);
     assert_eq!(env.status(52).await, "done");
-    assert_eq!(env.notifier.sent().len(), 1);
+    // The second forward is reported, not saved (D188).
+    let sent = env.notifier.sent();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(
+        (sent[0].kind.as_str(), sent[1].kind.as_str()),
+        ("download_completed", "already_saved")
+    );
+    assert_eq!(sent[1].link_url, sent[0].link_url);
+    assert!(
+        sent[1].body.starts_with("Already saved from WeChat message 44 on "),
+        "{}",
+        sent[1].body
+    );
     env.finish().await;
 }
 
@@ -2967,6 +2980,41 @@ async fn a_zhihu_link_saved_with_no_outage_open_resolves_nothing() {
 
     assert_eq!(env.status(64).await, "done");
     assert!(env.notifier.resolved().iter().all(|(key, _)| key != "zhihu:outage"));
+    // Telegram finds it saved (D188).
+    let saved = saved_links::find(env.database.db(), ZHIHU_ANSWER_URL)
+        .await
+        .expect("find")
+        .expect("recorded");
+    assert_eq!((saved.source.as_str(), saved.item.as_str()), ("wechat", "message 64"));
+    env.finish().await;
+}
+
+/// A Zhihu answer Telegram saved is not read or saved again when it is shared in WeChat
+/// (D188), and the user is told where the earlier copy is.
+#[tokio::test]
+async fn a_zhihu_link_saved_from_telegram_is_not_saved_again() {
+    let mut env = Env::new(Inbox::bridge(vec![event(5, zhihu_share_message(64))]), Sites::default()).await;
+    let reader = FakeZhihu::finding(&zhihu_answer());
+    env.read_zhihu(&reader);
+    env.execute(format!(
+        "INSERT INTO saved_post_link (url, source, item, title, saved_path, saved_at) \
+         VALUES ('{ZHIHU_ANSWER_URL}', 'telegram', 'fav #143', 'Q', 'collection/image/q [143].jpg', '2026-11-09T20:58:51Z')"
+    ))
+    .await;
+
+    env.run_ok().await;
+
+    assert_eq!(env.status(64).await, "done");
+    assert!(reader.read().is_empty(), "the post is not read");
+    assert!(env.articles().await.is_empty());
+    let sent = env.notifier.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].kind, "already_saved");
+    assert_eq!(sent[0].link_url, ZHIHU_ANSWER_URL);
+    assert_eq!(
+        sent[0].body,
+        "Already saved from Telegram fav #143 on 2026-11-09, not saved again: collection/image/q [143].jpg"
+    );
     env.finish().await;
 }
 

@@ -51,6 +51,7 @@ use crate::SourceContext;
 use crate::link_retry::{self, End, Next, Outages, Service};
 use crate::notifier::{OutboxNotifier, SharedNotifier};
 use crate::post_links::{self, Needs, PostClient, PostError, PostLinkError, PostLinks, SessionStore};
+use crate::saved_links::{self, NewSavedLink};
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob, sql_error};
 use crate::wechat_article::{ArticleLink, ArticlePage, canonical_url};
 use crate::zhihu_post::ChromiumZhihuReader;
@@ -1429,6 +1430,8 @@ impl Telegram {
         }
         self.record(&account.name, job, &title, channel_name, JobType::Link.as_str())
             .await?;
+        let first = images.iter().chain(&videos).next().map(|path| path_text(path)).unwrap_or_default();
+        self.record_saved_link(&url, channel_name, job, &title, &first).await?;
         self.mark_channel_downloaded(&account.name, job.channel_id).await?;
         let counts = format!(
             "{}/{} images, {}/{} videos",
@@ -1482,6 +1485,49 @@ impl Telegram {
             self.settle_link_outage(job, &title, End::Saved).await;
         }
         Ok(images.into_iter().chain(videos).next().unwrap_or_default())
+    }
+
+    /// The post a link message saved, for [`Self::skip_saved_link`] and WeChat to find (D188).
+    async fn record_saved_link(
+        &self,
+        url: &str,
+        channel_name: &str,
+        job: &TelegramMediaJob,
+        title: &str,
+        saved_path: &str,
+    ) -> Result<(), TgError> {
+        let saved = NewSavedLink {
+            url,
+            source: JOB_KEY,
+            item: &format!("{channel_name} #{}", job.message_id),
+            title,
+            saved_path,
+        };
+        saved_links::record(self.db(), saved).await.map_err(db_error)
+    }
+
+    /// A link whose post was saved before, from this channel or from WeChat, is not read
+    /// or saved again: the message is set aside with the reason and the user is told where
+    /// the earlier copy is (D188). Whether the job ended so.
+    async fn skip_saved_link(&self, job: &TelegramMediaJob, owner_token: &str, link: &ArticleLink) -> Result<bool, JobFailure> {
+        let py = |error: crate::pydecode::PyError| JobFailure::Tg(TgError::py(&error));
+        let url = canonical_url(&link.url).map_err(py)?;
+        let Some(saved) = saved_links::find(self.db(), &url).await.map_err(db_error)? else {
+            return Ok(false);
+        };
+        let reason = saved_links::reason(&saved);
+        queue::mark_discarded(self.db(), job, owner_token, &reason).await.map_err(py)?;
+        log().info(format_args!(
+            "Telegram link message {}/{} not saved again: {url} {reason}",
+            job.channel_id, job.message_id
+        ));
+        let notification = saved_links::already_saved(JOB_KEY, HEADER, &job.title, &saved);
+        self.enqueue_notification(notification, "the already-saved notification", job.message_id)
+            .await;
+        if post_links::waits_out_outages(link).map_err(py)? {
+            self.settle_link_outage(job, &job.title, End::Saved).await;
+        }
+        Ok(true)
     }
 
     /// `_link_failed`: what [`link_retry::next`] says becomes of the link. One that waits on
@@ -1604,6 +1650,11 @@ impl Telegram {
         } else {
             None
         };
+        if let Some(link) = &link
+            && self.skip_saved_link(job, owner_token, link).await?
+        {
+            return Ok(Err(false));
+        }
         let result = match link {
             Some(link) => Some(self.archive_link_job(account, routes, &channel_name, job, &link).await?),
             None => self.archive_job(account, client, channel_cfg, &channel_name, job, &message).await?,

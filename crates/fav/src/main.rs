@@ -99,6 +99,12 @@ async fn base() -> Result<Base, String> {
     logging::init(level, Path::new(LOG_DIR)).map_err(|error| format!("cannot open the log file: {error}"))?;
     let db = Db::connect_lazy(&env.postgres_dsn).map_err(|error| error.to_string())?;
     db.ensure_schema().await.map_err(|error| error.to_string())?;
+    // Once, while the table is empty (D188). A failure only leaves earlier posts unknown.
+    match fav_sources::saved_links::carry_over(&db).await {
+        Ok(0) => {}
+        Ok(rows) => logging::get("saved_links").info(format_args!("Carried {rows} posts saved earlier into saved_post_link")),
+        Err(error) => logging::get("saved_links").warning(format_args!("Could not carry earlier posts into saved_post_link: {error}")),
+    }
     let bot = BotClient::new().map_err(|error| format!("cannot build the Telegram client: {error}"))?;
     Ok(Base {
         settings: Arc::new(SettingsStore::new(db.clone())),
