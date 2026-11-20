@@ -62,6 +62,7 @@ use crate::pydecode::{PyError, json_from_bytes, py_int, urlencode};
 use crate::pyerr::type_name;
 use crate::pyre::compile;
 use crate::pyval::{py_str, str_or_empty};
+use crate::saved_links::{self, NewSavedLink};
 use crate::tikhub;
 use crate::wechat_article::{
     ArticleLink, ArticlePage, LINK_SHARE_TYPE, PostVideo, VIDEO_SHARE_TYPE, appmsg_link, canonical_url, cover_only_page, parse_article_page,
@@ -1778,19 +1779,34 @@ impl Wechat {
 
     // ---------- articles ----------
 
-    /// `_article_stored`: whether this message, or an earlier forward of the same article,
-    /// was saved already.
-    async fn article_stored(&self, message: &Dict, link: &ArticleLink) -> Result<bool, Failure> {
-        let msg_id = item(message, "msg_id")?;
-        let create_time = item(message, "create_time")?;
-        let url = canonical_url(&link.url)?;
+    /// `_article_stored`: whether this message was saved already. An earlier save of the
+    /// same post, from WeChat or Telegram, is [`saved_links`]'s to find (D188).
+    async fn article_stored(&self, message: &Dict) -> Result<bool, Failure> {
         self.exists(
-            "SELECT 1 FROM wechat_article WHERE (msg_id = $1 AND create_time = $2) OR url = $3;",
-            msg_id,
-            create_time,
-            Some(url),
+            "SELECT 1 FROM wechat_article WHERE msg_id = $1 AND create_time = $2;",
+            item(message, "msg_id")?,
+            item(message, "create_time")?,
+            None,
         )
         .await
+    }
+
+    /// A post saved before, from WeChat or Telegram, is not read or saved again; the user
+    /// is told where the earlier copy is (D188). Whether it was.
+    async fn skip_saved_link(&self, message: &Dict, link: &ArticleLink) -> Result<bool, Failure> {
+        let url = canonical_url(&link.url)?;
+        let Some(saved) = saved_links::find(&self.db, &url).await.map_err(sql_error)? else {
+            return Ok(false);
+        };
+        let msg_id = item(message, "msg_id")?;
+        log().info(format_args!(
+            "WeChat article {} not saved again: {url} {}",
+            py_str(msg_id),
+            saved_links::reason(&saved)
+        ));
+        let notification = saved_links::already_saved(JOB_KEY, HEADER, &link.title, &saved);
+        self.enqueue(notification, "the already-saved notification", msg_id).await;
+        Ok(true)
     }
 
     /// `_write_article`: the images, the videos, the page and a summary into the article's
@@ -2024,7 +2040,7 @@ impl Wechat {
                 py_str(item(message, "msg_id")?)
             )));
         };
-        if self.article_stored(message, &link).await? {
+        if self.article_stored(message).await? || self.skip_saved_link(message, &link).await? {
             return Ok(());
         }
         if attempts < MAX_ATTEMPTS {
@@ -2060,6 +2076,18 @@ impl Wechat {
         }
         let article = written?;
         self.record_article(message, &link, &page, &article).await?;
+        saved_links::record(
+            &self.db,
+            NewSavedLink {
+                url: &canonical,
+                source: JOB_KEY,
+                item: &format!("message {}", py_str(item(message, "msg_id")?)),
+                title,
+                saved_path: &path_text(&self.cfg.path.join(&article.local_path)),
+            },
+        )
+        .await
+        .map_err(sql_error)?;
         let mut counts = format!("{saved} of {} images", images.len());
         if !videos.is_empty() {
             counts = format!(

@@ -58,6 +58,7 @@ pub mod rednote;
 #[cfg(test)]
 mod registry_tests;
 pub mod runtime_config;
+pub mod saved_links;
 pub mod stellasora;
 pub mod telegram;
 pub mod telegram_queue;

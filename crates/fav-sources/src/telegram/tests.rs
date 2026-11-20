@@ -30,6 +30,7 @@ use super::{
 use crate::link_retry::MAX_ATTEMPTS;
 use crate::notifier::SharedNotifier;
 use crate::post_links::{Endpoints, PostClient, PostLinks, SessionStore};
+use crate::saved_links;
 use crate::telegram_queue::{self as queue, JobType, QueueSource, TelegramMediaJob};
 use crate::testkit::RecordingNotifier;
 use crate::testutil::{FakeWeb, FakeZhihu, Reply, database, sign_in_to_zhihu, test_roots};
@@ -1499,6 +1500,72 @@ async fn link_job_of_videos_alone_shows_the_video_cover() {
     );
 }
 
+#[tokio::test]
+async fn link_saved_before_is_not_saved_again() {
+    // The same answer, shared under its question, then by itself with share parameters.
+    let again = "再看一次\nhttps://www.zhihu.com/answer/2100311203096573240?share_code=x&utm_psn=1";
+    let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, again)]).await;
+    let web = zhihu_web().await;
+    env.read_zhihu(FakeZhihu::finding(&zhihu_answer(
+        "高跟鞋配白丝真的很难看吗？",
+        &["https://pica.zhimg.com/v2-a_r.jpg"],
+        &[],
+    )))
+    .await;
+    env.web = Some(web.clone());
+    let account = env.split(false);
+    let telegram = env.telegram();
+    let first = env.claimed(10, JobType::Link, 1).await;
+    assert!(
+        telegram
+            .process_job(&account, env.client(), &first, "owner")
+            .await
+            .expect("processed")
+    );
+    let saved = saved_links::find(env.db(), ZHIHU_ANSWER_URL)
+        .await
+        .expect("find")
+        .expect("recorded");
+    assert_eq!(
+        (saved.source.as_str(), saved.title.as_str()),
+        ("telegram", "高跟鞋配白丝真的很难看吗？")
+    );
+    assert!(saved.item.ends_with(" #10"), "{}", saved.item);
+    assert!(
+        saved.saved_path.ends_with("高跟鞋配白丝真的很难看吗？ [10].jpg"),
+        "{}",
+        saved.saved_path
+    );
+    let fetched = web.urls().len();
+
+    let second = env.claimed(11, JobType::Link, 1).await;
+    let downloaded = telegram
+        .process_job(&account, env.client(), &second, "owner")
+        .await
+        .expect("processed");
+
+    assert!(!downloaded);
+    assert_eq!(web.urls().len(), fetched, "the post is not read again");
+    let (status, reason) = env.status(11).await;
+    assert_eq!(status, "discarded");
+    assert!(
+        reason.starts_with(&format!("Already saved from Telegram {} on ", saved.item)),
+        "{reason}"
+    );
+    assert_eq!(names(&env.path("image")).len(), 1, "nothing saved for message 11");
+    assert_eq!(env.archive_rows().await.len(), 1);
+    let sent = env.notifier.sent();
+    let skipped = sent.last().expect("a notification");
+    assert_eq!(skipped.kind, "already_saved");
+    assert_eq!(skipped.title, "Title");
+    assert_eq!(skipped.link_url, ZHIHU_ANSWER_URL);
+    assert!(
+        skipped.body.ends_with(&format!(", not saved again: {}", saved.saved_path)),
+        "{}",
+        skipped.body
+    );
+}
+
 // py: tests/test_telegram.py::test_unreadable_link_is_retried_then_given_up
 #[tokio::test]
 async fn unreadable_link_is_retried_then_given_up() {
@@ -1654,7 +1721,9 @@ async fn link_past_its_fifth_try_whose_post_cannot_be_read_is_given_up() {
 /// post only, would otherwise close and reopen it with every save in between.
 #[tokio::test]
 async fn outage_report_is_closed_by_the_last_waiting_link_saved_and_by_no_other() {
-    let mut env = Env::new(vec![text(10, ZHIHU_SHARE), text(11, ZHIHU_SHARE), text(12, ZHIHU_SHARE)]).await;
+    // Three different answers: a second save of one answer would be skipped (D188).
+    let share = |id: u64| format!("Q\nhttps://www.zhihu.com/answer/{id}");
+    let mut env = Env::new(vec![text(10, &share(10)), text(11, &share(11)), text(12, &share(12))]).await;
     let account = env.split(false);
     let closed = |env: &Env| -> usize { env.notifier.resolved().iter().filter(|(key, _)| key == OUTAGE_KEY).count() };
 
