@@ -588,7 +588,9 @@ async fn record_item(db: &Db, collection: &ZhihuCollection, item: &Listed, outco
             (collection_id, url, kind, title, author, collection_title, status, image_count, video_count, local_path, attempts, last_error, content)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $11 THEN 1 ELSE 0 END, $12, $13)
         ON CONFLICT (collection_id, url) DO UPDATE SET
-            kind = EXCLUDED.kind, title = EXCLUDED.title, author = EXCLUDED.author,
+            kind = CASE WHEN EXCLUDED.kind = '' THEN zhihu_collection_item.kind ELSE EXCLUDED.kind END,
+            title = CASE WHEN EXCLUDED.title = '' THEN zhihu_collection_item.title ELSE EXCLUDED.title END,
+            author = CASE WHEN EXCLUDED.author = '' THEN zhihu_collection_item.author ELSE EXCLUDED.author END,
             collection_title = EXCLUDED.collection_title, status = EXCLUDED.status,
             image_count = EXCLUDED.image_count, video_count = EXCLUDED.video_count, local_path = EXCLUDED.local_path,
             attempts = zhihu_collection_item.attempts + CASE WHEN $11 THEN 1 ELSE 0 END,
@@ -780,7 +782,17 @@ impl ZhihuCollections {
                 (self.sleeper)(PAGE_DELAY_SECONDS).await;
             }
             let path = format!("/api/v4/collections/{}/items?offset={offset}&limit={PAGE_SIZE}", collection.id);
-            let page = api.get(&path).await.map_err(Walk::of)?;
+            let page = match api.get(&path).await {
+                Ok(page) => page,
+                Err(error) => {
+                    if pages > 0 {
+                        // Read down to here this run: a later walk must not stop at the top
+                        // as if the collection were known to its end.
+                        record_walk(&self.db, collection, false, offset).await.map_err(Walk::Stop)?;
+                    }
+                    return Err(Walk::of(error));
+                }
+            };
             pages += 1;
             let entries = list_at(&page, "data");
             let mut fresh = 0;
@@ -801,7 +813,8 @@ impl ZhihuCollections {
                     break;
                 }
                 jumped = true;
-                offset = offset.max(resume_offset);
+                // A page back, for posts removed above it since it was stored.
+                offset = offset.max(resume_offset.saturating_sub(PAGE_SIZE));
             }
         }
         record_walk(&self.db, collection, complete, resume_offset)

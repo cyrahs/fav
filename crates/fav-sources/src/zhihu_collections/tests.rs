@@ -503,7 +503,11 @@ async fn a_long_first_walk_goes_on_where_it_stopped() {
 
     run.api.calls.lock().unwrap().clear();
     run.run(config(folder.path(), &[11], 100)).await.expect("second run");
-    assert_eq!(run.api.calls(), [items_path(11, 0), items_path(11, last * 20)]);
+    // One page back from where it stopped, then on to the end.
+    assert_eq!(
+        run.api.calls(),
+        [items_path(11, 0), items_path(11, (last - 1) * 20), items_path(11, last * 20)]
+    );
     assert_eq!(statuses(&db).await.len(), MAX_PAGES_PER_COLLECTION + 1);
 
     // Walked to its end now: the first page is enough.
@@ -632,4 +636,26 @@ async fn without_a_login_the_run_asks_for_one() {
         .await
         .unwrap();
     assert_eq!(status, "invalid");
+}
+
+#[tokio::test]
+async fn a_walk_that_breaks_off_is_taken_up_again_below_the_top() {
+    let database = database().await;
+    let db = database.db().clone();
+    sign_in_to_zhihu(&db).await;
+    let run = Run::new(db.clone()).await;
+    let folder = tempfile::tempdir().unwrap();
+    run.api.answer(&items_path(11, 0), page(vec![answer(1, &[])], true));
+    run.run(config(folder.path(), &[11], 100)).await.expect("first run");
+
+    // Two new pages on top; the second one fails this run.
+    run.api.answer(&items_path(11, 0), page(vec![answer(3, &[])], false));
+    run.api
+        .fail(&items_path(11, 20), ZhihuError::Outage("Zhihu answered with HTTP 502".to_owned()));
+    run.run(config(folder.path(), &[11], 100)).await.expect_err("outage");
+
+    run.api
+        .answer(&items_path(11, 20), page(vec![answer(2, &[]), answer(1, &[])], true));
+    run.run(config(folder.path(), &[11], 100)).await.expect("third run");
+    assert_eq!(statuses(&db).await.len(), 3);
 }
