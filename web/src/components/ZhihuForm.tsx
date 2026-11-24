@@ -39,7 +39,7 @@ interface Row {
 }
 
 function detailOf(listed: ZhihuCollectionListed): string {
-  const parts = [`${listed.item_count} 条`];
+  const parts = listed.item_count === null ? [] : [`${listed.item_count} 条`];
   if (!listed.is_public) {
     parts.push('私密');
   }

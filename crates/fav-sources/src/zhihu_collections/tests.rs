@@ -11,7 +11,8 @@ use serde_json::{Value as Json, json};
 use sqlx::Row;
 
 use super::{
-    CollectionInfo, MAX_ATTEMPTS, ZhihuApiOpener, ZhihuApiSession, ZhihuCollections, api_answer, list_collections, listed, read_collections,
+    CollectionInfo, MAX_ATTEMPTS, MAX_PAGES_PER_COLLECTION, ZhihuApiOpener, ZhihuApiSession, ZhihuCollections, api_answer,
+    list_collections, listed, read_collections,
 };
 use crate::post_links::{Endpoints, PostClient};
 use crate::saved_links::{self, NewSavedLink};
@@ -262,6 +263,16 @@ async fn a_signed_out_page_is_a_login_to_redo() {
                 body: json!({})
             }
         ),
+        Err(ZhihuError::Zhihu(_))
+    ));
+    assert!(matches!(
+        api_answer(
+            "/x",
+            fav_browser::zhihu::ApiAnswer::Json {
+                status: 500,
+                body: json!({})
+            }
+        ),
         Err(ZhihuError::Outage(_))
     ));
 }
@@ -398,7 +409,7 @@ async fn a_walked_collection_stops_at_the_first_page_it_knows() {
 }
 
 #[tokio::test]
-async fn a_run_downloads_at_most_its_limit_and_walks_again_from_the_top() {
+async fn a_run_downloads_at_most_its_limit_and_keeps_the_rest_for_the_next() {
     let database = database().await;
     let db = database.db().clone();
     sign_in_to_zhihu(&db).await;
@@ -406,17 +417,136 @@ async fn a_run_downloads_at_most_its_limit_and_walks_again_from_the_top() {
     let folder = tempfile::tempdir().unwrap();
     run.api
         .answer(&items_path(11, 0), page(vec![answer(1, &["http://pic1.zhimg.com/a.jpg"])], false));
-    run.api
-        .answer(&items_path(11, 20), page(vec![answer(2, &["http://pic1.zhimg.com/b.jpg"])], true));
+    run.api.answer(
+        &items_path(11, 20),
+        page(
+            vec![
+                answer(2, &["http://pic1.zhimg.com/b.jpg"]),
+                answer(3, &["http://pic1.zhimg.com/c.jpg"]),
+            ],
+            true,
+        ),
+    );
 
+    // The walk records all three; the limit only holds the downloads back.
     run.run(config(folder.path(), &[11], 1)).await.expect("first run");
-    assert_eq!(statuses(&db).await.len(), 1);
-    assert_eq!(run.api.calls(), [items_path(11, 0)]);
+    let first = statuses(&db).await;
+    assert_eq!(first.iter().filter(|(_, status, _)| status == "saved").count(), 1, "{first:?}");
+    assert_eq!(first.iter().filter(|(_, status, _)| status == "pending").count(), 2, "{first:?}");
 
+    // The collection is known to its end: the next runs read the first page only.
+    run.api.calls.lock().unwrap().clear();
     run.run(config(folder.path(), &[11], 1)).await.expect("second run");
+    run.run(config(folder.path(), &[11], 1)).await.expect("third run");
+    assert_eq!(run.api.calls(), [items_path(11, 0), items_path(11, 0)]);
     let statuses = statuses(&db).await;
-    assert_eq!(statuses.len(), 2);
     assert!(statuses.iter().all(|(_, status, _)| status == "saved"), "{statuses:?}");
+}
+
+#[tokio::test]
+async fn a_post_that_cannot_be_written_waits_for_a_retry_instead_of_being_lost() {
+    let database = database().await;
+    let db = database.db().clone();
+    sign_in_to_zhihu(&db).await;
+    let run = Run::new(db.clone()).await;
+    let folder = tempfile::tempdir().unwrap();
+    // The collection's folder is a file: nothing can be written under it.
+    std::fs::write(folder.path().join("11"), b"not a folder").unwrap();
+    run.api
+        .answer(&items_path(11, 0), page(vec![answer(1, &["http://pic1.zhimg.com/a.jpg"])], true));
+
+    run.run(config(folder.path(), &[11], 100)).await.expect("the run goes on");
+    assert_eq!(
+        statuses(&db).await,
+        [("https://www.zhihu.com/answer/1".to_owned(), "failed".to_owned(), 1)]
+    );
+
+    std::fs::remove_file(folder.path().join("11")).unwrap();
+    run.run(config(folder.path(), &[11], 100)).await.expect("second run");
+    assert_eq!(statuses(&db).await[0].1, "saved");
+}
+
+#[tokio::test]
+async fn a_collection_zhihu_no_longer_shows_does_not_hold_up_the_others() {
+    let database = database().await;
+    let db = database.db().clone();
+    sign_in_to_zhihu(&db).await;
+    let run = Run::new(db.clone()).await;
+    let folder = tempfile::tempdir().unwrap();
+    // Collection 11 is gone (the fake answers 404 for a path it was not given).
+    run.api
+        .answer(&items_path(12, 0), page(vec![answer(1, &["http://pic1.zhimg.com/a.jpg"])], true));
+
+    let error = run.run(config(folder.path(), &[11, 12], 100)).await.expect_err("11 is reported");
+    assert_eq!(error.class_name(), "ZhihuError");
+    assert!(error.message().contains("/api/v4/collections/11/"), "{}", error.message());
+    assert_eq!(statuses(&db).await[0].1, "saved");
+}
+
+#[tokio::test]
+async fn a_long_first_walk_goes_on_where_it_stopped() {
+    let database = database().await;
+    let db = database.db().clone();
+    sign_in_to_zhihu(&db).await;
+    let run = Run::new(db.clone()).await;
+    let folder = tempfile::tempdir().unwrap();
+    let last = MAX_PAGES_PER_COLLECTION;
+    for index in 0..=last {
+        let id = u64::try_from(index).unwrap() + 1;
+        run.api
+            .answer(&items_path(11, index * 20), page(vec![answer(id, &[])], index == last));
+    }
+
+    run.run(config(folder.path(), &[11], 100)).await.expect("first run");
+    assert_eq!(run.api.calls().len(), MAX_PAGES_PER_COLLECTION);
+    assert_eq!(statuses(&db).await.len(), MAX_PAGES_PER_COLLECTION);
+
+    run.api.calls.lock().unwrap().clear();
+    run.run(config(folder.path(), &[11], 100)).await.expect("second run");
+    assert_eq!(run.api.calls(), [items_path(11, 0), items_path(11, last * 20)]);
+    assert_eq!(statuses(&db).await.len(), MAX_PAGES_PER_COLLECTION + 1);
+
+    // Walked to its end now: the first page is enough.
+    run.api.calls.lock().unwrap().clear();
+    run.run(config(folder.path(), &[11], 100)).await.expect("third run");
+    assert_eq!(run.api.calls(), [items_path(11, 0)]);
+}
+
+#[tokio::test]
+async fn a_post_in_two_ticked_collections_is_saved_once() {
+    let database = database().await;
+    let db = database.db().clone();
+    sign_in_to_zhihu(&db).await;
+    let run = Run::new(db.clone()).await;
+    let folder = tempfile::tempdir().unwrap();
+    for id in [11, 12] {
+        run.api
+            .answer(&items_path(id, 0), page(vec![answer(1, &["http://pic1.zhimg.com/a.jpg"])], true));
+    }
+
+    run.run(config(folder.path(), &[11, 12], 100)).await.expect("run");
+    let mut found: Vec<String> = sqlx::query_scalar("SELECT status FROM zhihu_collection_item ORDER BY collection_id")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
+    found.sort();
+    assert_eq!(found, ["already_saved", "saved"]);
+    assert!(!folder.path().join("12").exists());
+}
+
+#[tokio::test]
+async fn every_picture_of_a_post_with_a_long_title_keeps_its_own_file() {
+    let database = database().await;
+    let db = database.db().clone();
+    sign_in_to_zhihu(&db).await;
+    let run = Run::new(db.clone()).await;
+    let folder = tempfile::tempdir().unwrap();
+    let mut post = answer(1, &["http://pic1.zhimg.com/a.jpg", "http://pic1.zhimg.com/b.jpg"]);
+    post["question"]["title"] = json!("很长的标题".repeat(30));
+    run.api.answer(&items_path(11, 0), page(vec![post], true));
+
+    run.run(config(folder.path(), &[11], 100)).await.expect("run");
+    assert_eq!(std::fs::read_dir(folder.path().join("11")).unwrap().count(), 2);
 }
 
 #[tokio::test]

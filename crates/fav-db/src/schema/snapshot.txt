@@ -575,6 +575,7 @@ column zhihu_collection.1 id bigint not null
 column zhihu_collection.2 title text not null default ''::text
 column zhihu_collection.3 complete boolean not null default false
 column zhihu_collection.4 walked_at timestamp with time zone
+column zhihu_collection.5 resume_offset integer not null default 0
 constraint zhihu_collection zhihu_collection_pkey PRIMARY KEY (id)
 index zhihu_collection zhihu_collection_pkey CREATE UNIQUE INDEX zhihu_collection_pkey ON public.zhihu_collection USING btree (id)
 table zhihu_collection_item
@@ -592,5 +593,6 @@ column zhihu_collection_item.11 attempts integer not null default 0
 column zhihu_collection_item.12 last_error text not null default ''::text
 column zhihu_collection_item.13 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
 column zhihu_collection_item.14 updated_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column zhihu_collection_item.15 content text not null default ''::text
 constraint zhihu_collection_item zhihu_collection_item_pkey PRIMARY KEY (collection_id, url)
 index zhihu_collection_item zhihu_collection_item_pkey CREATE UNIQUE INDEX zhihu_collection_item_pkey ON public.zhihu_collection_item USING btree (collection_id, url)

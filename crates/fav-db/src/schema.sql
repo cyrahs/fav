@@ -617,16 +617,19 @@ CREATE TABLE IF NOT EXISTS saved_post_link (
     saved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- The Zhihu collections (收藏夹) source: each ticked collection, and whether it was walked to
--- its end once (after that a run stops at the first page it already knows).
+-- The Zhihu collections (收藏夹) source: each ticked collection, whether it was walked to
+-- its end once (after that a run stops at the first page it already knows), and until then
+-- how far down the walk has read.
 CREATE TABLE IF NOT EXISTS zhihu_collection (
     id BIGINT PRIMARY KEY,
     title TEXT NOT NULL DEFAULT '',
     complete BOOLEAN NOT NULL DEFAULT FALSE,
-    walked_at TIMESTAMPTZ
+    walked_at TIMESTAMPTZ,
+    resume_offset INTEGER NOT NULL DEFAULT 0
 );
 
--- Every post seen in a collection, by its canonical URL, and what became of it.
+-- Every post seen in a collection, by its canonical URL, and what became of it; `content` is
+-- the listing's entry, read again when the post is downloaded.
 CREATE TABLE IF NOT EXISTS zhihu_collection_item (
     collection_id BIGINT NOT NULL,
     url TEXT NOT NULL,
@@ -642,6 +645,7 @@ CREATE TABLE IF NOT EXISTS zhihu_collection_item (
     last_error TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    content TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (collection_id, url)
 );
 

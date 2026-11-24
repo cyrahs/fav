@@ -405,19 +405,24 @@ and lists 我的收藏夹 (`/api/v4/people/<token>/collections`) and 我关注�
 `owner` are only labels; `id` is what is read.
 
 Every run (`40 */3 * * *` by default) opens one browser under the profile's lock and pages through each
-collection's `/api/v4/collections/<id>/items`, newest first. A collection's first walk goes to its end;
-after that a walk stops at the first page whose posts are all known, so a run reads a page or two.
-The listing carries each answer's, article's and pin's content, so no post page is opened; a zvideo
-takes its MP4 from `lens.zhihu.com`. The browser is closed before anything is downloaded: pictures
-come at full size from `*.zhimg.com` and videos at the widest quality, named like a post link's files,
-into the collection's `path`. Posts are recorded in `zhihu_collection_item` (`zhihu_collection` keeps
-whether a collection's first walk finished). A post saved before from any source is not saved again
-(`saved_post_link`, see [Each Post Is Saved Once](#each-post-is-saved-once)), and a collection save
-adds its URL there. A post without pictures or videos is recorded and skipped, and a failed download
-is tried again on the next runs, three times, before a `download_failed` notification gives it up.
-Each collection that saved something sends one notification listing the posts. A profile that lost
-its login marks the 知乎 session invalid and fails the run with a `zhihu:login` notification; a
-security check or a browser failure fails the run without touching the login.
+collection's `/api/v4/collections/<id>/items`, newest first, recording every post it has not seen in
+`zhihu_collection_item`. A collection's first walk goes to its end, 150 pages (3,000 posts) a run, the
+next run going on from where the last stopped (`zhihu_collection.resume_offset`); after that a walk
+stops at the first page whose posts are all known, so a run reads a page or two. The listing carries
+each answer's, article's and pin's content, so no post page is opened; a zvideo takes its MP4 from
+`lens.zhihu.com`. A post with pictures or videos is recorded `pending` with its listing entry, and the
+browser is closed before anything is downloaded: then up to `max_posts_per_run` pending posts are
+downloaded (pictures at full size from `*.zhimg.com`, videos at the widest quality), named like a post
+link's files with the picture's number next to the post id, into the collection's `path`; the rest wait
+for the next run. A post saved before from any source, another ticked collection included, is not
+saved again (`saved_post_link`, see [Each Post Is Saved Once](#each-post-is-saved-once)), and a
+collection save adds its URL there. A post without pictures or videos is recorded and skipped, and a
+failed download is tried again on the next runs, three times, before a `download_failed` notification
+gives it up. Each collection that saved something sends one notification listing the posts. A
+collection Zhihu no longer shows (deleted, or made private: HTTP 404 or 403) fails the run after the
+other collections are done; untick it. A profile that lost its login marks the 知乎 session invalid and
+fails the run with a `zhihu:login` notification; a security check or a browser failure fails the run
+without touching the login.
 
 ## Web UI
 

@@ -144,7 +144,8 @@ export interface ZhihuCollectionListed {
   id: number;
   title: string;
   owner: ZhihuCollectionOwner;
-  item_count: number;
+  /** Zhihu leaves it out for a followed collection. */
+  item_count: number | null;
   is_public: boolean;
   creator: string;
 }

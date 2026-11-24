@@ -17,15 +17,19 @@
 //! pictures and videos through [`crate::post_links::PostClient`], the post's canonical URL
 //! in `saved_post_link` ([`crate::saved_links`]), so a post already saved from Telegram,
 //! WeChat or another collection is not saved twice. Every post seen in a collection is a
-//! `zhihu_collection_item` row with what became of it: `saved`, `no_media` (a post of text
-//! alone, most answers), `already_saved`, `unsupported` (a kind this module does not read),
-//! or `failed` until [`MAX_ATTEMPTS`] tries, then `given_up` and reported.
+//! `zhihu_collection_item` row with what became of it: `pending` (seen, to download, with the
+//! listing's entry in `content`), `saved`, `no_media` (a post of text alone, most answers),
+//! `already_saved`, `unsupported` (a kind this module does not read), or `failed` until
+//! [`MAX_ATTEMPTS`] tries, then `given_up` and reported.
 //!
 //! The browser is held only for the listing: a run walks every ticked collection first,
-//! closes the browser, and downloads afterwards. A collection is walked to its end once;
-//! after that a run stops at the first page whose posts are all known, unless a failed post
-//! still waits for a retry further down. At most `max_posts_per_run` posts with media are
-//! downloaded per run; a walk cut short by that limit starts from the top again next run.
+//! recording each new post, closes the browser, and then downloads the collections' pending
+//! and failed posts, at most `max_posts_per_run` of them; the rest wait for the next run. A
+//! post is recorded before anything is downloaded, so a run that stops half way loses nothing.
+//! A collection is walked to its end once, at most [`MAX_PAGES_PER_COLLECTION`] pages a run
+//! (a long first walk resumes at `resume_offset`); after that a run stops at the first page
+//! whose posts are all known. A collection Zhihu no longer shows (deleted, made private) fails
+//! the run once the other collections are done.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -65,7 +69,7 @@ pub const LOGIN_DEDUPE_KEY: &str = "zhihu:login";
 pub const MAX_ATTEMPTS: i32 = 3;
 const PAGE_SIZE: usize = 20;
 /// A collection is walked this many pages at most in one run (3,000 posts).
-const MAX_PAGES_PER_COLLECTION: usize = 150;
+pub const MAX_PAGES_PER_COLLECTION: usize = 150;
 /// The account's collection lists are this long at most (1,000 each).
 const MAX_LIST_PAGES: usize = 50;
 /// Between two pages of the API: the pace of a person scrolling.
@@ -200,7 +204,9 @@ pub fn api_answer(path: &str, answer: fav_browser::zhihu::ApiAnswer) -> Result<D
                     format!(": {message}")
                 }
             );
-            if status == 404 {
+            // 403 here is not about the login (`classify_api` took those): a collection
+            // made private, say. The rest is Zhihu failing.
+            if status == 403 || status == 404 {
                 Err(ZhihuError::Zhihu(text))
             } else {
                 Err(ZhihuError::Outage(text))
@@ -475,6 +481,7 @@ fn listed(entry: &Value) -> Result<Option<Listed>, PyError> {
 /// What became of a post, as `zhihu_collection_item.status` records it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
+    Pending,
     Saved,
     NoMedia,
     AlreadySaved,
@@ -486,6 +493,7 @@ pub enum Status {
 impl Status {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Pending => "pending",
             Self::Saved => "saved",
             Self::NoMedia => "no_media",
             Self::AlreadySaved => "already_saved",
@@ -500,49 +508,47 @@ fn sql_error(error: sqlx::Error) -> JobError {
     crate::db_job_error(&fav_db::DbError::from(error))
 }
 
-/// What the table knows of one collection: every post seen, and the failed ones still to
-/// try again.
+/// What the table knows of one collection: every post seen, and how far its walk got.
 #[derive(Debug, Default)]
 struct Known {
-    done: HashSet<String>,
-    retry: HashSet<String>,
+    urls: HashSet<String>,
     complete: bool,
+    resume_offset: usize,
 }
 
 async fn known(db: &Db, collection_id: i64) -> Result<Known, JobError> {
-    let rows = sqlx::query("SELECT url, status, attempts FROM zhihu_collection_item WHERE collection_id = $1")
+    let urls = sqlx::query_scalar::<_, String>("SELECT url FROM zhihu_collection_item WHERE collection_id = $1")
         .bind(collection_id)
         .fetch_all(db.pool())
         .await
         .map_err(sql_error)?;
-    let mut known = Known::default();
-    for row in rows {
-        let url: String = row.try_get("url").map_err(sql_error)?;
-        let status: String = row.try_get("status").map_err(sql_error)?;
-        let attempts: i32 = row.try_get("attempts").map_err(sql_error)?;
-        if status == Status::Failed.as_str() && attempts < MAX_ATTEMPTS {
-            known.retry.insert(url);
-        } else {
-            known.done.insert(url);
-        }
-    }
-    known.complete = sqlx::query_scalar::<_, bool>("SELECT complete FROM zhihu_collection WHERE id = $1")
+    let walk = sqlx::query("SELECT complete, resume_offset FROM zhihu_collection WHERE id = $1")
         .bind(collection_id)
         .fetch_optional(db.pool())
         .await
-        .map_err(sql_error)?
-        .unwrap_or(false);
+        .map_err(sql_error)?;
+    let mut known = Known {
+        urls: urls.into_iter().collect(),
+        ..Known::default()
+    };
+    if let Some(row) = walk {
+        known.complete = row.try_get("complete").map_err(sql_error)?;
+        let offset: i32 = row.try_get("resume_offset").map_err(sql_error)?;
+        known.resume_offset = usize::try_from(offset).unwrap_or(0);
+    }
     Ok(known)
 }
 
-async fn record_walk(db: &Db, collection: &ZhihuCollection, complete: bool) -> Result<(), JobError> {
+async fn record_walk(db: &Db, collection: &ZhihuCollection, complete: bool, resume_offset: usize) -> Result<(), JobError> {
     sqlx::query(
-        "INSERT INTO zhihu_collection (id, title, complete, walked_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-        ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, complete = EXCLUDED.complete, walked_at = EXCLUDED.walked_at",
+        "INSERT INTO zhihu_collection (id, title, complete, resume_offset, walked_at) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, complete = EXCLUDED.complete,
+            resume_offset = EXCLUDED.resume_offset, walked_at = EXCLUDED.walked_at",
     )
     .bind(collection.id)
     .bind(&collection.title)
     .bind(complete)
+    .bind(i32::try_from(resume_offset).unwrap_or(i32::MAX))
     .execute(db.pool())
     .await
     .map_err(sql_error)?;
@@ -556,6 +562,8 @@ struct Outcome<'a> {
     videos: usize,
     local_path: &'a str,
     error: &'a str,
+    /// The listing's entry, kept only while the post waits to be downloaded.
+    content: &'a str,
 }
 
 impl Outcome<'_> {
@@ -566,6 +574,7 @@ impl Outcome<'_> {
             videos: 0,
             local_path: "",
             error: "",
+            content: "",
         }
     }
 }
@@ -576,14 +585,15 @@ async fn record_item(db: &Db, collection: &ZhihuCollection, item: &Listed, outco
     let count = |count: usize| i32::try_from(count).unwrap_or(i32::MAX);
     let attempts: i32 = sqlx::query_scalar(
         "INSERT INTO zhihu_collection_item
-            (collection_id, url, kind, title, author, collection_title, status, image_count, video_count, local_path, attempts, last_error)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $11 THEN 1 ELSE 0 END, $12)
+            (collection_id, url, kind, title, author, collection_title, status, image_count, video_count, local_path, attempts, last_error, content)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $11 THEN 1 ELSE 0 END, $12, $13)
         ON CONFLICT (collection_id, url) DO UPDATE SET
             kind = EXCLUDED.kind, title = EXCLUDED.title, author = EXCLUDED.author,
             collection_title = EXCLUDED.collection_title, status = EXCLUDED.status,
             image_count = EXCLUDED.image_count, video_count = EXCLUDED.video_count, local_path = EXCLUDED.local_path,
             attempts = zhihu_collection_item.attempts + CASE WHEN $11 THEN 1 ELSE 0 END,
-            last_error = EXCLUDED.last_error, updated_at = CURRENT_TIMESTAMP
+            last_error = EXCLUDED.last_error, updated_at = CURRENT_TIMESTAMP,
+            content = CASE WHEN EXCLUDED.status IN ('pending', 'failed') THEN zhihu_collection_item.content ELSE '' END
         RETURNING attempts",
     )
     .bind(collection.id)
@@ -598,6 +608,7 @@ async fn record_item(db: &Db, collection: &ZhihuCollection, item: &Listed, outco
     .bind(outcome.local_path)
     .bind(failed)
     .bind(outcome.error)
+    .bind(outcome.content)
     .fetch_one(db.pool())
     .await
     .map_err(sql_error)?;
@@ -605,23 +616,45 @@ async fn record_item(db: &Db, collection: &ZhihuCollection, item: &Listed, outco
 }
 
 async fn set_status(db: &Db, collection_id: i64, url: &str, status: Status) -> Result<(), JobError> {
-    sqlx::query("UPDATE zhihu_collection_item SET status = $3, updated_at = CURRENT_TIMESTAMP WHERE collection_id = $1 AND url = $2")
-        .bind(collection_id)
-        .bind(url)
-        .bind(status.as_str())
-        .execute(db.pool())
-        .await
-        .map_err(sql_error)?;
+    sqlx::query(
+        "UPDATE zhihu_collection_item SET status = $3, content = '', updated_at = CURRENT_TIMESTAMP WHERE collection_id = $1 AND url = $2",
+    )
+    .bind(collection_id)
+    .bind(url)
+    .bind(status.as_str())
+    .execute(db.pool())
+    .await
+    .map_err(sql_error)?;
     Ok(())
 }
 
 // ---------- the crawl ----------
 
-/// A post found by the walk with media to download.
+/// A post waiting to be downloaded: its collection's place in the settings, and the
+/// listing's entry as the walk stored it.
 #[derive(Debug, Clone)]
-struct Pending {
+struct Queued {
     collection: usize,
-    item: Listed,
+    url: String,
+    content: String,
+}
+
+/// Why a collection's walk ended early.
+#[derive(Debug)]
+enum Walk {
+    /// Zhihu does not show this collection (deleted, private); the others go on.
+    Gone(JobError),
+    /// Nothing more can be read this run: the login, an outage, the database.
+    Stop(JobError),
+}
+
+impl Walk {
+    fn of(error: ZhihuError) -> Self {
+        match error {
+            ZhihuError::Zhihu(_) => Self::Gone(zhihu_job_error(error)),
+            other => Self::Stop(zhihu_job_error(other)),
+        }
+    }
 }
 
 /// What one collection got in this run.
@@ -700,104 +733,211 @@ impl ZhihuCollections {
         usize::try_from(self.config.max_posts_per_run).unwrap_or(usize::MAX)
     }
 
-    /// Walk the ticked collections, saving what needs no download as it goes; the posts
-    /// to download, and the error that cut the walk short, if one did.
-    async fn walk_all(&self, api: &dyn ZhihuApiSession) -> (Vec<Pending>, Option<JobError>) {
-        let mut pending = Vec::new();
-        for (index, collection) in self.config.collections.iter().enumerate() {
-            if pending.len() >= self.budget() {
-                break;
-            }
-            if let Err(error) = self.walk(api, index, collection, &mut pending).await {
-                return (pending, Some(error));
+    /// Walk the ticked collections, recording every new post. A collection Zhihu no longer
+    /// shows does not stop the others; its error comes back with the first error that
+    /// stopped the walk (the login, an outage), if one did.
+    async fn walk_all(&self, api: &dyn ZhihuApiSession) -> (Option<JobError>, Option<JobError>) {
+        let mut gone = None;
+        for collection in &self.config.collections {
+            match self.walk(api, collection).await {
+                Ok(()) => {}
+                Err(Walk::Gone(error)) => {
+                    log().warning(format!(
+                        "Zhihu collection {} ({}) could not be read: {}",
+                        collection.id,
+                        collection.title,
+                        error.message()
+                    ));
+                    gone.get_or_insert(error);
+                }
+                Err(Walk::Stop(error)) => return (gone, Some(error)),
             }
         }
-        (pending, None)
+        (gone, None)
     }
 
-    async fn walk(
-        &self,
-        api: &dyn ZhihuApiSession,
-        index: usize,
-        collection: &ZhihuCollection,
-        pending: &mut Vec<Pending>,
-    ) -> Result<(), JobError> {
-        let mut known = known(&self.db, collection.id).await?;
-        let was_complete = known.complete;
+    /// Read one collection from the top, recording the posts the table does not know yet.
+    /// A collection walked to its end before stops at the first page with nothing new; one
+    /// that was not jumps from there to where its last walk stopped, and reads on to its
+    /// end or [`MAX_PAGES_PER_COLLECTION`] pages.
+    async fn walk(&self, api: &dyn ZhihuApiSession, collection: &ZhihuCollection) -> Result<(), Walk> {
+        let known = known(&self.db, collection.id).await.map_err(Walk::Stop)?;
         let mut seen = HashSet::new();
-        let mut complete = false;
-        let mut cut_short = false;
+        let mut complete = known.complete;
+        let mut resume_offset = known.resume_offset;
+        let mut offset = 0;
+        let mut jumped = false;
         let mut pages = 0;
-        for page_index in 0..MAX_PAGES_PER_COLLECTION {
-            if page_index > 0 {
+        let mut new_posts = 0;
+        loop {
+            if pages == MAX_PAGES_PER_COLLECTION {
+                // Everything above `offset` has been read; a later walk goes on from there.
+                complete = false;
+                resume_offset = offset;
+                break;
+            }
+            if pages > 0 {
                 (self.sleeper)(PAGE_DELAY_SECONDS).await;
             }
-            let path = format!(
-                "/api/v4/collections/{}/items?offset={}&limit={PAGE_SIZE}",
-                collection.id,
-                page_index * PAGE_SIZE
-            );
-            let page = api.get(&path).await.map_err(zhihu_job_error)?;
+            let path = format!("/api/v4/collections/{}/items?offset={offset}&limit={PAGE_SIZE}", collection.id);
+            let page = api.get(&path).await.map_err(Walk::of)?;
             pages += 1;
             let entries = list_at(&page, "data");
-            let mut all_known = true;
+            let mut fresh = 0;
             for entry in entries {
-                let item = match listed(entry) {
-                    Ok(Some(item)) => item,
-                    Ok(None) => continue,
-                    Err(error) => {
-                        log().warning(format!(
-                            "A post in Zhihu collection {} could not be read: {}: {}",
-                            collection.id, error.class, error.message
-                        ));
-                        continue;
-                    }
-                };
-                if !seen.insert(item.url.clone()) || known.done.contains(&item.url) {
-                    continue;
+                if self.take(collection, entry, &known.urls, &mut seen).await.map_err(Walk::Stop)? {
+                    fresh += 1;
                 }
-                known.retry.remove(&item.url);
-                all_known = false;
-                self.take(index, collection, item, pending).await?;
             }
-            if is_end(&page) {
+            new_posts += fresh;
+            offset += PAGE_SIZE;
+            if is_end(&page) || entries.is_empty() {
                 complete = true;
+                resume_offset = 0;
                 break;
             }
-            if pending.len() >= self.budget() {
-                cut_short = true;
-                break;
-            }
-            if was_complete && all_known && known.retry.is_empty() {
-                complete = true;
-                break;
+            if fresh == 0 && !jumped {
+                if known.complete {
+                    break;
+                }
+                jumped = true;
+                offset = offset.max(resume_offset);
             }
         }
-        record_walk(&self.db, collection, complete && !cut_short).await?;
+        record_walk(&self.db, collection, complete, resume_offset)
+            .await
+            .map_err(Walk::Stop)?;
         log().info(format!(
-            "Walked {pages} pages of Zhihu collection {} ({}); {} posts to download so far",
+            "Walked {pages} pages of Zhihu collection {} ({}): {new_posts} new posts{}",
             collection.id,
             collection.title,
-            pending.len()
+            if complete {
+                String::new()
+            } else {
+                format!(", read down to {resume_offset} so far")
+            }
         ));
         Ok(())
     }
 
-    /// A post the walk has not seen before: settled at once unless it has media to
-    /// download, which waits in `pending`.
-    async fn take(&self, index: usize, collection: &ZhihuCollection, item: Listed, pending: &mut Vec<Pending>) -> Result<(), JobError> {
+    /// Record a listed post the table does not know yet: `pending` with its entry when it
+    /// has media to download, settled at once otherwise. Whether it was new.
+    async fn take(
+        &self,
+        collection: &ZhihuCollection,
+        entry: &Value,
+        known: &HashSet<String>,
+        seen: &mut HashSet<String>,
+    ) -> Result<bool, JobError> {
+        let item = match listed(entry) {
+            Ok(Some(item)) => item,
+            Ok(None) => return Ok(false),
+            Err(error) => {
+                // Recorded, so the walk does not take its page for a new one every run.
+                let content = entry.as_dict().and_then(|entry| dict_at(entry, "content"));
+                let url = content.map(|content| text_at(content, "url")).unwrap_or_default();
+                log().warning(format!(
+                    "A post in Zhihu collection {} could not be read: {}: {} ({url})",
+                    collection.id, error.class, error.message
+                ));
+                if url.is_empty() || known.contains(&url) || !seen.insert(url.clone()) {
+                    return Ok(false);
+                }
+                let item = Listed {
+                    url,
+                    kind: content.map(|content| text_at(content, "type")).unwrap_or_default(),
+                    id: String::new(),
+                    title: content.map(|content| text_at(content, "title")).unwrap_or_default(),
+                    author: content.map(author_of).unwrap_or_default(),
+                    media: None,
+                };
+                let message = format!("{}: {}", error.class, error.message);
+                let outcome = Outcome {
+                    error: &message,
+                    ..Outcome::of(Status::Unsupported)
+                };
+                record_item(&self.db, collection, &item, &outcome).await?;
+                return Ok(true);
+            }
+        };
+        if known.contains(&item.url) || !seen.insert(item.url.clone()) {
+            return Ok(false);
+        }
         if item.media.is_none() {
             record_item(&self.db, collection, &item, &Outcome::of(Status::Unsupported)).await?;
             log().info(format!(
                 "Zhihu collection {}: {} is a {} post, which is not read",
                 collection.id, item.url, item.kind
             ));
-            return Ok(());
-        }
-        if !item.has_media() {
+        } else if !item.has_media() {
             record_item(&self.db, collection, &item, &Outcome::of(Status::NoMedia)).await?;
-            return Ok(());
+        } else {
+            let content = fav_core::pyjson::dumps(entry, &fav_core::pyjson::DumpOptions::python_default())
+                .map_err(|error| JobError::new("TypeError", error.to_string()))?;
+            let outcome = Outcome {
+                content: &content,
+                ..Outcome::of(Status::Pending)
+            };
+            record_item(&self.db, collection, &item, &outcome).await?;
         }
+        Ok(true)
+    }
+
+    /// The posts to download this run: pending, or failed with tries left, in the ticked
+    /// collections, oldest first, at most `max_posts_per_run`.
+    async fn queued(&self) -> Result<Vec<Queued>, JobError> {
+        let ids: Vec<i64> = self.config.collections.iter().map(|collection| collection.id).collect();
+        let rows = sqlx::query(
+            "SELECT collection_id, url, content FROM zhihu_collection_item
+            WHERE collection_id = ANY($1) AND (status = 'pending' OR (status = 'failed' AND attempts < $2))
+            ORDER BY created_at, collection_id, url LIMIT $3",
+        )
+        .bind(&ids)
+        .bind(MAX_ATTEMPTS)
+        .bind(i64::try_from(self.budget()).unwrap_or(i64::MAX))
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(sql_error)?;
+        let mut queued = Vec::with_capacity(rows.len());
+        for row in rows {
+            let collection_id: i64 = row.try_get("collection_id").map_err(sql_error)?;
+            let Some(collection) = self.config.collections.iter().position(|collection| collection.id == collection_id) else {
+                continue;
+            };
+            queued.push(Queued {
+                collection,
+                url: row.try_get("url").map_err(sql_error)?,
+                content: row.try_get("content").map_err(sql_error)?,
+            });
+        }
+        Ok(queued)
+    }
+
+    /// Download one queued post, or settle it when there is nothing left to download.
+    async fn download(&self, queued: &Queued, tally: &mut Tally) -> Result<(), JobError> {
+        let collection = &self.config.collections[queued.collection];
+        let item = fav_core::pyjson::loads(&queued.content)
+            .map_err(|error| PyError::new("JSONDecodeError", error.to_string()))
+            .and_then(|entry| listed(&entry));
+        let item = match item {
+            Ok(Some(item)) if item.url == queued.url && item.has_media() => item,
+            other => {
+                let message = match other {
+                    Err(error) => format!("{}: {}", error.class, error.message),
+                    _ => "the stored listing no longer names a post with media".to_owned(),
+                };
+                let item = Listed {
+                    url: queued.url.clone(),
+                    kind: String::new(),
+                    id: String::new(),
+                    title: String::new(),
+                    author: String::new(),
+                    media: None,
+                };
+                return self.failed(collection, &item, &message).await;
+            }
+        };
+        // Saved since the walk: by another collection in this run, or through a shared link.
         if let Some(saved) = saved_links::find(&self.db, &item.url).await.map_err(sql_error)? {
             let outcome = Outcome {
                 local_path: &saved.saved_path,
@@ -812,10 +952,7 @@ impl ZhihuCollections {
             ));
             return Ok(());
         }
-        if pending.len() < self.budget() {
-            pending.push(Pending { collection: index, item });
-        }
-        Ok(())
+        self.save(collection, &item, tally).await
     }
 
     /// The post's pictures and videos, its videos resolved to URLs to download now.
@@ -864,14 +1001,15 @@ impl ZhihuCollections {
     /// Download a post's pictures and videos into `folder`; a file an earlier try saved
     /// is kept. The files there now.
     async fn save_media(&self, item: &Listed, page: &ArticlePage, folder: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), JobError> {
+        // The number goes with the id, which a long title cannot push out of the name.
         let name = |suffix: &str, ext: &str| {
-            let title = if suffix.is_empty() {
-                page.title.clone()
+            let id = if suffix.is_empty() {
+                item.id.clone()
             } else {
-                format!("{}-{suffix}", page.title)
+                format!("{}_{suffix}", item.id)
             };
             let author = Some(page.account.as_str()).filter(|author| !author.is_empty());
-            format_media_filename(&title, &item.id, author, ext, 240)
+            format_media_filename(&page.title, &id, author, ext, 240)
         };
         let mut images = Vec::new();
         for (index, url) in page.images.iter().enumerate() {
@@ -923,7 +1061,14 @@ impl ZhihuCollections {
             Ok(page) => page,
             Err(error) => return self.failed(collection, item, &format!("{}: {}", error.class, error.message)).await,
         };
-        let (images, videos) = self.save_media(item, &page, collection.path.as_path()).await?;
+        let (images, videos) = match self.save_media(item, &page, collection.path.as_path()).await {
+            Ok(files) => files,
+            Err(error) => {
+                return self
+                    .failed(collection, item, &format!("{}: {}", error.class_name(), error.message()))
+                    .await;
+            }
+        };
         if images.is_empty() && videos.is_empty() {
             let message = format!(
                 "none of the {} images and {} videos of {} could be downloaded",
@@ -1054,7 +1199,7 @@ impl ZhihuCollections {
             ));
         }
         let api = self.opener.open().await.map_err(zhihu_job_error)?;
-        let (pending, walk_error) = self.walk_all(api.as_ref()).await;
+        let (gone, walk_error) = self.walk_all(api.as_ref()).await;
         api.close().await;
         if let Some(error) = &walk_error
             && error.notification_dedupe_key() == Some(LOGIN_DEDUPE_KEY)
@@ -1063,21 +1208,26 @@ impl ZhihuCollections {
             log().warning(format!("Could not record the Zhihu login check: {store}"));
         }
 
-        // Outside the lock, with the browser gone: plain CDN traffic.
+        // Outside the lock, with the browser gone: plain CDN traffic. What the walk found
+        // is in the table already, so a walk cut short still leaves its posts to download.
+        let queued = self.queued().await?;
         let mut tallies: Vec<Tally> = self.config.collections.iter().map(|_| Tally::default()).collect();
-        for entry in &pending {
-            let collection = &self.config.collections[entry.collection];
-            self.save(collection, &entry.item, &mut tallies[entry.collection]).await?;
+        let mut stopped = None;
+        for entry in &queued {
+            if let Err(error) = self.download(entry, &mut tallies[entry.collection]).await {
+                stopped = Some(error);
+                break;
+            }
         }
         for (collection, tally) in self.config.collections.iter().zip(&tallies) {
             self.notify(collection, tally).await;
         }
         let saved: usize = tallies.iter().map(|tally| tally.saved.len()).sum();
-        log().info(format!(
-            "Zhihu collections: saved {saved} of {} new posts with media",
-            pending.len()
-        ));
-        walk_error.map_or(Ok(()), Err)
+        log().info(format!("Zhihu collections: saved {saved} of {} queued posts", queued.len()));
+        match stopped.or(walk_error).or(gone) {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
