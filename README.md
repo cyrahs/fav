@@ -56,7 +56,7 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
 `web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `web.wechat`,
-`notifications.telegram`. The settings page groups them into two partitions — sources (`web.*`) and
+`web.zhihu`, `notifications.telegram`. The settings page groups them into two partitions — sources (`web.*`) and
 notifications (`notifications.*`) — and shows only display names, never these internal keys. Site
 logins are not settings: they live on the 登录态 page (see [Site logins](#site-logins)). The
 `cookiecloud` section of the retired CookieCloud integration is deleted from `app_settings` on startup,
@@ -383,6 +383,42 @@ queued, so it applies to the next message either way.
 `web.telegram.enabled` at runtime only affects its cron reconciliation job; the listener still needs
 a worker restart.
 
+#### Zhihu collections
+
+`web.zhihu` saves the pictures and videos of the posts in chosen Zhihu collections (收藏夹), both the
+account's own and the ones it follows. It reads Zhihu in the signed-in 知乎 profile of the 登录态 page
+(the one Zhihu post links use, see [Post Links](#post-links)), so it needs that login and nothing else:
+
+```jsonc
+{
+  "collections": [
+    { "id": 123456789, "title": "壁纸", "owner": "mine", "path": "collection/zhihu/壁纸" },
+    { "id": 987654321, "title": "摄影", "owner": "followed", "path": "collection/zhihu/摄影" }
+  ],
+  "max_posts_per_run": 100       // posts with media downloaded per run, over all collections
+}
+```
+
+The settings page fills this in: 「从知乎读取收藏夹」 asks `GET /api/v2/zhihu/collections`, which opens the profile
+and lists 我的收藏夹 (`/api/v4/people/<token>/collections`) and 我关注的收藏夹
+(`/api/v4/members/<token>/following-favlists`), and each ticked collection gets its own folder. `title` and
+`owner` are only labels; `id` is what is read.
+
+Every run (`40 */3 * * *` by default) opens one browser under the profile's lock and pages through each
+collection's `/api/v4/collections/<id>/items`, newest first. A collection's first walk goes to its end;
+after that a walk stops at the first page whose posts are all known, so a run reads a page or two.
+The listing carries each answer's, article's and pin's content, so no post page is opened; a zvideo
+takes its MP4 from `lens.zhihu.com`. The browser is closed before anything is downloaded: pictures
+come at full size from `*.zhimg.com` and videos at the widest quality, named like a post link's files,
+into the collection's `path`. Posts are recorded in `zhihu_collection_item` (`zhihu_collection` keeps
+whether a collection's first walk finished). A post saved before from any source is not saved again
+(`saved_post_link`, see [Each Post Is Saved Once](#each-post-is-saved-once)), and a collection save
+adds its URL there. A post without pictures or videos is recorded and skipped, and a failed download
+is tried again on the next runs, three times, before a `download_failed` notification gives it up.
+Each collection that saved something sends one notification listing the posts. A profile that lost
+its login marks the 知乎 session invalid and fails the run with a `zhihu:login` notification; a
+security check or a browser failure fails the run without touching the login.
+
 ## Web UI
 
 `web/` is a React + TypeScript + Vite front end served by fav from `web/dist` when that directory
@@ -498,6 +534,7 @@ Protected endpoints:
 - `GET /api/v2/settings/{section}`
 - `PUT /api/v2/settings/{section}`
 - `GET /api/v2/site-sessions`
+- `GET /api/v2/zhihu/collections`
 - `POST /api/v2/site-sessions/{site}/login`
 - `DELETE /api/v2/site-sessions/login`
 - `POST /api/v2/notifications/telegram/test`

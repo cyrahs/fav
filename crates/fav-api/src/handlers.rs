@@ -30,7 +30,7 @@ use crate::{ApiState, archive, azurlane, bd2, credentials, hanime1, json, maskin
 const AUTH_PREFIX: &str = "Bearer ";
 
 /// `JobRequestTarget`, in its declared order.
-pub(crate) const JOB_REQUEST_TARGETS: [&str; 14] = [
+pub(crate) const JOB_REQUEST_TARGETS: [&str; 15] = [
     "all",
     "azurlane",
     "bd2",
@@ -45,6 +45,7 @@ pub(crate) const JOB_REQUEST_TARGETS: [&str; 14] = [
     "telegram",
     "twitter",
     "wechat",
+    "zhihu",
 ];
 
 /// `JobRequestStatus`, in its declared order.
@@ -142,6 +143,7 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
         Endpoint::TestTikHub => test_tikhub(state).await,
         Endpoint::TestAzurLaneProxy => test_azurlane_proxy(state, &body).await,
         Endpoint::TestRedNoteProxy => test_rednote_proxy(state, &body).await,
+        Endpoint::ListZhihuCollections => list_zhihu_collections(state).await,
         Endpoint::ListArchiveSources => list_archive_sources(state).await,
         Endpoint::ListArchiveItems => list_archive_items(state, request).await,
         Endpoint::ListHanime1Videos => hanime1::list_videos(state).await,
@@ -186,6 +188,39 @@ pub(crate) async fn call(state: &ApiState, endpoint: Endpoint, params: &PathPara
 /// `test_rednote_proxy`: check that xiaohongshu.com is reachable through a proxy, without
 /// saving it. The draft is probed as typed: proxies reach the UI in plaintext, so there is
 /// no masked value to resolve against the stored section.
+/// `GET /api/v2/zhihu/collections`: the signed-in account's own collections and the ones
+/// it follows, read in the Zhihu profile, for the settings page to tick (D189).
+async fn list_zhihu_collections(state: &ApiState) -> Result<Response, ApiError> {
+    use fav_sources::zhihu_post::ZhihuError;
+    let lists = match state.zhihu_collections.list().await {
+        Ok(lists) => lists,
+        Err(ZhihuError::Login(message)) => return Err(ApiError::new(409, "zhihu_login", message)),
+        Err(ZhihuError::Zhihu(message) | ZhihuError::Outage(message)) => return Err(ApiError::new(502, "zhihu_unavailable", message)),
+        Err(ZhihuError::Other(error)) => return Err(unhandled(&format!("{}: {}", error.class, error.message))),
+    };
+    let collections = lists
+        .collections
+        .iter()
+        .map(|collection| {
+            json::dict([
+                ("id", Value::from(collection.id)),
+                ("title", Value::from(collection.title.as_str())),
+                ("owner", Value::from(fav_core::validate::LiteralStr::as_str(collection.owner))),
+                ("item_count", Value::from(collection.item_count)),
+                ("is_public", Value::Bool(collection.is_public)),
+                ("creator", Value::from(collection.creator.as_str())),
+            ])
+        })
+        .collect();
+    Ok(json_response(
+        200,
+        &json::dict([
+            ("account", Value::from(lists.account.as_str())),
+            ("collections", Value::List(collections)),
+        ]),
+    ))
+}
+
 async fn test_rednote_proxy(state: &ApiState, body: &Body) -> Result<Response, ApiError> {
     const FIELDS: [&str; 1] = ["proxy"];
     let mut errors = Errors::new();

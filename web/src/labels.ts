@@ -20,6 +20,7 @@ const SECTION_LABELS: Record<string, string> = {
   'web.pixiv': 'Pixiv',
   'web.rednote': '小红书',
   'web.wechat': '微信',
+  'web.zhihu': '知乎',
   'notifications.telegram': 'Telegram 通知',
   'services.tikhub': 'TikHub',
 };

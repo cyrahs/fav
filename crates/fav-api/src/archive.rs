@@ -51,7 +51,7 @@ impl ArchiveSource {
 }
 
 /// `ARCHIVE_SOURCES`, in Python's order.
-pub const ARCHIVE_SOURCES: [ArchiveSource; 11] = [
+pub const ARCHIVE_SOURCES: [ArchiveSource; 12] = [
     ArchiveSource {
         key: "bilibili",
         name: "Bilibili",
@@ -191,6 +191,26 @@ pub const ARCHIVE_SOURCES: [ArchiveSource; 11] = [
         time_column: "created_at",
         subtitle_columns: &["creator", "service"],
     },
+    ArchiveSource {
+        key: "zhihu",
+        name: "Zhihu",
+        table: "zhihu_collection_item",
+        id_columns: &["collection_id", "url"],
+        title_column: "title",
+        columns: &[
+            "author",
+            "collection_title",
+            "kind",
+            "status",
+            "image_count",
+            "video_count",
+            "local_path",
+            "last_error",
+        ],
+        search_columns: &["title", "author", "collection_title", "url"],
+        time_column: "created_at",
+        subtitle_columns: &["collection_title", "author"],
+    },
 ];
 
 /// The whitelist entry for a key.
@@ -252,7 +272,7 @@ fn external_url(source: &ArchiveSource, row: &Row, settings: &Settings) -> Optio
             Some(build_note_url(&py_str(get("note_id")), &token))
         }
         // The canonical link, without the sharer's tracking parameters.
-        "wechat_article" => truthy("url").then(|| py_str(get("url"))),
+        "wechat_article" | "zhihu" => truthy("url").then(|| py_str(get("url"))),
         _ => None,
     }
 }

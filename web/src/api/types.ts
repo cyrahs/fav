@@ -137,3 +137,19 @@ export interface SiteSessionList {
   items: SiteSession[];
   login: LoginAttempt | null;
 }
+
+export type ZhihuCollectionOwner = 'mine' | 'followed';
+
+export interface ZhihuCollectionListed {
+  id: number;
+  title: string;
+  owner: ZhihuCollectionOwner;
+  item_count: number;
+  is_public: boolean;
+  creator: string;
+}
+
+export interface ZhihuCollectionsResponse {
+  account: string;
+  collections: ZhihuCollectionListed[];
+}

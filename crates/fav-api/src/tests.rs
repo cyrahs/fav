@@ -113,6 +113,7 @@ impl Harness {
             live2d_overrides: crate::live2d_overrides::postgres_store(database.db().clone()),
             azurlane_origin: Arc::new(FakeOriginProbe::default()),
             rednote_proxy: Arc::new(FakeRedNoteProbe::default()),
+            zhihu_collections: Arc::new(FakeZhihuCollections::default()),
         };
         Self { database, state }
     }
@@ -736,8 +737,8 @@ async fn jobs_endpoint_returns_registered_jobs() {
     let body = answer.json();
     let items = golden::list(golden::get(&body, "items"));
     // Every job is listed, whether its source is ported yet or not (DIVERGENCES.md D17).
-    assert_eq!(items.len(), 13);
-    assert_eq!(golden::int(golden::get(&body, "total")), 13);
+    assert_eq!(items.len(), 14);
+    assert_eq!(golden::int(golden::get(&body, "total")), 14);
     assert_eq!(
         items[0],
         pyjson::loads(
@@ -1252,7 +1253,7 @@ async fn archive_lists_the_real_tables() {
         *bilibili,
         pyjson::loads(r#"{"source": "bilibili", "name": "Bilibili", "total": 2, "latest_at": "2026-03-01T12:00:00"}"#).unwrap()
     );
-    assert_eq!(golden::int(golden::get(&body, "total")), 11);
+    assert_eq!(golden::int(golden::get(&body, "total")), 12);
     harness.finish().await;
 }
 
@@ -2342,4 +2343,87 @@ async fn the_azurlane_proxy_test_validates_its_body_and_reports_a_broken_client(
     );
     assert_eq!(probe.calls.lock().unwrap().len(), 1);
     harness.finish().await;
+}
+
+/// The Zhihu collection lists, as scripted.
+#[derive(Default)]
+pub(crate) struct FakeZhihuCollections {
+    pub(crate) error: Option<fav_sources::zhihu_post::ZhihuError>,
+}
+
+impl crate::ListZhihuCollections for FakeZhihuCollections {
+    fn list(
+        &self,
+    ) -> fav_runtime::BoxFuture<'_, Result<fav_sources::zhihu_collections::CollectionLists, fav_sources::zhihu_post::ZhihuError>> {
+        use fav_core::settings::ZhihuCollectionOwner;
+        use fav_sources::zhihu_collections::{CollectionInfo, CollectionLists};
+        Box::pin(async move {
+            if let Some(error) = &self.error {
+                return Err(error.clone());
+            }
+            Ok(CollectionLists {
+                account: "某人 (some-one)".to_owned(),
+                collections: vec![
+                    CollectionInfo {
+                        id: 11,
+                        title: "fav".to_owned(),
+                        owner: ZhihuCollectionOwner::Mine,
+                        item_count: Some(5),
+                        is_public: false,
+                        creator: "某人".to_owned(),
+                    },
+                    CollectionInfo {
+                        id: 22,
+                        title: "别人的".to_owned(),
+                        owner: ZhihuCollectionOwner::Followed,
+                        item_count: None,
+                        is_public: true,
+                        creator: String::new(),
+                    },
+                ],
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn the_zhihu_collections_are_listed_for_the_settings_page() {
+    let mut harness = Harness::new().await;
+    let unauthorised = harness.request("GET", "/api/v2/zhihu/collections", &[], None).await;
+    assert_eq!(unauthorised.status, 401);
+
+    let authorization = format!("Bearer {TOKEN}");
+    let answer = harness
+        .request("GET", "/api/v2/zhihu/collections", &[("authorization", &authorization)], None)
+        .await;
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    let body: serde_json::Value = serde_json::from_str(&answer.text()).expect("JSON");
+    assert_eq!(
+        body,
+        serde_json::json!({
+            "account": "某人 (some-one)",
+            "collections": [
+                {"id": 11, "title": "fav", "owner": "mine", "item_count": 5, "is_public": false, "creator": "某人"},
+                {"id": 22, "title": "别人的", "owner": "followed", "item_count": null, "is_public": true, "creator": ""},
+            ],
+        })
+    );
+
+    harness.state.zhihu_collections = Arc::new(FakeZhihuCollections {
+        error: Some(fav_sources::zhihu_post::ZhihuError::Login("sign in".to_owned())),
+    });
+    let signed_out = harness
+        .request("GET", "/api/v2/zhihu/collections", &[("authorization", &authorization)], None)
+        .await;
+    assert_eq!(signed_out.status, 409);
+    assert!(signed_out.text().contains("zhihu_login"), "{}", signed_out.text());
+
+    harness.state.zhihu_collections = Arc::new(FakeZhihuCollections {
+        error: Some(fav_sources::zhihu_post::ZhihuError::Outage("browser down".to_owned())),
+    });
+    let down = harness
+        .request("GET", "/api/v2/zhihu/collections", &[("authorization", &authorization)], None)
+        .await;
+    assert_eq!(down.status, 502);
+    assert!(down.text().contains("zhihu_unavailable"), "{}", down.text());
 }

@@ -87,6 +87,12 @@
       "name": "WeChat",
       "attr": "wechat",
       "required_commands": []
+    },
+    {
+      "key": "zhihu",
+      "name": "Zhihu",
+      "attr": "zhihu",
+      "required_commands": []
     }
   ]
 }

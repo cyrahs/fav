@@ -617,6 +617,34 @@ CREATE TABLE IF NOT EXISTS saved_post_link (
     saved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- The Zhihu collections (收藏夹) source: each ticked collection, and whether it was walked to
+-- its end once (after that a run stops at the first page it already knows).
+CREATE TABLE IF NOT EXISTS zhihu_collection (
+    id BIGINT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    complete BOOLEAN NOT NULL DEFAULT FALSE,
+    walked_at TIMESTAMPTZ
+);
+
+-- Every post seen in a collection, by its canonical URL, and what became of it.
+CREATE TABLE IF NOT EXISTS zhihu_collection_item (
+    collection_id BIGINT NOT NULL,
+    url TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    collection_title TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    image_count INTEGER NOT NULL DEFAULT 0,
+    video_count INTEGER NOT NULL DEFAULT 0,
+    local_path TEXT NOT NULL DEFAULT '',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (collection_id, url)
+);
+
 -- ============================================================================
 -- Columns added after a table was first created, for databases that predate them
 -- ============================================================================

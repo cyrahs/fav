@@ -75,6 +75,7 @@ pub mod wechat_channels;
 pub mod wechat_emoji;
 #[cfg(test)]
 mod wechat_golden;
+pub mod zhihu_collections;
 pub mod zhihu_post;
 
 pub use notifier::{HttpError, HttpJobError, Notifier, OutboxNotifier};
@@ -107,6 +108,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     wechat::register(&mut registry, ctx);
     telegram::register(&mut registry, ctx);
     rednote::register(&mut registry, ctx);
+    zhihu_collections::register(&mut registry, ctx);
     registry
 }
 

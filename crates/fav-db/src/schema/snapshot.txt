@@ -570,3 +570,27 @@ column wechat_state.1 key text not null
 column wechat_state.2 value text not null
 constraint wechat_state wechat_state_pkey PRIMARY KEY (key)
 index wechat_state wechat_state_pkey CREATE UNIQUE INDEX wechat_state_pkey ON public.wechat_state USING btree (key)
+table zhihu_collection
+column zhihu_collection.1 id bigint not null
+column zhihu_collection.2 title text not null default ''::text
+column zhihu_collection.3 complete boolean not null default false
+column zhihu_collection.4 walked_at timestamp with time zone
+constraint zhihu_collection zhihu_collection_pkey PRIMARY KEY (id)
+index zhihu_collection zhihu_collection_pkey CREATE UNIQUE INDEX zhihu_collection_pkey ON public.zhihu_collection USING btree (id)
+table zhihu_collection_item
+column zhihu_collection_item.1 collection_id bigint not null
+column zhihu_collection_item.2 url text not null
+column zhihu_collection_item.3 kind text not null default ''::text
+column zhihu_collection_item.4 title text not null default ''::text
+column zhihu_collection_item.5 author text not null default ''::text
+column zhihu_collection_item.6 collection_title text not null default ''::text
+column zhihu_collection_item.7 status text not null default ''::text
+column zhihu_collection_item.8 image_count integer not null default 0
+column zhihu_collection_item.9 video_count integer not null default 0
+column zhihu_collection_item.10 local_path text not null default ''::text
+column zhihu_collection_item.11 attempts integer not null default 0
+column zhihu_collection_item.12 last_error text not null default ''::text
+column zhihu_collection_item.13 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column zhihu_collection_item.14 updated_at timestamp with time zone not null default CURRENT_TIMESTAMP
+constraint zhihu_collection_item zhihu_collection_item_pkey PRIMARY KEY (collection_id, url)
+index zhihu_collection_item zhihu_collection_item_pkey CREATE UNIQUE INDEX zhihu_collection_item_pkey ON public.zhihu_collection_item USING btree (collection_id, url)

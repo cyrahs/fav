@@ -1504,6 +1504,139 @@ impl RedNote {
     }
 }
 
+// ---------- Zhihu ----------
+
+/// Whose a Zhihu collection (收藏夹) is: one of the account's own, or one it follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZhihuCollectionOwner {
+    Mine,
+    Followed,
+}
+
+impl LiteralStr for ZhihuCollectionOwner {
+    const VARIANTS: &'static [(Self, &'static str)] = &[(Self::Mine, "mine"), (Self::Followed, "followed")];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Mine => "mine",
+            Self::Followed => "followed",
+        }
+    }
+}
+
+/// One ticked collection and the directory its posts' pictures and videos land in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ZhihuCollection {
+    pub id: i64,
+    /// The collection's name when it was ticked, for the UI and the messages.
+    pub title: String,
+    pub owner: ZhihuCollectionOwner,
+    pub path: PyPath,
+}
+
+impl Model for ZhihuCollection {
+    const CLASS_NAME: &'static str = "ZhihuCollection";
+
+    fn validate_at(value: &Value, loc: &[LocItem]) -> Result<Self, Errors> {
+        let mut fields = Fields::begin(value, loc, Self::CLASS_NAME)?;
+        let id = fields.required(
+            "id",
+            after(int, |value| {
+                if value <= 0 {
+                    Err("zhihu collection id must be a positive collection id".to_owned())
+                } else {
+                    Ok(value)
+                }
+            }),
+        );
+        let title = fields.optional("title", String::new, stripped_string);
+        let owner = fields.optional("owner", || ZhihuCollectionOwner::Mine, literal);
+        let path = fields.required("path", path);
+        fields.finish(
+            || {
+                Some(Self {
+                    id: id?,
+                    title: title?,
+                    owner: owner?,
+                    path: path?,
+                })
+            },
+            |_| Ok(()),
+        )
+    }
+
+    fn dump(&self) -> Value {
+        dict(vec![
+            ("id", Value::from(self.id)),
+            ("title", Value::Str(self.title.clone())),
+            ("owner", Value::Str(self.owner.as_str().to_owned())),
+            ("path", paths(&self.path)),
+        ])
+    }
+}
+
+/// `web.zhihu`: the posts in the ticked collections of the account signed in to 知乎 on
+/// the 登录态 page, read through the same profile and proxy as Zhihu links (`web.rednote`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Zhihu {
+    pub schedule: Schedule,
+    pub collections: Vec<ZhihuCollection>,
+    /// How many new posts one run saves at most; the rest wait for the next run.
+    pub max_posts_per_run: i64,
+}
+
+impl Model for Zhihu {
+    const CLASS_NAME: &'static str = "Zhihu";
+
+    fn validate_at(value: &Value, loc: &[LocItem]) -> Result<Self, Errors> {
+        let mut fields = Fields::begin(value, loc, Self::CLASS_NAME)?;
+        let schedule = Schedule::read(&mut fields, Some("40 */3 * * *"));
+        let collections = fields.optional(
+            "collections",
+            Vec::new,
+            after(list_of(validate::model::<ZhihuCollection>), |collections: Vec<ZhihuCollection>| {
+                let mut seen = Vec::new();
+                for collection in &collections {
+                    if seen.contains(&collection.id) {
+                        return Err(format!("duplicate zhihu collection id: {}", collection.id));
+                    }
+                    seen.push(collection.id);
+                }
+                Ok(collections)
+            }),
+        );
+        let max_posts_per_run = fields.optional("max_posts_per_run", || 100, after(int, positive_count("max_posts_per_run")));
+        fields.finish(
+            || {
+                Some(Self {
+                    schedule: schedule?,
+                    collections: collections?,
+                    max_posts_per_run: max_posts_per_run?,
+                })
+            },
+            |_| Ok(()),
+        )
+    }
+
+    fn dump(&self) -> Value {
+        let mut entries = Vec::new();
+        self.schedule.dump_into(&mut entries);
+        entries.push(("collections", models(&self.collections)));
+        entries.push(("max_posts_per_run", Value::from(self.max_posts_per_run)));
+        dict(entries)
+    }
+}
+
+impl Zhihu {
+    pub fn validate_runnable(&self) -> Vec<String> {
+        if self.collections.is_empty() {
+            vec!["collections".to_owned()]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 /// `str` with surrounding whitespace and trailing slashes removed.
 fn url_without_trailing_slash(value: &Value, loc: &[LocItem]) -> Result<String, Errors> {
     string(value, loc).map(|text| py_rstrip_chars(py_strip(&text), &['/']).to_owned())
@@ -1745,6 +1878,7 @@ defaults_from_empty!(
     Pixiv,
     RedNote,
     Wechat,
+    Zhihu,
     TelegramNotification,
     TikHub,
     Web,
@@ -1771,6 +1905,7 @@ container!(
         pixiv: Pixiv,
         rednote: RedNote,
         wechat: Wechat,
+        zhihu: Zhihu,
     }
 );
 
@@ -1798,7 +1933,7 @@ container!(
 // ---------- sections ----------
 
 /// The section names, in the order the UI renders them (`SECTION_MODELS`).
-pub const SECTIONS: [&str; 15] = [
+pub const SECTIONS: [&str; 16] = [
     "web.bilibili",
     "web.telegram",
     "web.stellasora",
@@ -1812,6 +1947,7 @@ pub const SECTIONS: [&str; 15] = [
     "web.pixiv",
     "web.rednote",
     "web.wechat",
+    "web.zhihu",
     "notifications.telegram",
     "services.tikhub",
 ];
@@ -1882,6 +2018,7 @@ pub enum SectionValue {
     Pixiv(Pixiv),
     RedNote(RedNote),
     Wechat(Wechat),
+    Zhihu(Zhihu),
     TelegramNotification(TelegramNotification),
     TikHub(TikHub),
 }
@@ -1902,6 +2039,7 @@ macro_rules! each_section {
             SectionValue::Pixiv($model) => $body,
             SectionValue::RedNote($model) => $body,
             SectionValue::Wechat($model) => $body,
+            SectionValue::Zhihu($model) => $body,
             SectionValue::TelegramNotification($model) => $body,
             SectionValue::TikHub($model) => $body,
         }
@@ -1925,6 +2063,7 @@ impl SectionValue {
             "web.pixiv" => Self::Pixiv(Pixiv::validate(value)?),
             "web.rednote" => Self::RedNote(RedNote::validate(value)?),
             "web.wechat" => Self::Wechat(Wechat::validate(value)?),
+            "web.zhihu" => Self::Zhihu(Zhihu::validate(value)?),
             "notifications.telegram" => Self::TelegramNotification(TelegramNotification::validate(value)?),
             "services.tikhub" => Self::TikHub(TikHub::validate(value)?),
             other => return Err(UnknownSectionError { section: other.to_owned() }.into()),
@@ -1976,6 +2115,7 @@ impl SectionValue {
             Self::Pixiv(model) => &model.schedule,
             Self::RedNote(model) => &model.schedule,
             Self::Wechat(model) => &model.schedule,
+            Self::Zhihu(model) => &model.schedule,
             Self::TelegramNotification(_) | Self::TikHub(_) => return None,
         })
     }
@@ -2010,6 +2150,7 @@ runnable_impl!(
     Pixiv,
     RedNote,
     Wechat,
+    Zhihu,
     TelegramNotification
 );
 
@@ -2041,6 +2182,7 @@ impl Settings {
             "web.pixiv" => SectionValue::Pixiv(web.pixiv.clone()),
             "web.rednote" => SectionValue::RedNote(web.rednote.clone()),
             "web.wechat" => SectionValue::Wechat(web.wechat.clone()),
+            "web.zhihu" => SectionValue::Zhihu(web.zhihu.clone()),
             "notifications.telegram" => SectionValue::TelegramNotification(self.notifications.telegram.clone()),
             "services.tikhub" => SectionValue::TikHub(self.services.tikhub.clone()),
             other => return Err(UnknownSectionError { section: other.to_owned() }),
@@ -2064,6 +2206,7 @@ impl Settings {
             "pixiv" => &web.pixiv.schedule,
             "rednote" => &web.rednote.schedule,
             "wechat" => &web.wechat.schedule,
+            "zhihu" => &web.zhihu.schedule,
             _ => return None,
         })
     }
@@ -2085,6 +2228,7 @@ impl Settings {
             "pixiv" => &mut web.pixiv.schedule,
             "rednote" => &mut web.rednote.schedule,
             "wechat" => &mut web.wechat.schedule,
+            "zhihu" => &mut web.zhihu.schedule,
             _ => return None,
         })
     }
