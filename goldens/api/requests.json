@@ -480,9 +480,20 @@
                   "missing_fields": [
                     "token"
                   ]
+                },
+                {
+                  "key": "zhihu",
+                  "name": "Zhihu",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "40 */3 * * *",
+                  "section": "web.zhihu",
+                  "missing_fields": [
+                    "collections"
+                  ]
                 }
               ],
-              "total": 13
+              "total": 14
             }
           }
         },
@@ -860,9 +871,20 @@
                   "missing_fields": [
                     "token"
                   ]
+                },
+                {
+                  "key": "zhihu",
+                  "name": "Zhihu",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "40 */3 * * *",
+                  "section": "web.zhihu",
+                  "missing_fields": [
+                    "collections"
+                  ]
                 }
               ],
-              "total": 13
+              "total": 14
             }
           }
         }
@@ -1041,9 +1063,20 @@
                   "missing_fields": [
                     "token"
                   ]
+                },
+                {
+                  "key": "zhihu",
+                  "name": "Zhihu",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "40 */3 * * *",
+                  "section": "web.zhihu",
+                  "missing_fields": [
+                    "collections"
+                  ]
                 }
               ],
-              "total": 13
+              "total": 14
             }
           }
         }
@@ -1175,10 +1208,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": "not-a-source",
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -1212,10 +1245,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": "Jandan",
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -1385,10 +1418,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": 5,
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -1791,10 +1824,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": null,
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter' or 'wechat'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -2972,6 +3005,19 @@
                   ]
                 },
                 {
+                  "section": "web.zhihu",
+                  "value": {
+                    "cron": "40 */3 * * *",
+                    "enabled": false,
+                    "notify": true,
+                    "collections": [],
+                    "max_posts_per_run": 100
+                  },
+                  "missing_fields": [
+                    "collections"
+                  ]
+                },
+                {
                   "section": "notifications.telegram",
                   "value": {
                     "enabled": false,
@@ -2993,7 +3039,7 @@
                   "missing_fields": []
                 }
               ],
-              "total": 15
+              "total": 16
             }
           }
         },
@@ -3517,6 +3563,19 @@
                   "missing_fields": []
                 },
                 {
+                  "section": "web.zhihu",
+                  "value": {
+                    "cron": "40 */3 * * *",
+                    "enabled": false,
+                    "notify": true,
+                    "collections": [],
+                    "max_posts_per_run": 100
+                  },
+                  "missing_fields": [
+                    "collections"
+                  ]
+                },
+                {
                   "section": "notifications.telegram",
                   "value": {
                     "enabled": true,
@@ -3535,7 +3594,7 @@
                   "missing_fields": []
                 }
               ],
-              "total": 15
+              "total": 16
             }
           }
         },
@@ -3812,9 +3871,20 @@
                   "cron": "*/15 * * * *",
                   "section": "web.wechat",
                   "missing_fields": []
+                },
+                {
+                  "key": "zhihu",
+                  "name": "Zhihu",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "40 */3 * * *",
+                  "section": "web.zhihu",
+                  "missing_fields": [
+                    "collections"
+                  ]
                 }
               ],
-              "total": 13
+              "total": 14
             }
           }
         }
@@ -4708,6 +4778,19 @@
                   ]
                 },
                 {
+                  "section": "web.zhihu",
+                  "value": {
+                    "cron": "40 */3 * * *",
+                    "enabled": false,
+                    "notify": true,
+                    "collections": [],
+                    "max_posts_per_run": 100
+                  },
+                  "missing_fields": [
+                    "collections"
+                  ]
+                },
+                {
                   "section": "notifications.telegram",
                   "value": {
                     "enabled": false,
@@ -4726,7 +4809,7 @@
                   "missing_fields": []
                 }
               ],
-              "total": 15
+              "total": 16
             }
           }
         },
@@ -4873,9 +4956,20 @@
                   "missing_fields": [
                     "token"
                   ]
+                },
+                {
+                  "key": "zhihu",
+                  "name": "Zhihu",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "40 */3 * * *",
+                  "section": "web.zhihu",
+                  "missing_fields": [
+                    "collections"
+                  ]
                 }
               ],
-              "total": 13
+              "total": 14
             }
           }
         }
@@ -5359,7 +5453,8 @@
                     "twitter",
                     "wechat",
                     "wechat_article",
-                    "wechat_channel_video"
+                    "wechat_channel_video",
+                    "zhihu"
                   ]
                 }
               }
@@ -5579,7 +5674,8 @@
                     "twitter",
                     "wechat",
                     "wechat_article",
-                    "wechat_channel_video"
+                    "wechat_channel_video",
+                    "zhihu"
                   ]
                 }
               }
@@ -6590,9 +6686,20 @@
                   "missing_fields": [
                     "token"
                   ]
+                },
+                {
+                  "key": "zhihu",
+                  "name": "Zhihu",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "40 */3 * * *",
+                  "section": "web.zhihu",
+                  "missing_fields": [
+                    "collections"
+                  ]
                 }
               ],
-              "total": 13
+              "total": 14
             }
           }
         },

@@ -410,6 +410,51 @@
             "published_at",
             "created_at"
           ]
+        },
+        {
+          "key": "zhihu",
+          "name": "Zhihu",
+          "table": "zhihu_collection_item",
+          "id_columns": [
+            "collection_id",
+            "url"
+          ],
+          "title_column": "title",
+          "columns": [
+            "author",
+            "collection_title",
+            "kind",
+            "status",
+            "image_count",
+            "video_count",
+            "local_path",
+            "last_error"
+          ],
+          "search_columns": [
+            "title",
+            "author",
+            "collection_title",
+            "url"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "collection_title",
+            "author"
+          ],
+          "selected_columns": [
+            "collection_id",
+            "url",
+            "title",
+            "author",
+            "collection_title",
+            "kind",
+            "status",
+            "image_count",
+            "video_count",
+            "local_path",
+            "last_error",
+            "created_at"
+          ]
         }
       ]
     },

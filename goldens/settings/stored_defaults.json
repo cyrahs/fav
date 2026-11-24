@@ -57,6 +57,10 @@
       "stored": "{\"cron\": \"*/15 * * * *\", \"enabled\": false, \"notify\": true, \"path\": \"collection/wechat\", \"api_url\": \"http://favinbox-oracle.proxy.svc\", \"token\": \"\"}"
     },
     {
+      "section": "web.zhihu",
+      "stored": "{\"cron\": \"40 */3 * * *\", \"enabled\": false, \"notify\": true, \"collections\": [], \"max_posts_per_run\": 100}"
+    },
+    {
       "section": "notifications.telegram",
       "stored": "{\"enabled\": false, \"bot_token\": \"\", \"chat_id\": \"\", \"message_thread_id\": null}"
     },

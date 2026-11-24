@@ -34,6 +34,7 @@ use fav_sources::hanime1_author::{AuthorSubscriptions, Hanime1AuthorService};
 use fav_sources::hanime1_series::{Hanime1SeriesService, SeriesSubscriptions};
 use fav_sources::kemono_creator::{KemonoCreatorResolver, ResolveCreator};
 use fav_sources::rednote::proxy_probe::{ProbeRedNoteProxy, RedNoteProxyProbe};
+use fav_sources::zhihu_collections::{ChromiumZhihuApi, CollectionLists, ZhihuApiOpener, read_collections};
 
 pub mod archive;
 pub mod azurlane;
@@ -105,6 +106,8 @@ pub struct ApiState {
     pub azurlane_origin: Arc<dyn ProbeOrigin>,
     /// Checks xiaohongshu.com through a draft proxy (`POST /api/v2/rednote/proxy/test`).
     pub rednote_proxy: Arc<dyn ProbeRedNoteProxy>,
+    /// Reads the Zhihu collections the settings page ticks (`GET /api/v2/zhihu/collections`).
+    pub zhihu_collections: Arc<dyn ListZhihuCollections>,
     /// The 登录态 page's browser logins (`app.state.browser_login`), closed on shutdown.
     pub browser_login: Arc<BrowserLoginManager>,
 }
@@ -136,6 +139,7 @@ impl ApiState {
         let hanime1_authors = Arc::new(Hanime1AuthorService::new(db.clone(), Arc::clone(&settings))?);
         let db_for_overrides = db.clone();
         let db_for_logins = db.clone();
+        let db_for_zhihu = db.clone();
         Ok(Self {
             token: config.token.clone(),
             db,
@@ -155,9 +159,33 @@ impl ApiState {
             live2d_overrides: live2d_overrides::postgres_store(db_for_overrides),
             azurlane_origin: Arc::new(OriginProbe),
             rednote_proxy: Arc::new(RedNoteProxyProbe),
+            zhihu_collections: Arc::new(ZhihuCollectionsInBrowser(Arc::new(ChromiumZhihuApi::new(
+                db_for_zhihu,
+                Arc::clone(&settings),
+            )))),
             browser_login: Arc::new(default_browser_login(&db_for_logins, &settings)),
             settings,
         })
+    }
+}
+
+/// What lists the Zhihu collections for the settings page.
+pub trait ListZhihuCollections: Send + Sync {
+    fn list(&self) -> fav_runtime::BoxFuture<'_, Result<CollectionLists, fav_sources::zhihu_post::ZhihuError>>;
+}
+
+/// [`ListZhihuCollections`] in the signed-in Zhihu profile.
+pub struct ZhihuCollectionsInBrowser(pub Arc<dyn ZhihuApiOpener>);
+
+impl std::fmt::Debug for ZhihuCollectionsInBrowser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ZhihuCollectionsInBrowser").finish_non_exhaustive()
+    }
+}
+
+impl ListZhihuCollections for ZhihuCollectionsInBrowser {
+    fn list(&self) -> fav_runtime::BoxFuture<'_, Result<CollectionLists, fav_sources::zhihu_post::ZhihuError>> {
+        Box::pin(async move { read_collections(self.0.as_ref()).await })
     }
 }
 

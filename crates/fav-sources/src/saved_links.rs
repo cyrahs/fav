@@ -42,6 +42,7 @@ impl SavedLink {
         match self.source.as_str() {
             "telegram" => "Telegram",
             "wechat" => "WeChat",
+            "zhihu" => "Zhihu",
             other => other,
         }
     }

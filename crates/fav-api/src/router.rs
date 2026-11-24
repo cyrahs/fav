@@ -82,6 +82,8 @@ pub(crate) enum Endpoint {
     TestTikHub,
     TestAzurLaneProxy,
     TestRedNoteProxy,
+    /// Not in Python's contract: the Zhihu collections to tick in `web.zhihu` (D189).
+    ListZhihuCollections,
     ListArchiveSources,
     ListArchiveItems,
     ListHanime1Videos,
@@ -234,6 +236,11 @@ const ROUTES: &[Route] = &[
         path: "/api/v2/rednote/proxy/test",
         methods: POST,
         endpoint: Endpoint::TestRedNoteProxy,
+    },
+    Route {
+        path: "/api/v2/zhihu/collections",
+        methods: GET,
+        endpoint: Endpoint::ListZhihuCollections,
     },
     Route {
         path: "/api/v2/archive/sources",
@@ -423,6 +430,7 @@ impl Endpoint {
                 | Self::TestTikHub
                 | Self::TestAzurLaneProxy
                 | Self::TestRedNoteProxy
+                | Self::ListZhihuCollections
                 | Self::ListArchiveSources
                 | Self::ListArchiveItems
                 | Self::ListHanime1Videos

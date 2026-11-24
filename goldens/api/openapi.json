@@ -4459,7 +4459,8 @@
               "stellasora",
               "telegram",
               "twitter",
-              "wechat"
+              "wechat",
+              "zhihu"
             ],
             "title": "JobRequestTarget"
           },

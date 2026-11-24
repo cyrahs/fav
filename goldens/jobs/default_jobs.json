@@ -134,6 +134,17 @@
       "missing_fields": [
         "token"
       ]
+    },
+    {
+      "key": "zhihu",
+      "name": "Zhihu",
+      "cron": "40 */3 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.zhihu",
+      "missing_fields": [
+        "collections"
+      ]
     }
   ]
 }

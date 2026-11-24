@@ -22,7 +22,7 @@ pub struct JobSpec {
 }
 
 /// `JOB_SPECS`, in Python's order.
-pub const JOB_SPECS: [JobSpec; 13] = [
+pub const JOB_SPECS: [JobSpec; 14] = [
     spec("bilibili", "Bilibili", &["yt-dlp"]),
     spec("hanime1", "Hanime1", &["yt-dlp"]),
     spec("jandan", "Jandan", &[]),
@@ -36,6 +36,7 @@ pub const JOB_SPECS: [JobSpec; 13] = [
     spec("pixiv", "Pixiv", &[]),
     spec("rednote", "RedNote", &[]),
     spec("wechat", "WeChat", &[]),
+    spec("zhihu", "Zhihu", &[]),
 ];
 
 const fn spec(key: &'static str, name: &'static str, required_commands: &'static [&'static str]) -> JobSpec {

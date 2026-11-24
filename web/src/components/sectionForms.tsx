@@ -17,6 +17,7 @@ import { BilibiliForm, validateBilibili } from './BilibiliForm';
 import { PostLinksNote } from './PostLinksNote';
 import { RedNoteProxyTest } from './RedNoteProxyTest';
 import { TelegramForm, validateTelegram } from './TelegramForm';
+import { ZhihuForm, validateZhihu } from './ZhihuForm';
 import {
   PathField,
   bool,
@@ -676,6 +677,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.pixiv': PixivForm,
   'web.rednote': RedNoteForm,
   'web.wechat': WechatForm,
+  'web.zhihu': ZhihuForm,
   'services.tikhub': TikHubForm,
   'notifications.telegram': TelegramNotificationForm,
 };
@@ -727,6 +729,10 @@ export function validateSection(section: string, value: Record<string, unknown>)
 
   if (section === 'web.telegram') {
     issues.push(...validateTelegram(value));
+  }
+
+  if (section === 'web.zhihu') {
+    issues.push(...validateZhihu(value));
   }
 
   if (section === 'web.jandan' && list<number>(value, 'fav_types').length === 0) {

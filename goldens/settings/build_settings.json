@@ -148,6 +148,13 @@
             "path": "collection/wechat",
             "api_url": "http://favinbox-oracle.proxy.svc",
             "token": ""
+          },
+          "zhihu": {
+            "cron": "40 */3 * * *",
+            "enabled": false,
+            "notify": true,
+            "collections": [],
+            "max_posts_per_run": 100
           }
         },
         "notifications": {
@@ -310,6 +317,13 @@
             "path": "collection/wechat",
             "api_url": "http://favinbox-oracle.proxy.svc",
             "token": ""
+          },
+          "zhihu": {
+            "cron": "40 */3 * * *",
+            "enabled": false,
+            "notify": true,
+            "collections": [],
+            "max_posts_per_run": 100
           }
         },
         "notifications": {
@@ -472,6 +486,13 @@
             "path": "collection/wechat",
             "api_url": "http://favinbox-oracle.proxy.svc",
             "token": "t"
+          },
+          "zhihu": {
+            "cron": "40 */3 * * *",
+            "enabled": false,
+            "notify": true,
+            "collections": [],
+            "max_posts_per_run": 100
           }
         },
         "notifications": {
@@ -634,6 +655,13 @@
             "path": "collection/wechat",
             "api_url": "http://favinbox-oracle.proxy.svc",
             "token": ""
+          },
+          "zhihu": {
+            "cron": "40 */3 * * *",
+            "enabled": false,
+            "notify": true,
+            "collections": [],
+            "max_posts_per_run": 100
           }
         },
         "notifications": {

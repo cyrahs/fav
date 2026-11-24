@@ -6241,13 +6241,13 @@
                 "content": [
                   {
                     "type": "text",
-                    "text": "Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat']}"
+                    "text": "Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat', 'zhihu']}"
                   }
                 ],
                 "isError": true
               }
             },
-            "bytes": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat']}\"}],\"isError\":true}}"
+            "bytes": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat', 'zhihu']}\"}],\"isError\":true}}"
           },
           "logged": []
         },
@@ -6273,13 +6273,13 @@
                 "content": [
                   {
                     "type": "text",
-                    "text": "Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat']}"
+                    "text": "Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat', 'zhihu']}"
                   }
                 ],
                 "isError": true
               }
             },
-            "bytes": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat']}\"}],\"isError\":true}}"
+            "bytes": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"Error executing tool run_job: Unsupported job target. Details: {'allowed_values': ['all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat', 'zhihu']}\"}],\"isError\":true}}"
           },
           "logged": []
         },
@@ -6337,13 +6337,13 @@
                 "content": [
                   {
                     "type": "text",
-                    "text": "Error executing tool search_archive: Unknown archive source: nope Details: {'allowed_values': ['bilibili', 'hanime1', 'jandan', 'kemono', 'pixiv', 'rednote', 'telegram', 'twitter', 'wechat', 'wechat_article', 'wechat_channel_video']}"
+                    "text": "Error executing tool search_archive: Unknown archive source: nope Details: {'allowed_values': ['bilibili', 'hanime1', 'jandan', 'kemono', 'pixiv', 'rednote', 'telegram', 'twitter', 'wechat', 'wechat_article', 'wechat_channel_video', 'zhihu']}"
                   }
                 ],
                 "isError": true
               }
             },
-            "bytes": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"Error executing tool search_archive: Unknown archive source: nope Details: {'allowed_values': ['bilibili', 'hanime1', 'jandan', 'kemono', 'pixiv', 'rednote', 'telegram', 'twitter', 'wechat', 'wechat_article', 'wechat_channel_video']}\"}],\"isError\":true}}"
+            "bytes": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"Error executing tool search_archive: Unknown archive source: nope Details: {'allowed_values': ['bilibili', 'hanime1', 'jandan', 'kemono', 'pixiv', 'rednote', 'telegram', 'twitter', 'wechat', 'wechat_article', 'wechat_channel_video', 'zhihu']}\"}],\"isError\":true}}"
           },
           "logged": []
         },

@@ -74,6 +74,11 @@
       ]
     },
     {
+      "section": "web.zhihu",
+      "model": "Zhihu",
+      "sensitive_fields": []
+    },
+    {
       "section": "notifications.telegram",
       "model": "TelegramNotification",
       "sensitive_fields": [

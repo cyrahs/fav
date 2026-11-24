@@ -345,6 +345,14 @@ impl ZhihuBrowser {
 
     /// Open `url` and read the `kind` post `id` from it.
     pub async fn read(&self, url: &str, kind: &str, id: &str) -> Result<PageState, ReadError> {
+        let context = self.launch_context().await?;
+        let read = self.read_in(&context, url, kind, id).await;
+        context.close().await;
+        read
+    }
+
+    /// Chromium on the profile, its stale locks cleared first.
+    async fn launch_context(&self) -> Result<BrowserContext, ReadError> {
         let profile = self.launch.launch.user_data_dir.clone();
         let cleared = tokio::task::spawn_blocking(move || clear_stale_profile_locks(&profile))
             .await
@@ -359,13 +367,11 @@ impl ZhihuBrowser {
         if !cleared.is_empty() {
             log().info(format!("Cleared stale Chromium profile locks: {}", cleared.join(", ")));
         }
-        let context = BrowserContext::launch(&self.executable, &self.launch.launch, &[], self.launch.context.clone()).await?;
-        let read = self.read_in(&context, url, kind, id).await;
-        context.close().await;
-        read
+        Ok(BrowserContext::launch(&self.executable, &self.launch.launch, &[], self.launch.context.clone()).await?)
     }
 
-    async fn read_in(&self, context: &BrowserContext, url: &str, kind: &str, id: &str) -> Result<PageState, ReadError> {
+    /// The context's page, presented as RedNote's is, at `url`.
+    async fn open_page(&self, context: &BrowserContext, url: &str) -> Result<Page, ReadError> {
         context.add_init_script(WEBDRIVER_INIT_SCRIPT).await?;
         let page = context.first_page().await?;
         present_mac_user_agent_via(&page, &self.hints_url, self.timings.hints_retry).await?;
@@ -377,7 +383,33 @@ impl ZhihuBrowser {
             }
             log().info(format_args!("Zhihu page {url} did not finish loading: {error}"));
         }
+        Ok(page)
+    }
+
+    async fn read_in(&self, context: &BrowserContext, url: &str, kind: &str, id: &str) -> Result<PageState, ReadError> {
+        let page = self.open_page(context, url).await?;
         Ok(self.watch(&page, kind, id).await)
+    }
+
+    /// A session for Zhihu's own API: Chromium on the profile with `start_url` open, a
+    /// page on the origin the calls are made from. [`ZhihuApiSession::close`] closes it.
+    pub async fn open_api(&self, start_url: &str) -> Result<ZhihuApiSession, ReadError> {
+        let context = self.launch_context().await?;
+        match self.open_page(&context, start_url).await {
+            Ok(page) => {
+                let origin = url::Url::parse(start_url).map_or_else(|_| WEB_ORIGIN.to_owned(), |url| url.origin().ascii_serialization());
+                Ok(ZhihuApiSession {
+                    context,
+                    page,
+                    origin,
+                    timings: self.timings.clone(),
+                })
+            }
+            Err(error) => {
+                context.close().await;
+                Err(error)
+            }
+        }
     }
 
     /// Look at the page until it shows the post or anything else for sure, then once more
@@ -411,6 +443,120 @@ async fn look(page: &Page, kind: &str, id: &str, api: bool) -> PageState {
             log().debug(format!("Zhihu read landed mid-navigation: {error}"));
             PageState::Unknown(error.to_string())
         }
+    }
+}
+
+/// One call of Zhihu's API from inside the page, `{origin, path}` as its argument: the
+/// page's own cookies go with it, on its own origin, without CORS. The answer's status and
+/// JSON, and what the page shows, for when the page is not where the call can be made.
+pub const API_SCRIPT: &str = r"async (arg) => {
+    const body = document.body ? (document.body.innerText || '') : '';
+    const result = { href: location.href, title: document.title || '', text: body.slice(0, 300), status: 0, body: null, error: '' };
+    if (location.origin !== String(arg.origin)) { return result; }
+    try {
+        const response = await fetch(String(arg.path), { credentials: 'include', headers: { 'Accept': 'application/json' } });
+        result.status = response.status;
+        try { result.body = await response.json(); } catch (error) { result.body = null; }
+    } catch (error) {
+        result.error = String(error).slice(0, 200);
+    }
+    return result;
+}";
+
+/// What one call of the API answered.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ApiAnswer {
+    /// The API's JSON, with the HTTP status it came with.
+    Json { status: i64, body: Value },
+    /// The page wants a sign-in, or the API refused the session.
+    SignedOut,
+    /// Zhihu's security check is in front of the page.
+    Challenge(String),
+    /// The call could not be made (the page never settled on the origin, or the fetch
+    /// failed), in one line.
+    Failed(String),
+}
+
+/// What [`API_SCRIPT`]'s answer says.
+pub fn classify_api(probe: &Map<String, Value>) -> ApiAnswer {
+    let href = text(probe, "href");
+    let title = text(probe, "title");
+    let body = text(probe, "text");
+    let path = href.split(['?', '#']).next().unwrap_or_default();
+    let status = probe.get("status").and_then(Value::as_i64).unwrap_or(0);
+    let json = probe.get("body").cloned().unwrap_or(Value::Null);
+    if path.contains("/account/unhuman") {
+        return ApiAnswer::Challenge(href.to_owned());
+    }
+    if path.ends_with("/signin") || path.contains("/signin/") {
+        return ApiAnswer::SignedOut;
+    }
+    let message = json
+        .get("error")
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if status == 401 || (status == 403 && message.contains("登录")) {
+        return ApiAnswer::SignedOut;
+    }
+    if status == 0 {
+        if CHALLENGE_MARKERS
+            .iter()
+            .any(|marker| body.contains(marker) || title.contains(marker))
+        {
+            return ApiAnswer::Challenge(href.to_owned());
+        }
+        let error = text(probe, "error");
+        let reason = if error.is_empty() { "the page is not on Zhihu" } else { error };
+        return ApiAnswer::Failed(format!("{reason} ({title:?} at {href})"));
+    }
+    ApiAnswer::Json { status, body: json }
+}
+
+/// Chromium on the Zhihu profile with a page open for API calls. The caller holds
+/// [`profile_lock_name`]'s lock until it is closed.
+pub struct ZhihuApiSession {
+    context: BrowserContext,
+    page: Page,
+    origin: String,
+    timings: ReadTimings,
+}
+
+impl std::fmt::Debug for ZhihuApiSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ZhihuApiSession")
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ZhihuApiSession {
+    /// Call `path` (absolute on the page's origin, query included). A call that lands
+    /// while the page is still settling (its script check reloads it once) is made again
+    /// until the page settles or the settle time is up.
+    pub async fn get(&self, path: &str) -> ApiAnswer {
+        let deadline = Instant::now() + self.timings.settle;
+        loop {
+            let answer = match self
+                .page
+                .evaluate_with_arg(API_SCRIPT, json!({"origin": self.origin, "path": path}))
+                .await
+            {
+                Ok(Value::Object(probe)) => classify_api(&probe),
+                Ok(other) => ApiAnswer::Failed(format!("the page answered {other}")),
+                Err(error) => ApiAnswer::Failed(error.to_string()),
+            };
+            if !matches!(answer, ApiAnswer::Failed(_)) || Instant::now() >= deadline {
+                return answer;
+            }
+            tokio::time::sleep(self.timings.poll).await;
+        }
+    }
+
+    /// Close the browser.
+    pub async fn close(self) {
+        let Self { context, .. } = self;
+        context.close().await;
     }
 }
 

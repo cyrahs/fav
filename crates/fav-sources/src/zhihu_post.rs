@@ -488,6 +488,24 @@ pub trait ZhihuReader: Send + Sync {
 const PROFILE_WAIT: Duration = Duration::from_secs(90);
 const PROFILE_WAIT_POLL: Duration = Duration::from_secs(2);
 
+/// The Zhihu profile's advisory lock, waited for while a login or another reader holds
+/// it; `what` names the work in the outage that a lock held too long is.
+pub(crate) async fn lock_profile(db: &Db, name: &str, what: &str) -> Result<fav_db::lock::AdvisoryLock, ZhihuError> {
+    let started = tokio::time::Instant::now();
+    loop {
+        match db.try_advisory_lock(name).await {
+            Ok(Some(lock)) => return Ok(lock),
+            Ok(None) if started.elapsed() < PROFILE_WAIT => tokio::time::sleep(PROFILE_WAIT_POLL).await,
+            Ok(None) => {
+                return Err(ZhihuError::Outage(format!(
+                    "The Zhihu browser profile stayed busy (a 登录态 login, or another source reading Zhihu) while {what}"
+                )));
+            }
+            Err(error) => return Err(PyError::new("OperationalError", error.to_string()).into()),
+        }
+    }
+}
+
 /// [`ZhihuReader`] in Chromium: the profile next to RedNote's, through RedNote's proxy
 /// (`web.rednote`), one browser per post, under the profile's advisory lock.
 pub struct ChromiumZhihuReader {
@@ -513,23 +531,6 @@ impl ChromiumZhihuReader {
         }
     }
 
-    async fn lock(&self, name: &str, link: &ZhihuLink) -> Result<fav_db::lock::AdvisoryLock, ZhihuError> {
-        let started = tokio::time::Instant::now();
-        loop {
-            match self.db.try_advisory_lock(name).await {
-                Ok(Some(lock)) => return Ok(lock),
-                Ok(None) if started.elapsed() < PROFILE_WAIT => tokio::time::sleep(PROFILE_WAIT_POLL).await,
-                Ok(None) => {
-                    return Err(ZhihuError::Outage(format!(
-                        "The Zhihu browser profile stayed busy (a 登录态 login, or another source reading Zhihu) while reading {}",
-                        link.url()
-                    )));
-                }
-                Err(error) => return Err(PyError::new("OperationalError", error.to_string()).into()),
-            }
-        }
-    }
-
     async fn read_post(&self, link: &ZhihuLink) -> Result<Dict, ZhihuError> {
         let settings = self
             .settings
@@ -547,7 +548,12 @@ impl ChromiumZhihuReader {
                 link.url()
             ))
         })?;
-        let lock = self.lock(&fav_browser::zhihu::profile_lock_name(&profile), link).await?;
+        let lock = lock_profile(
+            &self.db,
+            &fav_browser::zhihu::profile_lock_name(&profile),
+            &format!("reading {}", link.url()),
+        )
+        .await?;
         let read = browser.read(&link.url(), link.kind.as_str(), &link.id).await;
         // Only once the browser is down: the lock is what keeps a login out of the profile.
         lock.release().await;
