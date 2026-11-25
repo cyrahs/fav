@@ -2941,6 +2941,7 @@
                     "excluded_tags": [
                       "男同"
                     ],
+                    "backfill_days": 3,
                     "proxy": "",
                     "proxy_media": true,
                     "max_episodes_per_run": 100,
@@ -3525,6 +3526,7 @@
                     "excluded_tags": [
                       "男同"
                     ],
+                    "backfill_days": 3,
                     "proxy": "",
                     "proxy_media": true,
                     "max_episodes_per_run": 100,
@@ -4767,6 +4769,7 @@
                     "excluded_tags": [
                       "男同"
                     ],
+                    "backfill_days": 3,
                     "proxy": "",
                     "proxy_media": true,
                     "max_episodes_per_run": 100,

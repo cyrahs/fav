@@ -1073,6 +1073,9 @@ pub struct Huangguo {
     pub categories: Vec<String>,
     /// A series carrying any of these tags is skipped.
     pub excluded_tags: Vec<String>,
+    /// A series not followed yet is picked up only when it went up within this many days;
+    /// the back catalogue is never downloaded. Followed series keep getting new episodes.
+    pub backfill_days: i64,
     /// Egress for the site's API; empty uses the environment's.
     pub proxy: String,
     /// Whether covers and episode streams go through `proxy` too.
@@ -1100,6 +1103,7 @@ impl Model for Huangguo {
             || HUANGGUO_EXCLUDED_TAGS.iter().map(|&tag| tag.to_owned()).collect(),
             after(list_of(stripped_string), |tags| Ok(huangguo_tags(tags))),
         );
+        let backfill_days = fields.optional("backfill_days", || 3, after(int, positive_count("backfill_days")));
         let proxy = fields.optional("proxy", String::new, stripped_string);
         let proxy_media = fields.optional("proxy_media", || true, boolean);
         let max_episodes_per_run = fields.optional("max_episodes_per_run", || 100, after(int, positive_count("max_episodes_per_run")));
@@ -1116,6 +1120,7 @@ impl Model for Huangguo {
                     host: host?,
                     categories: categories?,
                     excluded_tags: excluded_tags?,
+                    backfill_days: backfill_days?,
                     proxy: proxy?,
                     proxy_media: proxy_media?,
                     max_episodes_per_run: max_episodes_per_run?,
@@ -1139,6 +1144,7 @@ impl Model for Huangguo {
             "excluded_tags",
             Value::List(self.excluded_tags.iter().map(|tag| Value::Str(tag.clone())).collect()),
         ));
+        entries.push(("backfill_days", Value::from(self.backfill_days)));
         entries.push(("proxy", Value::Str(self.proxy.clone())));
         entries.push(("proxy_media", Value::Bool(self.proxy_media)));
         entries.push(("max_episodes_per_run", Value::from(self.max_episodes_per_run)));

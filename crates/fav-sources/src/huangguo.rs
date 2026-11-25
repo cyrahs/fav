@@ -4,9 +4,12 @@
 //! No Python origin. The site's front end reads a public JSON API, which this source reads
 //! too; nothing needs an account. A run:
 //!
-//! 1. lists every chosen category (`/api/videos/category/<route>`, newest first, every page)
-//!    and keeps the series whose tags hold none of `excluded_tags` and whose episode count
-//!    moved since every available episode was saved (`huangguo_series.episode_count`);
+//! 1. lists every chosen category (`/api/videos/category/<route>`, by upload time, every
+//!    page: a series that gets a new episode keeps its place, so a stop at the first old
+//!    page would miss it) and keeps the series whose tags hold none of `excluded_tags` and
+//!    that are followed already (a `huangguo_series` row) with an episode count that moved
+//!    since every available episode was saved, or not followed yet and uploaded within the
+//!    last `backfill_days`. The site's back catalogue is never downloaded;
 //! 2. reads each kept series (`/api/videos/<id>`), writes `tvshow.nfo` and the poster once
 //!    (the covers are AES-128-CBC encrypted with the key and IV the site's own front end
 //!    decrypts them with, published in `crypto-image-protocol.js`), then downloads the
@@ -28,6 +31,7 @@ use std::time::Duration;
 
 use aes::Aes128;
 use aes::cipher::{Array, BlockCipherDecrypt as _, KeyInit as _};
+use chrono::{DateTime, NaiveDateTime, TimeDelta, Utc};
 use fav_core::filename::sanitize;
 use fav_core::logging::{self, Logger};
 use fav_core::pyjson::{Dict, Value as PyValue};
@@ -52,9 +56,9 @@ const HEADER: &str = "Huangguo";
 /// What the site's own pages are fetched with.
 pub const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-/// Series per listing page; the API accepts up to 100.
-pub const PAGE_SIZE: i64 = 50;
-/// A safety stop for a listing that never ends (about 1 900 series fill 38 pages today).
+/// Series per listing page, the most the API serves.
+pub const PAGE_SIZE: i64 = 100;
+/// A safety stop for a listing that never ends (about 1 900 series fill 19 pages today).
 const MAX_LIST_PAGES: i64 = 200;
 const REQUEST_ATTEMPTS: u32 = 3;
 const DOWNLOAD_ATTEMPTS: u32 = 3;
@@ -147,6 +151,7 @@ impl Source for Huangguo {
                 Arc::new(SystemRunner),
                 tokio_sleeper(),
                 cache.path().to_path_buf(),
+                Utc::now(),
             );
             let result = run.update().await;
             // Removing the cache directory walks it; keep that off the async threads.
@@ -165,6 +170,8 @@ pub struct Listed {
     pub title: String,
     pub tags: Vec<String>,
     pub episode_count: i64,
+    /// When the series went up, if the listing said.
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 /// One episode of a series.
@@ -225,6 +232,12 @@ fn strings(value: Option<&Json>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The site's `YYYY-MM-DD HH:MM:SS`, which is Beijing time (UTC+8, no daylight saving).
+pub fn site_time(text: &str) -> Option<DateTime<Utc>> {
+    let local = NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").ok()?;
+    Some((local - TimeDelta::hours(8)).and_utc())
+}
+
 /// A listing page's series (those without an id are dropped) and its page count.
 pub fn parse_listing(data: &Json) -> (Vec<Listed>, i64) {
     let items = data
@@ -239,6 +252,7 @@ pub fn parse_listing(data: &Json) -> (Vec<Listed>, i64) {
                         title: text(item.get("title")),
                         tags: strings(item.get("tags")),
                         episode_count: int(item.get("episode_count")).unwrap_or(0),
+                        created_at: site_time(&text(item.get("created_at"))),
                     })
                 })
                 .collect()
@@ -752,6 +766,8 @@ pub(crate) struct Run {
     sleeper: Sleeper,
     cache_dir: PathBuf,
     image_key: Mutex<Option<ImageKey>>,
+    /// When the run started; a series is new enough to follow from `backfill_days` before.
+    now: DateTime<Utc>,
 }
 
 impl Run {
@@ -765,6 +781,7 @@ impl Run {
         runner: Arc<dyn Runner>,
         sleeper: Sleeper,
         cache_dir: PathBuf,
+        now: DateTime<Utc>,
     ) -> Self {
         let api = Api::new(api, &cfg.host, Arc::clone(&sleeper), cfg.sleep_request_seconds);
         Self {
@@ -777,6 +794,7 @@ impl Run {
             sleeper,
             cache_dir,
             image_key: Mutex::new(None),
+            now,
         }
     }
 
@@ -1116,7 +1134,8 @@ impl Run {
         let checked = self.checked_counts().await?;
         let mut seen = HashSet::new();
         let mut queue: Vec<(Listed, String)> = Vec::new();
-        let (mut listed_total, mut excluded) = (0_usize, 0_usize);
+        let (mut listed_total, mut excluded, mut too_old) = (0_usize, 0_usize, 0_usize);
+        let cutoff = self.now - TimeDelta::days(self.cfg.backfill_days);
         for route in &self.cfg.categories {
             let category = names.get(route).cloned().unwrap_or_else(|| route.clone());
             for item in self.list_category(route).await? {
@@ -1128,14 +1147,23 @@ impl Run {
                     excluded += 1;
                     continue;
                 }
-                if item.episode_count > 0 && checked.get(&item.id) == Some(&item.episode_count) {
-                    continue;
+                match checked.get(&item.id) {
+                    // Followed already: only a changed episode count is worth a look.
+                    Some(count) if item.episode_count > 0 && *count == item.episode_count => continue,
+                    // Not followed: only a series that went up within `backfill_days`.
+                    None if item.created_at.is_none_or(|created| created < cutoff) => {
+                        too_old += 1;
+                        continue;
+                    }
+                    Some(_) | None => {}
                 }
                 queue.push((item, category.clone()));
             }
         }
         log().info(format!(
-            "Huangguo listed {listed_total} series ({excluded} excluded by tag); {} may have new episodes",
+            "Huangguo listed {listed_total} series ({excluded} excluded by tag, {too_old} older than {} days and never followed); \
+             {} may have new episodes",
+            self.cfg.backfill_days,
             queue.len()
         ));
         if queue.is_empty() {

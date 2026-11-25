@@ -180,6 +180,12 @@ function HuangguoForm(props: SectionFormProps) {
         onChange={(next) => set('excluded_tags', next)}
         hint="带任一标签的剧整部跳过；用逗号或空格分隔。"
       />
+      <NumberField
+        label="只跟进最近几天上架的新剧"
+        value={num(props.value, 'backfill_days', 3)}
+        onChange={(next) => set('backfill_days', next)}
+        hint="不回填全站存量：没跟过的剧只有上架时间在这个天数内才会下载；已经在跟的剧之后的新集照常下载。"
+      />
 
       <div className="subsection">
         <h4>出口与节奏</h4>
@@ -202,7 +208,7 @@ function HuangguoForm(props: SectionFormProps) {
             label="每轮最多下载集数"
             value={num(props.value, 'max_episodes_per_run', 100)}
             onChange={(next) => set('max_episodes_per_run', next)}
-            hint="一集约 50 MB。首次回填有几万集，按这个上限分批，剩下的留给下一轮。"
+            hint="一集约 50 MB；站点每天新增约 40 集。超出的留给下一轮。"
           />
           <NumberField
             label="请求间隔（秒）"
@@ -824,6 +830,9 @@ export function validateSection(section: string, value: Record<string, unknown>)
   if (section === 'web.huangguo') {
     if (list<string>(value, 'categories').length === 0) {
       issues.push('分类至少选择一个');
+    }
+    if (num(value, 'backfill_days', 3) < 1) {
+      issues.push('跟进天数至少为 1');
     }
     if (num(value, 'max_episodes_per_run', 100) < 1) {
       issues.push('每轮最多下载集数至少为 1');

@@ -46,8 +46,17 @@ fn ok(data: &Json) -> Json {
     json!({"data": data, "status": 1, "msg": "", "req_time": 1_795_600_000})
 }
 
+/// When the runs happen: 2026-11-26 00:00 in Beijing.
+fn now() -> DateTime<Utc> {
+    site_time("2026-11-26 00:00:00").expect("time")
+}
+
 fn listed(id: i64, title: &str, tags: &[&str], episodes: i64) -> Json {
-    json!({"id": id, "title": title, "tags": tags, "episode_count": episodes, "duration": "300", "is_original": 0})
+    listed_at(id, title, tags, episodes, "2026-11-25 14:59:54")
+}
+
+fn listed_at(id: i64, title: &str, tags: &[&str], episodes: i64, created_at: &str) -> Json {
+    json!({"id": id, "title": title, "tags": tags, "episode_count": episodes, "duration": "300", "is_original": 0, "created_at": created_at})
 }
 
 fn series_json(id: i64, title: &str, tags: &[&str], episodes: &[(i64, i64)]) -> Json {
@@ -69,8 +78,8 @@ fn series_json(id: i64, title: &str, tags: &[&str], episodes: &[(i64, i64)]) -> 
 /// The site as the tests script it: a category listing and the series behind it.
 #[derive(Default)]
 struct Site {
-    listing: Vec<Json>,
-    series: HashMap<i64, Json>,
+    listing: Mutex<Vec<Json>>,
+    series: Mutex<HashMap<i64, Json>>,
     refuse_playback: bool,
 }
 
@@ -85,7 +94,7 @@ fn answer(site: &Site, seen: &Seen) -> Reply {
     if path == "/api/videos/category/ai-duanju" {
         return Reply::json(
             200,
-            &ok(&json!({"items": site.listing, "pagination": {"page": 1, "pages": 1, "size": 50, "total": site.listing.len()}})),
+            &ok(&json!({"items": *site.listing.lock().expect("listing"), "pagination": {"page": 1, "pages": 1, "size": 50, "total": 0}})),
         );
     }
     if path == IMAGE_PROTOCOL_PATH {
@@ -96,10 +105,15 @@ fn answer(site: &Site, seen: &Seen) -> Reply {
     }
     let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
     match parts.as_slice() {
-        ["api", "videos", id] => site.series.get(&id.parse::<i64>().expect("id")).map_or_else(
-            || Reply::json(200, &json!({"data": [], "status": 0, "msg": "内容已下线"})),
-            |series| Reply::json(200, &ok(series)),
-        ),
+        ["api", "videos", id] => site
+            .series
+            .lock()
+            .expect("series")
+            .get(&id.parse::<i64>().expect("id"))
+            .map_or_else(
+                || Reply::json(200, &json!({"data": [], "status": 0, "msg": "内容已下线"})),
+                |series| Reply::json(200, &ok(series)),
+            ),
         ["api", "videos", id, "episodes", ep, "playback"] if seen.method == "POST" => {
             if site.refuse_playback {
                 return Reply::json(200, &json!({"data": [], "status": 0, "msg": "视频不存在或不可播放"}));
@@ -151,6 +165,7 @@ impl Runner for FakeRunner {
 }
 
 struct Harness {
+    site: Arc<Site>,
     web: FakeWeb,
     db: fav_db::testdb::TestDatabase,
     root: tempfile::TempDir,
@@ -169,8 +184,10 @@ fn config(root: &Path) -> settings::Huangguo {
 impl Harness {
     async fn start(site: Site) -> Self {
         let site = Arc::new(site);
-        let web = FakeWeb::start(move |seen| answer(&site, seen)).await;
+        let shared = Arc::clone(&site);
+        let web = FakeWeb::start(move |seen| answer(&shared, seen)).await;
         Self {
+            site,
             web,
             db: database().await,
             root: tempfile::tempdir().expect("root"),
@@ -199,6 +216,7 @@ impl Harness {
             Arc::clone(runner) as Arc<dyn Runner>,
             self.sleeper.sleeper(),
             self.cache.path().to_path_buf(),
+            now(),
         )
     }
 
@@ -224,16 +242,19 @@ impl Harness {
 
 fn two_series_site() -> Site {
     Site {
-        listing: vec![
+        listing: Mutex::new(vec![
             listed(101, "巨乳妈妈", &["都市"], 2),
             listed(102, "兄弟情深", &["男同", "都市"], 3),
             listed(103, "长生录: 第一季", &["古风"], 2),
-        ],
-        series: HashMap::from([
+            // Went up long before the backfill window and never followed: not downloaded.
+            listed_at(104, "老剧", &["都市"], 9, "2026-08-07 19:16:47"),
+        ]),
+        series: Mutex::new(HashMap::from([
             (101, series_json(101, "巨乳妈妈", &["都市", "乱伦"], &[(1, 1), (2, 1)])),
             (102, series_json(102, "兄弟情深", &["男同", "都市"], &[(1, 1)])),
             (103, series_json(103, "长生录: 第一季", &["古风"], &[(1, 1), (2, 2)])),
-        ]),
+            (104, series_json(104, "老剧", &["都市"], &[(1, 1)])),
+        ])),
         refuse_playback: false,
     }
 }
@@ -260,12 +281,14 @@ fn a_listing_page_reads_its_series_and_page_count() {
                 title: "神瞳觉醒 第一季".to_owned(),
                 tags: vec!["超能力".to_owned()],
                 episode_count: 21,
+                created_at: None,
             },
             Listed {
                 id: 13,
                 title: "数字也行".to_owned(),
                 tags: Vec::new(),
                 episode_count: 4,
+                created_at: None,
             },
         ]
     );
@@ -379,6 +402,7 @@ fn the_settings_default_to_the_two_live_categories_without_gay_series() {
     assert_eq!(cfg.excluded_tags, ["男同"]);
     assert!(cfg.proxy_media);
     assert_eq!(cfg.max_episodes_per_run, 100);
+    assert_eq!(cfg.backfill_days, 3);
     assert!(cfg.validate_runnable().is_empty());
     let mut empty = cfg.clone();
     empty.categories.clear();
@@ -410,6 +434,11 @@ async fn a_run_saves_every_available_episode_for_emby_and_skips_excluded_tags() 
         "{:?}",
         harness.paths()
     );
+    assert!(
+        !harness.paths().iter().any(|path| path == "/api/videos/104"),
+        "the back catalogue is never read"
+    );
+    assert!(!harness.root.path().join("短剧").join("老剧").exists());
 
     let episodes = harness.episodes().await;
     assert_eq!(
@@ -517,11 +546,11 @@ async fn a_refused_playback_fails_the_run_when_nothing_is_saved() {
 #[tokio::test(flavor = "multi_thread")]
 async fn two_series_with_one_title_get_two_directories() {
     let site = Site {
-        listing: vec![listed(201, "同名", &[], 1), listed(202, "同名", &[], 1)],
-        series: HashMap::from([
+        listing: Mutex::new(vec![listed(201, "同名", &[], 1), listed(202, "同名", &[], 1)]),
+        series: Mutex::new(HashMap::from([
             (201, series_json(201, "同名", &[], &[(1, 1)])),
             (202, series_json(202, "同名", &[], &[(1, 1)])),
-        ]),
+        ])),
         refuse_playback: false,
     };
     let harness = Harness::start(site).await;
@@ -530,4 +559,45 @@ async fn two_series_with_one_title_get_two_directories() {
     let category = harness.root.path().join("短剧");
     assert!(category.join("同名").join("同名 S01E01.mp4").is_file());
     assert!(category.join("同名 [202]").join("同名 [202] S01E01.mp4").is_file());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_followed_series_keeps_its_new_episodes_after_it_leaves_the_window() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    let cfg = config(harness.root.path());
+    harness.run(cfg.clone(), &runner).update().await.expect("first run");
+
+    // A month later 巨乳妈妈 is long out of the window, but gets a third episode.
+    {
+        let mut listing = harness.site.listing.lock().expect("listing");
+        listing[0] = listed(101, "巨乳妈妈", &["都市"], 3);
+        let mut series = harness.site.series.lock().expect("series");
+        series.insert(101, series_json(101, "巨乳妈妈", &["都市", "乱伦"], &[(1, 1), (2, 1), (3, 1)]));
+    }
+    let mut later = harness.run(cfg, &runner);
+    later.now = now() + TimeDelta::days(30);
+    later.update().await.expect("later run");
+    assert!(
+        harness
+            .root
+            .path()
+            .join("短剧")
+            .join("巨乳妈妈")
+            .join("巨乳妈妈 S01E03.mp4")
+            .is_file()
+    );
+    assert_eq!(
+        harness.episodes().await.iter().map(|(id, ep, _)| (*id, *ep)).collect::<Vec<_>>(),
+        vec![(101, 1), (101, 2), (101, 3), (103, 1)]
+    );
+}
+
+#[test]
+fn site_times_are_beijing_time() {
+    assert_eq!(
+        site_time("2026-11-25 14:59:54").map(|time| time.to_rfc3339()).as_deref(),
+        Some("2026-11-25T06:59:54+00:00")
+    );
+    assert_eq!(site_time("yesterday"), None);
 }

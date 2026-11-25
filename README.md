@@ -435,6 +435,7 @@ Emby TV library. It reads the public JSON API the site's own pages use, so it ne
   "host": "https://huangguoai.com",
   "categories": ["ai-duanju", "ai-manju"], // the site's own categories (短剧, 漫剧), each a folder under path
   "excluded_tags": ["男同"],                // a series with any of these tags is skipped whole
+  "backfill_days": 3,                      // only series uploaded within the last 3 days are picked up
   "proxy": "http://us.proxy.svc.cluster.local", // egress for the API; empty: direct (or HTTP_PROXY)
   "proxy_media": true,                     // covers and episode streams through the proxy too
   "max_episodes_per_run": 100,
@@ -442,14 +443,18 @@ Emby TV library. It reads the public JSON API the site's own pages use, so it ne
 }
 ```
 
-Every run (`25 */2 * * *` by default) lists each category newest first, every page
-(`/api/videos/category/<route>?sort=new`, about 40 requests for the whole site), and skips a series
-tagged with an excluded tag, or one whose episode count has not moved since every playable episode was
-saved (`huangguo_series.episode_count`). Each other series is read (`/api/videos/<id>`), and its missing
-playable episodes are downloaded: `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS
+It never downloads the site's back catalogue. Every run (`25 */2 * * *` by default) lists each
+category, every page (`/api/videos/category/<route>?sort=new&size=100`, about 20 requests for the whole
+site; the order is by upload time and a series that gets a new episode keeps its place, so the run cannot
+stop at the first old page). It skips a series tagged with an excluded tag; a series it does not follow
+yet unless it went up within the last `backfill_days`; and a followed one (a `huangguo_series` row) whose
+episode count has not moved since every playable episode was saved. A followed series keeps getting its
+new episodes however old it gets. The site adds about 10 series and 40 episodes a day, so the first run
+takes the last three days' (about 100 episodes) and later runs a few each. Each kept series is read
+(`/api/videos/<id>`), and its missing playable episodes are downloaded: `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS
 stream, which `yt-dlp` saves (three tries, each with a fresh stream URL, since its signature expires).
 One run downloads at most `max_episodes_per_run` episodes, about 50 MB each; the rest wait for the next
-run, so the first backfill of the whole site takes many runs.
+run.
 
 ```
 <path>/短剧/<series>/tvshow.nfo        title, plot, premiered, studio (uploader), rating, tags as genres
