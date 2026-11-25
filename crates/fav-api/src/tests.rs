@@ -2479,8 +2479,10 @@ async fn the_emby_plugin_reads_a_huangguo_series_by_its_folder() {
             r#"{"id": 101, "title": "巨乳妈妈", "category": "短剧", "dir_name": "巨乳妈妈", "plot": "她 & 他", "author": "黄果官方",
                 "tags": ["都市", "乱伦"], "score": 9.5, "premiere_date": "2026-11-25", "finished": true,
                 "url": "https://huangguoai.com/video/101/", "has_poster": true,
-                "episodes": [{"ep_num": 1, "title": "第1集", "duration": 484, "has_thumbnail": true},
-                             {"ep_num": 2, "title": "第2集", "duration": 480, "has_thumbnail": false}]}"#
+                "poster_url": "/media/huangguo/series/101/poster?sig=6741bff99c87c3ec7674aad855fd3272",
+                "episodes": [{"ep_num": 1, "title": "第1集", "duration": 484, "has_thumbnail": true,
+                              "thumbnail_url": "/media/huangguo/series/101/episodes/1/thumbnail?sig=a55784c2653c041cb002b1564925fdaa"},
+                             {"ep_num": 2, "title": "第2集", "duration": 480, "has_thumbnail": false, "thumbnail_url": null}]}"#
         )
         .unwrap()
     );
@@ -2492,6 +2494,7 @@ async fn the_emby_plugin_reads_a_huangguo_series_by_its_folder() {
     let manju = client_get(&harness, &format!("{shared}&category={}", encoded("漫剧"))).await;
     assert_eq!(golden::get(&manju.json(), "id"), &Value::from(202));
     assert_eq!(golden::get(&manju.json(), "premiere_date"), &Value::Null);
+    assert_eq!(golden::get(&manju.json(), "poster_url"), &Value::Null);
     let missing = client_get(&harness, &format!("/media/huangguo/series?dir_name={}", encoded("没有"))).await;
     assert_eq!(missing.status, 404);
     assert_eq!(client_get(&harness, "/media/huangguo/series/999").await.status, 404);
@@ -2516,6 +2519,42 @@ async fn the_emby_plugin_reads_the_poster_and_the_episode_thumbnails() {
         client_get(&harness, "/media/huangguo/series/101/episodes/x/thumbnail").await.status,
         404
     );
+    harness.finish().await;
+}
+
+#[tokio::test]
+async fn emby_reads_a_signed_huangguo_image_url_without_a_token() {
+    // Emby fetches a provider's image URL itself, without the plugin's header.
+    let harness = huangguo_media_harness().await;
+    let series = client_get(&harness, "/media/huangguo/series/101").await.json();
+    let Value::Str(poster_url) = golden::get(&series, "poster_url").clone() else {
+        panic!("no poster_url in {series:?}");
+    };
+    let poster = harness.request("GET", &poster_url, &[], None).await;
+    assert_eq!(poster.status, 200, "{}", poster.text());
+    assert_eq!(poster.body.as_ref(), b"\x89PNG");
+    let thumbnail_url = "/media/huangguo/series/101/episodes/1/thumbnail?sig=a55784c2653c041cb002b1564925fdaa";
+    let thumbnail = harness.request("GET", thumbnail_url, &[], None).await;
+    assert_eq!((thumbnail.status, thumbnail.body.as_ref()), (200, &b"\xff\xd8\xff\xe0"[..]));
+
+    // A signature opens only the image it was made for.
+    let signature = poster_url.split_once("?sig=").unwrap().1;
+    for target in [
+        format!("/media/huangguo/series/101/episodes/1/thumbnail?sig={signature}"),
+        format!("/media/huangguo/series/202/poster?sig={signature}"),
+        "/media/huangguo/series/101/poster?sig=00000000000000000000000000000000".to_owned(),
+        "/media/huangguo/series/101/poster?sig=6741bff99c87c3ec".to_owned(),
+        "/media/huangguo/series/101/poster?sig=not-hex".to_owned(),
+    ] {
+        let answer = harness.request("GET", &target, &[], None).await;
+        assert_eq!(answer.status, 403, "{target}");
+        assert!(answer.text().contains("invalid_signature"), "{target}: {}", answer.text());
+    }
+    // The series details still need the client's token.
+    let details = harness
+        .request("GET", &format!("/media/huangguo/series/101?sig={signature}"), &[], None)
+        .await;
+    assert_eq!(details.status, 401);
     harness.finish().await;
 }
 

@@ -57,7 +57,7 @@ namespace Fav.Emby.Huangguo
                 Overview = found.plot,
                 PremiereDate = Date(found.premiere_date),
                 SearchProviderName = Plugin.ProviderName,
-                ImageUrl = found.has_poster ? FavApi.PosterUrl(found.id) : null,
+                ImageUrl = found.has_poster ? FavApi.PosterUrl(found) : null,
             };
             result.ProductionYear = result.PremiereDate?.Year;
             result.SetProviderId(Plugin.ProviderKey, found.id.ToString(CultureInfo.InvariantCulture));
@@ -186,7 +186,7 @@ namespace Fav.Emby.Huangguo
                 var found = await _fav.Find(series.GetProviderId(Plugin.ProviderKey), series.Path, cancellationToken).ConfigureAwait(false);
                 if (found != null && found.has_poster)
                 {
-                    images.Add(Image(FavApi.PosterUrl(found.id)));
+                    images.Add(Image(FavApi.PosterUrl(found)));
                 }
             }
             else if (item is Episode episode && episode.IndexNumber.HasValue)
@@ -194,9 +194,10 @@ namespace Fav.Emby.Huangguo
                 var found = await _fav.Find(episode.Series?.GetProviderId(Plugin.ProviderKey), Convert.SeriesFolder(episode.Path), cancellationToken)
                     .ConfigureAwait(false);
                 var number = episode.IndexNumber.Value;
-                if (found?.episodes != null && found.episodes.Any(saved => saved.ep_num == number && saved.has_thumbnail))
+                var saved = found?.episodes?.FirstOrDefault(candidate => candidate.ep_num == number && candidate.has_thumbnail);
+                if (saved != null)
                 {
-                    images.Add(Image(FavApi.ThumbnailUrl(found.id, number)));
+                    images.Add(Image(FavApi.ThumbnailUrl(found, saved)));
                 }
             }
 

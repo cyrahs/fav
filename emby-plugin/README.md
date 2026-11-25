@@ -13,7 +13,9 @@ It registers, all named **Huangguo**:
   `Huangguo` provider id it stores after;
 - a metadata provider for episodes: the series' saved episode with the episode's number
   (`<series> S01E04.strm` → 4);
-- an image provider: the series poster and the episode thumbnails, as `Primary` images;
+- an image provider: the series poster and the episode thumbnails, as `Primary` images. Their URLs
+  are the signed paths fav gives (`poster_url`, `thumbnail_url`), because Emby fetches a provider's
+  image URL by itself, without the token (`/Images/Remote`, and images it keeps as URLs);
 - an external id linking a series to its page on huangguoai.com.
 
 ## Build
@@ -37,4 +39,5 @@ copies the DLL into `/config/plugins`, which is what Emby's initContainer runs i
 3. In the Huangguo library's settings, tick **Huangguo** under the series and episode metadata
    downloaders and image fetchers (and move it first). The plugin answers nothing for a folder fav
    does not know, so it does no harm in other libraries, but there is no reason to enable it there.
-4. Refresh the library's metadata.
+4. Refresh the library's metadata. Images stored before the URLs were signed (fav answers 401 to
+   Emby for them) need a refresh with **Replace existing images** ticked.
