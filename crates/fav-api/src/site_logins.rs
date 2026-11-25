@@ -140,8 +140,9 @@ fn nga_site() -> LoginSite {
     )
 }
 
-/// 黄果短剧: the login lists the account's favourites and nothing else. It goes out through
-/// the source's own proxy, like the crawl.
+/// 黄果短剧: the login lists the account's favourites and nothing else. It goes out the way
+/// the favourites list does (`login_proxy`: direct unless `login_via_proxy`), because the
+/// site binds a login to the address it was made from.
 fn huangguo_site(load: &LoadSettings) -> LoginSite {
     let verify_load = Arc::clone(load);
     let proxy_load = Arc::clone(load);
@@ -159,13 +160,13 @@ fn huangguo_site(load: &LoadSettings) -> LoginSite {
             let load = Arc::clone(&verify_load);
             Box::pin(async move {
                 let settings = load().await?;
-                let found = huangguo::verify_session(&cookies, &settings.web.huangguo.proxy).await;
+                let found = huangguo::verify_session(&cookies, huangguo::login_proxy(&settings.web.huangguo)).await;
                 Ok(check(found.ok, found.account, found.message))
             })
         }))
         .proxy(Arc::new(move || {
             let load = Arc::clone(&proxy_load);
-            Box::pin(async move { Ok(load().await?.web.huangguo.proxy.clone()) })
+            Box::pin(async move { Ok(huangguo::login_proxy(&load().await?.web.huangguo).to_owned()) })
         }))
         .hint(HUANGGUO_HINT)
         .build(),

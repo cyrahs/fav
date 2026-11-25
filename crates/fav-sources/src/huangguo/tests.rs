@@ -347,6 +347,7 @@ impl Harness {
             cfg,
             self.client(),
             self.client(),
+            self.client(),
             self.db.db().clone(),
             Arc::clone(&self.notifier) as SharedNotifier,
             Arc::clone(runner) as Arc<dyn Runner>,
@@ -1018,4 +1019,44 @@ async fn an_in_house_series_goes_into_the_folder_of_its_type() {
     );
     assert!(harness.meta.path().join("漫剧").join("高三爱情故事").join("tvshow.nfo").is_file());
     assert!(!harness.root.path().join("黄果原创").exists());
+}
+
+#[test]
+fn the_login_goes_direct_unless_asked_to_use_the_proxy() {
+    let mut cfg = settings::Huangguo::defaults();
+    cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
+    assert!(!cfg.login_via_proxy, "off by default");
+    assert_eq!(login_proxy(&cfg), "");
+    assert_eq!(media_proxy(&cfg), "http://us.proxy.svc.cluster.local");
+    cfg.login_via_proxy = true;
+    assert_eq!(login_proxy(&cfg), "http://us.proxy.svc.cluster.local");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn series_saved_before_the_metadata_path_was_set_get_their_metadata_later() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    // Everything is saved while no metadata path is set: no nfo, no poster anywhere.
+    harness.run(config(harness.root.path()), &runner).update().await.expect("first run");
+    assert!(std::fs::read_dir(harness.meta.path()).expect("meta").next().is_none());
+    let downloads = runner.calls().len();
+
+    // The site has not changed, but the series still owe their metadata: read once more.
+    harness.run(harness.config(), &runner).update().await.expect("second run");
+    assert_eq!(runner.calls().len(), downloads, "nothing is downloaded again");
+    let meta = harness.meta.path().join("短剧");
+    assert!(meta.join("巨乳妈妈").join("tvshow.nfo").is_file());
+    assert!(meta.join("巨乳妈妈").join("poster.jpg").is_file());
+    assert!(meta.join("长生录_ 第一季").join("tvshow.nfo").is_file());
+    assert!(harness.series_row(101).await.2, "marked written");
+
+    // Then they are unchanged again: only the lists are read.
+    let seen_before = harness.web.seen().len();
+    harness.run(harness.config(), &runner).update().await.expect("third run");
+    assert!(
+        !harness.web.seen()[seen_before..]
+            .iter()
+            .any(|seen| seen.path().starts_with("/api/videos/10")),
+        "no series is read again"
+    );
 }

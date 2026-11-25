@@ -1107,6 +1107,10 @@ pub struct Huangguo {
     pub proxy: String,
     /// Whether covers and episode streams go through `proxy` too.
     pub proxy_media: bool,
+    /// Whether the login (the 登录态 window, its check and the favourites list) goes through
+    /// `proxy` too. Off by default: the site binds a login to the address it was made from,
+    /// and a proxy's exit address changes, which would sign the account out each time.
+    pub login_via_proxy: bool,
     /// How many episodes one run downloads at most; the rest wait for the next run.
     pub max_episodes_per_run: i64,
     pub sleep_request_seconds: f64,
@@ -1146,6 +1150,7 @@ impl Model for Huangguo {
         );
         let proxy = fields.optional("proxy", String::new, stripped_string);
         let proxy_media = fields.optional("proxy_media", || true, boolean);
+        let login_via_proxy = fields.optional("login_via_proxy", || false, boolean);
         let max_episodes_per_run = fields.optional("max_episodes_per_run", || 100, after(int, positive_count("max_episodes_per_run")));
         let sleep_request_seconds = fields.optional(
             "sleep_request_seconds",
@@ -1168,6 +1173,7 @@ impl Model for Huangguo {
                     favorites_cache_limit_gb: favorites_cache_limit_gb?,
                     proxy: proxy?,
                     proxy_media: proxy_media?,
+                    login_via_proxy: login_via_proxy?,
                     max_episodes_per_run: max_episodes_per_run?,
                     sleep_request_seconds: sleep_request_seconds?,
                 })
@@ -1200,6 +1206,7 @@ impl Model for Huangguo {
         entries.push(("favorites_cache_limit_gb", Value::from(self.favorites_cache_limit_gb)));
         entries.push(("proxy", Value::Str(self.proxy.clone())));
         entries.push(("proxy_media", Value::Bool(self.proxy_media)));
+        entries.push(("login_via_proxy", Value::Bool(self.login_via_proxy)));
         entries.push(("max_episodes_per_run", Value::from(self.max_episodes_per_run)));
         entries.push(("sleep_request_seconds", dump_float(self.sleep_request_seconds)));
         dict(entries)

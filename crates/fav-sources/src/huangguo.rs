@@ -153,6 +153,12 @@ fn media_proxy(cfg: &settings::Huangguo) -> &str {
     if cfg.proxy_media { &cfg.proxy } else { "" }
 }
 
+/// The proxy the login uses: the 登录态 window, its check and the favourites list. Direct
+/// unless `login_via_proxy`, since the site binds a login to the address it was made from.
+pub fn login_proxy(cfg: &settings::Huangguo) -> &str {
+    if cfg.login_via_proxy { &cfg.proxy } else { "" }
+}
+
 impl Source for Huangguo {
     fn update(&mut self) -> BoxFuture<'_, Result<(), JobError>> {
         Box::pin(async move {
@@ -162,6 +168,7 @@ impl Source for Huangguo {
                 |proxy: &str| HttpClient::new(&client_options(proxy)).map_err(|error| JobError::new("ValueError", error.to_string()));
             let api = build(&cfg.proxy)?;
             let media = build(media_proxy(&cfg))?;
+            let session = build(login_proxy(&cfg))?;
             let cache = tokio::task::spawn_blocking(|| tempfile::Builder::new().prefix("fav-huangguo-").tempdir())
                 .await
                 .map_err(|error| JobError::new("RuntimeError", error.to_string()))?
@@ -171,6 +178,7 @@ impl Source for Huangguo {
                 cfg,
                 api,
                 media,
+                session,
                 self.ctx.db.clone(),
                 Arc::new(OutboxNotifier(outbox)),
                 Arc::new(SystemRunner),
@@ -1049,6 +1057,16 @@ struct Stored {
     metadata_written: bool,
 }
 
+/// A followed series as its row records it.
+#[derive(Debug, Clone, Copy)]
+struct Followed {
+    /// The episode count it listed when every available episode was saved.
+    episode_count: i64,
+    /// The highest list it was ever in.
+    tier: Option<Tier>,
+    metadata_written: bool,
+}
+
 /// How full a cache pool is, and its limit, in bytes.
 #[derive(Debug, Clone, Copy)]
 struct Usage {
@@ -1067,6 +1085,8 @@ pub(crate) struct Run {
     cfg: settings::Huangguo,
     api: Api,
     media: HttpClient,
+    /// The signed-in requests (the favourites list), through [`login_proxy`].
+    session_api: Api,
     db: Db,
     notifier: SharedNotifier,
     runner: Arc<dyn Runner>,
@@ -1084,6 +1104,7 @@ impl Run {
         cfg: settings::Huangguo,
         api: HttpClient,
         media: HttpClient,
+        session: HttpClient,
         db: Db,
         notifier: SharedNotifier,
         runner: Arc<dyn Runner>,
@@ -1092,10 +1113,12 @@ impl Run {
         now: DateTime<Utc>,
     ) -> Self {
         let api = Api::new(api, &cfg.host, Arc::clone(&sleeper), cfg.sleep_request_seconds);
+        let session_api = Api::new(session, &cfg.host, Arc::clone(&sleeper), cfg.sleep_request_seconds);
         Self {
             cfg,
             api,
             media,
+            session_api,
             db,
             notifier,
             runner,
@@ -1199,7 +1222,7 @@ impl Run {
         let mut listed = Vec::new();
         let mut page = 1;
         loop {
-            let Some((items, pages)) = self.api.favorites_page(session, page).await? else {
+            let Some((items, pages)) = self.session_api.favorites_page(session, page).await? else {
                 log().warning("Huangguo rejected the saved login; sign in again on the 登录态 page. Skipping favorites");
                 if let Err(error) = site_sessions::record_check(&self.db, SESSION_SITE, false, "rejected by the favorites list (401)").await
                 {
@@ -1217,16 +1240,27 @@ impl Run {
         Ok(Some(listed))
     }
 
-    /// Series id to the episode count it listed when every available episode was saved,
-    /// and the tier it is followed under.
-    async fn followed(&self) -> Result<HashMap<i64, (i64, Option<Tier>)>, JobError> {
-        let rows = execute(&self.db, "SELECT video_id, episode_count, tier FROM huangguo_series", Vec::new()).await?;
+    /// Every followed series by id.
+    async fn followed(&self) -> Result<HashMap<i64, Followed>, JobError> {
+        let rows = execute(
+            &self.db,
+            "SELECT video_id, episode_count, tier, metadata_written FROM huangguo_series",
+            Vec::new(),
+        )
+        .await?;
         let mut followed = HashMap::with_capacity(rows.len());
         for row in &rows {
             let id: i64 = row.try_get("video_id").map_err(db_error)?;
             let count: i32 = row.try_get("episode_count").map_err(db_error)?;
             let tier: String = row.try_get("tier").map_err(db_error)?;
-            followed.insert(id, (i64::from(count), Tier::parse(&tier)));
+            followed.insert(
+                id,
+                Followed {
+                    episode_count: i64::from(count),
+                    tier: Tier::parse(&tier),
+                    metadata_written: row.try_get("metadata_written").map_err(db_error)?,
+                },
+            );
         }
         Ok(followed)
     }
@@ -1588,7 +1622,13 @@ impl Run {
                 return;
             }
             match followed.get(&listed.id) {
-                Some((count, _)) if listed.episode_count > 0 && *count == listed.episode_count => {
+                // Unchanged, unless its tvshow.nfo and poster are still owed (a series saved
+                // before `metadata_path` was set): then it is read once more to write them.
+                Some(known)
+                    if listed.episode_count > 0
+                        && known.episode_count == listed.episode_count
+                        && (known.metadata_written || self.cfg.metadata_path.is_empty()) =>
+                {
                     unchanged += 1;
                     return;
                 }
@@ -1606,7 +1646,7 @@ impl Run {
             // A series followed under a higher tier keeps counting against that tier's pool.
             let tier = followed
                 .get(&listed.id)
-                .and_then(|(_, stored)| *stored)
+                .and_then(|known| known.tier)
                 .map_or(tier, |stored| stored.min(tier));
             queue.push(Candidate { listed, tier, category });
         };
