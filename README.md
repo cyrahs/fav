@@ -443,9 +443,11 @@ site's back catalogue.
   "cache_limit_gb": 200,                   // rankings and new series waiting on the local disk
   "favorites_cache_limit_gb": 50,          // favourites waiting on the local disk, counted apart
   "proxy": "http://us.proxy.svc.cluster.local", // egress for rankings, listings, details, playback
-  "proxy_media": true,                     // covers and episode streams through the proxy too
+  "proxy_media": false,                    // covers and video through the proxy too; off: the CDN
+                                           // shows no limits, and video filled sing-box's memory
   "login_via_proxy": false,                // the login window, its check and the favourites list
   "max_episodes_per_run": 100,
+  "thumbnails_per_run": 60,                // thumbnails owed by earlier runs taken per run; 0: none
   "sleep_request_seconds": 1.0             // between API requests
 }
 ```
@@ -521,8 +523,9 @@ Every run keeps them in the database:
   the frames a tenth of the way in and scales it to at most 1280 pixels wide. It is taken from the
   download right after it is saved; an episode saved without one (before thumbnails were taken, or
   whose download was uploaded already) gets it from its stream instead, which reads only the
-  segments around that point (no login, through `proxy` when `proxy_media`), at most 60 per run,
-  newest first. A thumbnail that fails three times is given up (`huangguo.thumbnail_failures`).
+  segments around that point (no login, through `proxy` when `proxy_media`), at most
+  `thumbnails_per_run` (60) per run, newest first, after the run's downloads (the episode budget
+  does not limit it; 0 takes none). A thumbnail that fails three times is given up (`huangguo.thumbnail_failures`).
 
 fav serves them read-only under `/media/huangguo`, outside the documented API, to a
 `CREDENTIAL_CLIENTS` client whose sites include `huangguo-media` (`API_TOKEN` is not accepted, and
