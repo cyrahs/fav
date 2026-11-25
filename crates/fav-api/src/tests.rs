@@ -2427,3 +2427,114 @@ async fn the_zhihu_collections_are_listed_for_the_settings_page() {
     assert_eq!(down.status, 502);
     assert!(down.text().contains("zhihu_unavailable"), "{}", down.text());
 }
+
+// ---------- the Emby plugin's Huangguo routes (huangguo_media) ----------
+
+async fn huangguo_media_harness() -> Harness {
+    let mut harness = Harness::new().await;
+    harness
+        .execute(
+            "INSERT INTO huangguo_series (video_id, category, title, author, tags, dir_name, tier, plot, score, premiered, finished) VALUES \
+             (101, '短剧', '巨乳妈妈', '黄果官方', '都市,乱伦', '巨乳妈妈', 'favorite', '她 & 他', 9.5, '2026-11-25 14:59:54', TRUE), \
+             (202, '漫剧', '同名', '', '', '同名', 'new', '', NULL, '', FALSE), \
+             (203, '短剧', '同名', '', '', '同名', 'new', '', NULL, '', FALSE)",
+            &[],
+        )
+        .await;
+    harness
+        .execute(
+            "INSERT INTO huangguo (video_id, ep_num, title, series_title, category, duration, local_path, tier, size) VALUES \
+             (101, 2, '第2集', '巨乳妈妈', '短剧', 480, '', 'favorite', 1), (101, 1, '第1集', '巨乳妈妈', '短剧', 484, '', 'favorite', 1)",
+            &[],
+        )
+        .await;
+    harness
+        .execute(
+            "INSERT INTO huangguo_images (video_id, ep_num, content_type, data) VALUES \
+             (101, 0, 'image/png', decode('89504e47', 'hex')), (101, 1, 'image/jpeg', decode('ffd8ffe0', 'hex'))",
+            &[],
+        )
+        .await;
+    harness.state.credential_clients = credentials::parse_clients(&format!(
+        "emby:{}:huangguo-media rsshub:{}:bilibili-main",
+        digest(CLIENT_TOKEN),
+        digest("other-client-token")
+    ))
+    .unwrap();
+    harness
+}
+
+fn encoded(text: &str) -> String {
+    percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string()
+}
+
+#[tokio::test]
+async fn the_emby_plugin_reads_a_huangguo_series_by_its_folder() {
+    let harness = huangguo_media_harness().await;
+    let answer = client_get(&harness, &format!("/media/huangguo/series?dir_name={}", encoded("巨乳妈妈"))).await;
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    assert_eq!(
+        answer.json(),
+        pyjson::loads(
+            r#"{"id": 101, "title": "巨乳妈妈", "category": "短剧", "dir_name": "巨乳妈妈", "plot": "她 & 他", "author": "黄果官方",
+                "tags": ["都市", "乱伦"], "score": 9.5, "premiere_date": "2026-11-25", "finished": true,
+                "url": "https://huangguoai.com/video/101/", "has_poster": true,
+                "episodes": [{"ep_num": 1, "title": "第1集", "duration": 484, "has_thumbnail": true},
+                             {"ep_num": 2, "title": "第2集", "duration": 480, "has_thumbnail": false}]}"#
+        )
+        .unwrap()
+    );
+    assert_eq!(client_get(&harness, "/media/huangguo/series/101").await.json(), answer.json());
+
+    // A name two categories share needs its category folder.
+    let shared = format!("/media/huangguo/series?dir_name={}", encoded("同名"));
+    assert_eq!(client_get(&harness, &shared).await.status, 409);
+    let manju = client_get(&harness, &format!("{shared}&category={}", encoded("漫剧"))).await;
+    assert_eq!(golden::get(&manju.json(), "id"), &Value::from(202));
+    assert_eq!(golden::get(&manju.json(), "premiere_date"), &Value::Null);
+    let missing = client_get(&harness, &format!("/media/huangguo/series?dir_name={}", encoded("没有"))).await;
+    assert_eq!(missing.status, 404);
+    assert_eq!(client_get(&harness, "/media/huangguo/series/999").await.status, 404);
+    harness.finish().await;
+}
+
+#[tokio::test]
+async fn the_emby_plugin_reads_the_poster_and_the_episode_thumbnails() {
+    let harness = huangguo_media_harness().await;
+    let poster = client_get(&harness, "/media/huangguo/series/101/poster").await;
+    assert_eq!(poster.status, 200);
+    assert_eq!(poster.header("content-type"), Some("image/png"));
+    assert_eq!(poster.body.as_ref(), b"\x89PNG");
+    let thumbnail = client_get(&harness, "/media/huangguo/series/101/episodes/1/thumbnail").await;
+    assert_eq!((thumbnail.status, thumbnail.header("content-type")), (200, Some("image/jpeg")));
+    assert_eq!(thumbnail.body.as_ref(), b"\xff\xd8\xff\xe0");
+    assert_eq!(
+        client_get(&harness, "/media/huangguo/series/101/episodes/2/thumbnail").await.status,
+        404
+    );
+    assert_eq!(
+        client_get(&harness, "/media/huangguo/series/101/episodes/x/thumbnail").await.status,
+        404
+    );
+    harness.finish().await;
+}
+
+#[tokio::test]
+async fn only_a_client_with_the_huangguo_media_scope_reads_it() {
+    let harness = huangguo_media_harness().await;
+    let target = "/media/huangguo/series/101";
+    assert_eq!(harness.request("GET", target, &[], None).await.status, 401);
+    // Neither the API token nor a client of other sites.
+    assert_eq!(harness.get(target).await.status, 403);
+    let other = harness
+        .request("GET", target, &[("Authorization", "Bearer other-client-token")], None)
+        .await;
+    assert_eq!(other.status, 403);
+    // The scope gives no stored login.
+    assert_eq!(client_get(&harness, "/api/v2/credentials/huangguo").await.status, 403);
+    // Read-only.
+    let headers = client_headers();
+    let refs: Vec<(&str, &str)> = headers.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    assert_eq!(harness.request("DELETE", target, &refs, None).await.status, 405);
+    harness.finish().await;
+}

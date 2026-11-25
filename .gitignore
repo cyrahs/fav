@@ -30,3 +30,7 @@ config.toml
 .decodo-datacenter.env
 .dataimpulse-global.env
 .decodo-global.env
+
+# The Emby plugin's build output
+emby-plugin/**/bin/
+emby-plugin/**/obj/

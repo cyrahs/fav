@@ -604,6 +604,10 @@ pub async fn handle(state: &ApiState, request: Request) -> Response {
 }
 
 async fn route(state: &ApiState, request: &Request) -> Result<Response, ApiError> {
+    // The Emby plugin's read-only routes, outside the documented API (`huangguo_media`).
+    if let Some(answer) = crate::huangguo_media::answer(state, request).await {
+        return answer;
+    }
     match resolve(state, &request.method, &request.path) {
         Matched::Full(endpoint, params) => handlers::call(state, endpoint, &params, request).await,
         Matched::Mount(relative) => match &state.web_dist {

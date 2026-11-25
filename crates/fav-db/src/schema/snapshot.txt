@@ -241,8 +241,17 @@ column huangguo.8 tier text not null default ''::text
 column huangguo.9 size bigint not null default 0
 column huangguo.10 on_disk boolean not null default true
 column huangguo.11 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column huangguo.12 thumbnail_failures integer not null default 0
 constraint huangguo huangguo_pkey PRIMARY KEY (video_id, ep_num)
 index huangguo huangguo_pkey CREATE UNIQUE INDEX huangguo_pkey ON public.huangguo USING btree (video_id, ep_num)
+table huangguo_images
+column huangguo_images.1 video_id bigint not null
+column huangguo_images.2 ep_num integer not null
+column huangguo_images.3 content_type text not null default ''::text
+column huangguo_images.4 data bytea not null
+column huangguo_images.5 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
+constraint huangguo_images huangguo_images_pkey PRIMARY KEY (video_id, ep_num)
+index huangguo_images huangguo_images_pkey CREATE UNIQUE INDEX huangguo_images_pkey ON public.huangguo_images USING btree (video_id, ep_num)
 table huangguo_series
 column huangguo_series.1 video_id bigint not null
 column huangguo_series.2 category text not null default ''::text
@@ -256,6 +265,11 @@ column huangguo_series.9 metadata_written boolean not null default false
 column huangguo_series.10 last_error text not null default ''::text
 column huangguo_series.11 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
 column huangguo_series.12 updated_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column huangguo_series.13 plot text not null default ''::text
+column huangguo_series.14 score double precision
+column huangguo_series.15 premiered text not null default ''::text
+column huangguo_series.16 finished boolean not null default false
+column huangguo_series.17 details_saved boolean not null default false
 constraint huangguo_series huangguo_series_pkey PRIMARY KEY (video_id)
 index huangguo_series huangguo_series_pkey CREATE UNIQUE INDEX huangguo_series_pkey ON public.huangguo_series USING btree (video_id)
 table jandan

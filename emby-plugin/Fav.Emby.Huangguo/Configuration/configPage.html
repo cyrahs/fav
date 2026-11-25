@@ -1,0 +1,19 @@
+<div id="huangguoConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button" data-controller="__plugin/huangguojs">
+    <div data-role="content">
+        <div class="content-primary">
+            <form class="huangguoConfigurationForm">
+                <h2>黄果短剧（fav）</h2>
+                <p>剧集信息、海报和集缩略图都从 fav 读取。在黄果的剧集库设置里，把元数据下载器和图像获取器里的「Huangguo」勾上。</p>
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="favUrl" label="fav 地址" placeholder="http://fav.media.svc.cluster.local" />
+                    <div class="fieldDescription">留空时用环境变量 FAV_HUANGGUO_URL，再没有就用集群内的 fav 服务。</div>
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="password" id="token" label="Token" autocomplete="off" />
+                    <div class="fieldDescription">fav 的 CREDENTIAL_CLIENTS 里带 huangguo-media 权限的那个 token。留空时用环境变量 FAV_HUANGGUO_TOKEN。</div>
+                </div>
+                <button is="emby-button" type="submit" class="raised button-submit block"><span>保存</span></button>
+            </form>
+        </div>
+    </div>
+</div>
