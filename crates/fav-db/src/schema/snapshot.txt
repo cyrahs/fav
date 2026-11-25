@@ -237,7 +237,10 @@ column huangguo.4 series_title text not null default ''::text
 column huangguo.5 category text not null default ''::text
 column huangguo.6 duration integer not null default 0
 column huangguo.7 local_path text not null default ''::text
-column huangguo.8 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column huangguo.8 tier text not null default ''::text
+column huangguo.9 size bigint not null default 0
+column huangguo.10 on_disk boolean not null default true
+column huangguo.11 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
 constraint huangguo huangguo_pkey PRIMARY KEY (video_id, ep_num)
 index huangguo huangguo_pkey CREATE UNIQUE INDEX huangguo_pkey ON public.huangguo USING btree (video_id, ep_num)
 table huangguo_series
@@ -248,10 +251,11 @@ column huangguo_series.4 author text not null default ''::text
 column huangguo_series.5 tags text not null default ''::text
 column huangguo_series.6 dir_name text not null default ''::text
 column huangguo_series.7 episode_count integer not null default 0
-column huangguo_series.8 metadata_written boolean not null default false
-column huangguo_series.9 last_error text not null default ''::text
-column huangguo_series.10 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
-column huangguo_series.11 updated_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column huangguo_series.8 tier text not null default ''::text
+column huangguo_series.9 metadata_written boolean not null default false
+column huangguo_series.10 last_error text not null default ''::text
+column huangguo_series.11 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column huangguo_series.12 updated_at timestamp with time zone not null default CURRENT_TIMESTAMP
 constraint huangguo_series huangguo_series_pkey PRIMARY KEY (video_id)
 index huangguo_series huangguo_series_pkey CREATE UNIQUE INDEX huangguo_series_pkey ON public.huangguo_series USING btree (video_id)
 table jandan

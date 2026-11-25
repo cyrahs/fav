@@ -158,6 +158,12 @@ function TagListField({ label, values, onChange, hint }: { label: string; values
   );
 }
 
+const HUANGGUO_RANKINGS: Option<string>[] = [
+  { value: 'hot', label: '热播榜 (hot)' },
+  { value: 'recommend', label: '推荐榜 (recommend)' },
+  { value: 'potential', label: '飙升/潜力榜 (potential)' },
+];
+
 function HuangguoForm(props: SectionFormProps) {
   const set = patcher(props);
   const categories = list<string>(props.value, 'categories');
@@ -165,27 +171,73 @@ function HuangguoForm(props: SectionFormProps) {
   return (
     <div className="field-grid">
       <PathField {...props} />
+      <TextField
+        label="元数据路径"
+        value={str(props.value, 'metadata_path')}
+        onChange={(next) => set('metadata_path', next)}
+        mono
+        wide
+        placeholder="留空则不写 nfo 和封面"
+        hint="tvshow.nfo 和封面写到这里，按「分类/剧名/」放，对应 Emby 里这批剧的 strm 目录；它们不进保存路径，所以不会上传到 115。"
+      />
       <TextField label="站点地址" value={str(props.value, 'host')} onChange={(next) => set('host', next)} mono />
-      <CheckboxGroup
-        label="分类"
-        values={categories}
-        options={HUANGGUO_CATEGORIES}
-        onChange={(next) => set('categories', next)}
-        hint="沿用站点自己的分类；每个分类是保存路径下的一个目录，里面每部剧一个文件夹（tvshow.nfo + poster + S01Exx），直接给 Emby 的剧集库用。"
-        error={categories.length === 0 ? '至少选择一个分类' : undefined}
-      />
-      <TagListField
-        label="排除标签"
-        values={list<string>(props.value, 'excluded_tags')}
-        onChange={(next) => set('excluded_tags', next)}
-        hint="带任一标签的剧整部跳过；用逗号或空格分隔。"
-      />
-      <NumberField
-        label="只跟进最近几天上架的新剧"
-        value={num(props.value, 'backfill_days', 3)}
-        onChange={(next) => set('backfill_days', next)}
-        hint="不回填全站存量：没跟过的剧只有上架时间在这个天数内才会下载；已经在跟的剧之后的新集照常下载。"
-      />
+
+      <div className="subsection">
+        <h4>抓什么（按这个顺序排队）</h4>
+        <div className="field-grid">
+          <CheckboxField
+            label="1. 个人收藏"
+            checked={bool(props.value, 'favorites', true)}
+            onChange={(next) => set('favorites', next)}
+            hint="要先在「登录态」页登录黄果。登录只用来读收藏列表，详情、播放地址和视频下载都不带登录。收藏不受排除标签限制。"
+          />
+          <CheckboxGroup
+            label="2. 榜单"
+            values={list<string>(props.value, 'rankings')}
+            options={HUANGGUO_RANKINGS}
+            onChange={(next) => set('rankings', next)}
+            hint="每个榜 20 部。"
+          />
+          <CheckboxGroup
+            label="3. 新片（分类）"
+            values={categories}
+            options={HUANGGUO_CATEGORIES}
+            onChange={(next) => set('categories', next)}
+            hint="沿用站点自己的分类，每个分类是一个目录。也用来发现已在跟的剧的新集。"
+            error={categories.length === 0 ? '至少选择一个分类' : undefined}
+          />
+          <NumberField
+            label="新片：只跟进最近几天上架的"
+            value={num(props.value, 'backfill_days', 3)}
+            onChange={(next) => set('backfill_days', next)}
+            hint="不回填全站存量。已经在跟的剧（任何一档进来的）之后的新集照常下载。"
+          />
+          <TagListField
+            label="排除标签"
+            values={list<string>(props.value, 'excluded_tags')}
+            onChange={(next) => set('excluded_tags', next)}
+            hint="榜单和新片里带任一标签的剧整部跳过；用逗号或空格分隔。"
+          />
+        </div>
+      </div>
+
+      <div className="subsection">
+        <h4>本地缓存上限</h4>
+        <div className="field-grid">
+          <NumberField
+            label="榜单+新片（GiB）"
+            value={num(props.value, 'cache_limit_gb', 200)}
+            onChange={(next) => set('cache_limit_gb', next)}
+            hint="保存路径里还没被上传带走的文件超过这个量，就先停下这一档，等上传腾出空间。"
+          />
+          <NumberField
+            label="个人收藏（GiB）"
+            value={num(props.value, 'favorites_cache_limit_gb', 50)}
+            onChange={(next) => set('favorites_cache_limit_gb', next)}
+            hint="收藏单独计算，不占上面的额度。"
+          />
+        </div>
+      </div>
 
       <div className="subsection">
         <h4>出口与节奏</h4>
@@ -196,7 +248,7 @@ function HuangguoForm(props: SectionFormProps) {
             onChange={(next) => set('proxy', next)}
             mono
             placeholder="http://us.proxy.svc.cluster.local"
-            hint="站点 API 走这个出口；留空则直连（或走全局 HTTP_PROXY）。"
+            hint="站点 API 和「登录态」的登录窗口走这个出口；留空则直连（或走全局 HTTP_PROXY）。"
           />
           <CheckboxField
             label="封面和视频也走代理"
@@ -208,7 +260,7 @@ function HuangguoForm(props: SectionFormProps) {
             label="每轮最多下载集数"
             value={num(props.value, 'max_episodes_per_run', 100)}
             onChange={(next) => set('max_episodes_per_run', next)}
-            hint="一集约 50 MB；站点每天新增约 40 集。超出的留给下一轮。"
+            hint="串行下载；一集 50–130 MB。超出的留给下一轮。"
           />
           <NumberField
             label="请求间隔（秒）"
@@ -830,6 +882,9 @@ export function validateSection(section: string, value: Record<string, unknown>)
   if (section === 'web.huangguo') {
     if (list<string>(value, 'categories').length === 0) {
       issues.push('分类至少选择一个');
+    }
+    if (num(value, 'cache_limit_gb', 200) < 1 || num(value, 'favorites_cache_limit_gb', 50) < 1) {
+      issues.push('缓存上限至少为 1 GiB');
     }
     if (num(value, 'backfill_days', 3) < 1) {
       issues.push('跟进天数至少为 1');

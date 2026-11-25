@@ -34,7 +34,7 @@
     },
     {
       "section": "web.huangguo",
-      "stored": "{\"cron\": \"25 */2 * * *\", \"enabled\": false, \"notify\": true, \"path\": \"collection/huangguo\", \"host\": \"https://huangguoai.com\", \"categories\": [\"ai-duanju\", \"ai-manju\"], \"excluded_tags\": [\"\u7537\u540c\"], \"backfill_days\": 3, \"proxy\": \"\", \"proxy_media\": true, \"max_episodes_per_run\": 100, \"sleep_request_seconds\": 1.0}"
+      "stored": "{\"cron\": \"25 */2 * * *\", \"enabled\": false, \"notify\": true, \"path\": \"collection/huangguo\", \"metadata_path\": \"\", \"host\": \"https://huangguoai.com\", \"categories\": [\"ai-duanju\", \"ai-manju\"], \"excluded_tags\": [\"\u7537\u540c\"], \"backfill_days\": 3, \"favorites\": true, \"rankings\": [\"hot\", \"recommend\", \"potential\"], \"cache_limit_gb\": 200, \"favorites_cache_limit_gb\": 50, \"proxy\": \"\", \"proxy_media\": true, \"max_episodes_per_run\": 100, \"sleep_request_seconds\": 1.0}"
     },
     {
       "section": "web.jandan",

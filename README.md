@@ -426,51 +426,74 @@ without touching the login.
 
 #### Huangguo (黄果短剧)
 
-`web.huangguo` saves every series of 黄果短剧 (huangguoai.com) in the chosen categories, laid out for an
-Emby TV library. It reads the public JSON API the site's own pages use, so it needs no account:
+`web.huangguo` saves series of 黄果短剧 (huangguoai.com) for the media server's TV library: the
+signed-in account's favourites, the site's rankings and its newest uploads. It never downloads the
+site's back catalogue.
 
 ```jsonc
 {
-  "path": "/app/upload/huangguo",          // a folder of its own; the deployment uploads it to cloud storage
+  "path": "/app/upload/huangguo",          // episodes; the cloud upload takes them away from here
+  "metadata_path": "/app/emby/huangguo",   // tvshow.nfo and poster, never uploaded; empty: none
   "host": "https://huangguoai.com",
-  "categories": ["ai-duanju", "ai-manju"], // the site's own categories (短剧, 漫剧), each a folder under path
-  "excluded_tags": ["男同"],                // a series with any of these tags is skipped whole
-  "backfill_days": 3,                      // only series uploaded within the last 3 days are picked up
-  "proxy": "http://us.proxy.svc.cluster.local", // egress for the API; empty: direct (or HTTP_PROXY)
+  "categories": ["ai-duanju", "ai-manju"], // the site's own categories (短剧, 漫剧), each a folder
+  "excluded_tags": ["男同"],                // rankings and new series with any of these are skipped
+  "backfill_days": 3,                      // new series: only those uploaded within 3 days
+  "favorites": true,                       // the 登录态 page's account's 收藏, first
+  "rankings": ["hot", "recommend", "potential"], // 热播, 推荐, 潜力 (飙升), 20 series each
+  "cache_limit_gb": 200,                   // rankings and new series waiting on the local disk
+  "favorites_cache_limit_gb": 50,          // favourites waiting on the local disk, counted apart
+  "proxy": "http://us.proxy.svc.cluster.local", // egress for the API and the login window
   "proxy_media": true,                     // covers and episode streams through the proxy too
   "max_episodes_per_run": 100,
   "sleep_request_seconds": 1.0             // between API requests
 }
 ```
 
-It never downloads the site's back catalogue. Every run (`25 */2 * * *` by default) lists each
-category, every page (`/api/videos/category/<route>?sort=new&size=100`, about 20 requests for the whole
-site; the order is by upload time and a series that gets a new episode keeps its place, so the run cannot
-stop at the first old page). It skips a series tagged with an excluded tag; a series it does not follow
-yet unless it went up within the last `backfill_days`; and a followed one (a `huangguo_series` row) whose
-episode count has not moved since every playable episode was saved. A followed series keeps getting its
-new episodes however old it gets. The site adds about 10 series and 40 episodes a day, so the first run
-takes the last three days' (about 100 episodes) and later runs a few each. Each kept series is read
-(`/api/videos/<id>`), and its missing playable episodes are downloaded: `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS
-stream, which `yt-dlp` saves (three tries, each with a fresh stream URL, since its signature expires).
-One run downloads at most `max_episodes_per_run` episodes, about 50 MB each; the rest wait for the next
-run.
+Every run (`25 */2 * * *` by default) queues series in this order, each once under the first list
+that names it:
+
+1. **Favourites**: `/api/users/me/collects` with the login the 登录态 page saved for 黄果短剧 (the
+   `_USER_TOKEN_` cookie). This is the only request that carries the login; series details, playback
+   URLs, covers and the episode downloads go out without it. Without a login the favourites are
+   skipped; a login the site rejects (401) is marked invalid on the 登录态 page and skipped too.
+   Excluded tags do not apply to favourites.
+2. **Rankings**: `/api/ranks/{hot,recommend,potential}`.
+3. **New series**: every page of each category listing (`/api/videos/category/<route>?sort=new`,
+   about 20 requests; the order is by upload time and a series that gets a new episode keeps its
+   place, so the run cannot stop early). A series nobody asked for comes in only when it went up
+   within `backfill_days`; the listing also finds the new episodes of every followed series.
+
+A followed series (a `huangguo_series` row, with the highest list it was ever in: `favorite`,
+`ranking` or `new`) whose episode count has not moved since every playable episode was saved is
+skipped. Each other series is read (`/api/videos/<id>`) and its missing playable episodes are
+downloaded one at a time: `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS
+stream, which `yt-dlp` saves (three tries, each with a fresh stream URL, since its signature
+expires). Episodes are 50–130 MB.
+
+Downloads wait in `path` until the cloud upload takes them away (CloudDrive uploads to 115 and
+deletes). Before each episode the run checks how much of its pool is still on the local disk: the
+files `huangguo` recorded that still exist (a file that is gone was uploaded and stops counting for
+good). A pool at its limit, `favorites_cache_limit_gb` for favourites and `cache_limit_gb` for the
+rest, downloads nothing more that run; the other pool goes on. `max_episodes_per_run` caps a run
+besides.
 
 ```
-<path>/短剧/<series>/tvshow.nfo        title, plot, premiered, studio (uploader), rating, tags as genres
-<path>/短剧/<series>/poster.jpg        the cover, decrypted
-<path>/短剧/<series>/<series> S01E01.mp4
+<path>/短剧/<series>/<series> S01E01.mp4            uploaded
+<metadata_path>/短剧/<series>/tvshow.nfo             title, plot, premiered, studio, rating, tags as genres
+<metadata_path>/短剧/<series>/poster.jpg             the cover, decrypted
 ```
 
-A series keeps the folder it was first given (`huangguo_series.dir_name`; a second series with the same
-title in a category gets ` [<id>]` appended), so its later episodes land beside the earlier ones even
-after the files moved on to cloud storage. `tvshow.nfo` and the poster are written once per series. The
-covers are AES-128-CBC encrypted; the key and IV are the ones the site's front end decrypts them with,
-read from `/static/web/js/plugins/crypto-image-protocol.js` once per run. Every file is written as
-`.part` and renamed, so an uploader watching the folder never takes half a file. Each series that saved
-something sends one notification (`短剧 | E01–E05 (5)`). A run that tried to download and saved nothing
-fails; a single failing series or episode is logged, recorded in `huangguo_series.last_error`, and tried
-again next run.
+`metadata_path` is the media server's view of the uploaded folder (the strm tree the 115 folder is
+mapped to), so the nfo and the poster land beside the `.strm` files without going to the cloud.
+They are written once per series. A series keeps the folder it was first given
+(`huangguo_series.dir_name`; a second series with the same title in a category gets ` [<id>]`
+appended), so its later episodes land beside the earlier ones. The covers are AES-128-CBC encrypted;
+the key and IV are the ones the site's front end decrypts them with, read from
+`/static/web/js/plugins/crypto-image-protocol.js` once per run. Every file is written as `.part`
+and renamed, so an uploader watching the folder never takes half a file. Each series that saved
+something sends one notification (`短剧 | E01–E05 (5)`). A run that tried to download and saved
+nothing fails; a single failing series or episode is logged, recorded in
+`huangguo_series.last_error`, and tried again next run.
 
 ## Web UI
 

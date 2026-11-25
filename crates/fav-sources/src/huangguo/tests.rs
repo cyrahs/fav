@@ -75,16 +75,53 @@ fn series_json(id: i64, title: &str, tags: &[&str], episodes: &[(i64, i64)]) -> 
     })
 }
 
-/// The site as the tests script it: a category listing and the series behind it.
+/// The session value the fake site takes as a live login.
+const GOOD_SESSION: &str = "good-session";
+
+/// The site as the tests script it: a category listing, the rankings, the favourites of the
+/// signed-in account and the series behind them.
 #[derive(Default)]
 struct Site {
     listing: Mutex<Vec<Json>>,
+    rankings: Mutex<HashMap<String, Vec<Json>>>,
+    favorites: Mutex<Vec<Json>>,
     series: Mutex<HashMap<i64, Json>>,
     refuse_playback: bool,
 }
 
+fn unauthorized() -> Reply {
+    Reply::Respond {
+        status: 401,
+        headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+        body: br#"{"data":[],"status":0,"msg":"unauthorized"}"#.to_vec(),
+    }
+}
+
+fn signed_in(seen: &Seen) -> bool {
+    seen.header("cookie") == Some(&format!("{SESSION_COOKIE}={GOOD_SESSION}"))
+}
+
 fn answer(site: &Site, seen: &Seen) -> Reply {
     let path = seen.path();
+    if path == FAVORITES_PATH {
+        if !signed_in(seen) {
+            return unauthorized();
+        }
+        let items = site.favorites.lock().expect("favorites").clone();
+        return Reply::json(200, &ok(&json!({"items": items, "pagination": {"page": 1, "pages": 1}})));
+    }
+    if path == ACCOUNT_PATH {
+        if !signed_in(seen) {
+            return unauthorized();
+        }
+        return Reply::json(200, &ok(&json!({"id": 7, "username": "tester", "nickname": "测试员"})));
+    }
+    if let Some(kind) = path.strip_prefix("/api/ranks/") {
+        return site.rankings.lock().expect("rankings").get(kind).map_or_else(
+            || Reply::json(200, &json!({"data": [], "status": 0, "msg": "榜单不存在"})),
+            |items| Reply::json(200, &ok(&json!({"items": items, "type": kind}))),
+        );
+    }
     if path == "/api/site/categories/video" {
         return Reply::json(
             200,
@@ -169,6 +206,7 @@ struct Harness {
     web: FakeWeb,
     db: fav_db::testdb::TestDatabase,
     root: tempfile::TempDir,
+    meta: tempfile::TempDir,
     cache: tempfile::TempDir,
     notifier: Arc<RecordingNotifier>,
     sleeper: RecordingSleeper,
@@ -181,6 +219,11 @@ fn config(root: &Path) -> settings::Huangguo {
     cfg
 }
 
+/// A ranking or favourites entry, the way `/api/ranks/<type>` writes one.
+fn entry(id: i64, title: &str, tags: &[&str], episodes: i64) -> Json {
+    json!({"video_id": id, "title": title, "tags": tags, "episode_count": episodes, "cate_name": "短剧", "rank": 1})
+}
+
 impl Harness {
     async fn start(site: Site) -> Self {
         let site = Arc::new(site);
@@ -191,6 +234,7 @@ impl Harness {
             web,
             db: database().await,
             root: tempfile::tempdir().expect("root"),
+            meta: tempfile::tempdir().expect("meta"),
             cache: tempfile::tempdir().expect("cache"),
             notifier: Arc::new(RecordingNotifier::default()),
             sleeper: RecordingSleeper::new(),
@@ -218,6 +262,33 @@ impl Harness {
             self.cache.path().to_path_buf(),
             now(),
         )
+    }
+
+    /// The settings with `metadata_path` pointing at the harness' media-server folder.
+    fn config(&self) -> settings::Huangguo {
+        let mut cfg = config(self.root.path());
+        cfg.metadata_path = self.meta.path().to_string_lossy().into_owned();
+        cfg
+    }
+
+    async fn sign_in(&self, session: &str) {
+        let cookie = StoredCookie {
+            name: SESSION_COOKIE.to_owned(),
+            value: session.to_owned(),
+            domain: "huangguoai.com".to_owned(),
+            path: "/".to_owned(),
+            expires: None,
+        };
+        site_sessions::save_signed_in(self.db.db(), SESSION_SITE, &[cookie], "测试员", None, &[])
+            .await
+            .expect("signed in");
+    }
+
+    async fn tiers(&self) -> Vec<(i64, i32, String)> {
+        sqlx::query_as("SELECT video_id, ep_num, tier FROM huangguo ORDER BY video_id, ep_num")
+            .fetch_all(self.db.db().pool())
+            .await
+            .expect("tiers")
     }
 
     fn paths(&self) -> Vec<String> {
@@ -254,8 +325,10 @@ fn two_series_site() -> Site {
             (102, series_json(102, "兄弟情深", &["男同", "都市"], &[(1, 1)])),
             (103, series_json(103, "长生录: 第一季", &["古风"], &[(1, 1), (2, 2)])),
             (104, series_json(104, "老剧", &["都市"], &[(1, 1)])),
+            (105, series_json(105, "热播老剧", &["都市"], &[(1, 1)])),
+            (106, series_json(106, "收藏的男同剧", &["男同"], &[(1, 1)])),
         ])),
-        refuse_playback: false,
+        ..Site::default()
     }
 }
 
@@ -282,6 +355,7 @@ fn a_listing_page_reads_its_series_and_page_count() {
                 tags: vec!["超能力".to_owned()],
                 episode_count: 21,
                 created_at: None,
+                category: None,
             },
             Listed {
                 id: 13,
@@ -289,6 +363,7 @@ fn a_listing_page_reads_its_series_and_page_count() {
                 tags: Vec::new(),
                 episode_count: 4,
                 created_at: None,
+                category: None,
             },
         ]
     );
@@ -415,16 +490,20 @@ fn the_settings_default_to_the_two_live_categories_without_gay_series() {
 async fn a_run_saves_every_available_episode_for_emby_and_skips_excluded_tags() {
     let harness = Harness::start(two_series_site()).await;
     let runner = Arc::new(FakeRunner::default());
-    let mut cfg = config(harness.root.path());
+    let mut cfg = harness.config();
     cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
     harness.run(cfg.clone(), &runner).update().await.expect("run");
 
+    // Episodes go to the upload folder; the nfo and the poster to the media server's folder.
     let show = harness.root.path().join("短剧").join("巨乳妈妈");
     assert_eq!(std::fs::read(show.join("巨乳妈妈 S01E01.mp4")).expect("E01"), b"video");
     assert!(show.join("巨乳妈妈 S01E02.mp4").is_file());
-    assert_eq!(std::fs::read(show.join("poster.jpg")).expect("poster"), JPEG);
-    let nfo = std::fs::read_to_string(show.join("tvshow.nfo")).expect("nfo");
+    assert!(!show.join("poster.jpg").exists() && !show.join("tvshow.nfo").exists());
+    let meta = harness.meta.path().join("短剧").join("巨乳妈妈");
+    assert_eq!(std::fs::read(meta.join("poster.jpg")).expect("poster"), JPEG);
+    let nfo = std::fs::read_to_string(meta.join("tvshow.nfo")).expect("nfo");
     assert!(nfo.contains("<title>巨乳妈妈</title>"), "{nfo}");
+    assert!(!meta.join("巨乳妈妈 S01E01.mp4").exists());
     let other = harness.root.path().join("短剧").join("长生录_ 第一季");
     assert!(other.join("长生录_ 第一季 S01E01.mp4").is_file());
     assert!(!other.join("长生录_ 第一季 S01E02.mp4").exists(), "episode 2 is not playable");
@@ -483,8 +562,19 @@ async fn a_run_saves_every_available_episode_for_emby_and_skips_excluded_tags() 
         .iter()
         .map(|seen| seen.path().to_owned())
         .collect();
-    assert_eq!(later, ["/api/site/categories/video", "/api/videos/category/ai-duanju"]);
+    // Not signed in, so no favourites; the rankings this site has none of.
+    assert_eq!(
+        later,
+        [
+            "/api/ranks/hot",
+            "/api/ranks/recommend",
+            "/api/ranks/potential",
+            "/api/site/categories/video",
+            "/api/videos/category/ai-duanju"
+        ]
+    );
     assert_eq!(runner.calls().len(), 3);
+    assert!(harness.web.seen().iter().all(|seen| seen.header("cookie").is_none()));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -551,7 +641,7 @@ async fn two_series_with_one_title_get_two_directories() {
             (201, series_json(201, "同名", &[], &[(1, 1)])),
             (202, series_json(202, "同名", &[], &[(1, 1)])),
         ])),
-        refuse_playback: false,
+        ..Site::default()
     };
     let harness = Harness::start(site).await;
     let runner = Arc::new(FakeRunner::default());
@@ -600,4 +690,225 @@ fn site_times_are_beijing_time() {
         Some("2026-11-25T06:59:54+00:00")
     );
     assert_eq!(site_time("yesterday"), None);
+}
+
+// ---------- favourites, rankings and the cache limits ----------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn favourites_then_rankings_then_new_series_and_only_the_list_carries_the_login() {
+    let site = two_series_site();
+    // Both went up months ago: only a list the user cares about brings them in.
+    *site.favorites.lock().expect("favorites") = vec![entry(104, "老剧", &["都市"], 1), entry(106, "收藏的男同剧", &["男同"], 1)];
+    site.rankings.lock().expect("rankings").insert(
+        "hot".to_owned(),
+        vec![entry(105, "热播老剧", &["都市"], 1), entry(102, "兄弟情深", &["男同"], 3)],
+    );
+    let harness = Harness::start(site).await;
+    harness.sign_in(GOOD_SESSION).await;
+    let runner = Arc::new(FakeRunner::default());
+    harness.run(harness.config(), &runner).update().await.expect("run");
+
+    let streams: Vec<String> = runner.calls().iter().filter_map(|call| call.last().cloned()).collect();
+    assert_eq!(
+        streams
+            .iter()
+            .map(|url| url.split('/').nth(4).unwrap_or_default())
+            .collect::<Vec<_>>(),
+        ["104", "106", "105", "101", "101", "103"],
+        "favourites first (a favourite is never excluded by tag), then the hot ranking, then new series"
+    );
+    assert_eq!(
+        harness.tiers().await,
+        vec![
+            (101, 1, "new".to_owned()),
+            (101, 2, "new".to_owned()),
+            (103, 1, "new".to_owned()),
+            (104, 1, "favorite".to_owned()),
+            (105, 1, "ranking".to_owned()),
+            (106, 1, "favorite".to_owned()),
+        ]
+    );
+    assert!(
+        !harness.paths().iter().any(|path| path == "/api/videos/102"),
+        "excluded in a ranking"
+    );
+    let with_cookie: Vec<String> = harness
+        .web
+        .seen()
+        .iter()
+        .filter(|seen| seen.header("cookie").is_some())
+        .map(|seen| seen.path().to_owned())
+        .collect();
+    assert_eq!(with_cookie, [FAVORITES_PATH], "only the favourites list is asked with the login");
+    for call in runner.calls() {
+        assert!(
+            !call.iter().any(|arg| arg.contains(GOOD_SESSION)),
+            "yt-dlp never gets the login: {call:?}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rejected_login_skips_the_favourites_and_marks_the_session() {
+    let site = two_series_site();
+    *site.favorites.lock().expect("favorites") = vec![entry(104, "老剧", &["都市"], 1)];
+    let harness = Harness::start(site).await;
+    harness.sign_in("expired").await;
+    let runner = Arc::new(FakeRunner::default());
+    harness.run(harness.config(), &runner).update().await.expect("run");
+    assert!(!harness.tiers().await.iter().any(|(id, _, _)| *id == 104));
+    assert_eq!(harness.tiers().await.len(), 3, "the new series still come down");
+    let stored = site_sessions::load(harness.db.db(), SESSION_SITE)
+        .await
+        .expect("load")
+        .expect("session");
+    assert_eq!(stored.status, "invalid");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_cache_holds_its_pool_back_until_the_upload_takes_files_away() {
+    let site = two_series_site();
+    *site.favorites.lock().expect("favorites") = vec![entry(104, "老剧", &["都市"], 1)];
+    let harness = Harness::start(site).await;
+    harness.sign_in(GOOD_SESSION).await;
+    // 2 GiB of earlier downloads still wait for the upload, over a 1 GiB limit.
+    let waiting = harness.root.path().join("waiting.mp4");
+    std::fs::write(&waiting, b"x").expect("file");
+    sqlx::query("INSERT INTO huangguo (video_id, ep_num, local_path, tier, size) VALUES (900, 1, $1, 'new', $2)")
+        .bind(waiting.to_string_lossy().into_owned())
+        .bind(2_i64 << 30)
+        .execute(harness.db.db().pool())
+        .await
+        .expect("seed");
+    let runner = Arc::new(FakeRunner::default());
+    let mut cfg = harness.config();
+    cfg.cache_limit_gb = 1;
+    cfg.favorites_cache_limit_gb = 1;
+    harness.run(cfg.clone(), &runner).update().await.expect("run");
+    assert_eq!(
+        harness
+            .tiers()
+            .await
+            .iter()
+            .filter(|(id, _, _)| *id != 900)
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![(104, 1, "favorite".to_owned())],
+        "favourites have their own limit; rankings and new series wait"
+    );
+
+    // The upload took the file away: it stops counting, and the rest comes down.
+    std::fs::remove_file(&waiting).expect("uploaded");
+    harness.run(cfg, &runner).update().await.expect("next run");
+    assert_eq!(harness.tiers().await.len(), 5);
+    let on_disk: bool = sqlx::query_scalar("SELECT on_disk FROM huangguo WHERE video_id = 900")
+        .fetch_one(harness.db.db().pool())
+        .await
+        .expect("row");
+    assert!(!on_disk);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_series_moves_up_to_favourite_and_never_back() {
+    let harness = Harness::start(two_series_site()).await;
+    harness.sign_in(GOOD_SESSION).await;
+    let runner = Arc::new(FakeRunner::default());
+    harness.run(harness.config(), &runner).update().await.expect("first run");
+    {
+        *harness.site.favorites.lock().expect("favorites") = vec![entry(101, "巨乳妈妈", &["都市"], 3)];
+        harness
+            .site
+            .series
+            .lock()
+            .expect("series")
+            .insert(101, series_json(101, "巨乳妈妈", &["都市", "乱伦"], &[(1, 1), (2, 1), (3, 1)]));
+    }
+    harness.run(harness.config(), &runner).update().await.expect("second run");
+    harness.site.favorites.lock().expect("favorites").clear();
+    harness.run(harness.config(), &runner).update().await.expect("third run");
+    let tier: String = sqlx::query_scalar("SELECT tier FROM huangguo_series WHERE video_id = 101")
+        .fetch_one(harness.db.db().pool())
+        .await
+        .expect("tier");
+    assert_eq!(tier, "favorite");
+    assert!(harness.tiers().await.contains(&(101, 3, "favorite".to_owned())));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn without_a_metadata_path_no_metadata_is_written() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    harness.run(config(harness.root.path()), &runner).update().await.expect("run");
+    assert!(!harness.paths().iter().any(|path| path == IMAGE_PROTOCOL_PATH));
+    assert!(std::fs::read_dir(harness.meta.path()).expect("meta").next().is_none());
+    assert!(!harness.root.path().join("短剧").join("巨乳妈妈").join("tvshow.nfo").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_login_page_checks_the_session_with_the_account_endpoint() {
+    let web = FakeWeb::start(|seen| {
+        if seen.path() == ACCOUNT_PATH && signed_in(seen) {
+            Reply::json(200, &ok(&json!({"id": 7, "username": "tester", "nickname": "测试员"})))
+        } else {
+            unauthorized()
+        }
+    })
+    .await;
+    let cookie = |value: &str| StoredCookie {
+        name: SESSION_COOKIE.to_owned(),
+        value: value.to_owned(),
+        domain: "huangguoai.com".to_owned(),
+        path: "/".to_owned(),
+        expires: None,
+    };
+    let host = "http://huangguoai.test";
+    let live = verify_session_at(host, &[cookie(GOOD_SESSION)], &web.proxy).await;
+    assert_eq!((live.ok, live.account.as_str()), (true, "测试员"));
+    let stale = verify_session_at(host, &[cookie("expired")], &web.proxy).await;
+    assert!(!stale.ok && stale.message.contains("401"), "{stale:?}");
+    let before = web.seen().len();
+    let none = verify_session_at(host, &[], &web.proxy).await;
+    assert!(!none.ok);
+    assert_eq!(web.seen().len(), before, "no request without a session cookie");
+}
+
+#[test]
+fn rankings_and_favourites_read_their_entries() {
+    let ranking = parse_ranking(&json!({"items": [
+        {"video_id": 117, "title": "高三爱情故事", "tags": ["校园"], "episode_count": 48, "cate_name": "短剧", "rank": 1},
+        {"title": "no id"},
+    ], "type": "hot"}));
+    assert_eq!(ranking.len(), 1);
+    assert_eq!(
+        (ranking[0].id, ranking[0].episode_count, ranking[0].category.as_deref()),
+        (117, 48, Some("短剧"))
+    );
+    let (favorites, pages) =
+        parse_favorites(&json!({"items": [{"id": 9, "video": {"id": 12, "title": "神瞳觉醒"}}], "pagination": {"pages": 2}}));
+    assert_eq!((favorites[0].id, favorites[0].title.as_str(), pages), (12, "神瞳觉醒", 2));
+    let (bare, pages) = parse_favorites(&json!([{"id": 5, "title": "x"}]));
+    assert_eq!((bare[0].id, pages), (5, 1));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_in_house_series_goes_into_the_folder_of_its_type() {
+    let site = two_series_site();
+    let mut original = series_json(117, "高三爱情故事", &["校园"], &[(1, 1)]);
+    original["breadcrumb"] = json!([{"name": "黄果原创", "url": "/original/"}]);
+    original["tracking"] = json!({"drama_type_id": "25", "drama_type_name": "AI成人漫剧"});
+    site.series.lock().expect("series").insert(117, original);
+    site.rankings
+        .lock()
+        .expect("rankings")
+        .insert("hot".to_owned(), vec![entry(117, "高三爱情故事", &["校园"], 1)]);
+    let harness = Harness::start(site).await;
+    let runner = Arc::new(FakeRunner::default());
+    harness.run(harness.config(), &runner).update().await.expect("run");
+    let folder = harness.root.path().join("漫剧").join("高三爱情故事");
+    assert!(
+        folder.join("高三爱情故事 S01E01.mp4").is_file(),
+        "the type id wins over the ranking's 短剧 and the breadcrumb"
+    );
+    assert!(harness.meta.path().join("漫剧").join("高三爱情故事").join("tvshow.nfo").is_file());
+    assert!(!harness.root.path().join("黄果原创").exists());
 }

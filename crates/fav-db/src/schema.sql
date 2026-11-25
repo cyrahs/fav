@@ -649,10 +649,10 @@ CREATE TABLE IF NOT EXISTS zhihu_collection_item (
     PRIMARY KEY (collection_id, url)
 );
 
--- The Huangguo (黄果短剧) source: every series a run looked at, the directory it was given
--- (kept for good, so a renamed series stays in one place), the episode count it listed when
--- every available episode had been saved, whether its tvshow.nfo and poster were written
--- (once: the files move on to cloud storage), and the last failure.
+-- The Huangguo (黄果短剧) source: every series it follows, the directory it was given (kept
+-- for good, so a renamed series stays in one place), the episode count it listed when every
+-- available episode had been saved, the list that brought it in (`favorite`, `ranking` or
+-- `new`), whether its tvshow.nfo and poster were written, and the last failure.
 CREATE TABLE IF NOT EXISTS huangguo_series (
     video_id BIGINT PRIMARY KEY,
     category TEXT NOT NULL DEFAULT '',
@@ -661,13 +661,15 @@ CREATE TABLE IF NOT EXISTS huangguo_series (
     tags TEXT NOT NULL DEFAULT '',
     dir_name TEXT NOT NULL DEFAULT '',
     episode_count INTEGER NOT NULL DEFAULT 0,
+    tier TEXT NOT NULL DEFAULT '',
     metadata_written BOOLEAN NOT NULL DEFAULT FALSE,
     last_error TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Every downloaded Huangguo episode, by series and episode number.
+-- Every downloaded Huangguo episode, by series and episode number, with its size and
+-- whether it still waits on the local disk for the upload (the cache limits count those).
 CREATE TABLE IF NOT EXISTS huangguo (
     video_id BIGINT NOT NULL,
     ep_num INTEGER NOT NULL,
@@ -676,6 +678,9 @@ CREATE TABLE IF NOT EXISTS huangguo (
     category TEXT NOT NULL DEFAULT '',
     duration INTEGER NOT NULL DEFAULT 0,
     local_path TEXT NOT NULL DEFAULT '',
+    tier TEXT NOT NULL DEFAULT '',
+    size BIGINT NOT NULL DEFAULT 0,
+    on_disk BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (video_id, ep_num)
 );

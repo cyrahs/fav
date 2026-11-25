@@ -87,6 +87,22 @@
           "has_lock_name": true,
           "has_after_login": false,
           "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。"
+        },
+        {
+          "key": "huangguo",
+          "label": "黄果短剧",
+          "login_url": "https://huangguoai.com/profile/",
+          "cookie_urls": [
+            "https://huangguoai.com/"
+          ],
+          "session_cookie": "_USER_TOKEN_",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。"
         }
       ]
     },
@@ -175,6 +191,22 @@
           "has_lock_name": true,
           "has_after_login": false,
           "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。"
+        },
+        {
+          "key": "huangguo",
+          "label": "黄果短剧",
+          "login_url": "https://huangguoai.com/profile/",
+          "cookie_urls": [
+            "https://huangguoai.com/"
+          ],
+          "session_cookie": "_USER_TOKEN_",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。"
         },
         {
           "key": "bilibili-main",
@@ -280,6 +312,22 @@
           "has_lock_name": true,
           "has_after_login": false,
           "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。"
+        },
+        {
+          "key": "huangguo",
+          "label": "黄果短剧",
+          "login_url": "https://huangguoai.com/profile/",
+          "cookie_urls": [
+            "https://huangguoai.com/"
+          ],
+          "session_cookie": "_USER_TOKEN_",
+          "controlled": false,
+          "store_cookie_values": true,
+          "verifies_in_browser": false,
+          "has_profile_dir": false,
+          "has_lock_name": false,
+          "has_after_login": false,
+          "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。"
         },
         {
           "key": "bilibili-main",

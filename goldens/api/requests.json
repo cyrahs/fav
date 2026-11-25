@@ -2933,6 +2933,7 @@
                     "enabled": false,
                     "notify": true,
                     "path": "collection/huangguo",
+                    "metadata_path": "",
                     "host": "https://huangguoai.com",
                     "categories": [
                       "ai-duanju",
@@ -2942,6 +2943,14 @@
                       "男同"
                     ],
                     "backfill_days": 3,
+                    "favorites": true,
+                    "rankings": [
+                      "hot",
+                      "recommend",
+                      "potential"
+                    ],
+                    "cache_limit_gb": 200,
+                    "favorites_cache_limit_gb": 50,
                     "proxy": "",
                     "proxy_media": true,
                     "max_episodes_per_run": 100,
@@ -3518,6 +3527,7 @@
                     "enabled": false,
                     "notify": true,
                     "path": "collection/huangguo",
+                    "metadata_path": "",
                     "host": "https://huangguoai.com",
                     "categories": [
                       "ai-duanju",
@@ -3527,6 +3537,14 @@
                       "男同"
                     ],
                     "backfill_days": 3,
+                    "favorites": true,
+                    "rankings": [
+                      "hot",
+                      "recommend",
+                      "potential"
+                    ],
+                    "cache_limit_gb": 200,
+                    "favorites_cache_limit_gb": 50,
                     "proxy": "",
                     "proxy_media": true,
                     "max_episodes_per_run": 100,
@@ -4761,6 +4779,7 @@
                     "enabled": false,
                     "notify": true,
                     "path": "collection/huangguo",
+                    "metadata_path": "",
                     "host": "https://huangguoai.com",
                     "categories": [
                       "ai-duanju",
@@ -4770,6 +4789,14 @@
                       "男同"
                     ],
                     "backfill_days": 3,
+                    "favorites": true,
+                    "rankings": [
+                      "hot",
+                      "recommend",
+                      "potential"
+                    ],
+                    "cache_limit_gb": 200,
+                    "favorites_cache_limit_gb": 50,
                     "proxy": "",
                     "proxy_media": true,
                     "max_episodes_per_run": 100,
@@ -5977,6 +6004,19 @@
                   "checked_at": null
                 },
                 {
+                  "site": "huangguo",
+                  "label": "黄果短剧",
+                  "signed_in": false,
+                  "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
+                  "account": "",
+                  "status": "",
+                  "message": "",
+                  "cookie_count": 0,
+                  "expires_at": null,
+                  "signed_in_at": null,
+                  "checked_at": null
+                },
+                {
                   "site": "bilibili-main",
                   "label": "Bilibili（main）",
                   "signed_in": true,
@@ -6116,6 +6156,19 @@
                   "label": "知乎",
                   "signed_in": false,
                   "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
+                  "account": "",
+                  "status": "",
+                  "message": "",
+                  "cookie_count": 0,
+                  "expires_at": null,
+                  "signed_in_at": null,
+                  "checked_at": null
+                },
+                {
+                  "site": "huangguo",
+                  "label": "黄果短剧",
+                  "signed_in": false,
+                  "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
                   "account": "",
                   "status": "",
                   "message": "",

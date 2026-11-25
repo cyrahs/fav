@@ -1,26 +1,31 @@
-//! Huangguo (黄果短剧, huangguoai.com): every series in the chosen categories, saved episode
-//! by episode for an Emby TV library.
+//! Huangguo (黄果短剧, huangguoai.com): series from the signed-in account's favourites, the
+//! site's rankings and its newest uploads, saved episode by episode for the media server's
+//! TV library.
 //!
-//! No Python origin. The site's front end reads a public JSON API, which this source reads
-//! too; nothing needs an account. A run:
+//! No Python origin. The site's front end reads a JSON API, which this source reads too. A
+//! run:
 //!
-//! 1. lists every chosen category (`/api/videos/category/<route>`, by upload time, every
-//!    page: a series that gets a new episode keeps its place, so a stop at the first old
-//!    page would miss it) and keeps the series whose tags hold none of `excluded_tags` and
-//!    that are followed already (a `huangguo_series` row) with an episode count that moved
-//!    since every available episode was saved, or not followed yet and uploaded within the
-//!    last `backfill_days`. The site's back catalogue is never downloaded;
-//! 2. reads each kept series (`/api/videos/<id>`), writes `tvshow.nfo` and the poster once
-//!    (the covers are AES-128-CBC encrypted with the key and IV the site's own front end
-//!    decrypts them with, published in `crypto-image-protocol.js`), then downloads the
-//!    missing episodes: `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS
-//!    stream that `yt-dlp` saves. A run downloads at most `max_episodes_per_run` episodes;
-//!    the rest wait for the next one.
+//! 1. collects the series worth a look, each once, under the first list that names it:
+//!    the favourites (`/api/users/me/collects`, the only request that carries the login of
+//!    the 登录态 page), the rankings (`/api/ranks/{hot,recommend,potential}`), then every
+//!    page of each category listing (`/api/videos/category/<route>`), which brings in a
+//!    series nobody asked for only when it went up within `backfill_days`, and finds the
+//!    new episodes of every followed series (a `huangguo_series` row). A followed series
+//!    whose episode count has not moved since every playable episode was saved is skipped;
+//!    so is one carrying an `excluded_tags` tag, unless it is a favourite;
+//! 2. reads each (`/api/videos/<id>`) and downloads its missing episodes one at a time:
+//!    `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS stream that
+//!    `yt-dlp` saves, without the login. Episodes wait on the local disk until the cloud
+//!    upload takes them away, so a run stops downloading a pool's series once the files
+//!    still there reach its limit: `favorites_cache_limit_gb` for favourites,
+//!    `cache_limit_gb` for the rest. `max_episodes_per_run` caps a run besides.
 //!
-//! Layout: `<path>/<category name>/<series>/<series> S01E<ep>.<ext>` with `tvshow.nfo` and
-//! `poster.<ext>` beside the episodes. Each series keeps the directory it was first given
-//! (`huangguo_series.dir_name`), because the files move on to cloud storage and a renamed
-//! series must keep landing in the same folder there.
+//! Layout: `<path>/<category>/<series>/<series> S01E<ep>.<ext>`. `tvshow.nfo` and the
+//! poster (the covers are AES-128-CBC encrypted with the key and IV the site's own front end
+//! decrypts them with, published in `crypto-image-protocol.js`) go to the same
+//! `<category>/<series>/` under `metadata_path`, the media server's view of the uploaded
+//! folder, and never to the cloud. Each series keeps the directory it was first given
+//! (`huangguo_series.dir_name`), so a renamed series keeps landing in the same folder.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -44,6 +49,7 @@ use fav_net::subprocess::{Runner, SystemRunner};
 use fav_net::{ClientOptions, HttpClient, Request};
 use fav_runtime::BoxFuture;
 use fav_runtime::notifications::{NewNotification, Outbox};
+use fav_runtime::site_sessions::{self, StoredCookie, cookie_value};
 use fav_runtime::source::{JobError, Registry, Source};
 use serde_json::Value as Json;
 use sqlx::Row as _;
@@ -65,10 +71,23 @@ const DOWNLOAD_ATTEMPTS: u32 = 3;
 const RETRY_BASE_DELAY: f64 = 5.0;
 const DIR_NAME_BYTES: usize = 120;
 const BLOCK_SIZE: usize = 16;
+/// The 登录态 page's key for the site. The login only lists the account's favourites;
+/// nothing else the source requests carries it.
+pub const SESSION_SITE: &str = "huangguo";
+/// 个人中心: the page that asks a guest to sign in (account and password).
+pub const LOGIN_URL: &str = "https://huangguoai.com/profile/";
+pub const SESSION_COOKIE_URLS: [&str; 1] = ["https://huangguoai.com/"];
+/// The `HttpOnly` cookie the API reads a login from; `_LOGIN_` beside it is only a marker.
+pub const SESSION_COOKIE: &str = "_USER_TOKEN_";
+const ACCOUNT_PATH: &str = "/api/account/me";
+const FAVORITES_PATH: &str = "/api/users/me/collects";
+const HTTP_UNAUTHORIZED: u16 = 401;
+/// The cache limits are in GiB.
+const GIB: u64 = 1 << 30;
 /// Where the site publishes the key its front end decrypts covers with.
 pub const IMAGE_PROTOCOL_PATH: &str = "/static/web/js/plugins/crypto-image-protocol.js";
 /// The site's category names, for when `/api/site/categories/video` cannot be read.
-const KNOWN_CATEGORIES: [(&str, &str); 2] = [("ai-duanju", "短剧"), ("ai-manju", "漫剧")];
+const KNOWN_CATEGORIES: [(i64, &str, &str); 2] = [(24, "ai-duanju", "短剧"), (25, "ai-manju", "漫剧")];
 
 fn log() -> Logger {
     logging::get(SOURCE)
@@ -169,9 +188,68 @@ pub struct Listed {
     pub id: i64,
     pub title: String,
     pub tags: Vec<String>,
+    /// 0 when the list does not say.
     pub episode_count: i64,
     /// When the series went up, if the listing said.
     pub created_at: Option<DateTime<Utc>>,
+    /// The category name (`短剧`), if the list said.
+    pub category: Option<String>,
+}
+
+/// Which list brought a series in, in priority order. A series keeps the highest it was
+/// ever in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Tier {
+    Favorite,
+    Ranking,
+    New,
+}
+
+impl Tier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Favorite => "favorite",
+            Self::Ranking => "ranking",
+            Self::New => "new",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "favorite" => Some(Self::Favorite),
+            "ranking" => Some(Self::Ranking),
+            "new" => Some(Self::New),
+            _ => None,
+        }
+    }
+
+    /// The cache pool its downloads count against: favourites alone, or the rest.
+    fn pool(self) -> Pool {
+        if self == Self::Favorite { Pool::Favorites } else { Pool::General }
+    }
+}
+
+/// A cache limit's share of the local disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Pool {
+    Favorites,
+    General,
+}
+
+impl Pool {
+    fn tiers(self) -> &'static [&'static str] {
+        match self {
+            Self::Favorites => &["favorite"],
+            Self::General => &["ranking", "new"],
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Favorites => "favorites",
+            Self::General => "rankings and new series",
+        }
+    }
 }
 
 /// One episode of a series.
@@ -190,6 +268,10 @@ pub struct Episode {
 pub struct Series {
     pub id: i64,
     pub title: String,
+    /// The category name from the breadcrumb (`短剧`, or `黄果原创` for an in-house series).
+    pub category: String,
+    /// The category id the series is typed with (`tracking.drama_type_id`: 24 短剧, 25 漫剧).
+    pub category_id: Option<i64>,
     pub description: String,
     /// The encrypted cover's URL.
     pub cover: String,
@@ -253,10 +335,50 @@ pub fn parse_listing(data: &Json) -> (Vec<Listed>, i64) {
                         tags: strings(item.get("tags")),
                         episode_count: int(item.get("episode_count")).unwrap_or(0),
                         created_at: site_time(&text(item.get("created_at"))),
+                        category: None,
                     })
                 })
                 .collect()
         })
+        .unwrap_or_default();
+    let pages = int(data.get("pagination").and_then(|pagination| pagination.get("pages"))).unwrap_or(1);
+    (items, pages)
+}
+
+/// One entry of a ranking (`/api/ranks/<type>`) or favourites list: the series id is
+/// `video_id` or `id`, at the top or under `video`.
+fn parse_entry(item: &Json) -> Option<Listed> {
+    let item = item.get("video").filter(|video| video.is_object()).unwrap_or(item);
+    let id = int(item.get("video_id")).or_else(|| int(item.get("id"))).filter(|id| *id > 0)?;
+    let category = [text(item.get("cate_name")), text(item.get("category_name"))]
+        .into_iter()
+        .find(|name| !name.is_empty());
+    Some(Listed {
+        id,
+        title: text(item.get("title")),
+        tags: strings(item.get("tags")),
+        episode_count: int(item.get("episode_count")).unwrap_or(0),
+        created_at: site_time(&text(item.get("created_at"))),
+        category,
+    })
+}
+
+/// A ranking's series, in rank order.
+pub fn parse_ranking(data: &Json) -> Vec<Listed> {
+    data.get("items")
+        .and_then(Json::as_array)
+        .map(|items| items.iter().filter_map(parse_entry).collect())
+        .unwrap_or_default()
+}
+
+/// A favourites page's series and the page count (1 when the answer has none).
+pub fn parse_favorites(data: &Json) -> (Vec<Listed>, i64) {
+    let items = data
+        .get("items")
+        .or_else(|| data.get("list"))
+        .or(Some(data))
+        .and_then(Json::as_array)
+        .map(|items| items.iter().filter_map(parse_entry).collect())
         .unwrap_or_default();
     let pages = int(data.get("pagination").and_then(|pagination| pagination.get("pages"))).unwrap_or(1);
     (items, pages)
@@ -294,6 +416,16 @@ pub fn parse_series(data: &Json) -> Result<Series, JobError> {
         id,
         title,
         description: data.get("description").and_then(Json::as_str).unwrap_or_default().trim().to_owned(),
+        category: data
+            .get("breadcrumb")
+            .and_then(Json::as_array)
+            .and_then(|crumbs| crumbs.first())
+            .map(|crumb| text(crumb.get("name")))
+            .unwrap_or_default(),
+        category_id: data
+            .get("tracking")
+            .and_then(|tracking| int(tracking.get("drama_type_id")))
+            .filter(|id| *id > 0),
         cover: text(data.get("cover")),
         created_at: text(data.get("created_at")),
         author: text(data.get("author").and_then(|author| author.get("name"))),
@@ -304,17 +436,28 @@ pub fn parse_series(data: &Json) -> Result<Series, JobError> {
     })
 }
 
-/// `/api/site/categories/video`: route to display name.
-pub fn parse_categories(data: &Json) -> HashMap<String, String> {
+/// One of the site's categories (`/api/site/categories/video`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteCategory {
+    pub id: i64,
+    pub route: String,
+    pub name: String,
+}
+
+/// `/api/site/categories/video`.
+pub fn parse_categories(data: &Json) -> Vec<SiteCategory> {
     data.get("items")
         .and_then(Json::as_array)
         .map(|items| {
             items
                 .iter()
                 .filter_map(|item| {
-                    let route = text(item.get("route"));
-                    let name = text(item.get("name"));
-                    (!route.is_empty() && !name.is_empty()).then_some((route, name))
+                    let category = SiteCategory {
+                        id: int(item.get("id"))?,
+                        route: text(item.get("route")),
+                        name: text(item.get("name")),
+                    };
+                    (!category.route.is_empty() && !category.name.is_empty()).then_some(category)
                 })
                 .collect()
         })
@@ -677,6 +820,9 @@ impl Api {
             .await
             .map_err(|error| Failure::Retryable(pyerr::transport_error(&error)))?;
         let status = response.status();
+        if status == HTTP_UNAUTHORIZED {
+            return Err(Failure::Fatal(JobError::new("Unauthorized", "the site answered 401 unauthorized")));
+        }
         if let Err(error) = response.error_for_status() {
             let error = pyerr::status_error(&error);
             return Err(if status == 429 || status >= 500 {
@@ -706,7 +852,7 @@ impl Api {
         Ok(answer.get("data").cloned().unwrap_or(Json::Null))
     }
 
-    pub(crate) async fn categories(&self) -> Result<HashMap<String, String>, JobError> {
+    pub(crate) async fn categories(&self) -> Result<Vec<SiteCategory>, JobError> {
         let path = "/api/site/categories/video";
         Ok(parse_categories(&self.json(path, || self.get(path)).await?))
     }
@@ -727,6 +873,24 @@ impl Api {
         parse_stream_url(&data).ok_or_else(|| huangguo_error(format!("Huangguo {path} named no stream")))
     }
 
+    /// One ranking list (`hot`, `recommend`, `potential`).
+    pub(crate) async fn ranking(&self, kind: &str) -> Result<Vec<Listed>, JobError> {
+        let path = format!("/api/ranks/{kind}");
+        Ok(parse_ranking(&self.json(&path, || self.get(&path)).await?))
+    }
+
+    /// One page of the signed-in account's favourites; the only request that carries the
+    /// login. `None` when the site no longer takes the session.
+    pub(crate) async fn favorites_page(&self, session: &str, page: i64) -> Result<Option<(Vec<Listed>, i64)>, JobError> {
+        let path = format!("{FAVORITES_PATH}?page={page}&size={PAGE_SIZE}");
+        let cookie = format!("{SESSION_COOKIE}={session}");
+        match self.json(&path, || self.get(&path).header("Cookie", cookie.clone())).await {
+            Ok(data) => Ok(Some(parse_favorites(&data))),
+            Err(error) if error.class_name() == "Unauthorized" => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(crate) async fn image_key(&self) -> Result<ImageKey, JobError> {
         let body = self
             .body(IMAGE_PROTOCOL_PATH, || {
@@ -734,6 +898,60 @@ impl Api {
             })
             .await?;
         parse_image_protocol(&String::from_utf8_lossy(&body))
+    }
+}
+
+// ---------- the login ----------
+
+/// Whether a captured session is a live login, and for which account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCheck {
+    pub ok: bool,
+    pub account: String,
+    pub message: String,
+}
+
+/// `GET /api/account/me` with the session: the 登录态 page's check.
+pub async fn verify_session(cookies: &[StoredCookie], proxy: &str) -> SessionCheck {
+    verify_session_at("https://huangguoai.com", cookies, proxy).await
+}
+
+/// [`verify_session`] against another host, for tests.
+pub async fn verify_session_at(host: &str, cookies: &[StoredCookie], proxy: &str) -> SessionCheck {
+    let failed = |message: String| SessionCheck {
+        ok: false,
+        account: String::new(),
+        message,
+    };
+    let session = cookie_value(cookies, SESSION_COOKIE);
+    if session.is_empty() {
+        return failed(format!("no {SESSION_COOKIE} cookie yet; not signed in"));
+    }
+    let client = match HttpClient::new(&client_options(proxy)) {
+        Ok(client) => client,
+        Err(error) => return failed(format!("Huangguo unreachable: {error}")),
+    };
+    let api = Api::new(client, host, tokio_sleeper(), 0.0);
+    let cookie = format!("{SESSION_COOKIE}={session}");
+    match api
+        .json(ACCOUNT_PATH, || api.get(ACCOUNT_PATH).header("Cookie", cookie.clone()))
+        .await
+    {
+        Ok(data) => {
+            let user = data.get("user").unwrap_or(&data);
+            let account = ["nickname", "username"]
+                .into_iter()
+                .map(|key| text(user.get(key)))
+                .find(|name| !name.is_empty())
+                .unwrap_or_default();
+            SessionCheck {
+                ok: true,
+                account,
+                message: String::new(),
+            }
+        }
+        Err(error) if error.class_name() == "Unauthorized" => failed("Huangguo rejected the session (401)".to_owned()),
+        Err(error) => failed(format!("Huangguo unreachable: {}", error.formatted())),
     }
 }
 
@@ -748,11 +966,33 @@ struct Tally {
     last_error: Option<String>,
 }
 
+/// A series a run will look at: why, and the category its list named.
+#[derive(Debug, Clone)]
+struct Candidate {
+    listed: Listed,
+    tier: Tier,
+    category: Option<String>,
+}
+
 /// The stored side of a series.
 struct Stored {
     dir_name: String,
     category: String,
+    tier: Tier,
     metadata_written: bool,
+}
+
+/// How full a cache pool is, and its limit, in bytes.
+#[derive(Debug, Clone, Copy)]
+struct Usage {
+    used: u64,
+    limit: u64,
+}
+
+impl Usage {
+    fn full(self) -> bool {
+        self.used >= self.limit
+    }
 }
 
 /// One run: the settings snapshot and everything the run talks to.
@@ -766,6 +1006,7 @@ pub(crate) struct Run {
     sleeper: Sleeper,
     cache_dir: PathBuf,
     image_key: Mutex<Option<ImageKey>>,
+    categories: Mutex<Option<Vec<SiteCategory>>>,
     /// When the run started; a series is new enough to follow from `backfill_days` before.
     now: DateTime<Utc>,
 }
@@ -794,6 +1035,7 @@ impl Run {
             sleeper,
             cache_dir,
             image_key: Mutex::new(None),
+            categories: Mutex::new(None),
             now,
         }
     }
@@ -802,20 +1044,60 @@ impl Run {
         format!("{}/video/{id}/", self.api.host)
     }
 
-    /// Category routes to names; the known ones when the site's list cannot be read.
-    async fn category_names(&self) -> HashMap<String, String> {
-        let mut names: HashMap<String, String> = KNOWN_CATEGORIES
-            .iter()
-            .map(|(route, name)| ((*route).to_owned(), (*name).to_owned()))
-            .collect();
-        match self.api.categories().await {
-            Ok(site) => names.extend(site),
-            Err(error) => log().warning(format!("Could not read the Huangguo category names: {}", error.formatted())),
-        }
-        names
+    fn limit(&self, pool: Pool) -> u64 {
+        let gb = match pool {
+            Pool::Favorites => self.cfg.favorites_cache_limit_gb,
+            Pool::General => self.cfg.cache_limit_gb,
+        };
+        u64::try_from(gb).unwrap_or(0).saturating_mul(GIB)
     }
 
-    /// Every series of a category, newest first.
+    /// The site's categories, read once per run; the known ones when the list cannot be read.
+    async fn categories(&self) -> Vec<SiteCategory> {
+        if let Some(categories) = self.categories.lock().expect("categories").clone() {
+            return categories;
+        }
+        let mut categories: Vec<SiteCategory> = KNOWN_CATEGORIES
+            .iter()
+            .map(|(id, route, name)| SiteCategory {
+                id: *id,
+                route: (*route).to_owned(),
+                name: (*name).to_owned(),
+            })
+            .collect();
+        match self.api.categories().await {
+            Ok(site) => {
+                for category in site {
+                    categories.retain(|known| known.id != category.id && known.route != category.route);
+                    categories.push(category);
+                }
+            }
+            Err(error) => log().warning(format!("Could not read the Huangguo category names: {}", error.formatted())),
+        }
+        *self.categories.lock().expect("categories") = Some(categories.clone());
+        categories
+    }
+
+    /// The folder a series goes in: the category its type id names (an in-house 黄果原创
+    /// series is still a 短剧 or 漫剧), else the one its list named, else its breadcrumb.
+    async fn category_of(&self, series: &Series, listed: Option<&str>) -> String {
+        let by_id = match series.category_id {
+            Some(id) => self
+                .categories()
+                .await
+                .into_iter()
+                .find(|category| category.id == id)
+                .map(|category| category.name),
+            None => None,
+        };
+        [by_id, listed.map(str::to_owned), Some(series.category.clone())]
+            .into_iter()
+            .flatten()
+            .find(|name| !name.is_empty())
+            .unwrap_or_default()
+    }
+
+    /// Every series of a category, by upload time.
     async fn list_category(&self, route: &str) -> Result<Vec<Listed>, JobError> {
         let mut listed = Vec::new();
         let mut page = 1;
@@ -837,16 +1119,81 @@ impl Run {
         Ok(listed)
     }
 
-    /// Series id to the episode count it listed when every available episode was saved.
-    async fn checked_counts(&self) -> Result<HashMap<i64, i64>, JobError> {
-        let rows = execute(&self.db, "SELECT video_id, episode_count FROM huangguo_series", Vec::new()).await?;
-        let mut counts = HashMap::with_capacity(rows.len());
+    /// The account's favourites; `None` without a usable login (logged, never fatal).
+    async fn list_favorites(&self) -> Result<Option<Vec<Listed>>, JobError> {
+        let stored = site_sessions::load(&self.db, SESSION_SITE)
+            .await
+            .map_err(|error| JobError::new("RuntimeError", error.to_string()))?;
+        let session = stored.as_ref().map(|stored| stored.cookie(SESSION_COOKIE)).unwrap_or_default();
+        if session.is_empty() {
+            log().info("Huangguo is not signed in on the 登录态 page; skipping favorites");
+            return Ok(None);
+        }
+        let mut listed = Vec::new();
+        let mut page = 1;
+        loop {
+            let Some((items, pages)) = self.api.favorites_page(session, page).await? else {
+                log().warning("Huangguo rejected the saved login; sign in again on the 登录态 page. Skipping favorites");
+                if let Err(error) = site_sessions::record_check(&self.db, SESSION_SITE, false, "rejected by the favorites list (401)").await
+                {
+                    log().warning(format!("Could not mark the Huangguo login invalid: {error}"));
+                }
+                return Ok(None);
+            };
+            let empty = items.is_empty();
+            listed.extend(items);
+            if empty || page >= pages || page >= MAX_LIST_PAGES {
+                break;
+            }
+            page += 1;
+        }
+        Ok(Some(listed))
+    }
+
+    /// Series id to the episode count it listed when every available episode was saved,
+    /// and the tier it is followed under.
+    async fn followed(&self) -> Result<HashMap<i64, (i64, Option<Tier>)>, JobError> {
+        let rows = execute(&self.db, "SELECT video_id, episode_count, tier FROM huangguo_series", Vec::new()).await?;
+        let mut followed = HashMap::with_capacity(rows.len());
         for row in &rows {
             let id: i64 = row.try_get("video_id").map_err(db_error)?;
             let count: i32 = row.try_get("episode_count").map_err(db_error)?;
-            counts.insert(id, i64::from(count));
+            let tier: String = row.try_get("tier").map_err(db_error)?;
+            followed.insert(id, (i64::from(count), Tier::parse(&tier)));
         }
-        Ok(counts)
+        Ok(followed)
+    }
+
+    /// The bytes a pool's downloads still hold on the local disk. A file that is gone has
+    /// been uploaded (and removed) and stops counting for good.
+    async fn usage(&self, pool: Pool) -> Result<Usage, JobError> {
+        let tiers: Vec<String> = pool.tiers().iter().map(|&tier| tier.to_owned()).collect();
+        let rows = sqlx::query("SELECT video_id, ep_num, local_path, size FROM huangguo WHERE on_disk AND tier = ANY($1)")
+            .bind(&tiers)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(db_error)?;
+        let mut used = 0_u64;
+        for row in &rows {
+            let path: String = row.try_get("local_path").map_err(db_error)?;
+            let size: i64 = row.try_get("size").map_err(db_error)?;
+            if tokio::fs::try_exists(&path).await.unwrap_or(true) {
+                used = used.saturating_add(u64::try_from(size).unwrap_or(0));
+                continue;
+            }
+            let id: i64 = row.try_get("video_id").map_err(db_error)?;
+            let ep: i32 = row.try_get("ep_num").map_err(db_error)?;
+            execute(
+                &self.db,
+                "UPDATE huangguo SET on_disk = FALSE WHERE video_id = $1 AND ep_num = $2",
+                vec![Param::from(id), Param::from(i64::from(ep))],
+            )
+            .await?;
+        }
+        Ok(Usage {
+            used,
+            limit: self.limit(pool),
+        })
     }
 
     async fn downloaded_episodes(&self, id: i64) -> Result<HashSet<i64>, JobError> {
@@ -857,8 +1204,9 @@ impl Run {
     }
 
     /// Insert or refresh the series' row; a new one gets its directory here, with the id
-    /// appended when another series of the category already has the name.
-    async fn store_series(&self, series: &Series, category: &str) -> Result<Stored, JobError> {
+    /// appended when another series of the category already has the name. The tier only
+    /// ever moves up (a favourite stays a favourite).
+    async fn store_series(&self, series: &Series, category: &str, tier: Tier) -> Result<Stored, JobError> {
         let mut dir_name = dir_name_for(&series.title, series.id);
         let taken = execute(
             &self.db,
@@ -871,10 +1219,12 @@ impl Run {
         }
         let rows = execute(
             &self.db,
-            "INSERT INTO huangguo_series (video_id, category, title, author, tags, dir_name) VALUES ($1, $2, $3, $4, $5, $6) \
+            "INSERT INTO huangguo_series (video_id, category, title, author, tags, dir_name, tier) VALUES ($1, $2, $3, $4, $5, $6, $7) \
              ON CONFLICT (video_id) DO UPDATE SET title = EXCLUDED.title, author = EXCLUDED.author, tags = EXCLUDED.tags, \
+             tier = CASE WHEN EXCLUDED.tier = 'favorite' OR huangguo_series.tier = '' \
+                 OR (EXCLUDED.tier = 'ranking' AND huangguo_series.tier = 'new') THEN EXCLUDED.tier ELSE huangguo_series.tier END, \
              updated_at = CURRENT_TIMESTAMP \
-             RETURNING dir_name, category, metadata_written",
+             RETURNING dir_name, category, tier, metadata_written",
             vec![
                 Param::from(series.id),
                 Param::from(category),
@@ -882,13 +1232,16 @@ impl Run {
                 Param::from(series.author.as_str()),
                 Param::from(series.tags.join(",")),
                 Param::from(dir_name.as_str()),
+                Param::from(tier.as_str()),
             ],
         )
         .await?;
         let row = rows.first().ok_or_else(|| huangguo_error("storing a series returned no row"))?;
+        let stored_tier: String = row.try_get("tier").map_err(db_error)?;
         Ok(Stored {
             dir_name: row.try_get("dir_name").map_err(db_error)?,
             category: row.try_get("category").map_err(db_error)?,
+            tier: Tier::parse(&stored_tier).unwrap_or(tier),
             metadata_written: row.try_get("metadata_written").map_err(db_error)?,
         })
     }
@@ -942,19 +1295,26 @@ impl Run {
         decode_cover(&raw, &key).map_err(huangguo_error)
     }
 
-    /// `tvshow.nfo` and the poster; written once, a failure is logged and tried again on
-    /// the series' next download.
-    async fn write_metadata(&self, series: &Series, category: &str, series_dir: &Path) -> Result<(), JobError> {
-        write_atomic(&series_dir.join("tvshow.nfo"), tvshow_nfo(series, category).into_bytes()).await?;
+    /// `tvshow.nfo` and the poster into `metadata_path`, the media server's view of the
+    /// uploaded folder; never beside the episodes, which go to the cloud. Written once.
+    async fn write_metadata(&self, series: &Series, stored: &Stored) -> Result<(), JobError> {
+        if self.cfg.metadata_path.is_empty() || stored.metadata_written {
+            return Ok(());
+        }
+        let dir = Path::new(&self.cfg.metadata_path)
+            .join(category_dir_name(&stored.category))
+            .join(&stored.dir_name);
+        create_dir_all(&dir).await?;
+        write_atomic(&dir.join("tvshow.nfo"), tvshow_nfo(series, &stored.category).into_bytes()).await?;
         if !series.cover.is_empty() {
             let (bytes, extension) = self.poster(series).await?;
-            write_atomic(&series_dir.join(format!("poster.{extension}")), bytes).await?;
+            write_atomic(&dir.join(format!("poster.{extension}")), bytes).await?;
         }
         self.mark_metadata_written(series.id).await
     }
 
     /// One episode: its stream, `yt-dlp` up to three times (waits 5 s, 10 s), the file moved
-    /// into the series' directory.
+    /// into the series' directory. Nothing here carries the login.
     async fn download_episode(&self, series: &Series, ep_num: i64, series_dir: &Path, dir_name: &str) -> Result<PathBuf, JobError> {
         let work_dir = self.cache_dir.join("videos");
         create_dir_all(&work_dir).await?;
@@ -998,6 +1358,7 @@ impl Run {
         let extension = downloaded
             .extension()
             .map_or_else(|| "mp4".to_owned(), |ext| ext.to_string_lossy().into_owned());
+        create_dir_all(series_dir).await?;
         let target = series_dir.join(episode_file_name(dir_name, ep_num, &extension));
         let (source, destination) = (downloaded.clone(), target.clone());
         tokio::task::spawn_blocking(move || move_file(&source, &destination))
@@ -1007,19 +1368,22 @@ impl Run {
         Ok(target)
     }
 
-    async fn record_episode(&self, series: &Series, episode: &Episode, category: &str, path: &Path) -> Result<(), JobError> {
+    async fn record_episode(&self, series: &Series, episode: &Episode, stored: &Stored, path: &Path, size: u64) -> Result<(), JobError> {
         execute(
             &self.db,
-            "INSERT INTO huangguo (video_id, ep_num, title, series_title, category, duration, local_path) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (video_id, ep_num) DO UPDATE SET local_path = EXCLUDED.local_path",
+            "INSERT INTO huangguo (video_id, ep_num, title, series_title, category, duration, local_path, tier, size) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (video_id, ep_num) DO UPDATE SET \
+             local_path = EXCLUDED.local_path, tier = EXCLUDED.tier, size = EXCLUDED.size, on_disk = TRUE",
             vec![
                 Param::from(series.id),
                 Param::from(episode.ep_num),
                 Param::from(episode.title.as_str()),
                 Param::from(series.title.as_str()),
-                Param::from(category),
+                Param::from(stored.category.as_str()),
                 Param::from(episode.duration),
                 Param::from(path.to_string_lossy().into_owned()),
+                Param::from(stored.tier.as_str()),
+                Param::from(i64::try_from(size).unwrap_or(i64::MAX)),
             ],
         )
         .await
@@ -1027,9 +1391,10 @@ impl Run {
     }
 
     /// One notification per series and run; a failure to queue is logged, never raised.
-    async fn notify(&self, series: &Series, category: &str, episodes: &[i64]) {
+    async fn notify(&self, series: &Series, stored: &Stored, episodes: &[i64]) {
         let mut payload = Dict::new();
         payload.insert("video_id", PyValue::Int(i128::from(series.id)));
+        payload.insert("tier", PyValue::from(stored.tier.as_str()));
         payload.insert(
             "episodes",
             PyValue::List(episodes.iter().map(|ep| PyValue::Int(i128::from(*ep))).collect()),
@@ -1039,7 +1404,7 @@ impl Run {
             source: SOURCE.to_owned(),
             header: HEADER.to_owned(),
             title: series.title.clone(),
-            body: format!("{category} | {}", episode_span(episodes)),
+            body: format!("{} | {}", stored.category, episode_span(episodes)),
             link_url: self.series_url(series.id),
             payload: Some(payload),
             ..NewNotification::default()
@@ -1049,30 +1414,32 @@ impl Run {
         }
     }
 
-    /// Read one series and download what it is missing, within `budget`.
-    async fn sync_series(&self, listed: &Listed, category: &str, budget: &mut usize, tally: &mut Tally) -> Result<(), JobError> {
+    /// Read one series and download what it is missing, within the episode budget and the
+    /// cache limit of its pool.
+    async fn sync_series(
+        &self,
+        candidate: &Candidate,
+        budget: &mut usize,
+        usage: &mut HashMap<Pool, Usage>,
+        tally: &mut Tally,
+    ) -> Result<(), JobError> {
+        let listed = &candidate.listed;
         let series = self.api.series(listed.id).await?;
-        if let Some(tag) = excluded_tag(&series.tags, &self.cfg.excluded_tags) {
+        if candidate.tier != Tier::Favorite
+            && let Some(tag) = excluded_tag(&series.tags, &self.cfg.excluded_tags)
+        {
             log().info(format!("Skipping Huangguo series {} ({}): tagged {tag}", series.id, series.title));
             return Ok(());
         }
-        let stored = self.store_series(&series, category).await?;
+        let category = self.category_of(&series, candidate.category.as_deref()).await;
+        let stored = self.store_series(&series, &category, candidate.tier).await?;
         let done = self.downloaded_episodes(series.id).await?;
         let pending: Vec<&Episode> = series
             .episodes
             .iter()
             .filter(|episode| episode.available && !done.contains(&episode.ep_num))
             .collect();
-        if pending.is_empty() {
-            return self.mark_checked(series.id, listed.episode_count).await;
-        }
-        let series_dir = Path::new(self.cfg.path.as_str())
-            .join(category_dir_name(&stored.category))
-            .join(&stored.dir_name);
-        create_dir_all(&series_dir).await?;
-        if !stored.metadata_written
-            && let Err(error) = self.write_metadata(&series, &stored.category, &series_dir).await
-        {
+        if let Err(error) = self.write_metadata(&series, &stored).await {
             log().warning(format!(
                 "Could not write the Huangguo metadata of {} ({}): {}",
                 series.id,
@@ -1080,21 +1447,35 @@ impl Run {
                 error.formatted()
             ));
         }
+        if pending.is_empty() {
+            return self.mark_checked(series.id, listed.episode_count).await;
+        }
+        let series_dir = Path::new(self.cfg.path.as_str())
+            .join(category_dir_name(&stored.category))
+            .join(&stored.dir_name);
+        let pool = stored.tier.pool();
         let mut saved = Vec::new();
         let mut failed = false;
         for episode in &pending {
-            if *budget == 0 {
+            if *budget == 0 || usage.get(&pool).is_some_and(|usage| usage.full()) {
                 break;
             }
             *budget -= 1;
             tally.attempted += 1;
             log().info(format!(
-                "Downloading Huangguo {} E{:02} ({})",
-                series.id, episode.ep_num, series.title
+                "Downloading Huangguo {} E{:02} ({}, {})",
+                series.id,
+                episode.ep_num,
+                series.title,
+                stored.tier.as_str()
             ));
             match self.download_episode(&series, episode.ep_num, &series_dir, &stored.dir_name).await {
                 Ok(path) => {
-                    self.record_episode(&series, episode, &stored.category, &path).await?;
+                    let size = tokio::fs::metadata(&path).await.map_or(0, |metadata| metadata.len());
+                    self.record_episode(&series, episode, &stored, &path, size).await?;
+                    if let Some(usage) = usage.get_mut(&pool) {
+                        usage.used = usage.used.saturating_add(size);
+                    }
                     tally.saved += 1;
                     saved.push(episode.ep_num);
                     log().notice(format!(
@@ -1119,78 +1500,139 @@ impl Run {
             self.mark_checked(series.id, listed.episode_count).await?;
         }
         if !saved.is_empty() {
-            self.notify(&series, &stored.category, &saved).await;
+            self.notify(&series, &stored, &saved).await;
         }
         Ok(())
     }
 
-    /// `update()`.
-    pub(crate) async fn update(&self) -> Result<(), JobError> {
-        if self.cfg.categories.is_empty() {
-            log().info("No Huangguo categories configured");
-            return Ok(());
-        }
-        let names = self.category_names().await;
-        let checked = self.checked_counts().await?;
+    /// Every series worth a look, favourites first, then the rankings, then new and followed
+    /// series from the category listings; each once, under the first list that names it.
+    async fn candidates(&self) -> Result<Vec<Candidate>, JobError> {
+        let followed = self.followed().await?;
         let mut seen = HashSet::new();
-        let mut queue: Vec<(Listed, String)> = Vec::new();
-        let (mut listed_total, mut excluded, mut too_old) = (0_usize, 0_usize, 0_usize);
-        let cutoff = self.now - TimeDelta::days(self.cfg.backfill_days);
-        for route in &self.cfg.categories {
-            let category = names.get(route).cloned().unwrap_or_else(|| route.clone());
-            for item in self.list_category(route).await? {
-                if !seen.insert(item.id) {
-                    continue;
+        let mut queue = Vec::new();
+        let (mut excluded, mut too_old, mut unchanged) = (0_usize, 0_usize, 0_usize);
+        let mut consider = |listed: Listed, tier: Tier, category: Option<String>, queue: &mut Vec<Candidate>| {
+            if !seen.insert(listed.id) {
+                return;
+            }
+            if tier != Tier::Favorite && excluded_tag(&listed.tags, &self.cfg.excluded_tags).is_some() {
+                excluded += 1;
+                return;
+            }
+            match followed.get(&listed.id) {
+                Some((count, _)) if listed.episode_count > 0 && *count == listed.episode_count => {
+                    unchanged += 1;
+                    return;
                 }
-                listed_total += 1;
-                if excluded_tag(&item.tags, &self.cfg.excluded_tags).is_some() {
-                    excluded += 1;
-                    continue;
+                // Only the category listings bring in series nobody asked for, and only new ones.
+                None if tier == Tier::New
+                    && listed
+                        .created_at
+                        .is_none_or(|created| created < self.now - TimeDelta::days(self.cfg.backfill_days)) =>
+                {
+                    too_old += 1;
+                    return;
                 }
-                match checked.get(&item.id) {
-                    // Followed already: only a changed episode count is worth a look.
-                    Some(count) if item.episode_count > 0 && *count == item.episode_count => continue,
-                    // Not followed: only a series that went up within `backfill_days`.
-                    None if item.created_at.is_none_or(|created| created < cutoff) => {
-                        too_old += 1;
-                        continue;
+                _ => {}
+            }
+            // A series followed under a higher tier keeps counting against that tier's pool.
+            let tier = followed
+                .get(&listed.id)
+                .and_then(|(_, stored)| *stored)
+                .map_or(tier, |stored| stored.min(tier));
+            queue.push(Candidate { listed, tier, category });
+        };
+
+        if self.cfg.favorites
+            && let Some(favorites) = self.list_favorites().await?
+        {
+            log().info(format!("Huangguo favorites list {} series", favorites.len()));
+            for listed in favorites {
+                let category = listed.category.clone();
+                consider(listed, Tier::Favorite, category, &mut queue);
+            }
+        }
+        for kind in &self.cfg.rankings {
+            match self.api.ranking(kind).await {
+                Ok(ranking) => {
+                    for listed in ranking {
+                        let category = listed.category.clone();
+                        consider(listed, Tier::Ranking, category, &mut queue);
                     }
-                    Some(_) | None => {}
                 }
-                queue.push((item, category.clone()));
+                Err(error) => log().warning(format!("Could not read the Huangguo {kind} ranking: {}", error.formatted())),
+            }
+        }
+        if !self.cfg.categories.is_empty() {
+            let categories = self.categories().await;
+            for route in &self.cfg.categories {
+                let category = categories
+                    .iter()
+                    .find(|category| category.route == *route)
+                    .map_or_else(|| route.clone(), |category| category.name.clone());
+                for listed in self.list_category(route).await? {
+                    consider(listed, Tier::New, Some(category.clone()), &mut queue);
+                }
             }
         }
         log().info(format!(
-            "Huangguo listed {listed_total} series ({excluded} excluded by tag, {too_old} older than {} days and never followed); \
-             {} may have new episodes",
-            self.cfg.backfill_days,
-            queue.len()
+            "Huangguo: {} series may have new episodes ({excluded} excluded by tag, {unchanged} unchanged, \
+             {too_old} older than {} days and never followed)",
+            queue.len(),
+            self.cfg.backfill_days
         ));
+        Ok(queue)
+    }
+
+    /// `update()`.
+    pub(crate) async fn update(&self) -> Result<(), JobError> {
+        let queue = self.candidates().await?;
         if queue.is_empty() {
             return Ok(());
         }
-        create_dir_all(Path::new(self.cfg.path.as_str())).await?;
+        let mut usage = HashMap::new();
+        for pool in [Pool::Favorites, Pool::General] {
+            let current = self.usage(pool).await?;
+            log().info(format!(
+                "Huangguo {} hold {:.1} of {} GiB on the local disk",
+                pool.label(),
+                bytes_gib(current.used),
+                current.limit / GIB
+            ));
+            usage.insert(pool, current);
+        }
         let mut budget = usize::try_from(self.cfg.max_episodes_per_run).unwrap_or(usize::MAX);
         let mut tally = Tally::default();
-        for (index, (item, category)) in queue.iter().enumerate() {
+        let mut reported_full = HashSet::new();
+        for candidate in &queue {
             if budget == 0 {
                 log().info(format!(
-                    "Huangguo reached max_episodes_per_run ({}); {} series wait for the next run",
-                    self.cfg.max_episodes_per_run,
-                    queue.len() - index
+                    "Huangguo reached max_episodes_per_run ({}); the rest waits for the next run",
+                    self.cfg.max_episodes_per_run
                 ));
                 break;
             }
-            if let Err(error) = self.sync_series(item, category, &mut budget, &mut tally).await {
+            let pool = candidate.tier.pool();
+            if usage.get(&pool).is_some_and(|usage| usage.full()) {
+                if reported_full.insert(pool) {
+                    log().info(format!(
+                        "Huangguo {} reached their cache limit; they wait for the upload to make room",
+                        pool.label()
+                    ));
+                }
+                continue;
+            }
+            if let Err(error) = self.sync_series(candidate, &mut budget, &mut usage, &mut tally).await {
                 tally.failed_series += 1;
                 log().error(format!(
                     "Failed to sync Huangguo series {} ({}): {}",
-                    item.id,
-                    item.title,
+                    candidate.listed.id,
+                    candidate.listed.title,
                     error.formatted()
                 ));
                 tally.last_error = Some(error.formatted());
-                self.record_error(item.id, &error).await?;
+                self.record_error(candidate.listed.id, &error).await?;
             }
         }
         log().info(format!(
@@ -1210,6 +1652,14 @@ impl Run {
         }
         Ok(())
     }
+}
+
+/// Bytes as GiB, for the log.
+fn bytes_gib(bytes: u64) -> f64 {
+    // Display only; a cache never nears 2^52 bytes.
+    #[allow(clippy::cast_precision_loss)] // exact for any size a disk holds
+    let value = bytes as f64 / (1_u64 << 30) as f64;
+    value
 }
 
 #[cfg(test)]

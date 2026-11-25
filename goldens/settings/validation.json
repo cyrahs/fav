@@ -158,6 +158,7 @@
             "enabled": false,
             "notify": true,
             "path": "collection/huangguo",
+            "metadata_path": "",
             "host": "https://huangguoai.com",
             "categories": [
               "ai-duanju",
@@ -167,6 +168,14 @@
               "\u7537\u540c"
             ],
             "backfill_days": 3,
+            "favorites": true,
+            "rankings": [
+              "hot",
+              "recommend",
+              "potential"
+            ],
+            "cache_limit_gb": 200,
+            "favorites_cache_limit_gb": 50,
             "proxy": "",
             "proxy_media": true,
             "max_episodes_per_run": 100,
@@ -3520,6 +3529,7 @@
             "enabled": false,
             "notify": true,
             "path": "collection/huangguo",
+            "metadata_path": "",
             "host": "https://huangguoai.com",
             "categories": [
               "ai-duanju",
@@ -3529,6 +3539,14 @@
               "\u7537\u540c"
             ],
             "backfill_days": 3,
+            "favorites": true,
+            "rankings": [
+              "hot",
+              "recommend",
+              "potential"
+            ],
+            "cache_limit_gb": 200,
+            "favorites_cache_limit_gb": 50,
             "proxy": "",
             "proxy_media": true,
             "max_episodes_per_run": 100,
