@@ -507,6 +507,37 @@ something sends one notification (`短剧 | E01–E05 (5)`). A run that tried to
 nothing fails; a single failing series or episode is logged, recorded in
 `huangguo_series.last_error`, and tried again next run.
 
+##### What the Emby plugin reads
+
+The Huangguo Emby plugin (`emby-plugin/`, published as `ghcr.io/cyrahs/fav-emby-huangguo`) takes
+each series' details, poster and episode thumbnails from fav instead of from files in the strm tree.
+Every run keeps them in the database:
+
+- the series' plot, score, premiere date and status in its `huangguo_series` row, refreshed each
+  time the series is read;
+- its decrypted poster in `huangguo_images` (`ep_num` 0), saved once; a series saved before
+  posters were kept there (`details_saved` false) is read once more to save it;
+- one thumbnail per saved episode in `huangguo_images`: `ffmpeg` picks the most representative of
+  the frames a tenth of the way in and scales it to at most 1280 pixels wide. It is taken from the
+  download right after it is saved; an episode saved without one (before thumbnails were taken, or
+  whose download was uploaded already) gets it from its stream instead, which reads only the
+  segments around that point (no login, through `proxy` when `proxy_media`), at most 60 per run,
+  newest first. A thumbnail that fails three times is given up (`huangguo.thumbnail_failures`).
+
+fav serves them read-only under `/media/huangguo`, outside the documented API, to a
+`CREDENTIAL_CLIENTS` client whose sites include `huangguo-media` (`API_TOKEN` is not accepted, and
+the scope reads no stored login):
+
+```
+GET /media/huangguo/series?dir_name=<series folder>[&category=<category folder>]
+GET /media/huangguo/series/<id>
+GET /media/huangguo/series/<id>/poster
+GET /media/huangguo/series/<id>/episodes/<ep>/thumbnail
+```
+
+The plugin finds a series by its folder (`/media/ai/短剧/<series>` is `dir_name=<series>&category=短剧`)
+the first time and by the `Huangguo` id it stores after. See `emby-plugin/README.md` for its setup.
+
 ## Web UI
 
 `web/` is a React + TypeScript + Vite front end served by fav from `web/dist` when that directory

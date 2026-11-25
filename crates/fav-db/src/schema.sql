@@ -665,7 +665,12 @@ CREATE TABLE IF NOT EXISTS huangguo_series (
     metadata_written BOOLEAN NOT NULL DEFAULT FALSE,
     last_error TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    plot TEXT NOT NULL DEFAULT '',
+    score DOUBLE PRECISION,
+    premiered TEXT NOT NULL DEFAULT '',
+    finished BOOLEAN NOT NULL DEFAULT FALSE,
+    details_saved BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Every downloaded Huangguo episode, by series and episode number, with its size and
@@ -681,6 +686,18 @@ CREATE TABLE IF NOT EXISTS huangguo (
     tier TEXT NOT NULL DEFAULT '',
     size BIGINT NOT NULL DEFAULT 0,
     on_disk BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    thumbnail_failures INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (video_id, ep_num)
+);
+
+-- What the Emby plugin shows for Huangguo: each series' decrypted poster (ep_num 0) and
+-- each saved episode's thumbnail, served by fav's media API (`/media/huangguo`).
+CREATE TABLE IF NOT EXISTS huangguo_images (
+    video_id BIGINT NOT NULL,
+    ep_num INTEGER NOT NULL,
+    content_type TEXT NOT NULL DEFAULT '',
+    data BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (video_id, ep_num)
 );
@@ -730,6 +747,12 @@ ALTER TABLE hanime1 ADD COLUMN IF NOT EXISTS uploader TEXT;
 ALTER TABLE jandan ADD COLUMN IF NOT EXISTS unavailable INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE jandan ADD COLUMN IF NOT EXISTS failed_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE jandan ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE huangguo ADD COLUMN IF NOT EXISTS thumbnail_failures INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE huangguo_series ADD COLUMN IF NOT EXISTS plot TEXT NOT NULL DEFAULT '';
+ALTER TABLE huangguo_series ADD COLUMN IF NOT EXISTS score DOUBLE PRECISION;
+ALTER TABLE huangguo_series ADD COLUMN IF NOT EXISTS premiered TEXT NOT NULL DEFAULT '';
+ALTER TABLE huangguo_series ADD COLUMN IF NOT EXISTS finished BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE huangguo_series ADD COLUMN IF NOT EXISTS details_saved BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- src/web/bilibili.py: a database from before `bvid` was the primary key also needs the
 -- unique constraint its ON CONFLICT relies on. That check runs after this script, in its

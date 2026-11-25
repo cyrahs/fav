@@ -44,6 +44,7 @@ pub mod cors;
 pub mod credentials;
 pub mod error;
 pub mod hanime1;
+pub mod huangguo_media;
 pub mod live2d_overrides;
 pub mod masking;
 pub mod mcp;

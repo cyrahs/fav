@@ -32,7 +32,7 @@ async fn creates_exactly_what_python_creates() {
     let extra: Vec<&String> = have.iter().filter(|line| !want.contains(line)).collect();
     assert!(missing.is_empty() && extra.is_empty(), "missing: {missing:#?}\nextra: {extra:#?}");
     assert_eq!(have, want);
-    assert_eq!(want.iter().filter(|line| line.starts_with("table ")).count(), 48);
+    assert_eq!(want.iter().filter(|line| line.starts_with("table ")).count(), 49);
     database.drop_database().await;
 }
 
@@ -172,7 +172,7 @@ fn schema_script_adds_columns_before_indexing_them() {
 #[test]
 fn every_statement_is_idempotent() {
     let statements = split_statements(SCHEMA_SQL);
-    assert_eq!(statements.len(), 48 + 41 + 13, "tables, added columns, indexes");
+    assert_eq!(statements.len(), 49 + 47 + 13, "tables, added columns, indexes");
     for statement in statements {
         let code: Vec<&str> = statement
             .lines()

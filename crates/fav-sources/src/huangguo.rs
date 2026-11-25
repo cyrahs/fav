@@ -68,6 +68,11 @@ pub const PAGE_SIZE: i64 = 100;
 const MAX_LIST_PAGES: i64 = 200;
 const REQUEST_ATTEMPTS: u32 = 3;
 const DOWNLOAD_ATTEMPTS: u32 = 3;
+/// Tries at an episode's thumbnail before it is given up on.
+const THUMBNAIL_ATTEMPTS: i64 = 3;
+/// Thumbnails owed by earlier runs taken per run (one stream request each when the file
+/// has already gone to the cloud).
+const THUMBNAILS_PER_RUN: i64 = 60;
 const RETRY_BASE_DELAY: f64 = 5.0;
 const DIR_NAME_BYTES: usize = 120;
 const BLOCK_SIZE: usize = 16;
@@ -536,6 +541,20 @@ pub fn image_extension(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// The media type of an image `image_extension` knows.
+pub fn image_content_type(bytes: &[u8]) -> &'static str {
+    match image_extension(bytes) {
+        Some("jpg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        _ => "application/octet-stream",
+    }
+}
+
+/// The `ep_num` the series poster is stored under in `huangguo_images` (episodes start at 1).
+pub const POSTER_EP: i64 = 0;
+
 /// A cover as the CDN serves it, decrypted: AES-128-CBC with PKCS#7 padding. Bytes that
 /// already are an image are kept as they are.
 pub fn decode_cover(raw: &[u8], key: &ImageKey) -> Result<(Vec<u8>, &'static str), String> {
@@ -686,6 +705,52 @@ pub fn build_download_command(stream_url: &str, output_template: &str, referer: 
         command.extend(["--proxy".to_owned(), proxy.to_owned()]);
     }
     command.push(stream_url.to_owned());
+    command
+}
+
+/// Where in an episode its thumbnail is taken: a tenth of the way in, past the opening.
+pub fn thumbnail_at(duration: i64) -> f64 {
+    f64::from(i32::try_from(duration.max(0)).unwrap_or(i32::MAX)) / 10.0
+}
+
+/// `ffmpeg` for one episode's thumbnail: the most representative of the frames around `at`
+/// seconds, at most 1280 pixels wide, as a JPEG. `remote` (the Referer and the proxy) reads it straight from the HLS
+/// stream, which fetches only the segments around that point.
+pub fn build_thumbnail_command(input: &str, at: f64, output: &Path, remote: Option<(&str, &str)>) -> Vec<String> {
+    let mut command: Vec<String> = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    if let Some((referer, proxy)) = remote {
+        command.extend([
+            "-rw_timeout".to_owned(),
+            "30000000".to_owned(),
+            "-user_agent".to_owned(),
+            USER_AGENT.to_owned(),
+            "-headers".to_owned(),
+            format!("Referer: {referer}\r\n"),
+        ]);
+        if !proxy.is_empty() {
+            command.extend(["-http_proxy".to_owned(), proxy.to_owned()]);
+        }
+    }
+    command.extend(
+        [
+            "-ss",
+            &format!("{at:.3}"),
+            "-i",
+            input,
+            "-vf",
+            "thumbnail=24,scale='min(1280,iw)':-2",
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+        ]
+        .into_iter()
+        .map(str::to_owned),
+    );
+    command.push(output.to_string_lossy().into_owned());
     command
 }
 
@@ -1055,6 +1120,18 @@ struct Stored {
     category: String,
     tier: Tier,
     metadata_written: bool,
+    /// The series' details and poster are in the database, for the media server's plugin.
+    details_saved: bool,
+}
+
+/// A saved episode whose thumbnail is owed.
+struct Thumb {
+    video_id: i64,
+    ep_num: i64,
+    /// Seconds.
+    duration: i64,
+    /// The download, while it still waits for the upload.
+    local_path: String,
 }
 
 /// A followed series as its row records it.
@@ -1065,6 +1142,7 @@ struct Followed {
     /// The highest list it was ever in.
     tier: Option<Tier>,
     metadata_written: bool,
+    details_saved: bool,
 }
 
 /// How full a cache pool is, and its limit, in bytes.
@@ -1244,7 +1322,7 @@ impl Run {
     async fn followed(&self) -> Result<HashMap<i64, Followed>, JobError> {
         let rows = execute(
             &self.db,
-            "SELECT video_id, episode_count, tier, metadata_written FROM huangguo_series",
+            "SELECT video_id, episode_count, tier, metadata_written, details_saved FROM huangguo_series",
             Vec::new(),
         )
         .await?;
@@ -1259,6 +1337,7 @@ impl Run {
                     episode_count: i64::from(count),
                     tier: Tier::parse(&tier),
                     metadata_written: row.try_get("metadata_written").map_err(db_error)?,
+                    details_saved: row.try_get("details_saved").map_err(db_error)?,
                 },
             );
         }
@@ -1320,12 +1399,14 @@ impl Run {
         }
         let rows = execute(
             &self.db,
-            "INSERT INTO huangguo_series (video_id, category, title, author, tags, dir_name, tier) VALUES ($1, $2, $3, $4, $5, $6, $7) \
+            "INSERT INTO huangguo_series (video_id, category, title, author, tags, dir_name, tier, plot, score, premiered, finished) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
              ON CONFLICT (video_id) DO UPDATE SET title = EXCLUDED.title, author = EXCLUDED.author, tags = EXCLUDED.tags, \
+             plot = EXCLUDED.plot, score = EXCLUDED.score, premiered = EXCLUDED.premiered, finished = EXCLUDED.finished, \
              tier = CASE WHEN EXCLUDED.tier = 'favorite' OR huangguo_series.tier = '' \
                  OR (EXCLUDED.tier = 'ranking' AND huangguo_series.tier = 'new') THEN EXCLUDED.tier ELSE huangguo_series.tier END, \
              updated_at = CURRENT_TIMESTAMP \
-             RETURNING dir_name, category, tier, metadata_written",
+             RETURNING dir_name, category, tier, metadata_written, details_saved",
             vec![
                 Param::from(series.id),
                 Param::from(category),
@@ -1334,6 +1415,10 @@ impl Run {
                 Param::from(series.tags.join(",")),
                 Param::from(dir_name.as_str()),
                 Param::from(tier.as_str()),
+                Param::from(series.description.as_str()),
+                Param::Float(series.score),
+                Param::from(series.created_at.as_str()),
+                Param::from(series.is_finished),
             ],
         )
         .await?;
@@ -1344,6 +1429,7 @@ impl Run {
             category: row.try_get("category").map_err(db_error)?,
             tier: Tier::parse(&stored_tier).unwrap_or(tier),
             metadata_written: row.try_get("metadata_written").map_err(db_error)?,
+            details_saved: row.try_get("details_saved").map_err(db_error)?,
         })
     }
 
@@ -1407,11 +1493,75 @@ impl Run {
             .join(&stored.dir_name);
         create_dir_all(&dir).await?;
         write_atomic(&dir.join("tvshow.nfo"), tvshow_nfo(series, &stored.category).into_bytes()).await?;
-        if !series.cover.is_empty() {
-            let (bytes, extension) = self.poster(series).await?;
+        if let Some(bytes) = self.saved_poster(series).await? {
+            let extension = image_extension(&bytes).unwrap_or("jpg");
             write_atomic(&dir.join(format!("poster.{extension}")), bytes).await?;
         }
         self.mark_metadata_written(series.id).await
+    }
+
+    /// An image `huangguo_images` holds.
+    async fn has_image(&self, id: i64, ep_num: i64) -> Result<bool, JobError> {
+        let rows = execute(
+            &self.db,
+            "SELECT 1 FROM huangguo_images WHERE video_id = $1 AND ep_num = $2",
+            vec![Param::from(id), Param::from(ep_num)],
+        )
+        .await?;
+        Ok(!rows.is_empty())
+    }
+
+    async fn save_image(&self, id: i64, ep_num: i64, bytes: Vec<u8>) -> Result<(), JobError> {
+        execute(
+            &self.db,
+            "INSERT INTO huangguo_images (video_id, ep_num, content_type, data) VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (video_id, ep_num) DO UPDATE SET content_type = EXCLUDED.content_type, data = EXCLUDED.data, \
+             created_at = CURRENT_TIMESTAMP",
+            vec![
+                Param::from(id),
+                Param::from(ep_num),
+                Param::from(image_content_type(&bytes)),
+                Param::Bytes(Some(bytes)),
+            ],
+        )
+        .await
+        .map(drop)
+    }
+
+    /// The series' poster as the database holds it; fetched, decrypted and saved first when
+    /// it is not there yet. `None` for a series without a cover.
+    async fn saved_poster(&self, series: &Series) -> Result<Option<Vec<u8>>, JobError> {
+        let rows = execute(
+            &self.db,
+            "SELECT data FROM huangguo_images WHERE video_id = $1 AND ep_num = $2",
+            vec![Param::from(series.id), Param::from(POSTER_EP)],
+        )
+        .await?;
+        if let Some(row) = rows.first() {
+            return Ok(Some(row.try_get("data").map_err(db_error)?));
+        }
+        if series.cover.is_empty() {
+            return Ok(None);
+        }
+        let (bytes, _) = self.poster(series).await?;
+        self.save_image(series.id, POSTER_EP, bytes.clone()).await?;
+        Ok(Some(bytes))
+    }
+
+    /// The series' details (saved with its row) and poster, for the media server's plugin;
+    /// once, until the poster is there.
+    async fn save_details(&self, series: &Series, stored: &Stored) -> Result<(), JobError> {
+        if stored.details_saved {
+            return Ok(());
+        }
+        self.saved_poster(series).await?;
+        execute(
+            &self.db,
+            "UPDATE huangguo_series SET details_saved = TRUE WHERE video_id = $1",
+            vec![Param::from(series.id)],
+        )
+        .await
+        .map(drop)
     }
 
     /// One episode: its stream, `yt-dlp` up to three times (waits 5 s, 10 s), the file moved
@@ -1491,6 +1641,106 @@ impl Run {
         .map(drop)
     }
 
+    /// Run `ffmpeg` into the run's cache directory and read the image back.
+    async fn extract_thumbnail(&self, input: &str, at: f64, remote: bool) -> Result<Vec<u8>, JobError> {
+        let dir = self.cache_dir.join("thumbnails");
+        create_dir_all(&dir).await?;
+        let output = dir.join("thumbnail.jpg");
+        let _ = tokio::fs::remove_file(&output).await;
+        let referer = format!("{}/", self.api.host);
+        let command = build_thumbnail_command(input, at, &output, remote.then(|| (referer.as_str(), media_proxy(&self.cfg))));
+        let completed = self
+            .runner
+            .run(command)
+            .await
+            .map_err(|error| os_error(&error, Some(Path::new("ffmpeg"))))?;
+        let bytes = tokio::fs::read(&output).await.unwrap_or_default();
+        let _ = tokio::fs::remove_file(&output).await;
+        if completed.returncode != 0 || image_extension(&bytes).is_none() {
+            let message = [py_strip(&completed.stderr), py_strip(&completed.stdout)]
+                .into_iter()
+                .find(|text| !text.is_empty())
+                .map_or_else(
+                    || format!("ffmpeg exited with code {} and wrote no image", completed.returncode),
+                    str::to_owned,
+                );
+            return Err(JobError::new("ThumbnailError", message));
+        }
+        Ok(bytes)
+    }
+
+    /// An episode's thumbnail, for the media server's plugin: taken from its download while
+    /// that waits for the upload, else from its stream (no login). A failure is logged and
+    /// counted, never raised: after `THUMBNAIL_ATTEMPTS` the episode goes without one.
+    /// `true` when it has one now.
+    async fn write_thumbnail(&self, thumb: &Thumb) -> Result<bool, JobError> {
+        if self.has_image(thumb.video_id, thumb.ep_num).await? {
+            return Ok(true);
+        }
+        let at = thumbnail_at(thumb.duration);
+        let local = !thumb.local_path.is_empty() && tokio::fs::try_exists(&thumb.local_path).await.unwrap_or(false);
+        let result = if local {
+            self.extract_thumbnail(&thumb.local_path, at, false).await
+        } else {
+            match self.api.stream_url(thumb.video_id, thumb.ep_num).await {
+                Ok(stream) => self.extract_thumbnail(&stream, at, true).await,
+                Err(error) => Err(error),
+            }
+        };
+        match result {
+            Ok(bytes) => {
+                self.save_image(thumb.video_id, thumb.ep_num, bytes).await?;
+                Ok(true)
+            }
+            Err(error) => {
+                log().warning(format!(
+                    "Could not take the thumbnail of Huangguo {} E{:02}: {}",
+                    thumb.video_id,
+                    thumb.ep_num,
+                    error.formatted()
+                ));
+                execute(
+                    &self.db,
+                    "UPDATE huangguo SET thumbnail_failures = thumbnail_failures + 1 WHERE video_id = $1 AND ep_num = $2",
+                    vec![Param::from(thumb.video_id), Param::from(thumb.ep_num)],
+                )
+                .await?;
+                Ok(false)
+            }
+        }
+    }
+
+    /// Thumbnails owed by earlier runs (episodes saved before thumbnails were taken, or
+    /// whose thumbnail failed), newest first and at most `THUMBNAILS_PER_RUN`.
+    async fn backfill_thumbnails(&self) -> Result<(), JobError> {
+        let rows = execute(
+            &self.db,
+            "SELECT h.video_id, h.ep_num, h.duration, h.local_path FROM huangguo h \
+             WHERE h.thumbnail_failures < $1 AND NOT EXISTS \
+                 (SELECT 1 FROM huangguo_images i WHERE i.video_id = h.video_id AND i.ep_num = h.ep_num) \
+             ORDER BY h.created_at DESC, h.video_id, h.ep_num LIMIT $2",
+            vec![Param::from(THUMBNAIL_ATTEMPTS), Param::from(THUMBNAILS_PER_RUN)],
+        )
+        .await?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let mut written = 0_usize;
+        for row in &rows {
+            let thumb = Thumb {
+                video_id: row.try_get("video_id").map_err(db_error)?,
+                ep_num: i64::from(row.try_get::<i32, _>("ep_num").map_err(db_error)?),
+                duration: i64::from(row.try_get::<i32, _>("duration").map_err(db_error)?),
+                local_path: row.try_get("local_path").map_err(db_error)?,
+            };
+            if self.write_thumbnail(&thumb).await? {
+                written += 1;
+            }
+        }
+        log().info(format!("Huangguo saved {written} of {} owed episode thumbnails", rows.len()));
+        Ok(())
+    }
+
     /// One notification per series and run; a failure to queue is logged, never raised.
     async fn notify(&self, series: &Series, stored: &Stored, episodes: &[i64]) {
         let mut payload = Dict::new();
@@ -1540,6 +1790,14 @@ impl Run {
             .iter()
             .filter(|episode| episode.available && !done.contains(&episode.ep_num))
             .collect();
+        if let Err(error) = self.save_details(&series, &stored).await {
+            log().warning(format!(
+                "Could not save the Huangguo poster of {} ({}): {}",
+                series.id,
+                series.title,
+                error.formatted()
+            ));
+        }
         if let Err(error) = self.write_metadata(&series, &stored).await {
             log().warning(format!(
                 "Could not write the Huangguo metadata of {} ({}): {}",
@@ -1574,6 +1832,13 @@ impl Run {
                 Ok(path) => {
                     let size = tokio::fs::metadata(&path).await.map_or(0, |metadata| metadata.len());
                     self.record_episode(&series, episode, &stored, &path, size).await?;
+                    let thumb = Thumb {
+                        video_id: series.id,
+                        ep_num: episode.ep_num,
+                        duration: episode.duration,
+                        local_path: path.to_string_lossy().into_owned(),
+                    };
+                    self.write_thumbnail(&thumb).await?;
                     if let Some(usage) = usage.get_mut(&pool) {
                         usage.used = usage.used.saturating_add(size);
                     }
@@ -1622,11 +1887,13 @@ impl Run {
                 return;
             }
             match followed.get(&listed.id) {
-                // Unchanged, unless its tvshow.nfo and poster are still owed (a series saved
-                // before `metadata_path` was set): then it is read once more to write them.
+                // Unchanged, unless its details and poster (for the media server's plugin) or
+                // its tvshow.nfo (a series saved before `metadata_path` was set) are still
+                // owed: then it is read once more to save them.
                 Some(known)
                     if listed.episode_count > 0
                         && known.episode_count == listed.episode_count
+                        && known.details_saved
                         && (known.metadata_written || self.cfg.metadata_path.is_empty()) =>
                 {
                     unchanged += 1;
@@ -1696,7 +1963,7 @@ impl Run {
     pub(crate) async fn update(&self) -> Result<(), JobError> {
         let queue = self.candidates().await?;
         if queue.is_empty() {
-            return Ok(());
+            return self.backfill_thumbnails().await;
         }
         let mut usage = HashMap::new();
         for pool in [Pool::Favorites, Pool::General] {
@@ -1742,6 +2009,7 @@ impl Run {
                 self.record_error(candidate.listed.id, &error).await?;
             }
         }
+        self.backfill_thumbnails().await?;
         log().info(format!(
             "Huangguo saved {} of {} episodes ({} series failed)",
             tally.saved, tally.attempted, tally.failed_series

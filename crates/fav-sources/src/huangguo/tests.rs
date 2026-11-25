@@ -261,19 +261,39 @@ fn answer(site: &Site, seen: &Seen) -> Reply {
 
 #[derive(Debug, Default)]
 struct FakeRunner {
+    /// The `yt-dlp` downloads.
     calls: Mutex<Vec<Vec<String>>>,
+    /// The `ffmpeg` thumbnails.
+    thumbnails: Mutex<Vec<Vec<String>>>,
     fail: bool,
+    fail_thumbnails: bool,
 }
 
 impl FakeRunner {
     fn calls(&self) -> Vec<Vec<String>> {
         self.calls.lock().expect("calls").clone()
     }
+
+    fn thumbnails(&self) -> Vec<Vec<String>> {
+        self.thumbnails.lock().expect("thumbnails").clone()
+    }
 }
 
 impl Runner for FakeRunner {
     fn run(&self, argv: Vec<String>) -> SubprocessFuture<'_, std::io::Result<Completed>> {
         Box::pin(async move {
+            if argv[0] == "ffmpeg" {
+                self.thumbnails.lock().expect("thumbnails").push(argv.clone());
+                if self.fail_thumbnails {
+                    return Ok(Completed {
+                        returncode: 1,
+                        stdout: String::new(),
+                        stderr: "Invalid data found when processing input\n".to_owned(),
+                    });
+                }
+                std::fs::write(argv.last().expect("output"), JPEG)?;
+                return Ok(Completed::default());
+            }
             self.calls.lock().expect("calls").push(argv.clone());
             if self.fail {
                 return Ok(Completed {
@@ -393,6 +413,22 @@ impl Harness {
             .fetch_all(self.db.db().pool())
             .await
             .expect("episodes")
+    }
+
+    /// `(video_id, ep_num, content_type, bytes)` of every stored image.
+    async fn images(&self) -> Vec<(i64, i32, String, Vec<u8>)> {
+        sqlx::query_as("SELECT video_id, ep_num, content_type, data FROM huangguo_images ORDER BY video_id, ep_num")
+            .fetch_all(self.db.db().pool())
+            .await
+            .expect("images")
+    }
+
+    async fn details(&self, id: i64) -> (String, Option<f64>, String, bool, bool) {
+        sqlx::query_as("SELECT plot, score, premiered, finished, details_saved FROM huangguo_series WHERE video_id = $1")
+            .bind(id)
+            .fetch_one(self.db.db().pool())
+            .await
+            .expect("details")
     }
 
     async fn series_row(&self, id: i64) -> (String, i32, bool, String) {
@@ -939,8 +975,9 @@ async fn without_a_metadata_path_no_metadata_is_written() {
     let harness = Harness::start(two_series_site()).await;
     let runner = Arc::new(FakeRunner::default());
     harness.run(config(harness.root.path()), &runner).update().await.expect("run");
-    assert!(!harness.paths().iter().any(|path| path == IMAGE_PROTOCOL_PATH));
     assert!(std::fs::read_dir(harness.meta.path()).expect("meta").next().is_none());
+    // The poster and thumbnails still go to the database, for the Emby plugin.
+    assert!(harness.images().await.iter().any(|(id, ep, _, _)| (*id, *ep) == (101, 0)));
     assert!(!harness.root.path().join("短剧").join("巨乳妈妈").join("tvshow.nfo").exists());
 }
 
@@ -1059,4 +1096,146 @@ async fn series_saved_before_the_metadata_path_was_set_get_their_metadata_later(
             .any(|seen| seen.path().starts_with("/api/videos/10")),
         "no series is read again"
     );
+}
+
+// ---------- what the Emby plugin reads ----------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_keeps_the_details_the_poster_and_a_thumbnail_per_episode_in_the_database() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    let mut cfg = config(harness.root.path());
+    cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
+    harness.run(cfg, &runner).update().await.expect("run");
+
+    assert_eq!(
+        harness.details(101).await,
+        (
+            "她 & 他 <夜色>".to_owned(),
+            Some(9.5),
+            "2026-11-25 14:59:54".to_owned(),
+            false,
+            true
+        )
+    );
+    let images = harness.images().await;
+    assert_eq!(
+        images.iter().map(|(id, ep, kind, _)| (*id, *ep, kind.as_str())).collect::<Vec<_>>(),
+        vec![
+            (101, 0, "image/jpeg"),
+            (101, 1, "image/jpeg"),
+            (101, 2, "image/jpeg"),
+            (103, 0, "image/jpeg"),
+            (103, 1, "image/jpeg"),
+        ]
+    );
+    assert_eq!(images[0].3, JPEG, "the decrypted cover");
+
+    // Taken from the downloads, a tenth of the way in, never from the network.
+    let thumbnails = runner.thumbnails();
+    assert_eq!(thumbnails.len(), 3);
+    let first = &thumbnails[0];
+    let input = &first[first.iter().position(|arg| arg == "-i").expect("-i") + 1];
+    assert!(input.ends_with("短剧/巨乳妈妈/巨乳妈妈 S01E01.mp4"), "{input}");
+    assert!(first.windows(2).any(|pair| pair == ["-ss", "48.000"]), "{first:?}");
+    assert!(first.windows(2).any(|pair| pair == ["-frames:v", "1"]), "{first:?}");
+    assert!(!first.iter().any(|arg| arg == "-headers" || arg == "-http_proxy"), "{first:?}");
+
+    // Nothing is owed any more: the next run takes no thumbnail and reads no series.
+    let seen_before = harness.web.seen().len();
+    harness
+        .run(config(harness.root.path()), &runner)
+        .update()
+        .await
+        .expect("second run");
+    assert_eq!(runner.thumbnails().len(), 3);
+    assert!(
+        !harness.web.seen()[seen_before..]
+            .iter()
+            .any(|seen| seen.path().starts_with("/api/videos/10")),
+        "no series is read again"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn thumbnails_owed_after_the_upload_come_from_the_stream_without_the_login() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner {
+        fail_thumbnails: true,
+        ..FakeRunner::default()
+    });
+    harness.run(config(harness.root.path()), &runner).update().await.expect("first run");
+    assert_eq!(harness.images().await.len(), 2, "only the posters");
+    // The cloud upload takes the files away.
+    for (_, _, path) in harness.episodes().await {
+        std::fs::remove_file(path).expect("uploaded");
+    }
+
+    harness.sign_in(GOOD_SESSION).await;
+    let runner = Arc::new(FakeRunner::default());
+    let mut cfg = config(harness.root.path());
+    cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
+    harness.run(cfg, &runner).update().await.expect("second run");
+    assert!(runner.calls().is_empty(), "nothing is downloaded again");
+    let thumbnails = runner.thumbnails();
+    assert_eq!(thumbnails.len(), 3);
+    let input = &thumbnails[0][thumbnails[0].iter().position(|arg| arg == "-i").expect("-i") + 1];
+    assert!(input.starts_with("https://hls.example.cn/videos5/"), "{input}");
+    assert!(
+        thumbnails[0]
+            .windows(2)
+            .any(|pair| pair == ["-headers", "Referer: https://huangguoai.com/\r\n"]),
+        "{:?}",
+        thumbnails[0]
+    );
+    assert!(
+        thumbnails[0]
+            .windows(2)
+            .any(|pair| pair == ["-http_proxy", "http://us.proxy.svc.cluster.local"])
+    );
+    assert_eq!(harness.images().await.len(), 5);
+    // The playback requests carry no login.
+    assert!(
+        harness
+            .web
+            .seen()
+            .iter()
+            .filter(|seen| seen.path().ends_with("/playback"))
+            .all(|seen| seen.header("cookie").is_none() && seen.header("authorization").is_none())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_thumbnail_that_keeps_failing_is_given_up_after_three_tries() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner {
+        fail_thumbnails: true,
+        ..FakeRunner::default()
+    });
+    for _ in 0..4 {
+        harness.run(config(harness.root.path()), &runner).update().await.expect("run");
+    }
+    assert_eq!(runner.calls().len(), 3, "the episodes themselves are saved once");
+    assert_eq!(runner.thumbnails().len(), 3 * 3);
+    assert_eq!(harness.images().await.len(), 2, "only the posters");
+}
+
+#[test]
+fn the_thumbnail_command_reads_a_stream_through_the_proxy_with_the_referer() {
+    let command = build_thumbnail_command(
+        "https://a/x.m3u8",
+        thumbnail_at(484),
+        Path::new("/tmp/t.jpg"),
+        Some(("https://huangguoai.com/", "http://proxy")),
+    );
+    assert_eq!(command[0], "ffmpeg");
+    assert!(command.windows(2).any(|pair| pair == ["-ss", "48.400"]));
+    assert!(command.windows(2).any(|pair| pair == ["-http_proxy", "http://proxy"]));
+    let input = command.iter().position(|arg| arg == "-i").expect("-i");
+    let headers = command.iter().position(|arg| arg == "-headers").expect("-headers");
+    assert!(headers < input, "input options come before -i");
+    assert_eq!(command.last().map(String::as_str), Some("/tmp/t.jpg"));
+    let local = build_thumbnail_command("/v/a.mp4", thumbnail_at(0), Path::new("/tmp/t.jpg"), None);
+    assert!(local.windows(2).any(|pair| pair == ["-ss", "0.000"]));
+    assert!(!local.iter().any(|arg| arg == "-headers" || arg == "-http_proxy"));
 }
