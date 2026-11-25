@@ -79,8 +79,9 @@ pub const LOGIN_URL: &str = "https://huangguoai.com/profile/";
 pub const SESSION_COOKIE_URLS: [&str; 1] = ["https://huangguoai.com/"];
 /// The `HttpOnly` cookie the API reads a login from; `_LOGIN_` beside it is only a marker.
 /// In the site's CDN ("cloudfront compat") mode the login token lives in `localStorage`
-/// under [`SESSION_STORAGE_KEY`] instead and goes out as `Authorization: Bearer`; the
-/// 登录态 page stores it under this cookie's name either way.
+/// under [`SESSION_STORAGE_KEY`] instead, and a signed-in request only counts inside the
+/// encrypted channel (see [`edge`]); the 登录态 page stores the token under this cookie's
+/// name either way.
 pub const SESSION_COOKIE: &str = "_USER_TOKEN_";
 /// The `localStorage` record (`{"version": 1, "token": ..., "expires_at": ...}`) of that mode.
 pub const SESSION_STORAGE_KEY: &str = "__edge_persistent_session_v1__";
@@ -782,6 +783,72 @@ impl Api {
             .header("Referer", format!("{}/", self.host))
     }
 
+    /// A POST of `body` as JSON, the way the encrypted channel takes it.
+    fn post_json(&self, path: &str, body: &Json) -> Request {
+        Request::post(self.url(path), serde_json::to_vec(body).unwrap_or_default())
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("Origin", self.host.clone())
+            .header("Referer", format!("{}/", self.host))
+    }
+
+    /// One POST to the encrypted channel's endpoint; its JSON answer.
+    async fn channel_post(&self, endpoint: &str, body: &Json) -> Result<Json, JobError> {
+        self.pace().await;
+        let response = self
+            .http
+            .send(self.post_json(endpoint, body))
+            .await
+            .map_err(|error| pyerr::transport_error(&error))?;
+        let status = response.status();
+        let bytes = response.bytes().await.map_err(|error| pyerr::transport_error(&error))?;
+        if status != 200 {
+            let detail = String::from_utf8_lossy(&bytes);
+            return Err(huangguo_error(format!(
+                "Huangguo {endpoint} answered HTTP {status}: {}",
+                detail.chars().take(200).collect::<String>()
+            )));
+        }
+        serde_json::from_slice(&bytes).map_err(|error| huangguo_error(format!("Huangguo {endpoint} did not answer JSON: {error}")))
+    }
+
+    /// A signed-in request: through the encrypted channel (`/api/user/request`, see [`edge`]),
+    /// the only way the site takes a login. Its `data`, after the inner answer's `status`
+    /// said 1; an inner 401 is an `Unauthorized` error carrying the site's message.
+    pub(crate) async fn signed_in_json(&self, method: &str, path: &str, session: &str) -> Result<Json, JobError> {
+        let endpoint = "/api/user/request";
+        let (private, hello) = edge::hello()?;
+        let answer = self.channel_post(endpoint, &hello).await?;
+        let channel = edge::Session::open(private, "user", &answer)?;
+        let (sequence, timestamp) = (1, channel.server_time);
+        let packet = serde_json::json!({
+            "request": {"method": method, "path": path, "body": "", "content_type": ""},
+            "authorization": format!("Bearer {session}"),
+        });
+        let call = channel.seal(sequence, timestamp, &packet)?;
+        let result = self.channel_post(endpoint, &call).await?;
+        let inner = channel.open_result(sequence, timestamp, &result)?;
+        let answer: Json = serde_json::from_slice(&inner.body).unwrap_or(Json::Null);
+        if inner.status == HTTP_UNAUTHORIZED {
+            let message = text(answer.get("msg"));
+            return Err(JobError::new(
+                "Unauthorized",
+                if message.is_empty() { "unauthorized".to_owned() } else { message },
+            ));
+        }
+        if !(200..300).contains(&inner.status) {
+            return Err(huangguo_error(format!("Huangguo {path} answered HTTP {}", inner.status)));
+        }
+        if int(answer.get("status")) != Some(1) {
+            let message = text(answer.get("msg"));
+            return Err(huangguo_error(format!(
+                "Huangguo {path} refused: {}",
+                if message.is_empty() { "status is not 1" } else { &message }
+            )));
+        }
+        Ok(answer.get("data").cloned().unwrap_or(Json::Null))
+    }
+
     fn post(&self, path: &str) -> Request {
         Request::post(self.url(path), b"{}".to_vec())
             .header("Content-Type", "application/json")
@@ -888,16 +955,7 @@ impl Api {
     /// login. `None` when the site no longer takes the session.
     pub(crate) async fn favorites_page(&self, session: &str, page: i64) -> Result<Option<(Vec<Listed>, i64)>, JobError> {
         let path = format!("{FAVORITES_PATH}?page={page}&size={PAGE_SIZE}");
-        let cookie = format!("{SESSION_COOKIE}={session}");
-        let bearer = format!("Bearer {session}");
-        match self
-            .json(&path, || {
-                self.get(&path)
-                    .header("Cookie", cookie.clone())
-                    .header("Authorization", bearer.clone())
-            })
-            .await
-        {
+        match self.signed_in_json("GET", &path, session).await {
             Ok(data) => Ok(Some(parse_favorites(&data))),
             Err(error) if error.class_name() == "Unauthorized" => Ok(None),
             Err(error) => Err(error),
@@ -945,16 +1003,7 @@ pub async fn verify_session_at(host: &str, cookies: &[StoredCookie], proxy: &str
         Err(error) => return failed(format!("Huangguo unreachable: {error}")),
     };
     let api = Api::new(client, host, tokio_sleeper(), 0.0);
-    let cookie = format!("{SESSION_COOKIE}={session}");
-    let bearer = format!("Bearer {session}");
-    match api
-        .json(ACCOUNT_PATH, || {
-            api.get(ACCOUNT_PATH)
-                .header("Cookie", cookie.clone())
-                .header("Authorization", bearer.clone())
-        })
-        .await
-    {
+    match api.signed_in_json("GET", ACCOUNT_PATH, session).await {
         Ok(data) => {
             let user = data.get("user").unwrap_or(&data);
             let account = ["nickname", "username"]
@@ -968,7 +1017,7 @@ pub async fn verify_session_at(host: &str, cookies: &[StoredCookie], proxy: &str
                 message: String::new(),
             }
         }
-        Err(error) if error.class_name() == "Unauthorized" => failed("Huangguo rejected the session (401)".to_owned()),
+        Err(error) if error.class_name() == "Unauthorized" => failed(format!("Huangguo rejected the session (401 {})", error.message())),
         Err(error) => failed(format!("Huangguo unreachable: {}", error.formatted())),
     }
 }
@@ -1679,6 +1728,8 @@ fn bytes_gib(bytes: u64) -> f64 {
     let value = bytes as f64 / (1_u64 << 30) as f64;
     value
 }
+
+mod edge;
 
 #[cfg(test)]
 mod tests;

@@ -455,8 +455,11 @@ that names it:
 1. **Favourites**: `/api/users/me/collects` with the login the 登录态 page saved for 黄果短剧. The
    site's CDN mode keeps the login token in `localStorage` (`__edge_persistent_session_v1__`) rather
    than in its `_USER_TOKEN_` cookie, so the login window reads it from there when the cookie does not
-   come, stores it under the cookie's name, and the request sends it both ways (`Cookie` and
-   `Authorization: Bearer`). This is the only request that carries the login; series details, playback
+   come and stores it under the cookie's name. In that mode the plain routes ignore a login, so the
+   favourites list (and the 登录态 page's check, `/api/account/me`) go through the site's encrypted
+   channel, `dx150-edge-v1` (`POST /api/user/request`: a P-256 ECDH handshake, HKDF-SHA256 keys,
+   AES-256-GCM, the token as `Bearer` inside the sealed packet; `huangguo/edge.rs`). This is the only
+   request that carries the login; series details, playback
    URLs, covers and the episode downloads go out without it. Without a login the favourites are
    skipped; a login the site rejects (401) is marked invalid on the 登录态 page and skipped too.
    Excluded tags do not apply to favourites.

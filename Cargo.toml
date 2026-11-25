@@ -76,6 +76,8 @@ regex = "1"
 # Look-ahead and back-references in patterns ported from Python `re` (Hanime1, WP8).
 fancy-regex = "0.20"
 reqwest = { version = "0.13", default-features = false }
+# P-256 ECDH, HKDF and AES-GCM of Huangguo's encrypted API channel; the build that rustls already uses.
+ring = "0.17"
 rsa = "0.10"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1", features = ["derive"] }

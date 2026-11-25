@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use aes::Aes128;
 use aes::cipher::{Array, BlockCipherEncrypt as _, KeyInit as _};
+use base64::Engine as _;
 use fav_core::settings::{self, Defaults as _};
 use fav_core::validate::PyPath;
 use fav_net::retry::RecordingSleeper;
@@ -75,6 +76,9 @@ fn series_json(id: i64, title: &str, tags: &[&str], episodes: &[(i64, i64)]) -> 
     })
 }
 
+/// One session of the fake encrypted channel: the shared secret, the salt and the info.
+type ChannelSession = (Vec<u8>, Vec<u8>, String);
+
 /// The session value the fake site takes as a live login.
 const GOOD_SESSION: &str = "good-session";
 
@@ -87,6 +91,104 @@ struct Site {
     favorites: Mutex<Vec<Json>>,
     series: Mutex<HashMap<i64, Json>>,
     refuse_playback: bool,
+    /// The encrypted channel's sessions: sid to shared secret, salt and info.
+    channel: Mutex<HashMap<String, ChannelSession>>,
+    /// Every call through the channel: the inner path and the authorization it carried.
+    channel_calls: Mutex<Vec<(String, String)>>,
+}
+
+const CHANNEL_SALT: [u8; 32] = [7; 32];
+const SERVER_TIME: i64 = 1_795_600_000;
+
+/// The inner answer to a signed-in route: the session must be the good one.
+fn signed_in_route(site: &Site, path: &str, authorization: &str) -> (u16, Json) {
+    if authorization != format!("Bearer {GOOD_SESSION}") {
+        let message = if authorization.is_empty() {
+            "unauthorized"
+        } else {
+            "invalid token"
+        };
+        return (401, json!({"data": [], "status": 0, "msg": message}));
+    }
+    let route = path.split('?').next().unwrap_or_default();
+    if route == FAVORITES_PATH {
+        let items = site.favorites.lock().expect("favorites").clone();
+        return (200, ok(&json!({"items": items, "pagination": {"page": 1, "pages": 1}})));
+    }
+    if route == ACCOUNT_PATH {
+        return (200, ok(&json!({"id": 7, "username": "tester", "nickname": "测试员"})));
+    }
+    (404, json!({"data": [], "status": 0, "msg": "not found"}))
+}
+
+/// The server side of the site's encrypted channel (`dx150-edge-v1`).
+fn channel(site: &Site, seen: &Seen) -> Reply {
+    use ring::{aead, agreement};
+
+    let body: Json = serde_json::from_slice(&seen.body).expect("channel JSON");
+    let decode = |value: &Json| {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(value.as_str().expect("text"))
+            .expect("base64url")
+    };
+    let encode = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+    match body["type"].as_str() {
+        Some("hello") => {
+            let private =
+                agreement::EphemeralPrivateKey::generate(&agreement::ECDH_P256, &ring::rand::SystemRandom::new()).expect("server key");
+            let public = private.compute_public_key().expect("server public key");
+            let client = decode(&body["client_pub"]);
+            let shared = agreement::agree_ephemeral(
+                private,
+                &agreement::UnparsedPublicKey::new(&agreement::ECDH_P256, &client),
+                <[u8]>::to_vec,
+            )
+            .expect("agreement");
+            let mut sessions = site.channel.lock().expect("channel");
+            let sid = format!("session-{:08}", sessions.len() + 1);
+            let info = edge::info("user", "huangguoai.com", "k1", &sid);
+            sessions.insert(sid.clone(), (shared, CHANNEL_SALT.to_vec(), info));
+            Reply::json(
+                200,
+                &json!({"v": 1, "type": "hello", "kid": "k1", "sid": sid, "site": "huangguoai.com",
+                    "server_pub": encode(public.as_ref()), "salt": encode(&CHANNEL_SALT),
+                    "server_time": SERVER_TIME, "expires_at": SERVER_TIME + 300}),
+            )
+        }
+        Some("call") => {
+            let sid = body["sid"].as_str().expect("sid").to_owned();
+            let (shared, salt, info) = site.channel.lock().expect("channel").get(&sid).cloned().expect("a known session");
+            let (request_key, response_key) = edge::keys(&shared, &salt, &info).expect("keys");
+            let sequence = u32::try_from(body["seq"].as_i64().expect("seq")).expect("u32");
+            let timestamp = body["ts"].as_i64().expect("ts");
+            let mut data = decode(&body["ciphertext"]);
+            let aad = edge::additional_data(&info, "req", sequence, timestamp);
+            let plain = request_key
+                .open_in_place(edge::nonce(sequence), aead::Aad::from(aad.as_bytes()), &mut data)
+                .expect("the request decrypts");
+            let packet: Json = serde_json::from_slice(plain).expect("packet JSON");
+            let path = packet["request"]["path"].as_str().expect("path").to_owned();
+            let authorization = packet["authorization"].as_str().unwrap_or_default().to_owned();
+            site.channel_calls
+                .lock()
+                .expect("calls")
+                .push((path.clone(), authorization.clone()));
+            let (status, answer) = signed_in_route(site, &path, &authorization);
+            let inner = json!({"status": status, "headers": {"content-type": ["application/json"]},
+                "body": base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&answer).expect("JSON"))});
+            let mut sealed = serde_json::to_vec(&inner).expect("JSON");
+            let aad = edge::additional_data(&info, "res", sequence, timestamp);
+            response_key
+                .seal_in_place_append_tag(edge::nonce(sequence), aead::Aad::from(aad.as_bytes()), &mut sealed)
+                .expect("seal");
+            Reply::json(
+                200,
+                &json!({"v": 1, "type": "result", "kid": "k1", "sid": sid, "seq": sequence, "ts": timestamp,
+                    "ciphertext": encode(&sealed)}),
+            )
+        }
+        _ => Reply::status(400),
+    }
 }
 
 fn unauthorized() -> Reply {
@@ -97,32 +199,14 @@ fn unauthorized() -> Reply {
     }
 }
 
-/// The site takes the login as the cookie (its native mode) or as a bearer token (its CDN
-/// mode, where the token lives in localStorage).
-fn signed_in(seen: &Seen) -> bool {
-    seen.header("cookie") == Some(&format!("{SESSION_COOKIE}={GOOD_SESSION}"))
-        || seen.header("authorization") == Some(&format!("Bearer {GOOD_SESSION}"))
-}
-
-/// The CDN mode alone: only the bearer token counts.
-fn bearer_only(seen: &Seen) -> bool {
-    seen.header("authorization") == Some(&format!("Bearer {GOOD_SESSION}"))
-}
-
 fn answer(site: &Site, seen: &Seen) -> Reply {
     let path = seen.path();
-    if path == FAVORITES_PATH {
-        if !signed_in(seen) {
-            return unauthorized();
-        }
-        let items = site.favorites.lock().expect("favorites").clone();
-        return Reply::json(200, &ok(&json!({"items": items, "pagination": {"page": 1, "pages": 1}})));
+    if path == "/api/user/request" && seen.method == "POST" {
+        return channel(site, seen);
     }
-    if path == ACCOUNT_PATH {
-        if !signed_in(seen) {
-            return unauthorized();
-        }
-        return Reply::json(200, &ok(&json!({"id": 7, "username": "tester", "nickname": "测试员"})));
+    // The plain routes ignore any login, as the site's CDN mode does.
+    if path == FAVORITES_PATH || path == ACCOUNT_PATH {
+        return unauthorized();
     }
     if let Some(kind) = path.strip_prefix("/api/ranks/") {
         return site.rankings.lock().expect("rankings").get(kind).map_or_else(
@@ -740,15 +824,21 @@ async fn favourites_then_rankings_then_new_series_and_only_the_list_carries_the_
         !harness.paths().iter().any(|path| path == "/api/videos/102"),
         "excluded in a ranking"
     );
-    let with_login: Vec<String> = harness
-        .web
-        .seen()
-        .iter()
-        .filter(|seen| seen.header("cookie").is_some() || seen.header("authorization").is_some())
-        .map(|seen| seen.path().to_owned())
-        .collect();
-    assert_eq!(with_login, [FAVORITES_PATH], "only the favourites list is asked with the login");
-    assert!(harness.web.seen().iter().any(bearer_only));
+    // The login only ever travels inside the encrypted channel, and only for the favourites.
+    assert!(
+        harness
+            .web
+            .seen()
+            .iter()
+            .all(|seen| seen.header("cookie").is_none() && seen.header("authorization").is_none())
+    );
+    assert_eq!(
+        *harness.site.channel_calls.lock().expect("calls"),
+        [(
+            format!("{FAVORITES_PATH}?page=1&size={PAGE_SIZE}"),
+            format!("Bearer {GOOD_SESSION}")
+        )]
+    );
     for call in runner.calls() {
         assert!(
             !call.iter().any(|arg| arg.contains(GOOD_SESSION)),
@@ -854,15 +944,10 @@ async fn without_a_metadata_path_no_metadata_is_written() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_login_page_checks_the_session_with_the_account_endpoint() {
-    let web = FakeWeb::start(|seen| {
-        if seen.path() == ACCOUNT_PATH && signed_in(seen) {
-            Reply::json(200, &ok(&json!({"id": 7, "username": "tester", "nickname": "测试员"})))
-        } else {
-            unauthorized()
-        }
-    })
-    .await;
+async fn the_login_page_checks_the_session_through_the_encrypted_channel() {
+    let site = Arc::new(Site::default());
+    let shared = Arc::clone(&site);
+    let web = FakeWeb::start(move |seen| answer(&shared, seen)).await;
     let cookie = |value: &str| StoredCookie {
         name: SESSION_COOKIE.to_owned(),
         value: value.to_owned(),
@@ -872,9 +957,22 @@ async fn the_login_page_checks_the_session_with_the_account_endpoint() {
     };
     let host = "http://huangguoai.test";
     let live = verify_session_at(host, &[cookie(GOOD_SESSION)], &web.proxy).await;
-    assert_eq!((live.ok, live.account.as_str()), (true, "测试员"));
+    assert_eq!((live.ok, live.account.as_str()), (true, "测试员"), "{live:?}");
     let stale = verify_session_at(host, &[cookie("expired")], &web.proxy).await;
-    assert!(!stale.ok && stale.message.contains("401"), "{stale:?}");
+    assert!(!stale.ok, "{stale:?}");
+    assert_eq!(stale.message, "Huangguo rejected the session (401 invalid token)");
+    assert_eq!(
+        *site.channel_calls.lock().expect("calls"),
+        [
+            (ACCOUNT_PATH.to_owned(), format!("Bearer {GOOD_SESSION}")),
+            (ACCOUNT_PATH.to_owned(), "Bearer expired".to_owned())
+        ]
+    );
+    assert!(
+        web.seen()
+            .iter()
+            .all(|seen| seen.path() == "/api/user/request" && seen.header("authorization").is_none())
+    );
     let before = web.seen().len();
     let none = verify_session_at(host, &[], &web.proxy).await;
     assert!(!none.ok);
@@ -920,25 +1018,4 @@ async fn an_in_house_series_goes_into_the_folder_of_its_type() {
     );
     assert!(harness.meta.path().join("漫剧").join("高三爱情故事").join("tvshow.nfo").is_file());
     assert!(!harness.root.path().join("黄果原创").exists());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_login_check_works_when_the_site_only_takes_the_bearer_token() {
-    let web = FakeWeb::start(|seen| {
-        if seen.path() == ACCOUNT_PATH && bearer_only(seen) {
-            Reply::json(200, &ok(&json!({"id": 7, "username": "tester"})))
-        } else {
-            unauthorized()
-        }
-    })
-    .await;
-    let cookie = StoredCookie {
-        name: SESSION_COOKIE.to_owned(),
-        value: GOOD_SESSION.to_owned(),
-        domain: "huangguoai.com".to_owned(),
-        path: "/".to_owned(),
-        expires: None,
-    };
-    let live = verify_session_at("http://huangguoai.test", &[cookie], &web.proxy).await;
-    assert_eq!((live.ok, live.account.as_str()), (true, "tester"));
 }
