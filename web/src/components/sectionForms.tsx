@@ -252,9 +252,9 @@ function HuangguoForm(props: SectionFormProps) {
           />
           <CheckboxField
             label="封面和视频也走代理"
-            checked={bool(props.value, 'proxy_media', true)}
+            checked={bool(props.value, 'proxy_media', false)}
             onChange={(next) => set('proxy_media', next)}
-            hint="视频 CDN 目前没有限制，确认直连可用后可以关掉省代理流量。"
+            hint="默认不勾：视频 CDN 目前没有限制，视频流量走代理会把代理（sing-box）的内存撑爆。补截缩略图拉的视频片段也跟着这一项。"
           />
           <CheckboxField
             label="登录态走代理"
@@ -267,6 +267,12 @@ function HuangguoForm(props: SectionFormProps) {
             value={num(props.value, 'max_episodes_per_run', 100)}
             onChange={(next) => set('max_episodes_per_run', next)}
             hint="串行下载；一集 50–130 MB。超出的留给下一轮。"
+          />
+          <NumberField
+            label="每轮最多补截缩略图"
+            value={num(props.value, 'thumbnails_per_run', 60)}
+            onChange={(next) => set('thumbnails_per_run', next)}
+            hint="给之前存下、还没有缩略图的集补截（新下载的集下载完就截，不占这个数）。已上传走的集要请求一次播放地址、拉一小段视频，所以别设太大。0 = 不补。"
           />
           <NumberField
             label="请求间隔（秒）"
@@ -897,6 +903,9 @@ export function validateSection(section: string, value: Record<string, unknown>)
     }
     if (num(value, 'max_episodes_per_run', 100) < 1) {
       issues.push('每轮最多下载集数至少为 1');
+    }
+    if (num(value, 'thumbnails_per_run', 60) < 0) {
+      issues.push('每轮最多补截缩略图不能为负数');
     }
   }
 

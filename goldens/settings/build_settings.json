@@ -102,9 +102,10 @@
             "cache_limit_gb": 200,
             "favorites_cache_limit_gb": 50,
             "proxy": "",
-            "proxy_media": true,
+            "proxy_media": false,
             "login_via_proxy": false,
             "max_episodes_per_run": 100,
+            "thumbnails_per_run": 60,
             "sleep_request_seconds": 1.0
           },
           "jandan": {
@@ -300,9 +301,10 @@
             "cache_limit_gb": 200,
             "favorites_cache_limit_gb": 50,
             "proxy": "",
-            "proxy_media": true,
+            "proxy_media": false,
             "login_via_proxy": false,
             "max_episodes_per_run": 100,
+            "thumbnails_per_run": 60,
             "sleep_request_seconds": 1.0
           },
           "jandan": {
@@ -498,9 +500,10 @@
             "cache_limit_gb": 200,
             "favorites_cache_limit_gb": 50,
             "proxy": "",
-            "proxy_media": true,
+            "proxy_media": false,
             "login_via_proxy": false,
             "max_episodes_per_run": 100,
+            "thumbnails_per_run": 60,
             "sleep_request_seconds": 1.0
           },
           "jandan": {
@@ -696,9 +699,10 @@
             "cache_limit_gb": 200,
             "favorites_cache_limit_gb": 50,
             "proxy": "",
-            "proxy_media": true,
+            "proxy_media": false,
             "login_via_proxy": false,
             "max_episodes_per_run": 100,
+            "thumbnails_per_run": 60,
             "sleep_request_seconds": 1.0
           },
           "jandan": {

@@ -1105,7 +1105,8 @@ pub struct Huangguo {
     pub favorites_cache_limit_gb: i64,
     /// Egress for the site's API; empty uses the environment's.
     pub proxy: String,
-    /// Whether covers and episode streams go through `proxy` too.
+    /// Whether covers and episode streams go through `proxy` too. Off by default: the video
+    /// CDN has shown no limits, and the video traffic is what fills the proxy's memory.
     pub proxy_media: bool,
     /// Whether the login (the 登录态 window, its check and the favourites list) goes through
     /// `proxy` too. Off by default: the site binds a login to the address it was made from,
@@ -1113,6 +1114,9 @@ pub struct Huangguo {
     pub login_via_proxy: bool,
     /// How many episodes one run downloads at most; the rest wait for the next run.
     pub max_episodes_per_run: i64,
+    /// How many thumbnails owed by earlier runs one run takes at most (each one stream
+    /// request when the episode was uploaded already); 0 takes none.
+    pub thumbnails_per_run: i64,
     pub sleep_request_seconds: f64,
 }
 
@@ -1149,9 +1153,10 @@ impl Model for Huangguo {
             after(int, positive_count("favorites_cache_limit_gb")),
         );
         let proxy = fields.optional("proxy", String::new, stripped_string);
-        let proxy_media = fields.optional("proxy_media", || true, boolean);
+        let proxy_media = fields.optional("proxy_media", || false, boolean);
         let login_via_proxy = fields.optional("login_via_proxy", || false, boolean);
         let max_episodes_per_run = fields.optional("max_episodes_per_run", || 100, after(int, positive_count("max_episodes_per_run")));
+        let thumbnails_per_run = fields.optional("thumbnails_per_run", || 60, after(int, non_negative_count("thumbnails_per_run")));
         let sleep_request_seconds = fields.optional(
             "sleep_request_seconds",
             || 1.0,
@@ -1175,6 +1180,7 @@ impl Model for Huangguo {
                     proxy_media: proxy_media?,
                     login_via_proxy: login_via_proxy?,
                     max_episodes_per_run: max_episodes_per_run?,
+                    thumbnails_per_run: thumbnails_per_run?,
                     sleep_request_seconds: sleep_request_seconds?,
                 })
             },
@@ -1208,6 +1214,7 @@ impl Model for Huangguo {
         entries.push(("proxy_media", Value::Bool(self.proxy_media)));
         entries.push(("login_via_proxy", Value::Bool(self.login_via_proxy)));
         entries.push(("max_episodes_per_run", Value::from(self.max_episodes_per_run)));
+        entries.push(("thumbnails_per_run", Value::from(self.thumbnails_per_run)));
         entries.push(("sleep_request_seconds", dump_float(self.sleep_request_seconds)));
         dict(entries)
     }
@@ -1437,6 +1444,16 @@ fn video_path(value: &Value, loc: &[LocItem]) -> Result<Option<PyPath>, Errors> 
         return Ok(None);
     }
     nullable(path)(value, loc)
+}
+
+fn non_negative_count(field: &'static str) -> impl FnOnce(i64) -> Result<i64, String> {
+    move |value| {
+        if value < 0 {
+            Err(format!("{field} must be greater than or equal to 0"))
+        } else {
+            Ok(value)
+        }
+    }
 }
 
 fn positive_count(field: &'static str) -> impl FnOnce(i64) -> Result<i64, String> {

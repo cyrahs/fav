@@ -604,8 +604,9 @@ fn the_settings_default_to_the_two_live_categories_without_gay_series() {
     let cfg = settings::Huangguo::defaults();
     assert_eq!(cfg.categories, ["ai-duanju", "ai-manju"]);
     assert_eq!(cfg.excluded_tags, ["男同"]);
-    assert!(cfg.proxy_media);
+    assert!(!cfg.proxy_media, "videos go direct by default");
     assert_eq!(cfg.max_episodes_per_run, 100);
+    assert_eq!(cfg.thumbnails_per_run, 60);
     assert_eq!(cfg.backfill_days, 3);
     assert!(cfg.validate_runnable().is_empty());
     let mut empty = cfg.clone();
@@ -664,9 +665,9 @@ async fn a_run_saves_every_available_episode_for_emby_and_skips_excluded_tags() 
     let calls = runner.calls();
     assert_eq!(calls.len(), 3);
     assert!(
+        !calls[0].iter().any(|arg| arg == "--proxy"),
+        "the video goes direct unless proxy_media: {:?}",
         calls[0]
-            .windows(2)
-            .any(|pair| pair == ["--proxy", "http://us.proxy.svc.cluster.local"])
     );
     assert_eq!(
         calls[0].last().map(String::as_str),
@@ -1064,6 +1065,8 @@ fn the_login_goes_direct_unless_asked_to_use_the_proxy() {
     cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
     assert!(!cfg.login_via_proxy, "off by default");
     assert_eq!(login_proxy(&cfg), "");
+    assert_eq!(media_proxy(&cfg), "", "media goes direct by default too");
+    cfg.proxy_media = true;
     assert_eq!(media_proxy(&cfg), "http://us.proxy.svc.cluster.local");
     cfg.login_via_proxy = true;
     assert_eq!(login_proxy(&cfg), "http://us.proxy.svc.cluster.local");
@@ -1175,6 +1178,7 @@ async fn thumbnails_owed_after_the_upload_come_from_the_stream_without_the_login
     let runner = Arc::new(FakeRunner::default());
     let mut cfg = config(harness.root.path());
     cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
+    cfg.proxy_media = true;
     harness.run(cfg, &runner).update().await.expect("second run");
     assert!(runner.calls().is_empty(), "nothing is downloaded again");
     let thumbnails = runner.thumbnails();
@@ -1238,4 +1242,28 @@ fn the_thumbnail_command_reads_a_stream_through_the_proxy_with_the_referer() {
     let local = build_thumbnail_command("/v/a.mp4", thumbnail_at(0), Path::new("/tmp/t.jpg"), None);
     assert!(local.windows(2).any(|pair| pair == ["-ss", "0.000"]));
     assert!(!local.iter().any(|arg| arg == "-headers" || arg == "-http_proxy"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn thumbnails_per_run_bounds_the_backfill_and_zero_takes_none() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner {
+        fail_thumbnails: true,
+        ..FakeRunner::default()
+    });
+    let mut cfg = config(harness.root.path());
+    cfg.thumbnails_per_run = 0;
+    harness.run(cfg.clone(), &runner).update().await.expect("first run");
+    assert_eq!(runner.thumbnails().len(), 3, "one try right after each download, no backfill at 0");
+
+    let runner = Arc::new(FakeRunner::default());
+    harness.run(cfg.clone(), &runner).update().await.expect("no backfill");
+    assert!(runner.thumbnails().is_empty());
+
+    cfg.thumbnails_per_run = 2;
+    harness.run(cfg.clone(), &runner).update().await.expect("two owed");
+    assert_eq!(runner.thumbnails().len(), 2);
+    harness.run(cfg, &runner).update().await.expect("the last one");
+    assert_eq!(runner.thumbnails().len(), 3);
+    assert_eq!(harness.images().await.len(), 2 + 3, "posters and every thumbnail");
 }
