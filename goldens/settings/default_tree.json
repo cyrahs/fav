@@ -102,6 +102,7 @@
             "favorites_cache_limit_gb": 50,
             "proxy": "",
             "proxy_media": true,
+            "login_via_proxy": false,
             "max_episodes_per_run": 100,
             "sleep_request_seconds": 1.0
           },

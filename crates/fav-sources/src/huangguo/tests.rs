@@ -347,6 +347,7 @@ impl Harness {
             cfg,
             self.client(),
             self.client(),
+            self.client(),
             self.db.db().clone(),
             Arc::clone(&self.notifier) as SharedNotifier,
             Arc::clone(runner) as Arc<dyn Runner>,
@@ -1018,4 +1019,15 @@ async fn an_in_house_series_goes_into_the_folder_of_its_type() {
     );
     assert!(harness.meta.path().join("漫剧").join("高三爱情故事").join("tvshow.nfo").is_file());
     assert!(!harness.root.path().join("黄果原创").exists());
+}
+
+#[test]
+fn the_login_goes_direct_unless_asked_to_use_the_proxy() {
+    let mut cfg = settings::Huangguo::defaults();
+    cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
+    assert!(!cfg.login_via_proxy, "off by default");
+    assert_eq!(login_proxy(&cfg), "");
+    assert_eq!(media_proxy(&cfg), "http://us.proxy.svc.cluster.local");
+    cfg.login_via_proxy = true;
+    assert_eq!(login_proxy(&cfg), "http://us.proxy.svc.cluster.local");
 }

@@ -248,13 +248,19 @@ function HuangguoForm(props: SectionFormProps) {
             onChange={(next) => set('proxy', next)}
             mono
             placeholder="http://us.proxy.svc.cluster.local"
-            hint="站点 API 和「登录态」的登录窗口走这个出口；留空则直连（或走全局 HTTP_PROXY）。"
+            hint="榜单、列表、详情和播放地址走这个出口；留空则直连（或走全局 HTTP_PROXY）。"
           />
           <CheckboxField
             label="封面和视频也走代理"
             checked={bool(props.value, 'proxy_media', true)}
             onChange={(next) => set('proxy_media', next)}
             hint="视频 CDN 目前没有限制，确认直连可用后可以关掉省代理流量。"
+          />
+          <CheckboxField
+            label="登录态走代理"
+            checked={bool(props.value, 'login_via_proxy', false)}
+            onChange={(next) => set('login_via_proxy', next)}
+            hint="默认不勾：「登录态」页的登录窗口、登录校验和收藏列表都直连。黄果把登录绑定在登录时的出口 IP 上，代理的出口 IP 会变，走代理就得频繁重新登录。改了这一项（或在勾选时改了代理）都要重新登录一次。"
           />
           <NumberField
             label="每轮最多下载集数"

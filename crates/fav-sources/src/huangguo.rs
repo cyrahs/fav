@@ -153,6 +153,12 @@ fn media_proxy(cfg: &settings::Huangguo) -> &str {
     if cfg.proxy_media { &cfg.proxy } else { "" }
 }
 
+/// The proxy the login uses: the 登录态 window, its check and the favourites list. Direct
+/// unless `login_via_proxy`, since the site binds a login to the address it was made from.
+pub fn login_proxy(cfg: &settings::Huangguo) -> &str {
+    if cfg.login_via_proxy { &cfg.proxy } else { "" }
+}
+
 impl Source for Huangguo {
     fn update(&mut self) -> BoxFuture<'_, Result<(), JobError>> {
         Box::pin(async move {
@@ -162,6 +168,7 @@ impl Source for Huangguo {
                 |proxy: &str| HttpClient::new(&client_options(proxy)).map_err(|error| JobError::new("ValueError", error.to_string()));
             let api = build(&cfg.proxy)?;
             let media = build(media_proxy(&cfg))?;
+            let session = build(login_proxy(&cfg))?;
             let cache = tokio::task::spawn_blocking(|| tempfile::Builder::new().prefix("fav-huangguo-").tempdir())
                 .await
                 .map_err(|error| JobError::new("RuntimeError", error.to_string()))?
@@ -171,6 +178,7 @@ impl Source for Huangguo {
                 cfg,
                 api,
                 media,
+                session,
                 self.ctx.db.clone(),
                 Arc::new(OutboxNotifier(outbox)),
                 Arc::new(SystemRunner),
@@ -1067,6 +1075,8 @@ pub(crate) struct Run {
     cfg: settings::Huangguo,
     api: Api,
     media: HttpClient,
+    /// The signed-in requests (the favourites list), through [`login_proxy`].
+    session_api: Api,
     db: Db,
     notifier: SharedNotifier,
     runner: Arc<dyn Runner>,
@@ -1084,6 +1094,7 @@ impl Run {
         cfg: settings::Huangguo,
         api: HttpClient,
         media: HttpClient,
+        session: HttpClient,
         db: Db,
         notifier: SharedNotifier,
         runner: Arc<dyn Runner>,
@@ -1092,10 +1103,12 @@ impl Run {
         now: DateTime<Utc>,
     ) -> Self {
         let api = Api::new(api, &cfg.host, Arc::clone(&sleeper), cfg.sleep_request_seconds);
+        let session_api = Api::new(session, &cfg.host, Arc::clone(&sleeper), cfg.sleep_request_seconds);
         Self {
             cfg,
             api,
             media,
+            session_api,
             db,
             notifier,
             runner,
@@ -1199,7 +1212,7 @@ impl Run {
         let mut listed = Vec::new();
         let mut page = 1;
         loop {
-            let Some((items, pages)) = self.api.favorites_page(session, page).await? else {
+            let Some((items, pages)) = self.session_api.favorites_page(session, page).await? else {
                 log().warning("Huangguo rejected the saved login; sign in again on the 登录态 page. Skipping favorites");
                 if let Err(error) = site_sessions::record_check(&self.db, SESSION_SITE, false, "rejected by the favorites list (401)").await
                 {

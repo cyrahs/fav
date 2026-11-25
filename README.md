@@ -442,8 +442,9 @@ site's back catalogue.
   "rankings": ["hot", "recommend", "potential"], // 热播, 推荐, 潜力 (飙升), 20 series each
   "cache_limit_gb": 200,                   // rankings and new series waiting on the local disk
   "favorites_cache_limit_gb": 50,          // favourites waiting on the local disk, counted apart
-  "proxy": "http://us.proxy.svc.cluster.local", // egress for the API and the login window
+  "proxy": "http://us.proxy.svc.cluster.local", // egress for rankings, listings, details, playback
   "proxy_media": true,                     // covers and episode streams through the proxy too
+  "login_via_proxy": false,                // the login window, its check and the favourites list
   "max_episodes_per_run": 100,
   "sleep_request_seconds": 1.0             // between API requests
 }
@@ -459,7 +460,10 @@ that names it:
    favourites list (and the 登录态 page's check, `/api/account/me`) go through the site's encrypted
    channel, `dx150-edge-v1` (`POST /api/user/request`: a P-256 ECDH handshake, HKDF-SHA256 keys,
    AES-256-GCM, the token as `Bearer` inside the sealed packet; `huangguo/edge.rs`). This is the only
-   request that carries the login; series details, playback
+   request that carries the login. The site binds a login to the address it was made from, and
+   a proxy's exit address changes, so the login (the 登录态 window, its check and this list) goes
+   direct unless `login_via_proxy` is set; whichever it is, the login has to be made the same way
+   the list is read, or the site answers 401 and the login has to be made again; series details, playback
    URLs, covers and the episode downloads go out without it. Without a login the favourites are
    skipped; a login the site rejects (401) is marked invalid on the 登录态 page and skipped too.
    Excluded tags do not apply to favourites.
