@@ -153,6 +153,8 @@ fn huangguo_site(load: &LoadSettings) -> LoginSite {
             &huangguo::SESSION_COOKIE_URLS,
             huangguo::SESSION_COOKIE,
         )
+        // The site's CDN mode keeps the login token in localStorage, not in the cookie.
+        .storage_session(huangguo::SESSION_COOKIE_URLS[0], huangguo::SESSION_STORAGE_KEY, "token")
         .verify(Arc::new(move |cookies: Vec<StoredCookie>| {
             let load = Arc::clone(&verify_load);
             Box::pin(async move {
