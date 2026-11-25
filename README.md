@@ -55,8 +55,8 @@ CREATE TABLE app_settings (section TEXT PRIMARY KEY, value JSONB NOT NULL, updat
 ```
 
 Sections: `web.bilibili`, `web.telegram`, `web.stellasora`, `web.nikke`, `web.bd2`, `web.azurlane`,
-`web.hanime1`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`, `web.wechat`,
-`web.zhihu`, `notifications.telegram`. The settings page groups them into two partitions — sources (`web.*`) and
+`web.hanime1`, `web.huangguo`, `web.jandan`, `web.kemono`, `web.twitter`, `web.pixiv`, `web.rednote`,
+`web.wechat`, `web.zhihu`, `notifications.telegram`. The settings page groups them into two partitions — sources (`web.*`) and
 notifications (`notifications.*`) — and shows only display names, never these internal keys. Site
 logins are not settings: they live on the 登录态 page (see [Site logins](#site-logins)). The
 `cookiecloud` section of the retired CookieCloud integration is deleted from `app_settings` on startup,
@@ -423,6 +423,49 @@ collection Zhihu no longer shows (deleted, or made private: HTTP 404 or 403) fai
 other collections are done; untick it. A profile that lost its login marks the 知乎 session invalid and
 fails the run with a `zhihu:login` notification; a security check or a browser failure fails the run
 without touching the login.
+
+#### Huangguo (黄果短剧)
+
+`web.huangguo` saves every series of 黄果短剧 (huangguoai.com) in the chosen categories, laid out for an
+Emby TV library. It reads the public JSON API the site's own pages use, so it needs no account:
+
+```jsonc
+{
+  "path": "/app/upload/huangguo",          // a folder of its own; the deployment uploads it to cloud storage
+  "host": "https://huangguoai.com",
+  "categories": ["ai-duanju", "ai-manju"], // the site's own categories (短剧, 漫剧), each a folder under path
+  "excluded_tags": ["男同"],                // a series with any of these tags is skipped whole
+  "proxy": "http://us.proxy.svc.cluster.local", // egress for the API; empty: direct (or HTTP_PROXY)
+  "proxy_media": true,                     // covers and episode streams through the proxy too
+  "max_episodes_per_run": 100,
+  "sleep_request_seconds": 1.0             // between API requests
+}
+```
+
+Every run (`25 */2 * * *` by default) lists each category newest first, every page
+(`/api/videos/category/<route>?sort=new`, about 40 requests for the whole site), and skips a series
+tagged with an excluded tag, or one whose episode count has not moved since every playable episode was
+saved (`huangguo_series.episode_count`). Each other series is read (`/api/videos/<id>`), and its missing
+playable episodes are downloaded: `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS
+stream, which `yt-dlp` saves (three tries, each with a fresh stream URL, since its signature expires).
+One run downloads at most `max_episodes_per_run` episodes, about 50 MB each; the rest wait for the next
+run, so the first backfill of the whole site takes many runs.
+
+```
+<path>/短剧/<series>/tvshow.nfo        title, plot, premiered, studio (uploader), rating, tags as genres
+<path>/短剧/<series>/poster.jpg        the cover, decrypted
+<path>/短剧/<series>/<series> S01E01.mp4
+```
+
+A series keeps the folder it was first given (`huangguo_series.dir_name`; a second series with the same
+title in a category gets ` [<id>]` appended), so its later episodes land beside the earlier ones even
+after the files moved on to cloud storage. `tvshow.nfo` and the poster are written once per series. The
+covers are AES-128-CBC encrypted; the key and IV are the ones the site's front end decrypts them with,
+read from `/static/web/js/plugins/crypto-image-protocol.js` once per run. Every file is written as
+`.part` and renamed, so an uploader watching the folder never takes half a file. Each series that saved
+something sends one notification (`短剧 | E01–E05 (5)`). A run that tried to download and saved nothing
+fails; a single failing series or episode is logged, recorded in `huangguo_series.last_error`, and tried
+again next run.
 
 ## Web UI
 

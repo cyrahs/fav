@@ -229,6 +229,31 @@ constraint hanime1_series_video hanime1_series_video_pkey PRIMARY KEY (video_id)
 constraint hanime1_series_video hanime1_series_video_video_id_check CHECK ((video_id ~ '^[1-9][0-9]*$'::text))
 index hanime1_series_video hanime1_series_video_pkey CREATE UNIQUE INDEX hanime1_series_video_pkey ON public.hanime1_series_video USING btree (video_id)
 index hanime1_series_video idx_hanime1_series_video_series CREATE INDEX idx_hanime1_series_video_series ON public.hanime1_series_video USING btree (canonical_video_id)
+table huangguo
+column huangguo.1 video_id bigint not null
+column huangguo.2 ep_num integer not null
+column huangguo.3 title text not null default ''::text
+column huangguo.4 series_title text not null default ''::text
+column huangguo.5 category text not null default ''::text
+column huangguo.6 duration integer not null default 0
+column huangguo.7 local_path text not null default ''::text
+column huangguo.8 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
+constraint huangguo huangguo_pkey PRIMARY KEY (video_id, ep_num)
+index huangguo huangguo_pkey CREATE UNIQUE INDEX huangguo_pkey ON public.huangguo USING btree (video_id, ep_num)
+table huangguo_series
+column huangguo_series.1 video_id bigint not null
+column huangguo_series.2 category text not null default ''::text
+column huangguo_series.3 title text not null default ''::text
+column huangguo_series.4 author text not null default ''::text
+column huangguo_series.5 tags text not null default ''::text
+column huangguo_series.6 dir_name text not null default ''::text
+column huangguo_series.7 episode_count integer not null default 0
+column huangguo_series.8 metadata_written boolean not null default false
+column huangguo_series.9 last_error text not null default ''::text
+column huangguo_series.10 created_at timestamp with time zone not null default CURRENT_TIMESTAMP
+column huangguo_series.11 updated_at timestamp with time zone not null default CURRENT_TIMESTAMP
+constraint huangguo_series huangguo_series_pkey PRIMARY KEY (video_id)
+index huangguo_series huangguo_series_pkey CREATE UNIQUE INDEX huangguo_series_pkey ON public.huangguo_series USING btree (video_id)
 table jandan
 column jandan.1 fav_type integer not null
 column jandan.2 pic_id integer not null

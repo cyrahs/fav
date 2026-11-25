@@ -34,6 +34,7 @@ pub mod hanime1_author;
 #[cfg(test)]
 mod hanime1_golden;
 pub mod hanime1_series;
+pub mod huangguo;
 pub mod jandan;
 pub mod kemono;
 pub mod kemono_creator;
@@ -102,6 +103,7 @@ pub fn registry(ctx: &SourceContext) -> Registry {
     jandan::register(&mut registry, ctx);
     kemono::register(&mut registry, ctx);
     hanime1::register(&mut registry, ctx);
+    huangguo::register(&mut registry, ctx);
     nikke::register(&mut registry, ctx);
     bd2::register(&mut registry, ctx);
     azurlane::crawl::register(&mut registry, ctx);

@@ -649,6 +649,37 @@ CREATE TABLE IF NOT EXISTS zhihu_collection_item (
     PRIMARY KEY (collection_id, url)
 );
 
+-- The Huangguo (黄果短剧) source: every series a run looked at, the directory it was given
+-- (kept for good, so a renamed series stays in one place), the episode count it listed when
+-- every available episode had been saved, whether its tvshow.nfo and poster were written
+-- (once: the files move on to cloud storage), and the last failure.
+CREATE TABLE IF NOT EXISTS huangguo_series (
+    video_id BIGINT PRIMARY KEY,
+    category TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '',
+    dir_name TEXT NOT NULL DEFAULT '',
+    episode_count INTEGER NOT NULL DEFAULT 0,
+    metadata_written BOOLEAN NOT NULL DEFAULT FALSE,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Every downloaded Huangguo episode, by series and episode number.
+CREATE TABLE IF NOT EXISTS huangguo (
+    video_id BIGINT NOT NULL,
+    ep_num INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    series_title TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    duration INTEGER NOT NULL DEFAULT 0,
+    local_path TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (video_id, ep_num)
+);
+
 -- ============================================================================
 -- Columns added after a table was first created, for databases that predate them
 -- ============================================================================

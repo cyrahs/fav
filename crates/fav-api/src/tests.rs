@@ -737,8 +737,8 @@ async fn jobs_endpoint_returns_registered_jobs() {
     let body = answer.json();
     let items = golden::list(golden::get(&body, "items"));
     // Every job is listed, whether its source is ported yet or not (DIVERGENCES.md D17).
-    assert_eq!(items.len(), 14);
-    assert_eq!(golden::int(golden::get(&body, "total")), 14);
+    assert_eq!(items.len(), 15);
+    assert_eq!(golden::int(golden::get(&body, "total")), 15);
     assert_eq!(
         items[0],
         pyjson::loads(
@@ -1253,7 +1253,7 @@ async fn archive_lists_the_real_tables() {
         *bilibili,
         pyjson::loads(r#"{"source": "bilibili", "name": "Bilibili", "total": 2, "latest_at": "2026-03-01T12:00:00"}"#).unwrap()
     );
-    assert_eq!(golden::int(golden::get(&body, "total")), 12);
+    assert_eq!(golden::int(golden::get(&body, "total")), 13);
     harness.finish().await;
 }
 

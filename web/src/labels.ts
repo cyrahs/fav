@@ -14,6 +14,7 @@ const SECTION_LABELS: Record<string, string> = {
   'web.bd2': 'BD2',
   'web.azurlane': 'Azur Lane',
   'web.hanime1': 'Hanime1',
+  'web.huangguo': '黄果短剧',
   'web.jandan': '煎蛋',
   'web.kemono': 'Kemono',
   'web.twitter': 'X',

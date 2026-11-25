@@ -99,6 +99,43 @@
           ]
         },
         {
+          "key": "huangguo",
+          "name": "Huangguo",
+          "table": "huangguo",
+          "id_columns": [
+            "video_id",
+            "ep_num"
+          ],
+          "title_column": "series_title",
+          "columns": [
+            "ep_num",
+            "title",
+            "category",
+            "duration",
+            "local_path"
+          ],
+          "search_columns": [
+            "series_title",
+            "title",
+            "category"
+          ],
+          "time_column": "created_at",
+          "subtitle_columns": [
+            "category",
+            "title"
+          ],
+          "selected_columns": [
+            "video_id",
+            "ep_num",
+            "series_title",
+            "title",
+            "category",
+            "duration",
+            "local_path",
+            "created_at"
+          ]
+        },
+        {
           "key": "jandan",
           "name": "Jandan",
           "table": "jandan",

@@ -55,12 +55,12 @@
     {
       "enabled": [],
       "target": "nope",
-      "exit": "Unknown --trigger target: 'nope'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
+      "exit": "Unknown --trigger target: 'nope'. Valid targets: all, azurlane, bd2, bilibili, hanime1, huangguo, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
     },
     {
       "enabled": [],
       "target": "Azur Lane",
-      "exit": "Unknown --trigger target: 'Azur Lane'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
+      "exit": "Unknown --trigger target: 'Azur Lane'. Valid targets: all, azurlane, bd2, bilibili, hanime1, huangguo, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
     },
     {
       "enabled": [],
@@ -162,7 +162,7 @@
         "jandan"
       ],
       "target": "nope",
-      "exit": "Unknown --trigger target: 'nope'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
+      "exit": "Unknown --trigger target: 'nope'. Valid targets: all, azurlane, bd2, bilibili, hanime1, huangguo, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
     },
     {
       "enabled": [
@@ -171,7 +171,7 @@
         "jandan"
       ],
       "target": "Azur Lane",
-      "exit": "Unknown --trigger target: 'Azur Lane'. Valid targets: all, azurlane, bd2, bilibili, hanime1, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
+      "exit": "Unknown --trigger target: 'Azur Lane'. Valid targets: all, azurlane, bd2, bilibili, hanime1, huangguo, jandan, kemono, nikke, pixiv, rednote, stellasora, telegram, twitter, wechat, zhihu"
     },
     {
       "enabled": [

@@ -30,12 +30,13 @@ use crate::{ApiState, archive, azurlane, bd2, credentials, hanime1, json, maskin
 const AUTH_PREFIX: &str = "Bearer ";
 
 /// `JobRequestTarget`, in its declared order.
-pub(crate) const JOB_REQUEST_TARGETS: [&str; 15] = [
+pub(crate) const JOB_REQUEST_TARGETS: [&str; 16] = [
     "all",
     "azurlane",
     "bd2",
     "bilibili",
     "hanime1",
+    "huangguo",
     "jandan",
     "kemono",
     "nikke",

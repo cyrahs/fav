@@ -21,6 +21,14 @@
       ]
     },
     {
+      "key": "huangguo",
+      "name": "Huangguo",
+      "attr": "huangguo",
+      "required_commands": [
+        "yt-dlp"
+      ]
+    },
+    {
       "key": "jandan",
       "name": "Jandan",
       "attr": "jandan",

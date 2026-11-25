@@ -132,6 +132,91 @@ function Hanime1Form(props: SectionFormProps) {
   );
 }
 
+const HUANGGUO_CATEGORIES: Option<string>[] = [
+  { value: 'ai-duanju', label: '短剧 (ai-duanju)' },
+  { value: 'ai-manju', label: '漫剧 (ai-manju)' },
+];
+
+/** Tags as one line of text; the list is re-split on every edit, the text kept as typed. */
+function TagListField({ label, values, onChange, hint }: { label: string; values: string[]; onChange: (next: string[]) => void; hint?: string }) {
+  const [text, setText] = useState(values.join('，'));
+  return (
+    <TextField
+      label={label}
+      value={text}
+      onChange={(next) => {
+        setText(next);
+        onChange(
+          next
+            .split(/[,，、\s]+/)
+            .map((tag) => tag.trim())
+            .filter((tag, index, all) => tag !== '' && all.indexOf(tag) === index),
+        );
+      }}
+      hint={hint}
+    />
+  );
+}
+
+function HuangguoForm(props: SectionFormProps) {
+  const set = patcher(props);
+  const categories = list<string>(props.value, 'categories');
+
+  return (
+    <div className="field-grid">
+      <PathField {...props} />
+      <TextField label="站点地址" value={str(props.value, 'host')} onChange={(next) => set('host', next)} mono />
+      <CheckboxGroup
+        label="分类"
+        values={categories}
+        options={HUANGGUO_CATEGORIES}
+        onChange={(next) => set('categories', next)}
+        hint="沿用站点自己的分类；每个分类是保存路径下的一个目录，里面每部剧一个文件夹（tvshow.nfo + poster + S01Exx），直接给 Emby 的剧集库用。"
+        error={categories.length === 0 ? '至少选择一个分类' : undefined}
+      />
+      <TagListField
+        label="排除标签"
+        values={list<string>(props.value, 'excluded_tags')}
+        onChange={(next) => set('excluded_tags', next)}
+        hint="带任一标签的剧整部跳过；用逗号或空格分隔。"
+      />
+
+      <div className="subsection">
+        <h4>出口与节奏</h4>
+        <div className="field-grid">
+          <TextField
+            label="代理"
+            value={str(props.value, 'proxy')}
+            onChange={(next) => set('proxy', next)}
+            mono
+            placeholder="http://us.proxy.svc.cluster.local"
+            hint="站点 API 走这个出口；留空则直连（或走全局 HTTP_PROXY）。"
+          />
+          <CheckboxField
+            label="封面和视频也走代理"
+            checked={bool(props.value, 'proxy_media', true)}
+            onChange={(next) => set('proxy_media', next)}
+            hint="视频 CDN 目前没有限制，确认直连可用后可以关掉省代理流量。"
+          />
+          <NumberField
+            label="每轮最多下载集数"
+            value={num(props.value, 'max_episodes_per_run', 100)}
+            onChange={(next) => set('max_episodes_per_run', next)}
+            hint="一集约 50 MB。首次回填有几万集，按这个上限分批，剩下的留给下一轮。"
+          />
+          <NumberField
+            label="请求间隔（秒）"
+            value={num(props.value, 'sleep_request_seconds', 1)}
+            onChange={(next) => set('sleep_request_seconds', next)}
+            step={0.5}
+            hint="只作用于站点 API；视频分片由 yt-dlp 自己下载。"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const JANDAN_FAV_TYPES: Option<number>[] = [
   { value: 1, label: '无聊图 (wuliao)' },
   { value: 2, label: '随手拍 (snapshot)' },
@@ -671,6 +756,7 @@ export const SECTION_FORMS: Record<string, (props: SectionFormProps) => ReactEle
   'web.nikke': NikkeForm,
   'web.azurlane': AzurLaneForm,
   'web.hanime1': Hanime1Form,
+  'web.huangguo': HuangguoForm,
   'web.jandan': JandanForm,
   'web.kemono': KemonoForm,
   'web.twitter': TwitterForm,
@@ -733,6 +819,15 @@ export function validateSection(section: string, value: Record<string, unknown>)
 
   if (section === 'web.zhihu') {
     issues.push(...validateZhihu(value));
+  }
+
+  if (section === 'web.huangguo') {
+    if (list<string>(value, 'categories').length === 0) {
+      issues.push('分类至少选择一个');
+    }
+    if (num(value, 'max_episodes_per_run', 100) < 1) {
+      issues.push('每轮最多下载集数至少为 1');
+    }
   }
 
   if (section === 'web.jandan' && list<number>(value, 'fav_types').length === 0) {
