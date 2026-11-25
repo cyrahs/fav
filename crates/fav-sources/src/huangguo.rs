@@ -1057,6 +1057,16 @@ struct Stored {
     metadata_written: bool,
 }
 
+/// A followed series as its row records it.
+#[derive(Debug, Clone, Copy)]
+struct Followed {
+    /// The episode count it listed when every available episode was saved.
+    episode_count: i64,
+    /// The highest list it was ever in.
+    tier: Option<Tier>,
+    metadata_written: bool,
+}
+
 /// How full a cache pool is, and its limit, in bytes.
 #[derive(Debug, Clone, Copy)]
 struct Usage {
@@ -1230,16 +1240,27 @@ impl Run {
         Ok(Some(listed))
     }
 
-    /// Series id to the episode count it listed when every available episode was saved,
-    /// and the tier it is followed under.
-    async fn followed(&self) -> Result<HashMap<i64, (i64, Option<Tier>)>, JobError> {
-        let rows = execute(&self.db, "SELECT video_id, episode_count, tier FROM huangguo_series", Vec::new()).await?;
+    /// Every followed series by id.
+    async fn followed(&self) -> Result<HashMap<i64, Followed>, JobError> {
+        let rows = execute(
+            &self.db,
+            "SELECT video_id, episode_count, tier, metadata_written FROM huangguo_series",
+            Vec::new(),
+        )
+        .await?;
         let mut followed = HashMap::with_capacity(rows.len());
         for row in &rows {
             let id: i64 = row.try_get("video_id").map_err(db_error)?;
             let count: i32 = row.try_get("episode_count").map_err(db_error)?;
             let tier: String = row.try_get("tier").map_err(db_error)?;
-            followed.insert(id, (i64::from(count), Tier::parse(&tier)));
+            followed.insert(
+                id,
+                Followed {
+                    episode_count: i64::from(count),
+                    tier: Tier::parse(&tier),
+                    metadata_written: row.try_get("metadata_written").map_err(db_error)?,
+                },
+            );
         }
         Ok(followed)
     }
@@ -1601,7 +1622,13 @@ impl Run {
                 return;
             }
             match followed.get(&listed.id) {
-                Some((count, _)) if listed.episode_count > 0 && *count == listed.episode_count => {
+                // Unchanged, unless its tvshow.nfo and poster are still owed (a series saved
+                // before `metadata_path` was set): then it is read once more to write them.
+                Some(known)
+                    if listed.episode_count > 0
+                        && known.episode_count == listed.episode_count
+                        && (known.metadata_written || self.cfg.metadata_path.is_empty()) =>
+                {
                     unchanged += 1;
                     return;
                 }
@@ -1619,7 +1646,7 @@ impl Run {
             // A series followed under a higher tier keeps counting against that tier's pool.
             let tier = followed
                 .get(&listed.id)
-                .and_then(|(_, stored)| *stored)
+                .and_then(|known| known.tier)
                 .map_or(tier, |stored| stored.min(tier));
             queue.push(Candidate { listed, tier, category });
         };

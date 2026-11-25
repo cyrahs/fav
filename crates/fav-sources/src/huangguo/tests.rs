@@ -1031,3 +1031,32 @@ fn the_login_goes_direct_unless_asked_to_use_the_proxy() {
     cfg.login_via_proxy = true;
     assert_eq!(login_proxy(&cfg), "http://us.proxy.svc.cluster.local");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn series_saved_before_the_metadata_path_was_set_get_their_metadata_later() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    // Everything is saved while no metadata path is set: no nfo, no poster anywhere.
+    harness.run(config(harness.root.path()), &runner).update().await.expect("first run");
+    assert!(std::fs::read_dir(harness.meta.path()).expect("meta").next().is_none());
+    let downloads = runner.calls().len();
+
+    // The site has not changed, but the series still owe their metadata: read once more.
+    harness.run(harness.config(), &runner).update().await.expect("second run");
+    assert_eq!(runner.calls().len(), downloads, "nothing is downloaded again");
+    let meta = harness.meta.path().join("短剧");
+    assert!(meta.join("巨乳妈妈").join("tvshow.nfo").is_file());
+    assert!(meta.join("巨乳妈妈").join("poster.jpg").is_file());
+    assert!(meta.join("长生录_ 第一季").join("tvshow.nfo").is_file());
+    assert!(harness.series_row(101).await.2, "marked written");
+
+    // Then they are unchanged again: only the lists are read.
+    let seen_before = harness.web.seen().len();
+    harness.run(harness.config(), &runner).update().await.expect("third run");
+    assert!(
+        !harness.web.seen()[seen_before..]
+            .iter()
+            .any(|seen| seen.path().starts_with("/api/videos/10")),
+        "no series is read again"
+    );
+}

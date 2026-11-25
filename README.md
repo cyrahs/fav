@@ -495,7 +495,9 @@ besides.
 
 `metadata_path` is the media server's view of the uploaded folder (the strm tree the 115 folder is
 mapped to), so the nfo and the poster land beside the `.strm` files without going to the cloud.
-They are written once per series. A series keeps the folder it was first given
+They are written once per series, the first time it is read with `metadata_path` set; a
+series saved before that (or whose poster failed) is read once more on the next run to write them,
+even when it has no new episode. A series keeps the folder it was first given
 (`huangguo_series.dir_name`; a second series with the same title in a category gets ` [<id>]`
 appended), so its later episodes land beside the earlier ones. The covers are AES-128-CBC encrypted;
 the key and IV are the ones the site's front end decrypts them with, read from
