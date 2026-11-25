@@ -147,6 +147,17 @@ fn no_proxy() -> SettingFn {
     Arc::new(|| Box::pin(async { Ok(String::new()) }))
 }
 
+/// A login the site keeps in `localStorage` instead of a cookie: a JSON record under `key`
+/// on `url`'s origin whose `field` holds the token (and `expires_at`, in milliseconds, its
+/// end). While the session cookie is absent, the token is read back as that cookie, so the
+/// login is verified and stored like any other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageSession {
+    pub url: String,
+    pub key: String,
+    pub field: String,
+}
+
 /// One site the 登录态 page can sign in to (`LoginSite`). Build it with [`LoginSite::builder`]
 /// and [`LoginSiteBuilder::build`], which refuses a site with no way to verify a login.
 #[derive(Clone)]
@@ -173,6 +184,8 @@ pub struct LoginSite {
     /// records which cookies exist and when they expire, not their values.
     pub store_cookie_values: bool,
     pub after_login: Option<AfterLogin>,
+    /// Where the login lives when the site keeps it out of the cookies.
+    pub storage_session: Option<StorageSession>,
 }
 
 impl std::fmt::Debug for LoginSite {
@@ -185,6 +198,7 @@ impl std::fmt::Debug for LoginSite {
             .field("session_cookie", &self.session_cookie)
             .field("controlled", &self.controlled())
             .field("store_cookie_values", &self.store_cookie_values)
+            .field("storage_session", &self.storage_session)
             .finish_non_exhaustive()
     }
 }
@@ -207,6 +221,7 @@ impl LoginSite {
             hint: String::new(),
             store_cookie_values: true,
             after_login: None,
+            storage_session: None,
         })
     }
 
@@ -272,6 +287,17 @@ impl LoginSiteBuilder {
     #[must_use]
     pub fn after_login(mut self, after_login: AfterLogin) -> Self {
         self.0.after_login = Some(after_login);
+        self
+    }
+
+    /// The login lives in `localStorage` (see [`StorageSession`]).
+    #[must_use]
+    pub fn storage_session(mut self, url: &str, key: &str, field: &str) -> Self {
+        self.0.storage_session = Some(StorageSession {
+            url: url.to_owned(),
+            key: key.to_owned(),
+            field: field.to_owned(),
+        });
         self
     }
 
@@ -744,7 +770,13 @@ async fn await_login(services: &Services, site: &LoginSite, attempt: &LoginAttem
             return Ok(());
         }
 
-        let cookies = cookies_from_browser(&browser.cookies(&site.cookie_urls).await?);
+        let mut cookies = cookies_from_browser(&browser.cookies(&site.cookie_urls).await?);
+        if cookie_value(&cookies, &site.session_cookie).is_empty()
+            && let Some(storage) = &site.storage_session
+            && let Some(cookie) = storage_session_cookie(&site.session_cookie, storage, browser).await
+        {
+            cookies.push(cookie);
+        }
         let value = cookie_value(&cookies, &site.session_cookie).to_owned();
         let stale = last_checked.is_none_or(|checked| checked.elapsed() >= REVERIFY);
         if !value.is_empty() && (value != last_value || stale) {
@@ -779,6 +811,36 @@ async fn await_login(services: &Services, site: &LoginSite, attempt: &LoginAttem
         }
         attempt.wait_cancelled(services.options.poll).await;
     }
+}
+
+/// The token a [`StorageSession`] site keeps in `localStorage`, as the session cookie; `None`
+/// while there is none (or the window cannot be read right now: the next poll tries again).
+async fn storage_session_cookie(name: &str, storage: &StorageSession, browser: &dyn LoginBrowser) -> Option<StoredCookie> {
+    let raw = match browser.local_storage(&storage.url, &storage.key).await {
+        Ok(raw) => raw,
+        Err(error) => {
+            logging::get("browser-login").debug(format!("Could not read localStorage {}: {error}", storage.key));
+            return None;
+        }
+    };
+    let record: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let token = record.get(&storage.field)?.as_str()?.trim();
+    if token.is_empty() {
+        return None;
+    }
+    let domain = url::Url::parse(&storage.url).ok()?.host_str()?.to_owned();
+    #[allow(clippy::cast_precision_loss)] // milliseconds since 1970 fit an f64 exactly
+    let expires = record
+        .get("expires_at")
+        .and_then(serde_json::Value::as_i64)
+        .map(|millis| millis as f64 / 1000.0);
+    Some(StoredCookie {
+        name: name.to_owned(),
+        value: token.to_owned(),
+        domain,
+        path: "/".to_owned(),
+        expires,
+    })
 }
 
 async fn verify(site: &LoginSite, browser: &dyn LoginBrowser, cookies: &[StoredCookie]) -> Result<LoginCheck, LoginError> {

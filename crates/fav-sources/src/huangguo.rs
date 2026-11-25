@@ -78,7 +78,12 @@ pub const SESSION_SITE: &str = "huangguo";
 pub const LOGIN_URL: &str = "https://huangguoai.com/profile/";
 pub const SESSION_COOKIE_URLS: [&str; 1] = ["https://huangguoai.com/"];
 /// The `HttpOnly` cookie the API reads a login from; `_LOGIN_` beside it is only a marker.
+/// In the site's CDN ("cloudfront compat") mode the login token lives in `localStorage`
+/// under [`SESSION_STORAGE_KEY`] instead and goes out as `Authorization: Bearer`; the
+/// 登录态 page stores it under this cookie's name either way.
 pub const SESSION_COOKIE: &str = "_USER_TOKEN_";
+/// The `localStorage` record (`{"version": 1, "token": ..., "expires_at": ...}`) of that mode.
+pub const SESSION_STORAGE_KEY: &str = "__edge_persistent_session_v1__";
 const ACCOUNT_PATH: &str = "/api/account/me";
 const FAVORITES_PATH: &str = "/api/users/me/collects";
 const HTTP_UNAUTHORIZED: u16 = 401;
@@ -884,7 +889,15 @@ impl Api {
     pub(crate) async fn favorites_page(&self, session: &str, page: i64) -> Result<Option<(Vec<Listed>, i64)>, JobError> {
         let path = format!("{FAVORITES_PATH}?page={page}&size={PAGE_SIZE}");
         let cookie = format!("{SESSION_COOKIE}={session}");
-        match self.json(&path, || self.get(&path).header("Cookie", cookie.clone())).await {
+        let bearer = format!("Bearer {session}");
+        match self
+            .json(&path, || {
+                self.get(&path)
+                    .header("Cookie", cookie.clone())
+                    .header("Authorization", bearer.clone())
+            })
+            .await
+        {
             Ok(data) => Ok(Some(parse_favorites(&data))),
             Err(error) if error.class_name() == "Unauthorized" => Ok(None),
             Err(error) => Err(error),
@@ -933,8 +946,13 @@ pub async fn verify_session_at(host: &str, cookies: &[StoredCookie], proxy: &str
     };
     let api = Api::new(client, host, tokio_sleeper(), 0.0);
     let cookie = format!("{SESSION_COOKIE}={session}");
+    let bearer = format!("Bearer {session}");
     match api
-        .json(ACCOUNT_PATH, || api.get(ACCOUNT_PATH).header("Cookie", cookie.clone()))
+        .json(ACCOUNT_PATH, || {
+            api.get(ACCOUNT_PATH)
+                .header("Cookie", cookie.clone())
+                .header("Authorization", bearer.clone())
+        })
         .await
     {
         Ok(data) => {

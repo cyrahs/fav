@@ -702,3 +702,60 @@ fn a_launch_request_never_prints_its_proxy() {
     let printed = format!("{request:?}");
     assert!(!printed.contains("secret") && !printed.contains("user"), "{printed}");
 }
+
+#[tokio::test]
+async fn a_site_that_keeps_its_login_in_local_storage_is_read_back_as_the_session_cookie() {
+    let mut browser = FakeBrowser::new(vec![vec![cookie("other", "x", -1.0)]]);
+    browser.storage.insert(
+        ("https://example.com/".to_owned(), "__session".to_owned()),
+        r#"{"version":1,"token":"user_77","created_at":1795600000000,"expires_at":1798192000000}"#.to_owned(),
+    );
+    let browser = Arc::new(browser);
+    let mut demo = site();
+    demo.storage_session = Some(StorageSession {
+        url: "https://example.com/".to_owned(),
+        key: "__session".to_owned(),
+        field: "token".to_owned(),
+    });
+    let harness = harness_with(vec![demo], Launcher::with(&browser), Arc::default(), options());
+
+    let attempt = finish(&harness.manager, "demo").await;
+
+    assert_eq!(attempt.progress().state, STATE_SAVED);
+    assert_eq!(attempt.progress().account, "77");
+    let saved = &harness.store.saved()[0];
+    let session = saved.cookies.iter().find(|cookie| cookie.name == "SID").expect("the token as SID");
+    assert_eq!((session.value.as_str(), session.domain.as_str()), ("user_77", "example.com"));
+    assert_eq!(saved.expires_at, DateTime::from_timestamp(1_798_192_000, 0));
+    assert_eq!(browser.closed_calls(), 1);
+}
+
+#[tokio::test]
+async fn an_empty_local_storage_session_keeps_the_login_waiting() {
+    let mut browser = FakeBrowser::new(vec![vec![]]);
+    browser
+        .storage
+        .insert(("https://example.com/".to_owned(), "__session".to_owned()), "not json".to_owned());
+    let browser = Arc::new(browser);
+    let mut demo = site();
+    demo.storage_session = Some(StorageSession {
+        url: "https://example.com/".to_owned(),
+        key: "__session".to_owned(),
+        field: "token".to_owned(),
+    });
+    let harness = harness_with(
+        vec![demo],
+        Launcher::with(&browser),
+        Arc::default(),
+        ManagerOptions {
+            timeout: Duration::from_millis(80),
+            ..options()
+        },
+    );
+
+    let attempt = finish(&harness.manager, "demo").await;
+
+    assert_eq!(attempt.progress().state, STATE_TIMEOUT);
+    assert!(harness.store.saved().is_empty());
+    assert!(!browser.storage_reads.lock().unwrap().is_empty());
+}

@@ -97,8 +97,16 @@ fn unauthorized() -> Reply {
     }
 }
 
+/// The site takes the login as the cookie (its native mode) or as a bearer token (its CDN
+/// mode, where the token lives in localStorage).
 fn signed_in(seen: &Seen) -> bool {
     seen.header("cookie") == Some(&format!("{SESSION_COOKIE}={GOOD_SESSION}"))
+        || seen.header("authorization") == Some(&format!("Bearer {GOOD_SESSION}"))
+}
+
+/// The CDN mode alone: only the bearer token counts.
+fn bearer_only(seen: &Seen) -> bool {
+    seen.header("authorization") == Some(&format!("Bearer {GOOD_SESSION}"))
 }
 
 fn answer(site: &Site, seen: &Seen) -> Reply {
@@ -732,14 +740,15 @@ async fn favourites_then_rankings_then_new_series_and_only_the_list_carries_the_
         !harness.paths().iter().any(|path| path == "/api/videos/102"),
         "excluded in a ranking"
     );
-    let with_cookie: Vec<String> = harness
+    let with_login: Vec<String> = harness
         .web
         .seen()
         .iter()
-        .filter(|seen| seen.header("cookie").is_some())
+        .filter(|seen| seen.header("cookie").is_some() || seen.header("authorization").is_some())
         .map(|seen| seen.path().to_owned())
         .collect();
-    assert_eq!(with_cookie, [FAVORITES_PATH], "only the favourites list is asked with the login");
+    assert_eq!(with_login, [FAVORITES_PATH], "only the favourites list is asked with the login");
+    assert!(harness.web.seen().iter().any(bearer_only));
     for call in runner.calls() {
         assert!(
             !call.iter().any(|arg| arg.contains(GOOD_SESSION)),
@@ -911,4 +920,25 @@ async fn an_in_house_series_goes_into_the_folder_of_its_type() {
     );
     assert!(harness.meta.path().join("漫剧").join("高三爱情故事").join("tvshow.nfo").is_file());
     assert!(!harness.root.path().join("黄果原创").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_login_check_works_when_the_site_only_takes_the_bearer_token() {
+    let web = FakeWeb::start(|seen| {
+        if seen.path() == ACCOUNT_PATH && bearer_only(seen) {
+            Reply::json(200, &ok(&json!({"id": 7, "username": "tester"})))
+        } else {
+            unauthorized()
+        }
+    })
+    .await;
+    let cookie = StoredCookie {
+        name: SESSION_COOKIE.to_owned(),
+        value: GOOD_SESSION.to_owned(),
+        domain: "huangguoai.com".to_owned(),
+        path: "/".to_owned(),
+        expires: None,
+    };
+    let live = verify_session_at("http://huangguoai.test", &[cookie], &web.proxy).await;
+    assert_eq!((live.ok, live.account.as_str()), (true, "tester"));
 }
