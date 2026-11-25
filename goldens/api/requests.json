@@ -2933,7 +2933,6 @@
                     "enabled": false,
                     "notify": true,
                     "path": "collection/huangguo",
-                    "metadata_path": "",
                     "host": "https://huangguoai.com",
                     "categories": [
                       "ai-duanju",
@@ -3529,7 +3528,6 @@
                     "enabled": false,
                     "notify": true,
                     "path": "collection/huangguo",
-                    "metadata_path": "",
                     "host": "https://huangguoai.com",
                     "categories": [
                       "ai-duanju",
@@ -4783,7 +4781,6 @@
                     "enabled": false,
                     "notify": true,
                     "path": "collection/huangguo",
-                    "metadata_path": "",
                     "host": "https://huangguoai.com",
                     "categories": [
                       "ai-duanju",

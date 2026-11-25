@@ -318,7 +318,6 @@ struct Harness {
     web: FakeWeb,
     db: fav_db::testdb::TestDatabase,
     root: tempfile::TempDir,
-    meta: tempfile::TempDir,
     cache: tempfile::TempDir,
     notifier: Arc<RecordingNotifier>,
     sleeper: RecordingSleeper,
@@ -346,7 +345,6 @@ impl Harness {
             web,
             db: database().await,
             root: tempfile::tempdir().expect("root"),
-            meta: tempfile::tempdir().expect("meta"),
             cache: tempfile::tempdir().expect("cache"),
             notifier: Arc::new(RecordingNotifier::default()),
             sleeper: RecordingSleeper::new(),
@@ -377,11 +375,8 @@ impl Harness {
         )
     }
 
-    /// The settings with `metadata_path` pointing at the harness' media-server folder.
     fn config(&self) -> settings::Huangguo {
-        let mut cfg = config(self.root.path());
-        cfg.metadata_path = self.meta.path().to_string_lossy().into_owned();
-        cfg
+        config(self.root.path())
     }
 
     async fn sign_in(&self, session: &str) {
@@ -432,7 +427,7 @@ impl Harness {
     }
 
     async fn series_row(&self, id: i64) -> (String, i32, bool, String) {
-        sqlx::query_as("SELECT dir_name, episode_count, metadata_written, last_error FROM huangguo_series WHERE video_id = $1")
+        sqlx::query_as("SELECT dir_name, episode_count, details_saved, last_error FROM huangguo_series WHERE video_id = $1")
             .bind(id)
             .fetch_one(self.db.db().pool())
             .await
@@ -571,19 +566,6 @@ fn names_follow_emby() {
 }
 
 #[test]
-fn the_nfo_is_escaped_and_complete() {
-    let series = parse_series(&series_json(5, "A&B <1>", &["都市", "乱伦"], &[(1, 1)])).expect("series");
-    let nfo = tvshow_nfo(&series, "短剧");
-    assert_eq!(
-        nfo,
-        "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n<tvshow>\n  <title>A&amp;B &lt;1&gt;</title>\n  \
-         <plot>她 &amp; 他 &lt;夜色&gt;</plot>\n  <premiered>2026-11-25</premiered>\n  <year>2026</year>\n  \
-         <studio>黄果官方</studio>\n  <rating>9.5</rating>\n  <status>Continuing</status>\n  <genre>都市</genre>\n  \
-         <genre>乱伦</genre>\n  <tag>短剧</tag>\n  <uniqueid type=\"huangguo\" default=\"true\">5</uniqueid>\n</tvshow>\n"
-    );
-}
-
-#[test]
 fn yt_dlp_goes_through_the_media_proxy_only_when_set() {
     let command = build_download_command(
         "https://a/x.m3u8",
@@ -624,16 +606,18 @@ async fn a_run_saves_every_available_episode_for_emby_and_skips_excluded_tags() 
     cfg.proxy = "http://us.proxy.svc.cluster.local".to_owned();
     harness.run(cfg.clone(), &runner).update().await.expect("run");
 
-    // Episodes go to the upload folder; the nfo and the poster to the media server's folder.
+    // Only the episodes go to the upload folder; the poster goes to the database.
     let show = harness.root.path().join("短剧").join("巨乳妈妈");
     assert_eq!(std::fs::read(show.join("巨乳妈妈 S01E01.mp4")).expect("E01"), b"video");
     assert!(show.join("巨乳妈妈 S01E02.mp4").is_file());
     assert!(!show.join("poster.jpg").exists() && !show.join("tvshow.nfo").exists());
-    let meta = harness.meta.path().join("短剧").join("巨乳妈妈");
-    assert_eq!(std::fs::read(meta.join("poster.jpg")).expect("poster"), JPEG);
-    let nfo = std::fs::read_to_string(meta.join("tvshow.nfo")).expect("nfo");
-    assert!(nfo.contains("<title>巨乳妈妈</title>"), "{nfo}");
-    assert!(!meta.join("巨乳妈妈 S01E01.mp4").exists());
+    assert!(
+        harness
+            .images()
+            .await
+            .iter()
+            .any(|(id, ep, _, data)| (*id, *ep) == (101, 0) && data == JPEG)
+    );
     let other = harness.root.path().join("短剧").join("长生录_ 第一季");
     assert!(other.join("长生录_ 第一季 S01E01.mp4").is_file());
     assert!(!other.join("长生录_ 第一季 S01E02.mp4").exists(), "episode 2 is not playable");
@@ -972,17 +956,6 @@ async fn a_series_moves_up_to_favourite_and_never_back() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn without_a_metadata_path_no_metadata_is_written() {
-    let harness = Harness::start(two_series_site()).await;
-    let runner = Arc::new(FakeRunner::default());
-    harness.run(config(harness.root.path()), &runner).update().await.expect("run");
-    assert!(std::fs::read_dir(harness.meta.path()).expect("meta").next().is_none());
-    // The poster and thumbnails still go to the database, for the Emby plugin.
-    assert!(harness.images().await.iter().any(|(id, ep, _, _)| (*id, *ep) == (101, 0)));
-    assert!(!harness.root.path().join("短剧").join("巨乳妈妈").join("tvshow.nfo").exists());
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn the_login_page_checks_the_session_through_the_encrypted_channel() {
     let site = Arc::new(Site::default());
     let shared = Arc::clone(&site);
@@ -1055,7 +1028,7 @@ async fn an_in_house_series_goes_into_the_folder_of_its_type() {
         folder.join("高三爱情故事 S01E01.mp4").is_file(),
         "the type id wins over the ranking's 短剧 and the breadcrumb"
     );
-    assert!(harness.meta.path().join("漫剧").join("高三爱情故事").join("tvshow.nfo").is_file());
+    assert_eq!(harness.series_row(117).await.0, "高三爱情故事");
     assert!(!harness.root.path().join("黄果原创").exists());
 }
 
@@ -1073,22 +1046,27 @@ fn the_login_goes_direct_unless_asked_to_use_the_proxy() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn series_saved_before_the_metadata_path_was_set_get_their_metadata_later() {
+async fn series_saved_before_posters_were_kept_get_them_later() {
     let harness = Harness::start(two_series_site()).await;
     let runner = Arc::new(FakeRunner::default());
-    // Everything is saved while no metadata path is set: no nfo, no poster anywhere.
-    harness.run(config(harness.root.path()), &runner).update().await.expect("first run");
-    assert!(std::fs::read_dir(harness.meta.path()).expect("meta").next().is_none());
+    harness.run(harness.config(), &runner).update().await.expect("first run");
     let downloads = runner.calls().len();
+    // As a series saved before details and posters were kept looks.
+    sqlx::query("UPDATE huangguo_series SET details_saved = FALSE, plot = ''")
+        .execute(harness.db.db().pool())
+        .await
+        .expect("forget");
+    sqlx::query("DELETE FROM huangguo_images WHERE ep_num = 0")
+        .execute(harness.db.db().pool())
+        .await
+        .expect("forget posters");
 
-    // The site has not changed, but the series still owe their metadata: read once more.
+    // The site has not changed, but the series still owe their details: read once more.
     harness.run(harness.config(), &runner).update().await.expect("second run");
     assert_eq!(runner.calls().len(), downloads, "nothing is downloaded again");
-    let meta = harness.meta.path().join("短剧");
-    assert!(meta.join("巨乳妈妈").join("tvshow.nfo").is_file());
-    assert!(meta.join("巨乳妈妈").join("poster.jpg").is_file());
-    assert!(meta.join("长生录_ 第一季").join("tvshow.nfo").is_file());
-    assert!(harness.series_row(101).await.2, "marked written");
+    assert!(harness.details(101).await.4, "marked saved");
+    assert_eq!(harness.details(101).await.0, "她 & 他 <夜色>");
+    assert!(harness.images().await.iter().any(|(id, ep, _, _)| (*id, *ep) == (101, 0)));
 
     // Then they are unchanged again: only the lists are read.
     let seen_before = harness.web.seen().len();

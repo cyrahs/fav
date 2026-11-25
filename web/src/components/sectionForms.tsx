@@ -171,15 +171,6 @@ function HuangguoForm(props: SectionFormProps) {
   return (
     <div className="field-grid">
       <PathField {...props} />
-      <TextField
-        label="元数据路径"
-        value={str(props.value, 'metadata_path')}
-        onChange={(next) => set('metadata_path', next)}
-        mono
-        wide
-        placeholder="留空则不写 nfo 和封面"
-        hint="tvshow.nfo 和封面写到这里，按「分类/剧名/」放，对应 Emby 里这批剧的 strm 目录；它们不进保存路径，所以不会上传到 115。"
-      />
       <TextField label="站点地址" value={str(props.value, 'host')} onChange={(next) => set('host', next)} mono />
 
       <div className="subsection">

@@ -1083,9 +1083,6 @@ pub struct Huangguo {
     /// Where episodes are downloaded to: `<path>/<category>/<series>/`, picked up from there
     /// by the cloud upload.
     pub path: PyPath,
-    /// Where `tvshow.nfo` and the poster go, in the same `<category>/<series>/` layout: the
-    /// media server's view of the uploaded folder. Empty writes none.
-    pub metadata_path: String,
     pub host: String,
     /// Category routes (`ai-duanju`, `ai-manju`); each becomes a directory under `path`.
     pub categories: Vec<String>,
@@ -1127,7 +1124,6 @@ impl Model for Huangguo {
         let mut fields = Fields::begin(value, loc, Self::CLASS_NAME)?;
         let schedule = Schedule::read(&mut fields, Some("25 */2 * * *"));
         let path = fields.optional("path", || PyPath::new("./collection/huangguo"), path);
-        let metadata_path = fields.optional("metadata_path", String::new, stripped_string);
         let host = fields.optional("host", || "https://huangguoai.com".to_owned(), url_without_trailing_slash);
         let categories = fields.optional(
             "categories",
@@ -1167,7 +1163,6 @@ impl Model for Huangguo {
                 Some(Self {
                     schedule: schedule?,
                     path: path?,
-                    metadata_path: metadata_path?,
                     host: host?,
                     categories: categories?,
                     excluded_tags: excluded_tags?,
@@ -1192,7 +1187,6 @@ impl Model for Huangguo {
         let mut entries = Vec::new();
         self.schedule.dump_into(&mut entries);
         entries.push(("path", paths(&self.path)));
-        entries.push(("metadata_path", Value::Str(self.metadata_path.clone())));
         entries.push(("host", Value::Str(self.host.clone())));
         entries.push((
             "categories",
