@@ -70,9 +70,6 @@ const REQUEST_ATTEMPTS: u32 = 3;
 const DOWNLOAD_ATTEMPTS: u32 = 3;
 /// Tries at an episode's thumbnail before it is given up on.
 const THUMBNAIL_ATTEMPTS: i64 = 3;
-/// Thumbnails owed by earlier runs taken per run (one stream request each when the file
-/// has already gone to the cloud).
-const THUMBNAILS_PER_RUN: i64 = 60;
 const RETRY_BASE_DELAY: f64 = 5.0;
 const DIR_NAME_BYTES: usize = 120;
 const BLOCK_SIZE: usize = 16;
@@ -1711,15 +1708,18 @@ impl Run {
     }
 
     /// Thumbnails owed by earlier runs (episodes saved before thumbnails were taken, or
-    /// whose thumbnail failed), newest first and at most `THUMBNAILS_PER_RUN`.
+    /// whose thumbnail failed), newest first and at most `thumbnails_per_run`.
     async fn backfill_thumbnails(&self) -> Result<(), JobError> {
+        if self.cfg.thumbnails_per_run == 0 {
+            return Ok(());
+        }
         let rows = execute(
             &self.db,
             "SELECT h.video_id, h.ep_num, h.duration, h.local_path FROM huangguo h \
              WHERE h.thumbnail_failures < $1 AND NOT EXISTS \
                  (SELECT 1 FROM huangguo_images i WHERE i.video_id = h.video_id AND i.ep_num = h.ep_num) \
              ORDER BY h.created_at DESC, h.video_id, h.ep_num LIMIT $2",
-            vec![Param::from(THUMBNAIL_ATTEMPTS), Param::from(THUMBNAILS_PER_RUN)],
+            vec![Param::from(THUMBNAIL_ATTEMPTS), Param::from(self.cfg.thumbnails_per_run)],
         )
         .await?;
         if rows.is_empty() {
