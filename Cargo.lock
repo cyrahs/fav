@@ -1054,6 +1054,7 @@ dependencies = [
  "fav-sources",
  "form_urlencoded",
  "futures-util",
+ "hmac",
  "hyper",
  "hyper-util",
  "percent-encoding",

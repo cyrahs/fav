@@ -538,6 +538,14 @@ GET /media/huangguo/series/<id>/poster
 GET /media/huangguo/series/<id>/episodes/<ep>/thumbnail
 ```
 
+Emby fetches an image URL a provider gave it by itself, without the plugin's token (`/Images/Remote`,
+and an image it keeps as a URL and fetches when it is first shown). So the series answer also gives each
+saved image's path with a signature, `poster_url` and each episode's `thumbnail_url`
+(`/media/huangguo/series/<id>/poster?sig=<hex>`; `null` when there is no image). An image route with a
+valid `sig` needs no token. The signature is an HMAC-SHA256 of the path keyed with `API_TOKEN`, so it
+opens that one image only; changing `API_TOKEN` invalidates the URLs Emby stored, and a metadata
+refresh with "Replace existing images" stores new ones.
+
 The plugin finds a series by its folder (`/media/ai/短剧/<series>` is `dir_name=<series>&category=短剧`)
 the first time and by the `Huangguo` id it stores after. See `emby-plugin/README.md` for its setup.
 

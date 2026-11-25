@@ -26,6 +26,8 @@ namespace Fav.Emby.Huangguo
         public bool finished { get; set; }
         public string url { get; set; }
         public bool has_poster { get; set; }
+        /// <summary>The poster's signed path, readable without the token; null without a poster.</summary>
+        public string poster_url { get; set; }
         public FavEpisode[] episodes { get; set; }
     }
 
@@ -35,6 +37,8 @@ namespace Fav.Emby.Huangguo
         public string title { get; set; }
         public int duration { get; set; }
         public bool has_thumbnail { get; set; }
+        /// <summary>The thumbnail's signed path, readable without the token; null without one.</summary>
+        public string thumbnail_url { get; set; }
     }
 
     /// <summary>fav's Huangguo media routes, with the configured token.</summary>
@@ -59,9 +63,20 @@ namespace Fav.Emby.Huangguo
 
         private static string BaseUrl => Plugin.Instance.Configuration.EffectiveFavUrl() + "/media/huangguo";
 
-        public static string PosterUrl(long id) => $"{BaseUrl}/series/{id}/poster";
+        /// <summary>
+        /// The series' poster. Emby fetches an image URL by itself, without the token
+        /// (<c>/Images/Remote</c>, or an image it stored as a URL when first shown), so this is
+        /// the signed path fav gives, which needs none; the bare route when fav gave none.
+        /// </summary>
+        public static string PosterUrl(FavSeries series) =>
+            Signed(series.poster_url) ?? $"{BaseUrl}/series/{series.id}/poster";
 
-        public static string ThumbnailUrl(long id, int episode) => $"{BaseUrl}/series/{id}/episodes/{episode}/thumbnail";
+        /// <summary>An episode's thumbnail, signed like <see cref="PosterUrl"/>.</summary>
+        public static string ThumbnailUrl(FavSeries series, FavEpisode episode) =>
+            Signed(episode.thumbnail_url) ?? $"{BaseUrl}/series/{series.id}/episodes/{episode.ep_num}/thumbnail";
+
+        private static string Signed(string path) =>
+            string.IsNullOrEmpty(path) ? null : Plugin.Instance.Configuration.EffectiveFavUrl() + path;
 
         public Task<FavSeries> SeriesById(string id, CancellationToken cancellationToken)
         {
