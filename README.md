@@ -433,7 +433,6 @@ site's back catalogue.
 ```jsonc
 {
   "path": "/app/upload/huangguo",          // episodes; the cloud upload takes them away from here
-  "metadata_path": "/app/emby/huangguo",   // tvshow.nfo and poster, never uploaded; empty: none
   "host": "https://huangguoai.com",
   "categories": ["ai-duanju", "ai-manju"], // the site's own categories (短剧, 漫剧), each a folder
   "excluded_tags": ["男同"],                // rankings and new series with any of these are skipped
@@ -491,20 +490,17 @@ besides.
 
 ```
 <path>/短剧/<series>/<series> S01E01.mp4            uploaded
-<metadata_path>/短剧/<series>/tvshow.nfo             title, plot, premiered, studio, rating, tags as genres
-<metadata_path>/短剧/<series>/poster.jpg             the cover, decrypted
 ```
 
-`metadata_path` is the media server's view of the uploaded folder (the strm tree the 115 folder is
-mapped to), so the nfo and the poster land beside the `.strm` files without going to the cloud.
-They are written once per series, the first time it is read with `metadata_path` set; a
-series saved before that (or whose poster failed) is read once more on the next run to write them,
-even when it has no new episode. A series keeps the folder it was first given
+Only the episodes are written there. The series' details, poster and episode thumbnails go to the
+database for the Emby plugin (below), never into the folder, so nothing but video goes to the
+cloud. A series keeps the folder it was first given
 (`huangguo_series.dir_name`; a second series with the same title in a category gets ` [<id>]`
 appended), so its later episodes land beside the earlier ones. The covers are AES-128-CBC encrypted;
 the key and IV are the ones the site's front end decrypts them with, read from
-`/static/web/js/plugins/crypto-image-protocol.js` once per run. Every file is written as `.part`
-and renamed, so an uploader watching the folder never takes half a file. Each series that saved
+`/static/web/js/plugins/crypto-image-protocol.js` once per run. `yt-dlp` writes each episode in the
+run's cache directory and it is moved into the folder whole, so an uploader watching the folder
+never takes half a file. Each series that saved
 something sends one notification (`短剧 | E01–E05 (5)`). A run that tried to download and saved
 nothing fails; a single failing series or episode is logged, recorded in
 `huangguo_series.last_error`, and tried again next run.

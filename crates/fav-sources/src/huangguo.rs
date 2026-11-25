@@ -20,15 +20,14 @@
 //!    still there reach its limit: `favorites_cache_limit_gb` for favourites,
 //!    `cache_limit_gb` for the rest. `max_episodes_per_run` caps a run besides.
 //!
-//! Layout: `<path>/<category>/<series>/<series> S01E<ep>.<ext>`. `tvshow.nfo` and the
-//! poster (the covers are AES-128-CBC encrypted with the key and IV the site's own front end
-//! decrypts them with, published in `crypto-image-protocol.js`) go to the same
-//! `<category>/<series>/` under `metadata_path`, the media server's view of the uploaded
-//! folder, and never to the cloud. Each series keeps the directory it was first given
-//! (`huangguo_series.dir_name`), so a renamed series keeps landing in the same folder.
+//! Layout: `<path>/<category>/<series>/<series> S01E<ep>.<ext>`. Each series keeps the
+//! directory it was first given (`huangguo_series.dir_name`), so a renamed series keeps
+//! landing in the same folder. The series' details, its poster (the covers are AES-128-CBC
+//! encrypted with the key and IV the site's own front end decrypts them with, published in
+//! `crypto-image-protocol.js`) and a thumbnail per episode go to the database, for the Emby
+//! plugin (`emby-plugin/`), and never to the cloud.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -613,66 +612,6 @@ pub fn episode_file_name(dir_name: &str, ep_num: i64, extension: &str) -> String
     format!("{dir_name} S01E{ep_num:02}.{extension}")
 }
 
-fn xml_escape(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&apos;"),
-            // Characters XML 1.0 cannot carry at all.
-            ch if (ch as u32) < 0x20 && !matches!(ch, '\t' | '\n' | '\r') => {}
-            ch => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
-fn element(xml: &mut String, name: &str, value: &str) {
-    if !value.is_empty() {
-        let _ = writeln!(xml, "  <{name}>{}</{name}>", xml_escape(value));
-    }
-}
-
-/// The date part of `YYYY-MM-DD HH:MM:SS`.
-fn date_of(created_at: &str) -> Option<&str> {
-    let date = created_at.get(..10)?;
-    let bytes = date.as_bytes();
-    let shaped = bytes.iter().enumerate().all(|(index, byte)| {
-        if index == 4 || index == 7 {
-            *byte == b'-'
-        } else {
-            byte.is_ascii_digit()
-        }
-    });
-    shaped.then_some(date)
-}
-
-/// `tvshow.nfo` for Emby: the series' tags are its genres, the category a tag.
-pub fn tvshow_nfo(series: &Series, category: &str) -> String {
-    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n<tvshow>\n");
-    element(&mut xml, "title", &series.title);
-    element(&mut xml, "plot", &series.description);
-    if let Some(date) = date_of(&series.created_at) {
-        element(&mut xml, "premiered", date);
-        element(&mut xml, "year", &date[..4]);
-    }
-    element(&mut xml, "studio", &series.author);
-    if let Some(score) = series.score {
-        element(&mut xml, "rating", &score.to_string());
-    }
-    element(&mut xml, "status", if series.is_finished { "Ended" } else { "Continuing" });
-    for tag in &series.tags {
-        element(&mut xml, "genre", tag);
-    }
-    element(&mut xml, "tag", category);
-    let _ = writeln!(xml, "  <uniqueid type=\"huangguo\" default=\"true\">{}</uniqueid>", series.id);
-    xml.push_str("</tvshow>\n");
-    xml
-}
-
 /// `yt-dlp` for one episode's HLS stream.
 pub fn build_download_command(stream_url: &str, output_template: &str, referer: &str, proxy: &str) -> Vec<String> {
     let mut command: Vec<String> = [
@@ -758,18 +697,6 @@ fn episode_span(episodes: &[i64]) -> String {
         (Some(first), Some(last)) => format!("E{first:02}–E{last:02} ({})", episodes.len()),
         _ => String::new(),
     }
-}
-
-/// Write through a `.part` file and rename it, so nothing that watches the directory (the
-/// cloud upload) ever picks up half a file.
-async fn write_atomic(path: &Path, bytes: Vec<u8>) -> Result<(), JobError> {
-    let mut part = path.as_os_str().to_owned();
-    part.push(".part");
-    let part = PathBuf::from(part);
-    tokio::fs::write(&part, bytes)
-        .await
-        .map_err(|error| os_error(&error, Some(&part)))?;
-    tokio::fs::rename(&part, path).await.map_err(|error| os_error(&error, Some(path)))
 }
 
 async fn create_dir_all(dir: &Path) -> Result<(), JobError> {
@@ -1116,7 +1043,6 @@ struct Stored {
     dir_name: String,
     category: String,
     tier: Tier,
-    metadata_written: bool,
     /// The series' details and poster are in the database, for the media server's plugin.
     details_saved: bool,
 }
@@ -1138,7 +1064,6 @@ struct Followed {
     episode_count: i64,
     /// The highest list it was ever in.
     tier: Option<Tier>,
-    metadata_written: bool,
     details_saved: bool,
 }
 
@@ -1319,7 +1244,7 @@ impl Run {
     async fn followed(&self) -> Result<HashMap<i64, Followed>, JobError> {
         let rows = execute(
             &self.db,
-            "SELECT video_id, episode_count, tier, metadata_written, details_saved FROM huangguo_series",
+            "SELECT video_id, episode_count, tier, details_saved FROM huangguo_series",
             Vec::new(),
         )
         .await?;
@@ -1333,7 +1258,6 @@ impl Run {
                 Followed {
                     episode_count: i64::from(count),
                     tier: Tier::parse(&tier),
-                    metadata_written: row.try_get("metadata_written").map_err(db_error)?,
                     details_saved: row.try_get("details_saved").map_err(db_error)?,
                 },
             );
@@ -1403,7 +1327,7 @@ impl Run {
              tier = CASE WHEN EXCLUDED.tier = 'favorite' OR huangguo_series.tier = '' \
                  OR (EXCLUDED.tier = 'ranking' AND huangguo_series.tier = 'new') THEN EXCLUDED.tier ELSE huangguo_series.tier END, \
              updated_at = CURRENT_TIMESTAMP \
-             RETURNING dir_name, category, tier, metadata_written, details_saved",
+             RETURNING dir_name, category, tier, details_saved",
             vec![
                 Param::from(series.id),
                 Param::from(category),
@@ -1425,7 +1349,6 @@ impl Run {
             dir_name: row.try_get("dir_name").map_err(db_error)?,
             category: row.try_get("category").map_err(db_error)?,
             tier: Tier::parse(&stored_tier).unwrap_or(tier),
-            metadata_written: row.try_get("metadata_written").map_err(db_error)?,
             details_saved: row.try_get("details_saved").map_err(db_error)?,
         })
     }
@@ -1435,16 +1358,6 @@ impl Run {
             &self.db,
             "UPDATE huangguo_series SET episode_count = $1, last_error = '', updated_at = CURRENT_TIMESTAMP WHERE video_id = $2",
             vec![Param::from(episode_count), Param::from(id)],
-        )
-        .await
-        .map(drop)
-    }
-
-    async fn mark_metadata_written(&self, id: i64) -> Result<(), JobError> {
-        execute(
-            &self.db,
-            "UPDATE huangguo_series SET metadata_written = TRUE, updated_at = CURRENT_TIMESTAMP WHERE video_id = $1",
-            vec![Param::from(id)],
         )
         .await
         .map(drop)
@@ -1477,24 +1390,6 @@ impl Run {
         response.error_for_status().map_err(|error| pyerr::status_error(&error))?;
         let raw = response.bytes().await.map_err(|error| pyerr::transport_error(&error))?;
         decode_cover(&raw, &key).map_err(huangguo_error)
-    }
-
-    /// `tvshow.nfo` and the poster into `metadata_path`, the media server's view of the
-    /// uploaded folder; never beside the episodes, which go to the cloud. Written once.
-    async fn write_metadata(&self, series: &Series, stored: &Stored) -> Result<(), JobError> {
-        if self.cfg.metadata_path.is_empty() || stored.metadata_written {
-            return Ok(());
-        }
-        let dir = Path::new(&self.cfg.metadata_path)
-            .join(category_dir_name(&stored.category))
-            .join(&stored.dir_name);
-        create_dir_all(&dir).await?;
-        write_atomic(&dir.join("tvshow.nfo"), tvshow_nfo(series, &stored.category).into_bytes()).await?;
-        if let Some(bytes) = self.saved_poster(series).await? {
-            let extension = image_extension(&bytes).unwrap_or("jpg");
-            write_atomic(&dir.join(format!("poster.{extension}")), bytes).await?;
-        }
-        self.mark_metadata_written(series.id).await
     }
 
     /// An image `huangguo_images` holds.
@@ -1798,14 +1693,6 @@ impl Run {
                 error.formatted()
             ));
         }
-        if let Err(error) = self.write_metadata(&series, &stored).await {
-            log().warning(format!(
-                "Could not write the Huangguo metadata of {} ({}): {}",
-                series.id,
-                series.title,
-                error.formatted()
-            ));
-        }
         if pending.is_empty() {
             return self.mark_checked(series.id, listed.episode_count).await;
         }
@@ -1887,15 +1774,9 @@ impl Run {
                 return;
             }
             match followed.get(&listed.id) {
-                // Unchanged, unless its details and poster (for the media server's plugin) or
-                // its tvshow.nfo (a series saved before `metadata_path` was set) are still
-                // owed: then it is read once more to save them.
-                Some(known)
-                    if listed.episode_count > 0
-                        && known.episode_count == listed.episode_count
-                        && known.details_saved
-                        && (known.metadata_written || self.cfg.metadata_path.is_empty()) =>
-                {
+                // Unchanged, unless its details and poster (for the media server's plugin) are
+                // still owed: then it is read once more to save them.
+                Some(known) if listed.episode_count > 0 && known.episode_count == listed.episode_count && known.details_saved => {
                     unchanged += 1;
                     return;
                 }
