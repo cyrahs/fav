@@ -20,7 +20,7 @@ use fav_core::settings::Settings;
 use fav_db::{Db, SettingsStore};
 use fav_runtime::BoxFuture;
 use fav_runtime::site_sessions::{SiteSession, StoredCookie, cookie_value};
-use fav_sources::{bilibili, nga_post, pixiv, twitter};
+use fav_sources::{bilibili, huangguo, nga_post, pixiv, twitter};
 
 use crate::json;
 
@@ -53,6 +53,7 @@ fn check(ok: bool, account: String, message: String) -> LoginCheck {
 }
 
 const TWITTER_HINT: &str = "用 X 账号（要和 X 设置里的用户名是同一个）登录；X 多半会再要邮箱或手机验证码，按页面提示输入即可。";
+const HUANGGUO_HINT: &str = "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。";
 const NGA_HINT: &str = "用 NGA 账号登录（账号密码或手机验证码）；微信源里转发的 NGA 帖子靠这个登录读取。";
 const ZHIHU_HINT: &str = "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。";
 const REDNOTE_HINT: &str = "用手机小红书扫画面里的二维码，或用手机号和验证码登录；之后多半还会弹一个安全验证码，同样用 App 扫。";
@@ -135,6 +136,36 @@ fn nga_site() -> LoginSite {
             })
         }))
         .hint(NGA_HINT)
+        .build(),
+    )
+}
+
+/// 黄果短剧: the login lists the account's favourites and nothing else. It goes out through
+/// the source's own proxy, like the crawl.
+fn huangguo_site(load: &LoadSettings) -> LoginSite {
+    let verify_load = Arc::clone(load);
+    let proxy_load = Arc::clone(load);
+    built(
+        LoginSite::builder(
+            huangguo::SESSION_SITE,
+            "黄果短剧",
+            huangguo::LOGIN_URL,
+            &huangguo::SESSION_COOKIE_URLS,
+            huangguo::SESSION_COOKIE,
+        )
+        .verify(Arc::new(move |cookies: Vec<StoredCookie>| {
+            let load = Arc::clone(&verify_load);
+            Box::pin(async move {
+                let settings = load().await?;
+                let found = huangguo::verify_session(&cookies, &settings.web.huangguo.proxy).await;
+                Ok(check(found.ok, found.account, found.message))
+            })
+        }))
+        .proxy(Arc::new(move || {
+            let load = Arc::clone(&proxy_load);
+            Box::pin(async move { Ok(load().await?.web.huangguo.proxy.clone()) })
+        }))
+        .hint(HUANGGUO_HINT)
         .build(),
     )
 }
@@ -277,6 +308,7 @@ pub fn login_sites(settings: &Settings, load: &LoadSettings) -> Vec<LoginSite> {
         nga_site(),
         rednote_site(load),
         zhihu_site(load),
+        huangguo_site(load),
     ];
     let accounts = &settings.web.bilibili.accounts;
     for account in accounts {

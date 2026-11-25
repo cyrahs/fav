@@ -42,6 +42,11 @@
       "sensitive_fields": []
     },
     {
+      "section": "web.huangguo",
+      "model": "Huangguo",
+      "sensitive_fields": []
+    },
+    {
       "section": "web.jandan",
       "model": "Jandan",
       "sensitive_fields": []

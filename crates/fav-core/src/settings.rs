@@ -1031,6 +1031,191 @@ impl Hanime1 {
     }
 }
 
+// ---------- Huangguo ----------
+
+/// The site's category routes a fresh section crawls: 短剧 and 漫剧 (the only two the
+/// site still serves; AI魔改 and AI换脸 answer "内容已下线").
+const HUANGGUO_CATEGORIES: [&str; 2] = ["ai-duanju", "ai-manju"];
+/// Tags whose series are never downloaded by default.
+const HUANGGUO_EXCLUDED_TAGS: [&str; 1] = ["男同"];
+/// The site's ranking lists (`/api/ranks/<type>`): 热播, 推荐 and 潜力 (the 飙升 list).
+pub const HUANGGUO_RANKINGS: [&str; 3] = ["hot", "recommend", "potential"];
+
+fn huangguo_rankings(values: Vec<String>) -> Result<Vec<String>, String> {
+    for value in &values {
+        if !HUANGGUO_RANKINGS.contains(&value.as_str()) {
+            return Err(format!(
+                "unknown huangguo ranking: {value} (expected one of hot, recommend, potential)"
+            ));
+        }
+    }
+    Ok(dedupe(values))
+}
+
+/// A category route as the site writes it (`ai-duanju`): lowercase letters, digits, `-`.
+fn huangguo_categories(values: Vec<String>) -> Result<Vec<String>, String> {
+    let mut routes = Vec::new();
+    for value in values {
+        if value.is_empty() {
+            continue;
+        }
+        if !value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err(format!("invalid huangguo category route: {value}"));
+        }
+        routes.push(value);
+    }
+    Ok(dedupe(routes))
+}
+
+/// Tags without the blank ones and the repeats.
+fn huangguo_tags(values: Vec<String>) -> Vec<String> {
+    dedupe(values.into_iter().filter(|tag| !tag.is_empty()).collect())
+}
+
+/// `web.huangguo`: every series in the chosen categories of 黄果短剧 (huangguoai.com),
+/// laid out for an Emby TV library.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Huangguo {
+    pub schedule: Schedule,
+    /// Where episodes are downloaded to: `<path>/<category>/<series>/`, picked up from there
+    /// by the cloud upload.
+    pub path: PyPath,
+    /// Where `tvshow.nfo` and the poster go, in the same `<category>/<series>/` layout: the
+    /// media server's view of the uploaded folder. Empty writes none.
+    pub metadata_path: String,
+    pub host: String,
+    /// Category routes (`ai-duanju`, `ai-manju`); each becomes a directory under `path`.
+    pub categories: Vec<String>,
+    /// A series carrying any of these tags is skipped.
+    pub excluded_tags: Vec<String>,
+    /// A series not followed yet is picked up only when it went up within this many days;
+    /// the back catalogue is never downloaded. Followed series keep getting new episodes.
+    pub backfill_days: i64,
+    /// Download the signed-in account's favourites (收藏) first; the login only lists them.
+    pub favorites: bool,
+    /// The ranking lists to download after the favourites, before new series.
+    pub rankings: Vec<String>,
+    /// How many GB of downloaded episodes (rankings and new series) may wait on the local
+    /// disk for the upload; at the limit the run stops downloading them.
+    pub cache_limit_gb: i64,
+    /// The same for favourites, counted on their own.
+    pub favorites_cache_limit_gb: i64,
+    /// Egress for the site's API; empty uses the environment's.
+    pub proxy: String,
+    /// Whether covers and episode streams go through `proxy` too.
+    pub proxy_media: bool,
+    /// How many episodes one run downloads at most; the rest wait for the next run.
+    pub max_episodes_per_run: i64,
+    pub sleep_request_seconds: f64,
+}
+
+impl Model for Huangguo {
+    const CLASS_NAME: &'static str = "Huangguo";
+
+    fn validate_at(value: &Value, loc: &[LocItem]) -> Result<Self, Errors> {
+        let mut fields = Fields::begin(value, loc, Self::CLASS_NAME)?;
+        let schedule = Schedule::read(&mut fields, Some("25 */2 * * *"));
+        let path = fields.optional("path", || PyPath::new("./collection/huangguo"), path);
+        let metadata_path = fields.optional("metadata_path", String::new, stripped_string);
+        let host = fields.optional("host", || "https://huangguoai.com".to_owned(), url_without_trailing_slash);
+        let categories = fields.optional(
+            "categories",
+            || HUANGGUO_CATEGORIES.iter().map(|&route| route.to_owned()).collect(),
+            after(list_of(stripped_string), huangguo_categories),
+        );
+        let excluded_tags = fields.optional(
+            "excluded_tags",
+            || HUANGGUO_EXCLUDED_TAGS.iter().map(|&tag| tag.to_owned()).collect(),
+            after(list_of(stripped_string), |tags| Ok(huangguo_tags(tags))),
+        );
+        let backfill_days = fields.optional("backfill_days", || 3, after(int, positive_count("backfill_days")));
+        let favorites = fields.optional("favorites", || true, boolean);
+        let rankings = fields.optional(
+            "rankings",
+            || HUANGGUO_RANKINGS.iter().map(|&ranking| ranking.to_owned()).collect(),
+            after(list_of(stripped_string), huangguo_rankings),
+        );
+        let cache_limit_gb = fields.optional("cache_limit_gb", || 200, after(int, positive_count("cache_limit_gb")));
+        let favorites_cache_limit_gb = fields.optional(
+            "favorites_cache_limit_gb",
+            || 50,
+            after(int, positive_count("favorites_cache_limit_gb")),
+        );
+        let proxy = fields.optional("proxy", String::new, stripped_string);
+        let proxy_media = fields.optional("proxy_media", || true, boolean);
+        let max_episodes_per_run = fields.optional("max_episodes_per_run", || 100, after(int, positive_count("max_episodes_per_run")));
+        let sleep_request_seconds = fields.optional(
+            "sleep_request_seconds",
+            || 1.0,
+            after(float, non_negative_seconds("sleep_request_seconds")),
+        );
+        fields.finish(
+            || {
+                Some(Self {
+                    schedule: schedule?,
+                    path: path?,
+                    metadata_path: metadata_path?,
+                    host: host?,
+                    categories: categories?,
+                    excluded_tags: excluded_tags?,
+                    backfill_days: backfill_days?,
+                    favorites: favorites?,
+                    rankings: rankings?,
+                    cache_limit_gb: cache_limit_gb?,
+                    favorites_cache_limit_gb: favorites_cache_limit_gb?,
+                    proxy: proxy?,
+                    proxy_media: proxy_media?,
+                    max_episodes_per_run: max_episodes_per_run?,
+                    sleep_request_seconds: sleep_request_seconds?,
+                })
+            },
+            |_| Ok(()),
+        )
+    }
+
+    fn dump(&self) -> Value {
+        let mut entries = Vec::new();
+        self.schedule.dump_into(&mut entries);
+        entries.push(("path", paths(&self.path)));
+        entries.push(("metadata_path", Value::Str(self.metadata_path.clone())));
+        entries.push(("host", Value::Str(self.host.clone())));
+        entries.push((
+            "categories",
+            Value::List(self.categories.iter().map(|route| Value::Str(route.clone())).collect()),
+        ));
+        entries.push((
+            "excluded_tags",
+            Value::List(self.excluded_tags.iter().map(|tag| Value::Str(tag.clone())).collect()),
+        ));
+        entries.push(("backfill_days", Value::from(self.backfill_days)));
+        entries.push(("favorites", Value::Bool(self.favorites)));
+        entries.push((
+            "rankings",
+            Value::List(self.rankings.iter().map(|ranking| Value::Str(ranking.clone())).collect()),
+        ));
+        entries.push(("cache_limit_gb", Value::from(self.cache_limit_gb)));
+        entries.push(("favorites_cache_limit_gb", Value::from(self.favorites_cache_limit_gb)));
+        entries.push(("proxy", Value::Str(self.proxy.clone())));
+        entries.push(("proxy_media", Value::Bool(self.proxy_media)));
+        entries.push(("max_episodes_per_run", Value::from(self.max_episodes_per_run)));
+        entries.push(("sleep_request_seconds", dump_float(self.sleep_request_seconds)));
+        dict(entries)
+    }
+}
+
+impl Huangguo {
+    pub fn validate_runnable(&self) -> Vec<String> {
+        if self.categories.is_empty() {
+            vec!["categories".to_owned()]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 // ---------- Jandan, Kemono ----------
 
 /// `web.jandan`.
@@ -1872,6 +2057,7 @@ defaults_from_empty!(
     Bd2,
     AzurLane,
     Hanime1,
+    Huangguo,
     Jandan,
     Kemono,
     Twitter,
@@ -1899,6 +2085,7 @@ container!(
         bd2: Bd2,
         azurlane: AzurLane,
         hanime1: Hanime1,
+        huangguo: Huangguo,
         jandan: Jandan,
         kemono: Kemono,
         twitter: Twitter,
@@ -1933,7 +2120,7 @@ container!(
 // ---------- sections ----------
 
 /// The section names, in the order the UI renders them (`SECTION_MODELS`).
-pub const SECTIONS: [&str; 16] = [
+pub const SECTIONS: [&str; 17] = [
     "web.bilibili",
     "web.telegram",
     "web.stellasora",
@@ -1941,6 +2128,7 @@ pub const SECTIONS: [&str; 16] = [
     "web.bd2",
     "web.azurlane",
     "web.hanime1",
+    "web.huangguo",
     "web.jandan",
     "web.kemono",
     "web.twitter",
@@ -2012,6 +2200,7 @@ pub enum SectionValue {
     Bd2(Bd2),
     AzurLane(AzurLane),
     Hanime1(Hanime1),
+    Huangguo(Huangguo),
     Jandan(Jandan),
     Kemono(Kemono),
     Twitter(Twitter),
@@ -2033,6 +2222,7 @@ macro_rules! each_section {
             SectionValue::Bd2($model) => $body,
             SectionValue::AzurLane($model) => $body,
             SectionValue::Hanime1($model) => $body,
+            SectionValue::Huangguo($model) => $body,
             SectionValue::Jandan($model) => $body,
             SectionValue::Kemono($model) => $body,
             SectionValue::Twitter($model) => $body,
@@ -2057,6 +2247,7 @@ impl SectionValue {
             "web.bd2" => Self::Bd2(Bd2::validate(value)?),
             "web.azurlane" => Self::AzurLane(AzurLane::validate(value)?),
             "web.hanime1" => Self::Hanime1(Hanime1::validate(value)?),
+            "web.huangguo" => Self::Huangguo(Huangguo::validate(value)?),
             "web.jandan" => Self::Jandan(Jandan::validate(value)?),
             "web.kemono" => Self::Kemono(Kemono::validate(value)?),
             "web.twitter" => Self::Twitter(Twitter::validate(value)?),
@@ -2109,6 +2300,7 @@ impl SectionValue {
             Self::Bd2(model) => &model.schedule,
             Self::AzurLane(model) => &model.schedule,
             Self::Hanime1(model) => &model.schedule,
+            Self::Huangguo(model) => &model.schedule,
             Self::Jandan(model) => &model.schedule,
             Self::Kemono(model) => &model.schedule,
             Self::Twitter(model) => &model.schedule,
@@ -2144,6 +2336,7 @@ runnable_impl!(
     Bd2,
     AzurLane,
     Hanime1,
+    Huangguo,
     Jandan,
     Kemono,
     Twitter,
@@ -2176,6 +2369,7 @@ impl Settings {
             "web.bd2" => SectionValue::Bd2(web.bd2.clone()),
             "web.azurlane" => SectionValue::AzurLane(web.azurlane.clone()),
             "web.hanime1" => SectionValue::Hanime1(web.hanime1.clone()),
+            "web.huangguo" => SectionValue::Huangguo(web.huangguo.clone()),
             "web.jandan" => SectionValue::Jandan(web.jandan.clone()),
             "web.kemono" => SectionValue::Kemono(web.kemono.clone()),
             "web.twitter" => SectionValue::Twitter(web.twitter.clone()),
@@ -2200,6 +2394,7 @@ impl Settings {
             "bd2" => &web.bd2.schedule,
             "azurlane" => &web.azurlane.schedule,
             "hanime1" => &web.hanime1.schedule,
+            "huangguo" => &web.huangguo.schedule,
             "jandan" => &web.jandan.schedule,
             "kemono" => &web.kemono.schedule,
             "twitter" => &web.twitter.schedule,
@@ -2222,6 +2417,7 @@ impl Settings {
             "bd2" => &mut web.bd2.schedule,
             "azurlane" => &mut web.azurlane.schedule,
             "hanime1" => &mut web.hanime1.schedule,
+            "huangguo" => &mut web.huangguo.schedule,
             "jandan" => &mut web.jandan.schedule,
             "kemono" => &mut web.kemono.schedule,
             "twitter" => &mut web.twitter.schedule,

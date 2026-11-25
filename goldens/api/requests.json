@@ -371,6 +371,15 @@
                   "missing_fields": []
                 },
                 {
+                  "key": "huangguo",
+                  "name": "Huangguo",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "25 */2 * * *",
+                  "section": "web.huangguo",
+                  "missing_fields": []
+                },
+                {
                   "key": "jandan",
                   "name": "Jandan",
                   "enabled": false,
@@ -493,7 +502,7 @@
                   ]
                 }
               ],
-              "total": 14
+              "total": 15
             }
           }
         },
@@ -762,6 +771,15 @@
                   "missing_fields": []
                 },
                 {
+                  "key": "huangguo",
+                  "name": "Huangguo",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "25 */2 * * *",
+                  "section": "web.huangguo",
+                  "missing_fields": []
+                },
+                {
                   "key": "jandan",
                   "name": "Jandan",
                   "enabled": false,
@@ -884,7 +902,7 @@
                   ]
                 }
               ],
-              "total": 14
+              "total": 15
             }
           }
         }
@@ -951,6 +969,15 @@
                   "notify": true,
                   "cron": "0 */6 * * *",
                   "section": "web.hanime1",
+                  "missing_fields": []
+                },
+                {
+                  "key": "huangguo",
+                  "name": "Huangguo",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "25 */2 * * *",
+                  "section": "web.huangguo",
                   "missing_fields": []
                 },
                 {
@@ -1076,7 +1103,7 @@
                   ]
                 }
               ],
-              "total": 14
+              "total": 15
             }
           }
         }
@@ -1208,10 +1235,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": "not-a-source",
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -1245,10 +1272,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": "Jandan",
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -1418,10 +1445,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": 5,
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -1824,10 +1851,10 @@
                       "body",
                       "target"
                     ],
-                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
+                    "msg": "Input should be 'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'",
                     "input": null,
                     "ctx": {
-                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
+                      "expected": "'all', 'azurlane', 'bd2', 'bilibili', 'hanime1', 'huangguo', 'jandan', 'kemono', 'nikke', 'pixiv', 'rednote', 'stellasora', 'telegram', 'twitter', 'wechat' or 'zhihu'"
                     }
                   }
                 ]
@@ -2900,6 +2927,38 @@
                   "missing_fields": []
                 },
                 {
+                  "section": "web.huangguo",
+                  "value": {
+                    "cron": "25 */2 * * *",
+                    "enabled": false,
+                    "notify": true,
+                    "path": "collection/huangguo",
+                    "metadata_path": "",
+                    "host": "https://huangguoai.com",
+                    "categories": [
+                      "ai-duanju",
+                      "ai-manju"
+                    ],
+                    "excluded_tags": [
+                      "男同"
+                    ],
+                    "backfill_days": 3,
+                    "favorites": true,
+                    "rankings": [
+                      "hot",
+                      "recommend",
+                      "potential"
+                    ],
+                    "cache_limit_gb": 200,
+                    "favorites_cache_limit_gb": 50,
+                    "proxy": "",
+                    "proxy_media": true,
+                    "max_episodes_per_run": 100,
+                    "sleep_request_seconds": 1.0
+                  },
+                  "missing_fields": []
+                },
+                {
                   "section": "web.jandan",
                   "value": {
                     "cron": "0 */6 * * *",
@@ -3039,7 +3098,7 @@
                   "missing_fields": []
                 }
               ],
-              "total": 16
+              "total": 17
             }
           }
         },
@@ -3462,6 +3521,38 @@
                   "missing_fields": []
                 },
                 {
+                  "section": "web.huangguo",
+                  "value": {
+                    "cron": "25 */2 * * *",
+                    "enabled": false,
+                    "notify": true,
+                    "path": "collection/huangguo",
+                    "metadata_path": "",
+                    "host": "https://huangguoai.com",
+                    "categories": [
+                      "ai-duanju",
+                      "ai-manju"
+                    ],
+                    "excluded_tags": [
+                      "男同"
+                    ],
+                    "backfill_days": 3,
+                    "favorites": true,
+                    "rankings": [
+                      "hot",
+                      "recommend",
+                      "potential"
+                    ],
+                    "cache_limit_gb": 200,
+                    "favorites_cache_limit_gb": 50,
+                    "proxy": "",
+                    "proxy_media": true,
+                    "max_episodes_per_run": 100,
+                    "sleep_request_seconds": 1.0
+                  },
+                  "missing_fields": []
+                },
+                {
                   "section": "web.jandan",
                   "value": {
                     "cron": "0 */6 * * *",
@@ -3594,7 +3685,7 @@
                   "missing_fields": []
                 }
               ],
-              "total": 16
+              "total": 17
             }
           }
         },
@@ -3766,6 +3857,15 @@
                   "missing_fields": []
                 },
                 {
+                  "key": "huangguo",
+                  "name": "Huangguo",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "25 */2 * * *",
+                  "section": "web.huangguo",
+                  "missing_fields": []
+                },
+                {
                   "key": "jandan",
                   "name": "Jandan",
                   "enabled": false,
@@ -3884,7 +3984,7 @@
                   ]
                 }
               ],
-              "total": 14
+              "total": 15
             }
           }
         }
@@ -4673,6 +4773,38 @@
                   "missing_fields": []
                 },
                 {
+                  "section": "web.huangguo",
+                  "value": {
+                    "cron": "25 */2 * * *",
+                    "enabled": false,
+                    "notify": true,
+                    "path": "collection/huangguo",
+                    "metadata_path": "",
+                    "host": "https://huangguoai.com",
+                    "categories": [
+                      "ai-duanju",
+                      "ai-manju"
+                    ],
+                    "excluded_tags": [
+                      "男同"
+                    ],
+                    "backfill_days": 3,
+                    "favorites": true,
+                    "rankings": [
+                      "hot",
+                      "recommend",
+                      "potential"
+                    ],
+                    "cache_limit_gb": 200,
+                    "favorites_cache_limit_gb": 50,
+                    "proxy": "",
+                    "proxy_media": true,
+                    "max_episodes_per_run": 100,
+                    "sleep_request_seconds": 1.0
+                  },
+                  "missing_fields": []
+                },
+                {
                   "section": "web.jandan",
                   "value": {
                     "cron": "0 */6 * * *",
@@ -4809,7 +4941,7 @@
                   "missing_fields": []
                 }
               ],
-              "total": 16
+              "total": 17
             }
           }
         },
@@ -4844,6 +4976,15 @@
                   "notify": true,
                   "cron": "0 */6 * * *",
                   "section": "web.hanime1",
+                  "missing_fields": []
+                },
+                {
+                  "key": "huangguo",
+                  "name": "Huangguo",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "25 */2 * * *",
+                  "section": "web.huangguo",
                   "missing_fields": []
                 },
                 {
@@ -4969,7 +5110,7 @@
                   ]
                 }
               ],
-              "total": 14
+              "total": 15
             }
           }
         }
@@ -5445,6 +5586,7 @@
                   "allowed_values": [
                     "bilibili",
                     "hanime1",
+                    "huangguo",
                     "jandan",
                     "kemono",
                     "pixiv",
@@ -5666,6 +5808,7 @@
                   "allowed_values": [
                     "bilibili",
                     "hanime1",
+                    "huangguo",
                     "jandan",
                     "kemono",
                     "pixiv",
@@ -5861,6 +6004,19 @@
                   "checked_at": null
                 },
                 {
+                  "site": "huangguo",
+                  "label": "黄果短剧",
+                  "signed_in": false,
+                  "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
+                  "account": "",
+                  "status": "",
+                  "message": "",
+                  "cookie_count": 0,
+                  "expires_at": null,
+                  "signed_in_at": null,
+                  "checked_at": null
+                },
+                {
                   "site": "bilibili-main",
                   "label": "Bilibili（main）",
                   "signed_in": true,
@@ -6000,6 +6156,19 @@
                   "label": "知乎",
                   "signed_in": false,
                   "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
+                  "account": "",
+                  "status": "",
+                  "message": "",
+                  "cookie_count": 0,
+                  "expires_at": null,
+                  "signed_in_at": null,
+                  "checked_at": null
+                },
+                {
+                  "site": "huangguo",
+                  "label": "黄果短剧",
+                  "signed_in": false,
+                  "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
                   "account": "",
                   "status": "",
                   "message": "",
@@ -6577,6 +6746,15 @@
                   "missing_fields": []
                 },
                 {
+                  "key": "huangguo",
+                  "name": "Huangguo",
+                  "enabled": false,
+                  "notify": true,
+                  "cron": "25 */2 * * *",
+                  "section": "web.huangguo",
+                  "missing_fields": []
+                },
+                {
                   "key": "jandan",
                   "name": "Jandan",
                   "enabled": false,
@@ -6699,7 +6877,7 @@
                   ]
                 }
               ],
-              "total": 14
+              "total": 15
             }
           }
         },

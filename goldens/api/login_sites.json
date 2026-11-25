@@ -36,6 +36,12 @@
           "label": "知乎",
           "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
           "session_cookie": "z_c0"
+        },
+        {
+          "key": "huangguo",
+          "label": "黄果短剧",
+          "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
+          "session_cookie": "_USER_TOKEN_"
         }
       ]
     },
@@ -73,6 +79,12 @@
           "label": "知乎",
           "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
           "session_cookie": "z_c0"
+        },
+        {
+          "key": "huangguo",
+          "label": "黄果短剧",
+          "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
+          "session_cookie": "_USER_TOKEN_"
         },
         {
           "key": "bilibili-main",
@@ -117,6 +129,12 @@
           "label": "知乎",
           "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
           "session_cookie": "z_c0"
+        },
+        {
+          "key": "huangguo",
+          "label": "黄果短剧",
+          "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
+          "session_cookie": "_USER_TOKEN_"
         },
         {
           "key": "bilibili-main",
@@ -168,6 +186,12 @@
           "label": "知乎",
           "hint": "用知乎 App 扫画面里的二维码，或用手机号和验证码登录；Telegram 和微信里转来的知乎链接靠这个登录读取。",
           "session_cookie": "z_c0"
+        },
+        {
+          "key": "huangguo",
+          "label": "黄果短剧",
+          "hint": "用黄果账号和密码登录（页面上点登录）；黄果短剧源只用这个登录读取收藏列表，下载不带登录。",
+          "session_cookie": "_USER_TOKEN_"
         },
         {
           "key": "bilibili-a_b",

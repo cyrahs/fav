@@ -51,7 +51,7 @@ impl ArchiveSource {
 }
 
 /// `ARCHIVE_SOURCES`, in Python's order.
-pub const ARCHIVE_SOURCES: [ArchiveSource; 12] = [
+pub const ARCHIVE_SOURCES: [ArchiveSource; 13] = [
     ArchiveSource {
         key: "bilibili",
         name: "Bilibili",
@@ -84,6 +84,17 @@ pub const ARCHIVE_SOURCES: [ArchiveSource; 12] = [
         search_columns: &["id", "title", "uploader"],
         time_column: "created_at",
         subtitle_columns: &["uploader", "release_date"],
+    },
+    ArchiveSource {
+        key: "huangguo",
+        name: "Huangguo",
+        table: "huangguo",
+        id_columns: &["video_id", "ep_num"],
+        title_column: "series_title",
+        columns: &["ep_num", "title", "category", "duration", "local_path"],
+        search_columns: &["series_title", "title", "category"],
+        time_column: "created_at",
+        subtitle_columns: &["category", "title"],
     },
     ArchiveSource {
         key: "jandan",
@@ -251,6 +262,11 @@ fn external_url(source: &ArchiveSource, row: &Row, settings: &Settings) -> Optio
             "{}/watch?v={}",
             settings.web.hanime1.host.trim_end_matches('/'),
             py_str(get("id"))
+        )),
+        "huangguo" => Some(format!(
+            "{}/video/{}/",
+            settings.web.huangguo.host.trim_end_matches('/'),
+            py_str(get("video_id"))
         )),
         "kemono" => Some(format!(
             "{}/{}/user/{}/post/{}",
@@ -523,6 +539,21 @@ mod tests {
             external_url(source, &row, &settings).as_deref(),
             Some("https://www.pixiv.net/artworks/96461036")
         );
+    }
+
+    #[test]
+    fn the_archive_links_a_huangguo_episode_back_to_its_series() {
+        let source = source("huangguo").expect("huangguo is archived");
+        let row: Row = vec![
+            ("video_id".to_owned(), Value::from(15_941_i64)),
+            ("ep_num".to_owned(), Value::from(2_i64)),
+        ];
+        let settings = fav_db::settings_store::default_settings();
+        assert_eq!(
+            external_url(source, &row, &settings).as_deref(),
+            Some("https://huangguoai.com/video/15941/")
+        );
+        assert!(crate::handlers::JOB_REQUEST_TARGETS.contains(&"huangguo"));
     }
 
     // py: tests/test_pixiv.py::test_api_job_enum_includes_pixiv

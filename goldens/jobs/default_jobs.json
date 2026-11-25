@@ -25,6 +25,15 @@
       "missing_fields": []
     },
     {
+      "key": "huangguo",
+      "name": "Huangguo",
+      "cron": "25 */2 * * *",
+      "enabled": false,
+      "notify": true,
+      "section": "web.huangguo",
+      "missing_fields": []
+    },
+    {
       "key": "jandan",
       "name": "Jandan",
       "cron": "0 */6 * * *",

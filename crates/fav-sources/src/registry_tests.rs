@@ -27,7 +27,7 @@ async fn the_registry_has_exactly_python_job_specs() {
         .iter()
         .map(|case| golden::string(golden::get(case, "key")))
         .collect();
-    assert_eq!(python.len(), 14);
+    assert_eq!(python.len(), 15);
     let mut sorted = python.clone();
     sorted.sort();
 
