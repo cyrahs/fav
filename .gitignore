@@ -34,3 +34,16 @@ config.toml
 # The Emby plugin's build output
 emby-plugin/**/bin/
 emby-plugin/**/obj/
+
+# Local credentials: this repository is public, never commit env or key files
+.env
+.env.*
+*.env
+.envrc
+!.env.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx

@@ -1,0 +1,10 @@
+# Reviewed 2026-11-26 secret scan of the full history.
+# Test fixtures and false positives (fake values / identifiers, not credentials):
+805f5c04147cc59a40ace3673ceee1eda7cd1d68:rust/crates/fav-api/src/masking.rs:generic-api-key:168
+bd2bc4ece5b70053fde79c265b2f7430973685b9:rust/crates/fav-api/src/masking.rs:generic-api-key:168
+3625010092afcc140d64a366bf1bf074a2977fae:rust/crates/fav-api/src/masking.rs:generic-api-key:168
+805f5c04147cc59a40ace3673ceee1eda7cd1d68:rust/crates/fav-sources/src/nikke_layer_metadata.rs:generic-api-key:1401
+faed9d97172a763de97d22c9fab76252ed896426:rust/crates/fav-sources/src/nikke_layer_metadata.rs:generic-api-key:1397
+900771551cf42f41784ddbd1964ea9bb5e9de8ea:rust/crates/fav-sources/src/nikke_layer_metadata.rs:generic-api-key:1397
+4c9e9379fd7380cff54d9a2bddec834841f799ee:src/web/nikke_layer_metadata.py:generic-api-key:827
+eddbda4f4bbb00253c7303c953f9d51bc66ca202:src/api/service.py:generic-api-key:35
