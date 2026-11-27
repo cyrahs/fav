@@ -1245,3 +1245,43 @@ async fn thumbnails_per_run_bounds_the_backfill_and_zero_takes_none() {
     assert_eq!(runner.thumbnails().len(), 3);
     assert_eq!(harness.images().await.len(), 2 + 3, "posters and every thumbnail");
 }
+
+// ---------- favourites without an episode count ----------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_favourite_without_an_episode_count_borrows_the_listing_count_and_is_not_read_again() {
+    let harness = Harness::start(two_series_site()).await;
+    // A favourites entry the way the site may write one: the series nested, no episode count.
+    *harness.site.favorites.lock().expect("favorites") =
+        vec![json!({"id": 9, "video": {"id": 101, "title": "巨乳妈妈", "tags": ["都市"]}})];
+    harness.sign_in(GOOD_SESSION).await;
+    let runner = Arc::new(FakeRunner::default());
+    harness.run(harness.config(), &runner).update().await.expect("first run");
+    assert_eq!(
+        harness
+            .tiers()
+            .await
+            .iter()
+            .find(|(id, _, _)| *id == 101)
+            .map(|(_, _, tier)| tier.as_str()),
+        Some("favorite")
+    );
+    assert_eq!(harness.series_row(101).await.1, 2, "the count the category listing gives");
+
+    // Nothing changed: the favourite is skipped like any unchanged series.
+    let seen_before = harness.web.seen().len();
+    harness.run(harness.config(), &runner).update().await.expect("second run");
+    assert!(
+        !harness.web.seen()[seen_before..]
+            .iter()
+            .any(|seen| seen.path() == "/api/videos/101"),
+        "the favourite is not read again"
+    );
+}
+
+#[test]
+fn favourite_fields_name_the_nested_video_fields_and_never_a_value() {
+    let fields = favorite_fields(&json!({"items": [{"id": 9, "created_at": "x", "video": {"id": 12, "title": "神瞳觉醒"}}]}));
+    assert_eq!(fields, ["created_at", "id", "video.id", "video.title"]);
+    assert!(favorite_fields(&json!({"items": []})).is_empty());
+}
