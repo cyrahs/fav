@@ -386,6 +386,41 @@ pub fn parse_ranking(data: &Json) -> Vec<Listed> {
         .unwrap_or_default()
 }
 
+/// The field names a favourites entry carries (`video.<name>` for a nested `video`), for
+/// the run's log: names only, never values.
+pub fn favorite_fields(data: &Json) -> Vec<String> {
+    let first = data
+        .get("items")
+        .or_else(|| data.get("list"))
+        .or(Some(data))
+        .and_then(Json::as_array)
+        .and_then(|items| items.first())
+        .and_then(Json::as_object);
+    let Some(first) = first else {
+        return Vec::new();
+    };
+    let mut fields: Vec<String> = Vec::new();
+    for (name, value) in first {
+        match value.as_object() {
+            Some(nested) if name == "video" => fields.extend(nested.keys().map(|inner| format!("video.{inner}"))),
+            _ => fields.push(name.clone()),
+        }
+    }
+    fields.sort();
+    fields
+}
+
+/// The episode count each series is listed with, from whichever list gives one.
+fn episode_counts(entries: &[(Listed, Tier, Option<String>)]) -> HashMap<i64, i64> {
+    let mut counts = HashMap::new();
+    for (listed, _, _) in entries {
+        if listed.episode_count > 0 {
+            counts.entry(listed.id).or_insert(listed.episode_count);
+        }
+    }
+    counts
+}
+
 /// A favourites page's series and the page count (1 when the answer has none).
 pub fn parse_favorites(data: &Json) -> (Vec<Listed>, i64) {
     let items = data
@@ -953,7 +988,12 @@ impl Api {
     pub(crate) async fn favorites_page(&self, session: &str, page: i64) -> Result<Option<(Vec<Listed>, i64)>, JobError> {
         let path = format!("{FAVORITES_PATH}?page={page}&size={PAGE_SIZE}");
         match self.signed_in_json("GET", &path, session).await {
-            Ok(data) => Ok(Some(parse_favorites(&data))),
+            Ok(data) => {
+                if page == 1 {
+                    log().info(format!("Huangguo favorites entries carry: {}", favorite_fields(&data).join(", ")));
+                }
+                Ok(Some(parse_favorites(&data)))
+            }
             Err(error) if error.class_name() == "Unauthorized" => Ok(None),
             Err(error) => Err(error),
         }
@@ -1694,6 +1734,15 @@ impl Run {
             ));
         }
         if pending.is_empty() {
+            log().info(format!(
+                "Huangguo read {} ({}, {}) and found nothing new: listed with {} episodes, {} playable, {} saved",
+                series.id,
+                series.title,
+                candidate.tier.as_str(),
+                listed.episode_count,
+                series.episodes.iter().filter(|episode| episode.available).count(),
+                done.len()
+            ));
             return self.mark_checked(series.id, listed.episode_count).await;
         }
         let series_dir = Path::new(self.cfg.path.as_str())
@@ -1799,23 +1848,23 @@ impl Run {
             queue.push(Candidate { listed, tier, category });
         };
 
+        // Every list first, in priority order; a series counts under the first that names it.
+        let mut entries: Vec<(Listed, Tier, Option<String>)> = Vec::new();
         if self.cfg.favorites
             && let Some(favorites) = self.list_favorites().await?
         {
             log().info(format!("Huangguo favorites list {} series", favorites.len()));
-            for listed in favorites {
+            entries.extend(favorites.into_iter().map(|listed| {
                 let category = listed.category.clone();
-                consider(listed, Tier::Favorite, category, &mut queue);
-            }
+                (listed, Tier::Favorite, category)
+            }));
         }
         for kind in &self.cfg.rankings {
             match self.api.ranking(kind).await {
-                Ok(ranking) => {
-                    for listed in ranking {
-                        let category = listed.category.clone();
-                        consider(listed, Tier::Ranking, category, &mut queue);
-                    }
-                }
+                Ok(ranking) => entries.extend(ranking.into_iter().map(|listed| {
+                    let category = listed.category.clone();
+                    (listed, Tier::Ranking, category)
+                })),
                 Err(error) => log().warning(format!("Could not read the Huangguo {kind} ranking: {}", error.formatted())),
             }
         }
@@ -1827,9 +1876,38 @@ impl Run {
                     .find(|category| category.route == *route)
                     .map_or_else(|| route.clone(), |category| category.name.clone());
                 for listed in self.list_category(route).await? {
-                    consider(listed, Tier::New, Some(category.clone()), &mut queue);
+                    entries.push((listed, Tier::New, Some(category.clone())));
                 }
             }
+        }
+        // An entry without an episode count (a favourites entry may give none) takes the count
+        // another list gives the same series, so an unchanged series is not read again.
+        let counts = episode_counts(&entries);
+        let mut borrowed = Vec::new();
+        let mut uncounted = Vec::new();
+        for (listed, tier, _) in &mut entries {
+            if listed.episode_count > 0 {
+                continue;
+            }
+            match counts.get(&listed.id) {
+                Some(&count) => {
+                    listed.episode_count = count;
+                    borrowed.push(format!("{} ({})", listed.id, tier.as_str()));
+                }
+                None => uncounted.push(format!("{} ({})", listed.id, tier.as_str())),
+            }
+        }
+        if !borrowed.is_empty() || !uncounted.is_empty() {
+            log().info(format!(
+                "Huangguo entries without an episode count: {} took it from another list [{}], {} have none [{}]",
+                borrowed.len(),
+                borrowed.join(", "),
+                uncounted.len(),
+                uncounted.join(", ")
+            ));
+        }
+        for (listed, tier, category) in entries {
+            consider(listed, tier, category, &mut queue);
         }
         log().info(format!(
             "Huangguo: {} series may have new episodes ({excluded} excluded by tag, {unchanged} unchanged, \

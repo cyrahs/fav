@@ -476,7 +476,10 @@ that names it:
 
 A followed series (a `huangguo_series` row, with the highest list it was ever in: `favorite`,
 `ranking` or `new`) whose episode count has not moved since every playable episode was saved is
-skipped. Each other series is read (`/api/videos/<id>`) and its missing playable episodes are
+skipped. An entry that gives no episode count (a favourites entry may give none) takes the
+count another list gives the same series; one no list counts is read every run. Each run logs the
+fields a favourites entry carries (names only), the entries that had no count, and every series
+it read without finding anything new. Each other series is read (`/api/videos/<id>`) and its missing playable episodes are
 downloaded one at a time: `POST /api/videos/<id>/episodes/<ep>/playback` names an AES-128 HLS
 stream, which `yt-dlp` saves (three tries, each with a fresh stream URL, since its signature
 expires). Episodes are 50–130 MB.
