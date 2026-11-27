@@ -201,7 +201,13 @@ function HuangguoForm(props: SectionFormProps) {
             label="新片：只跟进最近几天上架的"
             value={num(props.value, 'backfill_days', 3)}
             onChange={(next) => set('backfill_days', next)}
-            hint="不回填全站存量。已经在跟的剧（任何一档进来的）之后的新集照常下载。"
+            hint="只有上架这么多天以内的新剧会自动加入；已经在跟的剧（任何一档进来的）之后的新集照常下载。"
+          />
+          <CheckboxField
+            label="按时间倒序回溯旧剧"
+            checked={bool(props.value, 'backlog', false)}
+            onChange={(next) => set('backlog', next)}
+            hint="默认不勾。勾上后，收藏、榜单、新剧都处理完，每轮剩下的下载额度用来从新到旧补更早上架的剧；缓存满了就暂停等上传。建议先把「每轮最多下载集数」调小观察几天。"
           />
           <TagListField
             label="排除标签"
