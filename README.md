@@ -437,6 +437,7 @@ site's back catalogue.
   "categories": ["ai-duanju", "ai-manju"], // the site's own categories (短剧, 漫剧), each a folder
   "excluded_tags": ["男同"],                // rankings and new series with any of these are skipped
   "backfill_days": 3,                      // new series: only those uploaded within 3 days
+  "backlog": false,                        // also the older series, newest first, after the rest
   "favorites": true,                       // the 登录态 page's account's 收藏, first
   "rankings": ["hot", "recommend", "potential"], // 热播, 推荐, 潜力 (飙升), 20 series each
   "cache_limit_gb": 200,                   // rankings and new series waiting on the local disk
@@ -473,9 +474,15 @@ that names it:
    about 20 requests; the order is by upload time and a series that gets a new episode keeps its
    place, so the run cannot stop early). A series nobody asked for comes in only when it went up
    within `backfill_days`; the listing also finds the new episodes of every followed series.
+4. **The back catalogue**, only with `backlog` on: the older series no list brought in, in listing
+   order (newest first), after everything above. They take what the run's episode budget and the
+   general cache limit leave, so a full cache or a spent budget stops them first; each series is
+   read once when its turn comes and is then followed like any other (`backlog` tier). Excluded
+   tags apply.
 
 A followed series (a `huangguo_series` row, with the highest list it was ever in: `favorite`,
-`ranking` or `new`) whose episode count has not moved since every playable episode was saved is
+`ranking`, `new` or `backlog`; a category listing never moves one up, a ranking or the favourites
+do) whose episode count has not moved since every playable episode was saved is
 skipped. An entry that gives no episode count (a favourites entry may give none) takes the
 count another list gives the same series; one no list counts is read every run. Each run logs the
 fields a favourites entry carries (names only), the entries that had no count, and every series

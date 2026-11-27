@@ -1077,6 +1077,8 @@ fn huangguo_tags(values: Vec<String>) -> Vec<String> {
 
 /// `web.huangguo`: every series in the chosen categories of 黄果短剧 (huangguoai.com),
 /// laid out for an Emby TV library.
+// Independent switches (favourites, back catalogue, media and login egress), not a state.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Huangguo {
     pub schedule: Schedule,
@@ -1091,6 +1093,9 @@ pub struct Huangguo {
     /// A series not followed yet is picked up only when it went up within this many days;
     /// the back catalogue is never downloaded. Followed series keep getting new episodes.
     pub backfill_days: i64,
+    /// Also download the older series no list brings in, newest first, after everything
+    /// else, with what each run's episode budget and the cache limit leave.
+    pub backlog: bool,
     /// Download the signed-in account's favourites (收藏) first; the login only lists them.
     pub favorites: bool,
     /// The ranking lists to download after the favourites, before new series.
@@ -1136,6 +1141,7 @@ impl Model for Huangguo {
             after(list_of(stripped_string), |tags| Ok(huangguo_tags(tags))),
         );
         let backfill_days = fields.optional("backfill_days", || 3, after(int, positive_count("backfill_days")));
+        let backlog = fields.optional("backlog", || false, boolean);
         let favorites = fields.optional("favorites", || true, boolean);
         let rankings = fields.optional(
             "rankings",
@@ -1167,6 +1173,7 @@ impl Model for Huangguo {
                     categories: categories?,
                     excluded_tags: excluded_tags?,
                     backfill_days: backfill_days?,
+                    backlog: backlog?,
                     favorites: favorites?,
                     rankings: rankings?,
                     cache_limit_gb: cache_limit_gb?,
@@ -1197,6 +1204,7 @@ impl Model for Huangguo {
             Value::List(self.excluded_tags.iter().map(|tag| Value::Str(tag.clone())).collect()),
         ));
         entries.push(("backfill_days", Value::from(self.backfill_days)));
+        entries.push(("backlog", Value::Bool(self.backlog)));
         entries.push(("favorites", Value::Bool(self.favorites)));
         entries.push((
             "rankings",

@@ -426,6 +426,14 @@ impl Harness {
             .expect("details")
     }
 
+    async fn series_tier(&self, id: i64) -> String {
+        sqlx::query_scalar("SELECT tier FROM huangguo_series WHERE video_id = $1")
+            .bind(id)
+            .fetch_one(self.db.db().pool())
+            .await
+            .expect("series tier")
+    }
+
     async fn series_row(&self, id: i64) -> (String, i32, bool, String) {
         sqlx::query_as("SELECT dir_name, episode_count, details_saved, last_error FROM huangguo_series WHERE video_id = $1")
             .bind(id)
@@ -1284,4 +1292,73 @@ fn favourite_fields_name_the_nested_video_fields_and_never_a_value() {
     let fields = favorite_fields(&json!({"items": [{"id": 9, "created_at": "x", "video": {"id": 12, "title": "神瞳觉醒"}}]}));
     assert_eq!(fields, ["created_at", "id", "video.id", "video.title"]);
     assert!(favorite_fields(&json!({"items": []})).is_empty());
+}
+
+// ---------- the back catalogue ----------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_back_catalogue_comes_last_and_only_when_asked_for() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    // 101 (2 episodes) and 103 (1 playable) are new; 104 went up in August.
+    let mut cfg = harness.config();
+    cfg.backlog = true;
+    cfg.max_episodes_per_run = 3;
+    harness.run(cfg.clone(), &runner).update().await.expect("first run");
+    let streams: Vec<String> = runner.calls().iter().filter_map(|call| call.last().cloned()).collect();
+    assert_eq!(streams.len(), 3);
+    assert!(
+        streams.iter().all(|stream| !stream.contains("/104/")),
+        "the budget goes to the new series first: {streams:?}"
+    );
+
+    harness.run(cfg.clone(), &runner).update().await.expect("second run");
+    let last = runner.calls().last().and_then(|call| call.last().cloned()).expect("a download");
+    assert!(last.contains("/videos5/104/"), "{last}");
+    assert!(harness.tiers().await.contains(&(104, 1, "backlog".to_owned())));
+    assert_eq!(harness.series_tier(104).await, "backlog");
+
+    // Without the switch the old series stays out.
+    let other = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    other.run(other.config(), &runner).update().await.expect("run");
+    assert!(!other.tiers().await.iter().any(|(id, _, _)| *id == 104));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_back_catalogue_series_stays_back_catalogue_until_a_ranking_names_it() {
+    let harness = Harness::start(two_series_site()).await;
+    let runner = Arc::new(FakeRunner::default());
+    let mut cfg = harness.config();
+    cfg.backlog = true;
+    harness.run(cfg.clone(), &runner).update().await.expect("first run");
+    assert_eq!(harness.series_tier(104).await, "backlog");
+
+    // A new episode: the category listing does not make it a new series.
+    harness
+        .site
+        .series
+        .lock()
+        .expect("series")
+        .insert(104, series_json(104, "老剧", &["都市"], &[(1, 1), (2, 1)]));
+    *harness.site.listing.lock().expect("listing") = vec![listed_at(104, "老剧", &["都市"], 2, "2026-08-07 19:16:47")];
+    harness.run(cfg.clone(), &runner).update().await.expect("second run");
+    assert!(harness.tiers().await.contains(&(104, 2, "backlog".to_owned())));
+    assert_eq!(harness.series_tier(104).await, "backlog");
+
+    // A ranking moves it up.
+    harness
+        .site
+        .rankings
+        .lock()
+        .expect("rankings")
+        .insert("hot".to_owned(), vec![entry(104, "老剧", &["都市"], 3)]);
+    harness
+        .site
+        .series
+        .lock()
+        .expect("series")
+        .insert(104, series_json(104, "老剧", &["都市"], &[(1, 1), (2, 1), (3, 1)]));
+    harness.run(cfg, &runner).update().await.expect("third run");
+    assert_eq!(harness.series_tier(104).await, "ranking");
 }

@@ -218,6 +218,9 @@ pub enum Tier {
     Favorite,
     Ranking,
     New,
+    /// The back catalogue, newest first, when `backlog` is on: series that went up before
+    /// `backfill_days` and that no other list brought in.
+    Backlog,
 }
 
 impl Tier {
@@ -226,6 +229,7 @@ impl Tier {
             Self::Favorite => "favorite",
             Self::Ranking => "ranking",
             Self::New => "new",
+            Self::Backlog => "backlog",
         }
     }
 
@@ -234,6 +238,7 @@ impl Tier {
             "favorite" => Some(Self::Favorite),
             "ranking" => Some(Self::Ranking),
             "new" => Some(Self::New),
+            "backlog" => Some(Self::Backlog),
             _ => None,
         }
     }
@@ -255,7 +260,7 @@ impl Pool {
     fn tiers(self) -> &'static [&'static str] {
         match self {
             Self::Favorites => &["favorite"],
-            Self::General => &["ranking", "new"],
+            Self::General => &["ranking", "new", "backlog"],
         }
     }
 
@@ -1364,8 +1369,10 @@ impl Run {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
              ON CONFLICT (video_id) DO UPDATE SET title = EXCLUDED.title, author = EXCLUDED.author, tags = EXCLUDED.tags, \
              plot = EXCLUDED.plot, score = EXCLUDED.score, premiered = EXCLUDED.premiered, finished = EXCLUDED.finished, \
-             tier = CASE WHEN EXCLUDED.tier = 'favorite' OR huangguo_series.tier = '' \
-                 OR (EXCLUDED.tier = 'ranking' AND huangguo_series.tier = 'new') THEN EXCLUDED.tier ELSE huangguo_series.tier END, \
+             tier = CASE WHEN huangguo_series.tier = '' OR \
+                 (CASE EXCLUDED.tier WHEN 'favorite' THEN 0 WHEN 'ranking' THEN 1 WHEN 'new' THEN 2 ELSE 3 END) < \
+                 (CASE huangguo_series.tier WHEN 'favorite' THEN 0 WHEN 'ranking' THEN 1 WHEN 'new' THEN 2 ELSE 3 END) \
+                 THEN EXCLUDED.tier ELSE huangguo_series.tier END, \
              updated_at = CURRENT_TIMESTAMP \
              RETURNING dir_name, category, tier, details_saved",
             vec![
@@ -1807,48 +1814,9 @@ impl Run {
         Ok(())
     }
 
-    /// Every series worth a look, favourites first, then the rankings, then new and followed
-    /// series from the category listings; each once, under the first list that names it.
-    async fn candidates(&self) -> Result<Vec<Candidate>, JobError> {
-        let followed = self.followed().await?;
-        let mut seen = HashSet::new();
-        let mut queue = Vec::new();
-        let (mut excluded, mut too_old, mut unchanged) = (0_usize, 0_usize, 0_usize);
-        let mut consider = |listed: Listed, tier: Tier, category: Option<String>, queue: &mut Vec<Candidate>| {
-            if !seen.insert(listed.id) {
-                return;
-            }
-            if tier != Tier::Favorite && excluded_tag(&listed.tags, &self.cfg.excluded_tags).is_some() {
-                excluded += 1;
-                return;
-            }
-            match followed.get(&listed.id) {
-                // Unchanged, unless its details and poster (for the media server's plugin) are
-                // still owed: then it is read once more to save them.
-                Some(known) if listed.episode_count > 0 && known.episode_count == listed.episode_count && known.details_saved => {
-                    unchanged += 1;
-                    return;
-                }
-                // Only the category listings bring in series nobody asked for, and only new ones.
-                None if tier == Tier::New
-                    && listed
-                        .created_at
-                        .is_none_or(|created| created < self.now - TimeDelta::days(self.cfg.backfill_days)) =>
-                {
-                    too_old += 1;
-                    return;
-                }
-                _ => {}
-            }
-            // A series followed under a higher tier keeps counting against that tier's pool.
-            let tier = followed
-                .get(&listed.id)
-                .and_then(|known| known.tier)
-                .map_or(tier, |stored| stored.min(tier));
-            queue.push(Candidate { listed, tier, category });
-        };
-
-        // Every list first, in priority order; a series counts under the first that names it.
+    /// Every list, in priority order (favourites, rankings, category listings); an entry
+    /// without an episode count takes the count another list gives the same series.
+    async fn list_entries(&self) -> Result<Vec<(Listed, Tier, Option<String>)>, JobError> {
         let mut entries: Vec<(Listed, Tier, Option<String>)> = Vec::new();
         if self.cfg.favorites
             && let Some(favorites) = self.list_favorites().await?
@@ -1906,14 +1874,76 @@ impl Run {
                 uncounted.join(", ")
             ));
         }
+        Ok(entries)
+    }
+
+    /// Every series worth a look, favourites first, then the rankings, then new and followed
+    /// series from the category listings; each once, under the first list that names it.
+    async fn candidates(&self) -> Result<Vec<Candidate>, JobError> {
+        let followed = self.followed().await?;
+        let mut seen = HashSet::new();
+        let mut queue = Vec::new();
+        let (mut excluded, mut too_old, mut unchanged, mut backlog) = (0_usize, 0_usize, 0_usize, 0_usize);
+        let mut consider = |listed: Listed, tier: Tier, category: Option<String>, queue: &mut Vec<Candidate>| {
+            if !seen.insert(listed.id) {
+                return;
+            }
+            if tier != Tier::Favorite && excluded_tag(&listed.tags, &self.cfg.excluded_tags).is_some() {
+                excluded += 1;
+                return;
+            }
+            match followed.get(&listed.id) {
+                // Unchanged, unless its details and poster (for the media server's plugin) are
+                // still owed: then it is read once more to save them.
+                Some(known) if listed.episode_count > 0 && known.episode_count == listed.episode_count && known.details_saved => {
+                    unchanged += 1;
+                    return;
+                }
+                // Only the category listings bring in series nobody asked for: new ones, and the
+                // older ones when `backlog` is on (queued after everything else, below).
+                None if tier == Tier::New
+                    && listed
+                        .created_at
+                        .is_none_or(|created| created < self.now - TimeDelta::days(self.cfg.backfill_days)) =>
+                {
+                    if !self.cfg.backlog {
+                        too_old += 1;
+                        return;
+                    }
+                    backlog += 1;
+                    queue.push(Candidate {
+                        listed,
+                        tier: Tier::Backlog,
+                        category,
+                    });
+                    return;
+                }
+                _ => {}
+            }
+            // A followed series keeps the highest tier it was ever in: a category listing does
+            // not make a ranking or back-catalogue series "new", and a ranking moves it up.
+            let tier = match followed.get(&listed.id).and_then(|known| known.tier) {
+                Some(stored) if tier == Tier::New => stored,
+                Some(stored) => stored.min(tier),
+                None => tier,
+            };
+            queue.push(Candidate { listed, tier, category });
+        };
+
+        let entries = self.list_entries().await?;
         for (listed, tier, category) in entries {
             consider(listed, tier, category, &mut queue);
         }
+        // The back catalogue comes last, in listing order (newest first); the sort is stable.
+        queue.sort_by_key(|candidate| candidate.tier == Tier::Backlog && !followed.contains_key(&candidate.listed.id));
+        let older = if self.cfg.backlog {
+            format!("{backlog} older series queued for the back catalogue, newest first")
+        } else {
+            format!("{too_old} older than {} days and never followed", self.cfg.backfill_days)
+        };
         log().info(format!(
-            "Huangguo: {} series may have new episodes ({excluded} excluded by tag, {unchanged} unchanged, \
-             {too_old} older than {} days and never followed)",
-            queue.len(),
-            self.cfg.backfill_days
+            "Huangguo: {} series may have new episodes ({excluded} excluded by tag, {unchanged} unchanged, {older})",
+            queue.len() - backlog,
         ));
         Ok(queue)
     }
